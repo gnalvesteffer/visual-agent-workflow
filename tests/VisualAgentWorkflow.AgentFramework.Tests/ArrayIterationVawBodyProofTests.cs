@@ -586,6 +586,128 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_CancelParallelSiblingAfterFailureAcrossAllCandidates(bool sqlite)
+    {
+        var definition = ParallelBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "array-iteration-three-candidate-parallel-failure-proof");
+        const string input = "[\"north\",\"must-not-run\"]";
+
+        var structured = await RunCandidateAsync("structured");
+        var subworkflow = await RunCandidateAsync("fresh-subworkflow");
+        var hybrid = await RunCandidateAsync("hybrid");
+
+        foreach (var candidate in new[] { structured, subworkflow, hybrid })
+        {
+            var events = candidate.Events;
+            Assert.Equal(["agent-left", "agent-right"], candidate.EnteredNodes.Order(StringComparer.Ordinal));
+            AssertPersistedFailure(events);
+
+            const string scopeId = "array-loop/0";
+            var leftStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "agent-left" && evt.ScopeId == scopeId);
+            var leftFailed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+                evt.NodeId == "agent-left" && evt.ScopeId == scopeId);
+            var rightStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "agent-right" && evt.ScopeId == scopeId);
+            var rightCancelled = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+                evt.NodeId == "agent-right" && evt.ScopeId == scopeId);
+            Assert.Equal(leftStarted.InvocationId, leftFailed.InvocationId);
+            Assert.Equal(rightStarted.InvocationId, rightCancelled.InvocationId);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress && evt.NodeId == "join");
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        }
+
+        Assert.Equal(BranchFailureShape(structured.Events), BranchFailureShape(subworkflow.Events));
+        Assert.Equal(BranchFailureShape(structured.Events), BranchFailureShape(hybrid.Events));
+
+        async Task<(ExecutionEvent[] Events, string[] EnteredNodes)> RunCandidateAsync(string candidate)
+        {
+            using var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ProofRecorder(store, startRoot: candidate != "structured");
+            var agents = new CoordinatedBranchFailureAgentExecutor();
+            var runner = new WorkflowRunner(agents: agents);
+
+            if (candidate == "structured")
+            {
+                var failure = await Record.ExceptionAsync(() => runner
+                    .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                        evt => { recorder.Append(evt); return ValueTask.CompletedTask; }));
+                Assert.NotNull(failure);
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder, agents,
+                    new EchoToolBroker());
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var workflowError = false;
+                await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input))
+                    await foreach (var evt in run.WatchStreamAsync()) workflowError |= evt is WorkflowErrorEvent;
+                Assert.True(workflowError);
+                recorder.FailRoot();
+            }
+            else
+            {
+                var failure = await Record.ExceptionAsync(() => RunActivationLoopProofAsync(store.RunId,
+                    revision, recorder, agents, new EchoToolBroker(), "array-loop", ["north", "must-not-run"],
+                    null, "index", [], async frame =>
+                    {
+                        ValueTask Record(ExecutionEvent evt)
+                        {
+                            if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                                return ValueTask.CompletedTask;
+                            recorder.Append(evt with { ScopeId = frame.ScopeId });
+                            return ValueTask.CompletedTask;
+                        }
+
+                        var result = await new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(store.RunId,
+                            revision, frame.Item, frame.Parameters, Record);
+                        if (result.Failed || result.Output is null)
+                            throw new InvalidOperationException("The hybrid parallel body failed.");
+                        return new ActivationLoopProofValue(result.Output);
+                    }));
+                Assert.NotNull(failure);
+                recorder.FailRoot();
+            }
+
+            var events = recorder.Snapshot();
+            AssertPersistedSequence(store, events, "failed");
+            return (events, agents.EnteredNodes);
+        }
+
+        static void AssertPersistedFailure(IReadOnlyList<ExecutionEvent> events)
+        {
+            Assert.Equal(["array-loop/0"], events
+                .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted)
+                .Select(evt => evt.ScopeId));
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.ScopeId == "array-loop/0");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+        }
+
+        static (string Kind, string? NodeId, string? ScopeId, string? ConnectionId)[] BranchFailureShape(
+            IEnumerable<ExecutionEvent> events) => events
+            .Where(evt => evt.NodeId is "agent-left" or "agent-right" or "join" &&
+                evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeFailed or
+                    ExecutionEventKinds.NodeCancelled or ExecutionEventKinds.NodeCompleted or
+                    ExecutionEventKinds.ParallelJoinProgress)
+            .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId, evt.ConnectionId))
+            .OrderBy(evt => evt.ScopeId, StringComparer.Ordinal)
+            .ThenBy(evt => evt.Kind, StringComparer.Ordinal)
+            .ThenBy(evt => evt.NodeId, StringComparer.Ordinal)
+            .ThenBy(evt => evt.ConnectionId, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task StructuredAndFreshSubworkflowCandidates_MatchOnSamePersistedActivationMatrix(bool sqlite)
     {
         var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),

@@ -398,6 +398,14 @@ will be introduced.
       candidate/store executions). This remains private harness evidence; no
       public node or production scheduler is selected. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Compare synchronized parallel Agent failure across all three
+      candidates. Both branches enter, the left branch fails, the right
+      sibling records cancellation with its matching invocation, the join is
+      suppressed, and the next item never starts. Normalized branch lifecycles
+      match and failed histories persist through file and SQLite stores (6
+      candidate/store executions). Other join, cancellation, publication, and
+      process-loss races remain open; see
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Extend the structured proof to reuse one production graph-data
       evaluator across sequential activations while scoping runtime outputs,
       graph-function array-value evidence budgets, workflow parameters, input

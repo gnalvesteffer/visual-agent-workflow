@@ -1179,6 +1179,16 @@ path, but the pin and Break nodes are test harness constructs. Production graph
 descriptors, runtime dispatch, the architecture decision, and the remaining
 failure/cancellation, budget, evidence-bound, and recovery gates remain open.
 
+`IteratorCandidates_CancelParallelSiblingAfterFailureAcrossAllCandidates`
+compares a synchronized parallel-Agent failure in all three candidates. Both
+branches enter; the left invocation fails; the right invocation is cancelled;
+the join and following item do not run. Normalized branch lifecycle evidence
+matches across the structured dispatcher, fresh Agent Framework subworkflow,
+and hybrid runner, and each failed history persists through both file and
+SQLite stores (2/2 focused theory cases). This closes this controlled sibling
+failure shape only. Other join/cancellation/publication races, production
+lifecycle and budget ownership, and interrupted-process recovery remain open.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the
