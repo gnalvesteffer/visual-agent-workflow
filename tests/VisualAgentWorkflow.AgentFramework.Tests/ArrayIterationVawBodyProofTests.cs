@@ -285,6 +285,8 @@ public sealed class ArrayIterationVawBodyProofTests
         AssertPersistedSequence(hybridStore, hybridEvents, "completed");
         Assert.Equal(VariableEvidence(structuredEvents), VariableEvidence(subworkflowEvents));
         Assert.Equal(VariableEvidence(structuredEvents), VariableEvidence(hybridEvents));
+        Assert.Equal(RuntimeDataEvidence(structuredEvents), RuntimeDataEvidence(subworkflowEvents));
+        Assert.Equal(RuntimeDataEvidence(structuredEvents), RuntimeDataEvidence(hybridEvents));
 
         var expectedItems = new[] { "alpha", "beta", "gamma" };
         foreach (var events in new[] { structuredEvents, subworkflowEvents, hybridEvents })
@@ -298,6 +300,12 @@ public sealed class ArrayIterationVawBodyProofTests
                 Assert.Equal(expectedItems[index], ReadVariableValue(activation,
                     ExecutionEventKinds.VariableRead, "get"));
                 Assert.Equal(expectedItems[index], ReadEvaluatedValue(activation, "get"));
+                var agentResult = ReadRuntimeOutput(activation, "agent", "data:agent-tool");
+                using (var agentPayload = JsonDocument.Parse(agentResult))
+                    Assert.Equal(expectedItems[index].ToUpperInvariant() + ":" + index,
+                        agentPayload.RootElement.GetProperty("query").GetString());
+                Assert.Equal("echo:" + expectedItems[index].ToUpperInvariant() + ":" + index,
+                    ReadRuntimeOutput(activation, "tool", "data:tool-output"));
             }
         }
 
@@ -305,6 +313,18 @@ public sealed class ArrayIterationVawBodyProofTests
             IEnumerable<ExecutionEvent> events) => events.Where(evt => evt.Kind is
                 ExecutionEventKinds.VariableWritten or ExecutionEventKinds.VariableRead)
             .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId, evt.Data)).ToArray();
+
+        static (string? NodeId, string? ScopeId, string? ConnectionId, string? Data)[] RuntimeDataEvidence(
+            IEnumerable<ExecutionEvent> events) => events.Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated)
+            .Select(evt => (evt.NodeId, evt.ScopeId, evt.ConnectionId, evt.Data)).ToArray();
+
+        static string ReadRuntimeOutput(IEnumerable<ExecutionEvent> events, string nodeId, string connectionId)
+        {
+            var evt = Assert.Single(events, item => item.Kind == ExecutionEventKinds.DataEvaluated &&
+                item.NodeId == nodeId && item.ConnectionId == connectionId);
+            using var payload = JsonDocument.Parse(evt.Data!);
+            return payload.RootElement.GetProperty("value").GetString()!;
+        }
     }
 
     [Theory]

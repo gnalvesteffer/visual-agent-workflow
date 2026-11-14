@@ -150,19 +150,21 @@ will be introduced.
     arrays combined with otherwise eligible loop or variable graphs fail Core
     validation even when loop recovery is explicitly enabled. This is existing
     placement/admission behavior; iterator frame recovery remains unimplemented.
-  - [x] Compare mutable variable isolation across all three candidates. Each
-    activation observes the declared default, then only its own item;
-    variable event payloads match and persist in file and SQLite (2/2 focused
-    theory cases). Full cache identity and production frame semantics remain open.
+  - [x] Compare mutable variable isolation and linear Agent/MCP outputs across
+    all three candidates. Each activation observes the declared default, then
+    only its own item; Agent inputs, direct MCP outputs, variable events, and
+    persisted `data.evaluated` records match and persist in file and SQLite
+    (2/2 focused theory cases). Parallel runtime calls, broader cache identity,
+    and production frame semantics remain open.
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
-    persist in both stores (2/2 focused theory cases). Graph-function and
-    runtime-output cache lifetimes remain open.
+    persist in both stores (2/2 focused theory cases). Broader runtime-output
+    cache identity remains open.
   - [x] Compare a pinned graph-function result and nested evaluation evidence
     over three changing items. All candidates agree on output, function inputs,
     evaluated values, and per-item scopes; file and SQLite persistence passes
-    (2/2 focused theory cases). Parallel calls and runtime-node output caches
-    remain open.
+    (2/2 focused theory cases). Parallel function-call activations remain
+    open.
   - [x] Candidate subworkflow proof: fresh per-item AF 1.26.0 workflow bindings
     preserve exclusive routing and parallel barrier state across sequential
     items. A nested test workflow returns a typed Break control signal with

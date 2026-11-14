@@ -1204,18 +1204,22 @@ does not select production scheduling or close recovery and lifecycle gates.
 mutable-variable path across all three candidates. Each of three string items
 starts the variable at its declared default, writes the current item, and reads
 that value within the same activation. The structured, fresh-subworkflow, and
-hybrid candidates produce matching variable events and Agent inputs, and each
-history persists through file and SQLite stores (2/2 focused theory cases).
-This verifies variable isolation for this body shape only; source evaluator
-identity, caches, and production iterator frames remain unresolved.
+hybrid candidates produce matching variable events, Agent inputs, direct MCP
+outputs, and persisted `data.evaluated` evidence, and each history persists
+through file and SQLite stores (2/2 focused theory cases). The test reuses the
+structured candidate's graph-data evaluator across sequential activations,
+then checks each runtime output and evaluation record against the current
+item. This verifies these linear Agent/MCP and data-evaluation boundaries only;
+parallel runtime calls, broader cache identity, and production iterator frames
+remain unresolved.
 
 `IteratorCandidates_ScopeGraphFunctionResultsAndEvidenceToEachActivation`
 reuses one pinned pure graph function across three changing string items. The
 structured, fresh-subworkflow, and hybrid candidates produce the same outputs
 and persisted function input/evaluated-node evidence, scoped to the matching
 item in file and SQLite stores (2/2 focused theory cases). This proves the
-linear pure-data function-call boundary only; runtime-node output caches and
-parallel function-call activations remain open.
+linear pure-data function-call boundary only; parallel function-call
+activations remain open.
 
 ## Compatibility constraints
 
@@ -1249,22 +1253,24 @@ parallel function-call activations remain open.
 3. Define immutable source evaluation and activation identity, including how
    typed item/index values are resolved and how evaluator caches, variables,
    and evidence are scoped to one activation.
-   - [x] Compare mutable variable-store isolation across structured,
-     fresh-subworkflow, and hybrid candidates. Each activation starts from the
-     declared default, writes and reads only its own item, and records matching
-     scoped variable evidence through file and SQLite stores (2/2 focused
-     theory cases). This proves the tested variable boundary; immutable source
-     evaluation and cache-key/lifetime semantics remain open.
+   - [x] Compare mutable variable-store isolation and linear Agent/MCP runtime
+     outputs across structured, fresh-subworkflow, and hybrid candidates. Each
+     activation starts from the declared default, writes and reads only its own
+     item, and produces matching Agent inputs, direct MCP outputs, and scoped
+     persisted `data.evaluated` evidence through file and SQLite stores (2/2
+     focused theory cases). The structured candidate reuses its evaluator
+     across activations. Parallel runtime calls, broader cache identity, and
+     production frame semantics remain open.
    - [x] Compare persisted `data.evaluated` evidence for changing typed item
      and index parameters across all three candidates. Per-activation values,
      connection IDs, scopes, and serialized payloads match in file and SQLite
      (2/2 focused theory cases). This proves the tested parameter-evaluation
-     boundary; graph-function/runtime-output cache lifetimes remain open.
+     boundary; broader runtime-output cache identity remains open.
    - [x] Compare a pinned pure graph-function call across three item
      activations. Outputs and function input/evaluated-node evidence match the
      fresh-subworkflow and hybrid candidates, with each event scoped to its
-     own item in both stores (2/2 focused theory cases). Runtime-node output
-     caches and parallel function-call activations remain unproven.
+     own item in both stores (2/2 focused theory cases). Parallel function-call
+     activations remain unproven.
 4. Define and implement an explicit run-level budget context that reaches
    nested agents, delegates/teams, MCP broker scopes, and the single run event
    recorder. The product direction remains full capability composition;
