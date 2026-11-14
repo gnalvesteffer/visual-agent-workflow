@@ -11,6 +11,19 @@ namespace VisualAgentWorkflow.AgentFramework;
 public sealed record WorkflowExecutionResult(string? Output, bool Terminated, bool Failed = false,
     bool OutcomeUnknown = false, bool Cancelled = false, bool HasOutput = true);
 
+internal enum WorkflowBodyProofDisposition
+{
+    Succeeded,
+    Terminated,
+    Failed,
+    Cancelled,
+    TimedOut,
+    OutcomeUnknown,
+    EvidenceWriteFailed
+}
+
+internal sealed record WorkflowBodyProofOutcome(WorkflowBodyProofDisposition Disposition, string? Output = null);
+
 /// <summary>Host-resolved defaults for bounded collaborative workflow regions.</summary>
 public sealed record ParallelCollaborationRuntimeOptions(TimeSpan? DefaultTimeout = null);
 
@@ -65,6 +78,75 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             afterNodeStarted: afterNodeStarted);
     }
 
+    /// <summary>
+    /// Dispatches one production workflow body for the private activation proof.
+    /// The caller owns the enclosing run lifecycle; this method returns a typed
+    /// disposition and never emits root terminal events to the caller's ledger.
+    /// </summary>
+    internal async Task<WorkflowBodyProofOutcome> ExecuteBodyForActivationProofAsync(Guid runId,
+        WorkflowRevision revision, string input, IReadOnlyDictionary<string, string>? parameters,
+        Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default,
+        IWorkflowExecutionGate? gate = null)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        async ValueTask RecordBodyEvent(ExecutionEvent evt)
+        {
+            if (IsRootLifecycleEvent(evt)) return;
+            try
+            {
+                await record(evt);
+            }
+            catch (Exception exception)
+            {
+                throw new WorkflowBodyEvidenceWriteException(exception);
+            }
+        }
+
+        try
+        {
+            var result = await ExecuteCoreAsync(runId, revision, input, parameters, RecordBodyEvent, gate,
+                cancellationToken, allowOutcomeUnknown: true, emitRunLifecycle: false);
+            if (result.OutcomeUnknown) return new(WorkflowBodyProofDisposition.OutcomeUnknown);
+            if (result.Failed) return new(WorkflowBodyProofDisposition.Failed);
+            if (result.Terminated) return new(WorkflowBodyProofDisposition.Terminated);
+            return result.HasOutput
+                ? new(WorkflowBodyProofDisposition.Succeeded, result.Output)
+                : new(WorkflowBodyProofDisposition.Failed);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return new(WorkflowBodyProofDisposition.Cancelled);
+        }
+        catch (TimeoutException)
+        {
+            return new(WorkflowBodyProofDisposition.TimedOut);
+        }
+        catch (Exception exception) when (ContainsEvidenceWriteFailure(exception))
+        {
+            return new(WorkflowBodyProofDisposition.EvidenceWriteFailed);
+        }
+        catch (Exception)
+        {
+            return new(WorkflowBodyProofDisposition.Failed);
+        }
+    }
+
+    private static bool IsRootLifecycleEvent(ExecutionEvent evt) => evt.NodeId is null &&
+        evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
+            ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown;
+
+    private static bool ContainsEvidenceWriteFailure(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+            if (current is WorkflowBodyEvidenceWriteException)
+                return true;
+        return false;
+    }
+
+    private sealed class WorkflowBodyEvidenceWriteException(Exception innerException)
+        : InvalidOperationException("The activation proof could not persist body evidence.", innerException);
+
     private static async Task<string> MapOutput(Task<WorkflowExecutionResult> execution)
     {
         var result = await execution;
@@ -79,7 +161,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         bool allowOutcomeUnknown = false,
         Func<string, CancellationTokenSource?>? callScopeCancellation = null,
         bool skipValidationForInternalProof = false,
-        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
+        bool emitRunLifecycle = true)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -130,7 +213,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 callScopeCancellation);
 
-        await Emit(ExecutionEventKinds.Started);
+        if (emitRunLifecycle) await Emit(ExecutionEventKinds.Started);
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -160,17 +243,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             cancellationToken.ThrowIfCancellationRequested();
             if (output.FailureSignal)
             {
-                await Emit(ExecutionEventKinds.Failed, output.SourceNode, data: "Workflow ended at a failure termination.");
+                if (emitRunLifecycle)
+                    await Emit(ExecutionEventKinds.Failed, output.SourceNode, data: "Workflow ended at a failure termination.");
                 return new(null, true, true, HasOutput: false);
             }
             if (output.TerminationSignal)
             {
                 activationLedger.ThrowIfActive();
-                await Emit(ExecutionEventKinds.Terminated, output.SourceNode);
+                if (emitRunLifecycle) await Emit(ExecutionEventKinds.Terminated, output.SourceNode);
                 return new(null, true, HasOutput: false);
             }
             activationLedger.ThrowIfActive();
-            await Emit(ExecutionEventKinds.Completed, data: output.Text);
+            if (emitRunLifecycle) await Emit(ExecutionEventKinds.Completed, data: output.Text);
             return new(output.Text, false, HasOutput: true);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -182,19 +266,20 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 throw new TimeoutException("The collaboration region timeout elapsed.");
             }
             if (collaborationRuntime is not null) await collaborationRuntime.AbortAsync("Workflow execution was cancelled.");
-            await Emit(ExecutionEventKinds.Cancelled);
+            if (emitRunLifecycle) await Emit(ExecutionEventKinds.Cancelled);
             throw;
         }
         catch (Exception exception)
         {
             if (allowOutcomeUnknown && IsOutcomeUnknownException(exception))
             {
-                await Emit(ExecutionEventKinds.OutcomeUnknown, data: "Workflow execution ended with an unresolved external outcome.");
+                if (emitRunLifecycle)
+                    await Emit(ExecutionEventKinds.OutcomeUnknown, data: "Workflow execution ended with an unresolved external outcome.");
                 return new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false);
             }
             if (collaborationRuntime is not null) await collaborationRuntime.AbortAsync("A collaboration member or workflow node failed.");
             // Do not copy arbitrary exception messages or provider internals into captured payloads.
-            await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
+            if (emitRunLifecycle) await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
             throw;
         }
     }

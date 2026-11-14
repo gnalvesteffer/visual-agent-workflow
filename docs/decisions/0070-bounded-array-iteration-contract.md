@@ -1604,3 +1604,25 @@ request/outcome settlement and reopened terminal histories (4 focused cases).
 This closes delegated reservation-envelope coverage for this private proof;
 it does not select an iterator architecture or establish a public runtime
 budget contract.
+
+## Private production body-dispatch outcome boundary (2026-11-14)
+
+`WorkflowRunner` now has an internal proof-only body-dispatch entry point that
+uses the normal Agent Framework workflow translation and node adapters, but
+does not publish root lifecycle events to its caller. It returns a typed
+disposition for success, workflow termination, failure, host cancellation,
+timeout, unresolved external outcome, and evidence-write failure. This gives
+an enclosing VAW coordinator an explicit result channel while preserving
+node-scoped body evidence and keeping `core.terminate` distinct from failure.
+Four focused regressions pass (success, termination, failure/cancellation/
+timeout/unknown outcome, and evidence-write failure); body success and
+termination produce no root terminal event at this boundary.
+
+This closes only the dispatcher result/lifecycle suppression contract. The
+private method is not yet called by an integrated activation coordinator; it
+does not own frames, root lifecycle, or shared reservations, and it does not
+prove reservation settlement for storage failures or Break. The structured
+proof and hybrid test harness still have separate ownership paths. Continue
+with a coordinator-level integration and the full persisted matrix, then run
+the required readiness review. No public schema, iterator, Break node, Studio
+authoring, or checkpoint recovery is admitted by this increment.

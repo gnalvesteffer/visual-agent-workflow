@@ -19,6 +19,115 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 public sealed class ArrayIterationVawBodyProofTests
 {
     [Fact]
+    public async Task ActivationBodyProof_ReturnsSuccessWithoutPublishingRootLifecycle()
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(), "activation-body-success-proof");
+        var events = new List<ExecutionEvent>();
+
+        var outcome = await new WorkflowRunner(new EchoToolBroker(), new EchoAgentExecutor())
+            .ExecuteBodyForActivationProofAsync(Guid.NewGuid(), revision, "alpha", null, evt =>
+            {
+                events.Add(evt);
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.Equal(WorkflowBodyProofDisposition.Succeeded, outcome.Disposition);
+        Assert.Equal("echo:alpha", outcome.Output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent");
+        Assert.DoesNotContain(events, IsRunLifecycleEvent);
+    }
+
+    [Fact]
+    public async Task ActivationBodyProof_PreservesWorkflowTerminationAsTypedOutcome()
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "activation-body-termination-proof", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("value", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("no") })
+                .Add("condition", new(NodeTypes.Condition, "1.0.0")
+                    { Condition = new("contains", "yes") })
+                .Add("terminate", new(NodeTypes.Terminate, "1.0.0")
+                    { Termination = new(WorkflowTerminationOutcomes.Success) })
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("condition-value", new(new("value", "out"), new("condition", "in"), "data"))
+                .Add("output-value", new(new("value", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("condition", Edge("input", "then", "condition", "execute"))
+                .Add("output", Edge("condition", "true", "output", "execute"))
+                .Add("terminate", Edge("condition", "false", "terminate", "execute"))
+        };
+        var revision = WorkflowRevision.Create(definition, "activation-body-termination-proof");
+        var events = new List<ExecutionEvent>();
+
+        var outcome = await new WorkflowRunner().ExecuteBodyForActivationProofAsync(Guid.NewGuid(), revision,
+            "ignored", null, evt =>
+            {
+                events.Add(evt);
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.Equal(WorkflowBodyProofDisposition.Terminated, outcome.Disposition);
+        Assert.DoesNotContain(events, IsRunLifecycleEvent);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "terminate");
+    }
+
+    [Fact]
+    public async Task ActivationBodyProof_SeparatesFailureCancellationAndOutcomeUnknown()
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(), "activation-body-disposition-proof");
+        var failed = await new WorkflowRunner(new EchoToolBroker(), new EchoAgentExecutor(failNodeId: "agent"))
+            .ExecuteBodyForActivationProofAsync(Guid.NewGuid(), revision, "alpha", null, _ => ValueTask.CompletedTask);
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var cancelled = await new WorkflowRunner().ExecuteBodyForActivationProofAsync(Guid.NewGuid(), revision,
+            "alpha", null, _ => ValueTask.CompletedTask, cancellation.Token);
+
+        var unknownTools = new ConcurrentUnknownOutcomeToolBroker("proof.echo-tool", expectedAuthorizations: 1);
+        var unknown = await new WorkflowRunner(unknownTools, new EchoAgentExecutor())
+            .ExecuteBodyForActivationProofAsync(Guid.NewGuid(), revision, "alpha", null, _ => ValueTask.CompletedTask);
+        var timedOut = await new WorkflowRunner(new EchoToolBroker(), new EchoAgentExecutor())
+            .ExecuteBodyForActivationProofAsync(Guid.NewGuid(), revision, "alpha", null,
+                _ => ValueTask.CompletedTask, gate: new TimeoutAtCompletionGate());
+
+        Assert.Equal(WorkflowBodyProofDisposition.Failed, failed.Disposition);
+        Assert.Equal(WorkflowBodyProofDisposition.Cancelled, cancelled.Disposition);
+        Assert.Equal(WorkflowBodyProofDisposition.OutcomeUnknown, unknown.Disposition);
+        Assert.Equal(WorkflowBodyProofDisposition.TimedOut, timedOut.Disposition);
+    }
+
+    [Fact]
+    public async Task ActivationBodyProof_ClassifiesEvidenceWriteFailureForCoordinator()
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(), "activation-body-evidence-failure-proof");
+
+        var outcome = await new WorkflowRunner(new EchoToolBroker(), new EchoAgentExecutor())
+            .ExecuteBodyForActivationProofAsync(Guid.NewGuid(), revision, "alpha", null, evt =>
+            {
+                if (evt.Kind == ExecutionEventKinds.NodeStarted)
+                    throw new IOException("simulated evidence-store write failure");
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.Equal(WorkflowBodyProofDisposition.EvidenceWriteFailed, outcome.Disposition);
+    }
+
+    private static bool IsRunLifecycleEvent(ExecutionEvent evt) => evt.NodeId is null &&
+        evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
+            ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown;
+
+    private sealed class TimeoutAtCompletionGate : IWorkflowExecutionGate
+    {
+        public ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken) =>
+            nextNodeId is null
+                ? ValueTask.FromException(new TimeoutException("Proof completion boundary timed out."))
+                : ValueTask.CompletedTask;
+    }
+
+    [Fact]
     public async Task StructuredSchedulerProof_ReusesProductionAgentAndMcpNodeAdapters()
     {
         var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),

@@ -154,6 +154,11 @@ will be introduced.
     one VAW-owned run context; the body dispatcher returns typed outcomes and
     does not finalize the root. Prove exact-once terminal outcomes, pre-dispatch
     budget rejection, and settlement across model, MCP, and delegated calls.
+    - [x] Add the private production-body dispatch boundary: it returns typed
+      success, termination, failure, cancellation, timeout, unknown-outcome,
+      and evidence-write-failure dispositions without publishing root lifecycle
+      events. The focused contract tests pass; it is not yet integrated with an
+      activation coordinator and does not close the parent item.
   - [ ] Exercise the integrated seam through file and SQLite persistence,
     including scoped playback evidence, joins, cancellation/failure races,
     custom-broker uncertainty, and store append failures. Document the
