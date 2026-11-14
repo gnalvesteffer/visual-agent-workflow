@@ -28,6 +28,8 @@ Removing the loop removes its structural anchor and connects the original input 
 
 Every arrival at the loop is a recorded node invocation. Each body pass records `loop.iteration.started` and, on return, `loop.iteration.completed`, with its one-based iteration number. When the loop exits, `loop.stopped` records either `predicate-false` or `maximum-iterations`, plus the count and configured cap. The loop's node completion records the selected `body` or `done` output. Ordinary node starts, completions, and exact connection transfers retain the body payloads. Replay displays those facts from the event journal and does not call a model, tool, or workflow executor.
 
+Playback pairs start and completion events by loop node, scope, and explicit iteration number. A loop node is invoked again when a body returns, so the invocation IDs on those two lifecycle events can differ; invocation identity is used only when older records do not carry an iteration number. Missing or duplicate matches remain incomplete evidence.
+
 The existing execution gate is checked at every node boundary, so a host can pause or cancel between body nodes and loop iterations. An already admitted agent or MCP operation is not interrupted by pause; cancellation remains subject to that operation's cancellation support. Looping does not add automatic retries, rollback, or recovery for external side effects. Hosts should give tools idempotency keys or other duplicate-effect protection when the body may repeat an external operation.
 
 ## Contract boundaries

@@ -1,5 +1,10 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using VisualAgentWorkflow.Blazor.Components;
 using VisualAgentWorkflow.Core;
 using Xunit;
 
@@ -86,6 +91,63 @@ public sealed class BoundedLoopExecutionTests
             .Select(evt => (evt.Kind, evt.Data)), normalizedEvents
             .Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped)
             .Select(evt => (evt.Kind, evt.Data)));
+    }
+
+    [Fact]
+    public async Task PlaybackPairsOrdinaryLoopIterationAcrossLoopNodeInvocations()
+    {
+        var events = new List<ExecutionEvent>();
+        var graph = Graph();
+        await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "loop-playback"), "continue",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        var started = events.Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted).ToArray();
+        var completed = events.Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted).ToArray();
+        Assert.Equal(3, started.Length);
+        Assert.Equal(3, completed.Length);
+        Assert.NotEqual(started[0].InvocationId, completed[0].InvocationId);
+
+        var html = await RenderLoopPlayback(events);
+
+        Assert.Contains("Iteration 1 · Completed", html, StringComparison.Ordinal);
+        Assert.Contains("Iteration 2 · Completed", html, StringComparison.Ordinal);
+        Assert.Contains("Iteration 3 · Completed", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PlaybackPairsLegacyLoopEventsByInvocationWhenIterationMetadataIsMissing()
+    {
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var invocationId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var events = new[]
+        {
+            new ExecutionEvent(runId, revisionId, 1, now, ExecutionEventKinds.LoopIterationStarted,
+                "loop", invocationId, null, null),
+            new ExecutionEvent(runId, revisionId, 2, now, ExecutionEventKinds.LoopIterationCompleted,
+                "loop", invocationId, null, null)
+        };
+
+        var html = await RenderLoopPlayback(events);
+
+        Assert.Contains("Iteration 1 · Completed", html, StringComparison.Ordinal);
+    }
+
+    private static async Task<string> RenderLoopPlayback(IEnumerable<ExecutionEvent> events)
+    {
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        return await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<LoopActivationPlayback>(ParameterView.FromDictionary(
+                new Dictionary<string, object?>
+                {
+                    [nameof(LoopActivationPlayback.Events)] = events,
+                    [nameof(LoopActivationPlayback.RunStatus)] = "completed"
+                }));
+            return component.ToHtmlString();
+        });
     }
 
     [Fact]

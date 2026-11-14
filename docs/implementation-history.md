@@ -2,6 +2,17 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Bounded-loop playback pairs lifecycle events by iteration
+
+The passive Run inspector now pairs ordinary bounded-loop start/completion
+events by loop node, scope, and their explicit iteration number. The real loop
+runner emits these events from different loop-node invocations, so invocation
+ID alone left successful passes looking incomplete. Older events without an
+iteration number still pair by invocation ID; missing or ambiguous evidence
+remains incomplete. A focused regression runs the real Agent Framework loop
+and renders the playback component. See [bounded loop graphs](loop-graphs.md),
+the [user guide](user-guide.md#add-a-bounded-loop), and [roadmap](roadmap.md).
+
 ## Typed-array iterator custom broker failure evidence
 
 The custom broker matrix now pairs its timeout/uncertain-outcome case with an

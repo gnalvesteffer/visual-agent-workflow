@@ -1062,6 +1062,7 @@ Make every Blueprint-inspired authoring affordance traceable to a stable definit
 
 ### High-level work checklist
 
+- [x] **Recorded loop activation correlation:** passive playback pairs ordinary bounded-loop lifecycle events by loop node, scope, and explicit iteration number because loop activation invocation IDs change between body passes. Older histories without iteration metadata retain invocation-ID pairing, and missing or ambiguous records remain incomplete. Regression coverage runs the real Agent Framework loop and renders the playback component. See [bounded loop graphs](loop-graphs.md) and the [user guide](user-guide.md#add-a-bounded-loop).
 - [x] **Capability matrix:** inventory shipped, active, planned, deferred, and deliberately different concepts; link each item to its schema, implementation, tests, and user documentation. See [Blueprint capability matrix](blueprint-capability-matrix.md).
 - [x] **Bounded numeric operator slice:** ship one pure finite-number operator across definition, typed pins, validator, runtime, evidence, function editor, compatibility, and regression tests. See [finite number addition](decisions/0010-finite-number-addition.md).
 - [x] **Unified direct JSON-array count:** allow schema 2.0 caller JSON input to flow through the bounded array refinement and length operator to an integer Output, without schema promotion; preserve the historical 1.x topology path. Broader array placements remain gated on independent runtime/evidence proofs. See [Decision 0061](decisions/0061-unified-json-array-input-chain.md).

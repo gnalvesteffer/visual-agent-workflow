@@ -75,7 +75,7 @@
     private Activation Project(ExecutionEvent start, ExecutionEvent[] events)
     {
         var matchingStarts = events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
-            evt.NodeId == start.NodeId && evt.ScopeId == start.ScopeId && evt.InvocationId == start.InvocationId);
+            SameIteration(start, evt));
         var matchingCompletions = events.Where(evt => IsMatchingPair(start, evt)).ToArray();
         var completion = matchingCompletions.Length == 1 ? matchingCompletions[0] : null;
         var status = matchingStarts > 1 || matchingCompletions.Length > 1
@@ -116,8 +116,41 @@
 
     private static bool IsMatchingPair(ExecutionEvent start, ExecutionEvent candidate) =>
         candidate.Kind == ExecutionEventKinds.LoopIterationCompleted &&
-        candidate.Sequence > start.Sequence && candidate.NodeId == start.NodeId &&
-        candidate.ScopeId == start.ScopeId && candidate.InvocationId == start.InvocationId;
+        candidate.Sequence > start.Sequence && SameIteration(start, candidate);
+
+    private static bool SameIteration(ExecutionEvent first, ExecutionEvent second)
+    {
+        if (first.NodeId != second.NodeId || first.ScopeId != second.ScopeId)
+            return false;
+
+        return TryIteration(first, out var firstIteration) && TryIteration(second, out var secondIteration)
+            ? firstIteration == secondIteration
+            : first.InvocationId == second.InvocationId;
+    }
+
+    private static bool TryIteration(ExecutionEvent evt, out int iteration)
+    {
+        if (evt.ScopeId is { } scope &&
+            int.TryParse(scope[(scope.LastIndexOf('/') + 1)..], NumberStyles.None,
+                CultureInfo.InvariantCulture, out var zeroBased) && zeroBased >= 0 && zeroBased < int.MaxValue)
+        {
+            iteration = zeroBased + 1;
+            return true;
+        }
+
+        try
+        {
+            using var payload = JsonDocument.Parse(evt.Data ?? "{}");
+            if (payload.RootElement.ValueKind == JsonValueKind.Object &&
+                payload.RootElement.TryGetProperty("iteration", out var value) &&
+                value.TryGetInt32(out iteration) && iteration > 0)
+                return true;
+        }
+        catch (JsonException) { }
+
+        iteration = 0;
+        return false;
+    }
 
     private static int Iteration(ExecutionEvent start)
     {

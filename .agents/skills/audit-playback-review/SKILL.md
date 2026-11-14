@@ -20,6 +20,7 @@ Attribute definition changes, publication, permissions, controls, approvals, and
 - Persist enough resolved graph and node metadata to inspect history when original assemblies or providers are absent.
 - Recorded playback must make zero executor, model, extension-loading, or MCP calls. Verify with fail-on-call fixtures when implementing playback.
 - Check loops, retries, parallel branches, and nested prefab instances remain distinguishable.
+- For bounded-loop playback, `InvocationId` identifies one loop-node invocation, not one body iteration: the start event and later return/completion event can have different invocation IDs. Pair current events by loop node, exact scope, and explicit iteration number; retain invocation-ID matching only for older records without iteration metadata. Duplicate or missing iteration evidence remains ambiguous/incomplete.
 - Verify snapshot-plus-stream has no gap and handles duplicate delivery and cursors correctly.
 - Scrubbing or changing playback speed changes presentation only; it must not alter stored events.
 - Show redacted, truncated, expired, missing, and uncertain content explicitly. Do not infer successful external completion from a request record.
