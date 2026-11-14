@@ -264,6 +264,16 @@ will be introduced.
       root terminal outcome. The Agent Framework suite passes 334/334. This
       proves compatibility in the candidate harness, not production iterator
       integration.
+    - [x] Extend the structured scheduler proof to single-phase and two-phase
+      collaboration using production grant/exchange/timeout/evidence state and
+      proof-owned rendezvous dispatch. Repeated activations preserve isolated
+      messages, event scopes, unique region identities, and file/SQLite
+      histories; ungranted channels are denied. Failure before/after release,
+      cancellation, and timeout abort once, suppress the join, and stop before
+      the next item (16 focused cases pass). This is not production iterator
+      support; typed item/index pins, actual `Break` dispatch, broader release
+      races, and shared budget ownership remain open. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Compare production MCP timeout settlement across structured,
       fresh-subworkflow, and hybrid candidates using the real stdio `demo.slow`
       tool and both file and SQLite stores. Post-dispatch timeouts retain

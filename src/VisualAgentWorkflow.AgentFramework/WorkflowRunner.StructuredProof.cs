@@ -57,8 +57,10 @@ public sealed partial class WorkflowRunner
         if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
         WorkflowValidator.ThrowIfInvalid(revision.Definition);
-        if (revision.Definition.ParallelCollaborationRegions is { Count: > 0 })
-            throw new NotSupportedException("The structured scheduler proof does not cover collaboration nodes yet.");
+        var collaborationRegion = revision.Definition.ParallelCollaborationRegions?.Values.SingleOrDefault();
+        if (revision.Definition.ParallelCollaborationRegions is { Count: > 1 })
+            throw new NotSupportedException("The structured scheduler proof covers one collaboration region per activation.");
+        var collaborationTimeout = ResolveCollaborationTimeout(collaborationRegion, collaborationOptions);
 
         var definition = revision.Definition;
         var resolvedParameters = WorkflowParameters.Resolve(definition, parameters);
@@ -70,7 +72,6 @@ public sealed partial class WorkflowRunner
             ? definition.ExecutionConnections!.Values.ToArray()
             : definition.Connections.Values.ToArray();
         var recordGate = new SemaphoreSlim(1, 1);
-        using var schedulerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         long sequence = 0;
         var createsExecutorSet = retainedSession?.Executors is null;
         var executors = retainedSession?.Executors ?? definition.Nodes.ToDictionary(entry => entry.Key,
@@ -109,13 +110,25 @@ public sealed partial class WorkflowRunner
             string? connectionId, string? data, string? eventScope) =>
             Emit(kind, nodeId, invocationId, connectionId, data, eventScope);
 
+        using var collaborationRuntime = collaborationRegion is null ? null :
+            new ParallelCollaborationRuntime(runId, revision.RevisionId, collaborationRegion,
+                collaborationTimeout!.Value, EmitNodeEvent);
+        using var collaborationCancellation = collaborationRuntime is null
+            ? null
+            : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, collaborationRuntime.TimeoutToken);
+        using var schedulerCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            collaborationCancellation?.Token ?? cancellationToken);
+        var rendezvousArrivals = new Dictionary<string, Dictionary<string, GraphMessage>>(StringComparer.Ordinal);
+        var rendezvousInvocations = new Dictionary<string, Dictionary<string, Guid>>(StringComparer.Ordinal);
+        var rendezvousSync = new object();
+
         try
         {
             if (emitRunLifecycle) await Emit(ExecutionEventKinds.Started);
             var inputType = WorkflowPorts.Outputs(definition.Nodes[definition.EntryNodeId]).Single().DataType;
             var output = await DispatchNode(definition.EntryNodeId,
                 new GraphMessage(input, null, null, DataType: inputType,
-                    ActivationFrame: activationFrame), schedulerCancellation.Token);
+                    ActivationFrame: activationFrame, CollaborationRuntime: collaborationRuntime), schedulerCancellation.Token);
             if (output is null) throw new InvalidOperationException("The structured proof produced no workflow output.");
             if (output.FailureSignal)
             {
@@ -133,11 +146,21 @@ public sealed partial class WorkflowRunner
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            if (collaborationRuntime is not null)
+                await collaborationRuntime.AbortAsync("Workflow execution was cancelled.");
             if (emitRunLifecycle) await Emit(ExecutionEventKinds.Cancelled);
             throw;
         }
+        catch (OperationCanceledException) when (collaborationRuntime?.IsTimedOut == true)
+        {
+            await collaborationRuntime.AbortAsync("The collaboration region timed out.");
+            if (emitRunLifecycle) await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
+            throw new TimeoutException("The collaboration region timeout elapsed.");
+        }
         catch
         {
+            if (collaborationRuntime is not null)
+                await collaborationRuntime.AbortAsync("A collaboration member or workflow node failed.");
             if (emitRunLifecycle) await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
             throw;
         }
@@ -153,6 +176,8 @@ public sealed partial class WorkflowRunner
                 token.ThrowIfCancellationRequested();
                 if (definition.Nodes[nodeId].Type == NodeTypes.Sequence)
                     return await DispatchSequence(nodeId, message, token);
+                if (definition.Nodes[nodeId].Type == NodeTypes.ParallelRendezvous)
+                    return await DispatchCollaborationRendezvous(nodeId, message, token);
 
                 var executor = executors[nodeId];
                 var node = definition.Nodes[nodeId];
@@ -205,6 +230,92 @@ public sealed partial class WorkflowRunner
             }
         }
 
+        async Task<GraphMessage?> DispatchCollaborationRendezvous(string nodeId, GraphMessage message,
+            CancellationToken token)
+        {
+            var runtime = message.CollaborationRuntime
+                ?? throw new InvalidOperationException("The structured collaboration rendezvous has no activation runtime.");
+            var region = runtime.Region;
+            var phase = nodeId == region.SecondRendezvousNodeId
+                ? ParallelCollaborationPhases.Phase2
+                : ParallelCollaborationPhases.Phase1;
+            var branchId = message.ParallelBranchId
+                ?? throw new InvalidOperationException("A collaboration arrival has no stable branch ID.");
+            var expectedArrival = executionEdges.SingleOrDefault(edge => edge.Target.NodeId == nodeId &&
+                edge.Target.PortId == ParallelBranchLimits.PinId(branchId));
+            if (expectedArrival is null || expectedArrival.Source.NodeId != message.SourceNode ||
+                message.ParallelForkNodeId != region.ForkNodeId || message.ParallelActivationId != runtime.RegionInvocationId ||
+                !region.Branches.Any(branch => branch.BranchId == branchId))
+                throw new InvalidOperationException("The collaboration rendezvous received an unexpected branch message.");
+
+            var invocationId = Guid.NewGuid();
+            await Emit(ExecutionEventKinds.NodeStarted, nodeId, invocationId,
+                data: "Waiting for every collaboration branch.");
+            lock (rendezvousSync)
+            {
+                if (!rendezvousArrivals.TryGetValue(nodeId, out var arrivals))
+                    rendezvousArrivals.Add(nodeId, arrivals = new(StringComparer.Ordinal));
+                if (!arrivals.TryAdd(branchId, message))
+                    throw new InvalidOperationException("A collaboration branch arrived more than once.");
+                if (!rendezvousInvocations.TryGetValue(nodeId, out var invocations))
+                    rendezvousInvocations.Add(nodeId, invocations = new(StringComparer.Ordinal));
+                invocations.Add(branchId, invocationId);
+            }
+
+            try
+            {
+                var arrival = await runtime.ArriveAsync(phase, nodeId, branchId, invocationId, token);
+                if (!arrival.Released) return null;
+
+                GraphMessage[] arrivals;
+                Guid[] invocations;
+                lock (rendezvousSync)
+                {
+                    arrivals = region.Branches.Select(branch => rendezvousArrivals[nodeId][branch.BranchId]).ToArray();
+                    invocations = region.Branches.Select(branch => rendezvousInvocations[nodeId][branch.BranchId]).ToArray();
+                }
+                var deliveries = new List<Task<GraphMessage?>>();
+                for (var index = 0; index < region.Branches.Length; index++)
+                {
+                    var branch = region.Branches[index];
+                    var outputPort = ParallelBranchLimits.PinId(branch.BranchId);
+                    var destination = executionEdges.SingleOrDefault(edge => edge.Source.NodeId == nodeId &&
+                        edge.Source.PortId == outputPort)
+                        ?? throw new InvalidOperationException($"The collaboration branch '{branch.BranchId}' has no post-rendezvous route.");
+                    var source = arrivals[index];
+                    deliveries.Add(DispatchNode(destination.Target.NodeId, source with
+                    {
+                        SourceNode = nodeId,
+                        SourcePort = outputPort,
+                        ParallelBranchId = branch.BranchId,
+                        CollaborationRuntime = runtime
+                    }, token));
+                    await Emit(ExecutionEventKinds.NodeCompleted, nodeId, invocations[index],
+                        $"collaboration:{branch.BranchId}", runtime.IsPhased
+                            ? $"The {phase} snapshot was released."
+                            : "The shared snapshot was released.");
+                }
+                var results = await Task.WhenAll(deliveries);
+                var outputs = results.Where(result => result is not null).ToArray();
+                return outputs.Length switch
+                {
+                    0 => null,
+                    1 => outputs[0],
+                    _ => throw new InvalidOperationException("The collaboration rendezvous produced multiple workflow outputs.")
+                };
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                await Emit(ExecutionEventKinds.NodeCancelled, nodeId, invocationId, data: "Collaboration rendezvous cancelled.");
+                throw;
+            }
+            catch
+            {
+                await Emit(ExecutionEventKinds.NodeFailed, nodeId, invocationId, data: "Collaboration rendezvous failed.");
+                throw;
+            }
+        }
+
         async Task<GraphMessage?> DispatchSequence(string nodeId, GraphMessage message, CancellationToken token)
         {
             var sequence = definition.Nodes[nodeId].Sequence
@@ -251,7 +362,11 @@ public sealed partial class WorkflowRunner
                     {
                         var result = await DispatchNode(output.Edge.Target.NodeId,
                             new GraphMessage(message.Text, nodeId, output.PortId, DataType: message.DataType,
-                                SequenceLineage: lineage, ActivationFrame: message.ActivationFrame), outputsCancellation.Token);
+                                ParallelActivationId: message.ParallelActivationId,
+                                ParallelBranchId: message.ParallelBranchId,
+                                ParallelForkNodeId: message.ParallelForkNodeId,
+                                SequenceLineage: lineage, ActivationFrame: message.ActivationFrame,
+                                CollaborationRuntime: message.CollaborationRuntime), outputsCancellation.Token);
                         if (result is null)
                             throw new InvalidOperationException($"Sequence output '{output.OutputId}' produced no result.");
                         coordinator.Complete(activationId, SequenceTerminalState.Completed, result.Text);

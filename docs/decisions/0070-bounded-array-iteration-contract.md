@@ -466,9 +466,29 @@ the full Agent Framework suite passes 257/257.
 This scheduler proof initially exercises one workflow body activation. It does
 not provide array item/index pins, nested activation dispatch, nearest-loop
 `Break`, persistence-backed event accounting, or shared atomic work/evidence
-budgets. The proof explicitly rejects Sequence and collaboration graphs. It is
-not evidence that the full parity-level scheduler has been selected or
-implemented.
+budgets. It is not evidence that the full parity-level scheduler has been
+selected or implemented.
+
+The proof-only structured activation coordinator now composes the production
+collaboration state with VAW-owned rendezvous dispatch. The activation frame
+passes an isolated collaboration runtime through retained production node
+handlers; the structured dispatcher validates branch/fork/activation identity,
+collects arrivals, and delivers each released branch without using the
+Agent Framework rendezvous executor. The production runtime continues to own
+grant checks, bounded exchanges and snapshots, timeout, abort, and collaboration
+evidence. Two sequential activations of single-phase and two-phase unified
+graphs pass through file and SQLite histories (4 successful store/shape cases).
+Focused failure, cancellation, and timeout cases also pass through both stores
+(12 cases total); they verify one abort, no join, no following item, and
+preservation of a first-phase release when the second phase fails, is cancelled,
+or times out. The success proof attempts an ungranted channel and confirms the
+runtime denies it without recording a send. Event scopes and region invocation
+IDs remain activation-specific. The focused matrix passes 16/16.
+
+This is proof-only composition, not production iterator support: typed array
+pins and actual nearest-loop `Break` dispatch remain unproven, and broader
+post-release races, store append failures, shared budget ownership, recovery,
+and production architecture selection remain open.
 
 The production-backed activation coordinator now accepts a parent activation
 frame for a nested proof invocation. `StructuredActivationSequenceProof_NestedFramesInheritParametersAndScopeProductionNodes`

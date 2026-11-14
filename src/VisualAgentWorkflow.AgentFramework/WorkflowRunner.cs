@@ -303,7 +303,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Guid? ParallelActivationId = null, string? ParallelBranchId = null, string? ParallelForkNodeId = null,
         string? CollaborationTargetBranchId = null, bool CollaborationTransition = false,
         SequenceMessageLineage? SequenceLineage = null, bool HasValue = true,
-        StructuredActivationFrame? ActivationFrame = null);
+        StructuredActivationFrame? ActivationFrame = null,
+        ParallelCollaborationRuntime? CollaborationRuntime = null);
 
     internal sealed record StructuredActivationFrame(Guid Id, StructuredActivationFrame? Parent,
         string LoopNodeId, int Index, string Item, ImmutableSortedDictionary<string, string> Parameters)
@@ -1236,6 +1237,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             Func<GraphMessage, string, CancellationToken, ValueTask> dispatch,
             CancellationToken cancellationToken)
         {
+            var activeCollaborationRuntime = received.CollaborationRuntime ?? collaborationRuntime;
             using var activationScope = dataEvaluator?.EnterActivation(received.ActivationFrame);
             using var eventActivationScope = EnterActivationFrame(received.ActivationFrame);
             var internalTerminationHandoff = node.Type == NodeTypes.Output && received.TerminationSignal;
@@ -1556,9 +1558,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         {
                             Parameters = CurrentParameters,
                             RecordWithInvocation = (eventInvocationId, kind, data) => Emit(kind, Id, eventInvocationId, null, AddSequenceLineage(data)),
-                        CollaborationPhase = CollaborationGrant(Id, received.ParallelBranchId)?.Phase,
-                        CollaborationRole = CollaborationGrant(Id, received.ParallelBranchId) is { } collaborationGrant
-                            ? collaborationRuntime!.IsPhased ? collaborationGrant.Role : collaborationGrant.Phase
+                        CollaborationPhase = CollaborationGrant(Id, received.ParallelBranchId, activeCollaborationRuntime)?.Phase,
+                        CollaborationRole = CollaborationGrant(Id, received.ParallelBranchId, activeCollaborationRuntime) is { } collaborationGrant
+                            ? activeCollaborationRuntime!.IsPhased ? collaborationGrant.Role : collaborationGrant.Phase
                             : null,
                             ProposeAgentRoute = routeSelection is null ? null : async routeId =>
                             {
@@ -1567,16 +1569,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                                     await Emit(ExecutionEventKinds.AgentRouteRejected, Id, invocation, null,
                                         JsonSerializer.Serialize(new { routeId, reason = routeSelection.RejectionReason }));
                             },
-                            CollaborationSendChannels = CollaborationChannels(Id, received.ParallelBranchId, ParallelCollaborationRoles.Publish),
-                            CollaborationReadChannels = CollaborationChannels(Id, received.ParallelBranchId, ParallelCollaborationRoles.Read),
-                            CollaborationSend = collaborationRuntime is null || received.ParallelBranchId is not { } publishBranch ||
-                                CollaborationGrant(Id, publishBranch) is not { } publishGrant ||
-                                (collaborationRuntime.IsPhased ? publishGrant.Role != ParallelCollaborationRoles.Publish : publishGrant.Phase != ParallelCollaborationPhases.Publish) ? null :
-                                (channel, content, token) => collaborationRuntime.PublishAsync(Id, publishBranch, publishGrant.Phase, channel, content, invocation, token),
-                            CollaborationRead = collaborationRuntime is null || received.ParallelBranchId is not { } readBranch ||
-                                CollaborationGrant(Id, readBranch) is not { } readGrant ||
-                                (collaborationRuntime.IsPhased ? readGrant.Role != ParallelCollaborationRoles.Read : readGrant.Phase != ParallelCollaborationPhases.Read) ? null :
-                                (channel, token) => collaborationRuntime.ReadAsync(Id, readBranch, readGrant.Phase, channel, invocation, token)
+                            CollaborationSendChannels = CollaborationChannels(Id, received.ParallelBranchId, ParallelCollaborationRoles.Publish, activeCollaborationRuntime),
+                            CollaborationReadChannels = CollaborationChannels(Id, received.ParallelBranchId, ParallelCollaborationRoles.Read, activeCollaborationRuntime),
+                            CollaborationSend = activeCollaborationRuntime is null || received.ParallelBranchId is not { } publishBranch ||
+                                CollaborationGrant(Id, publishBranch, activeCollaborationRuntime) is not { } publishGrant ||
+                                (activeCollaborationRuntime.IsPhased ? publishGrant.Role != ParallelCollaborationRoles.Publish : publishGrant.Phase != ParallelCollaborationPhases.Publish) ? null :
+                                (channel, content, token) => activeCollaborationRuntime.PublishAsync(Id, publishBranch, publishGrant.Phase, channel, content, invocation, token),
+                            CollaborationRead = activeCollaborationRuntime is null || received.ParallelBranchId is not { } readBranch ||
+                                CollaborationGrant(Id, readBranch, activeCollaborationRuntime) is not { } readGrant ||
+                                (activeCollaborationRuntime.IsPhased ? readGrant.Role != ParallelCollaborationRoles.Read : readGrant.Phase != ParallelCollaborationRoles.Read) ? null :
+                                (channel, token) => activeCollaborationRuntime.ReadAsync(Id, readBranch, readGrant.Phase, channel, invocation, token)
                         }, message, cancellationToken),
                     _ => throw new InvalidOperationException("Unsupported executor type.")
                 };
@@ -1716,8 +1718,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     var configurable = UsesConfigurableParallelGraph;
                     var activationId = configurable ? invocation : (Guid?)null;
-                    if (collaborationRuntime is not null && collaborationRuntime.Region.ForkNodeId == Id)
-                        await collaborationRuntime.ActivateAsync(invocation);
+                    if (activeCollaborationRuntime is not null && activeCollaborationRuntime.Region.ForkNodeId == Id)
+                        await activeCollaborationRuntime.ActivateAsync(invocation);
                     var outgoingEdges = configurable
                         ? revision.Definition.ExecutionConnections!.Values.Where(edge => edge.Source.NodeId == Id)
                         : revision.Definition.Connections.Values.Where(edge => edge.Source.NodeId == Id);
@@ -1729,7 +1731,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                             ParallelActivationId: activationId, ParallelBranchId: branchId,
                             ParallelForkNodeId: configurable ? Id : null,
                             SequenceLineage: received.SequenceLineage,
-                            ActivationFrame: received.ActivationFrame), edge.Target.NodeId, cancellationToken);
+                            ActivationFrame: received.ActivationFrame,
+                            CollaborationRuntime: received.CollaborationRuntime), edge.Target.NodeId, cancellationToken);
                     }
                     return new(result, Id, "parallel.dispatched", DataType: "string");
                 }
@@ -1749,7 +1752,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 return new(result, internalTerminationHandoff ? received.SourceNode : Id, terminated ? "terminated" : port, permit, outputType, nextLoopIteration,
                     terminated, failureSignal, received.ParallelActivationId, received.ParallelBranchId, received.ParallelForkNodeId,
                     SequenceLineage: received.SequenceLineage, HasValue: resultAvailable,
-                    ActivationFrame: received.ActivationFrame);
+                    ActivationFrame: received.ActivationFrame,
+                    CollaborationRuntime: received.CollaborationRuntime);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -1804,16 +1808,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             lock (activation.Sync) return activation.InvocationId ??= Guid.NewGuid();
         }
 
-        private ParallelCollaborationAgentGrant? CollaborationGrant(string nodeId, string? branchId)
+        private ParallelCollaborationAgentGrant? CollaborationGrant(string nodeId, string? branchId,
+            ParallelCollaborationRuntime? activeRuntime)
         {
-            if (collaborationRuntime is null || branchId is null) return null;
-            return collaborationRuntime.Region.Branches.SingleOrDefault(branch => branch.BranchId == branchId)?
+            if (activeRuntime is null || branchId is null) return null;
+            return activeRuntime.Region.Branches.SingleOrDefault(branch => branch.BranchId == branchId)?
                 .Agents.SingleOrDefault(grant => grant.AgentNodeId == nodeId);
         }
 
-        private IReadOnlyList<string>? CollaborationChannels(string nodeId, string? branchId, string role) =>
-            CollaborationGrant(nodeId, branchId) is { } grant &&
-            (collaborationRuntime!.IsPhased ? grant.Role == role : grant.Phase == role)
+        private IReadOnlyList<string>? CollaborationChannels(string nodeId, string? branchId, string role,
+            ParallelCollaborationRuntime? activeRuntime) =>
+            CollaborationGrant(nodeId, branchId, activeRuntime) is { } grant &&
+            (activeRuntime!.IsPhased ? grant.Role == role : grant.Phase == role)
                 ? grant.Channels : null;
 
         private async Task<WorkflowExecutionResult> ExecuteWorkflowCall(WorkflowCallConfiguration call, string input,

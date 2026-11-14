@@ -5518,6 +5518,212 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task StructuredFrameCoordinator_IsolatesCollaborationPerActivation(bool phased, bool sqlite)
+    {
+        var sourceDefinition = phased
+            ? WorkflowRunnerCollaborationTests.CreatePhasedGraph(branchCount: 2, timeoutSeconds: 30)
+            : WorkflowRunnerCollaborationTests.CreateGraph(branchCount: 2, timeoutSeconds: 30);
+        var revision = WorkflowRevision.Create(sourceDefinition with
+            {
+                SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+                Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                    .Add("index", new("Index", "0"))
+            }, "array-iteration-structured-collaboration-proof");
+        using var runStore = new ProofRunStore(revision, "[\"item-a\",\"item-b\"]", sqlite);
+        var events = new List<ExecutionEvent>();
+        var gate = new object();
+        ValueTask Record(ExecutionEvent evt)
+        {
+            lock (gate) events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var agent = new ActivationScopedCollaborationAgentExecutor(branchCount: 2, attemptUnauthorizedChannel: true);
+        var result = await new WorkflowRunner(agents: agent)
+            .ExecuteStructuredActivationSequenceProofAsync(runStore.RunId, revision,
+                "[\"item-a\",\"item-b\"]", "index", null, Record)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+        Assert.Equal(phased ? 8 : 4, agent.UnauthorizedChannelRejections.Count);
+        Assert.All(agent.UnauthorizedChannelRejections, Assert.True);
+        var outputs = result.Output!.Split(';');
+        Assert.Equal(2, outputs.Length);
+        for (var index = 0; index < outputs.Length; index++)
+        {
+            using var joined = JsonDocument.Parse(outputs[index]);
+            Assert.Equal(2, joined.RootElement.EnumerateObject().Count());
+            Assert.All(joined.RootElement.EnumerateObject(), branch =>
+                Assert.Equal(index == 0 ? "item-a" : "item-b", branch.Value.GetString()));
+        }
+        runStore.Store.Append(runStore.RunId, 0, events);
+        AssertPersistedSequence(runStore, events, "completed");
+        for (var index = 0; index < 2; index++)
+        {
+            var scopeId = $"array-loop/{index}";
+            var scoped = events.Where(evt => evt.ScopeId == scopeId).ToArray();
+            var started = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationRegionStarted);
+            using var startedData = JsonDocument.Parse(started.Data!);
+            var regionInvocationId = startedData.RootElement.GetProperty("regionInvocationId").GetGuid();
+            Assert.All(scoped.Where(evt => evt.Kind is ExecutionEventKinds.ParallelCollaborationArrival or
+                ExecutionEventKinds.ParallelCollaborationMessageSent or ExecutionEventKinds.ParallelCollaborationMessagesRead or
+                ExecutionEventKinds.ParallelCollaborationReleased), evt =>
+            {
+                using var data = JsonDocument.Parse(evt.Data!);
+                Assert.Equal(regionInvocationId, data.RootElement.GetProperty("regionInvocationId").GetGuid());
+            });
+            Assert.All(scoped, evt => Assert.Equal(scopeId, evt.ScopeId));
+            Assert.Equal(phased ? 2 : 1,
+                scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationReleased));
+            Assert.Equal(phased ? 4 : 2,
+                scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationArrival));
+            Assert.Equal(phased ? 4 : 2,
+                scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationMessageSent));
+            Assert.Equal(phased ? 4 : 2,
+                scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationMessagesRead));
+            Assert.DoesNotContain(scoped, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationAborted);
+        }
+        var invocationIds = events.Where(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationRegionStarted)
+            .Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("regionInvocationId").GetGuid())
+            .ToArray();
+        Assert.Equal(2, invocationIds.Distinct().Count());
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task StructuredFrameCoordinator_FailedMemberAbortsOnlyItsActivation(bool phased, bool sqlite)
+    {
+        var sourceDefinition = phased
+            ? WorkflowRunnerCollaborationTests.CreatePhasedGraph(branchCount: 2, timeoutSeconds: 30)
+            : WorkflowRunnerCollaborationTests.CreateGraph(branchCount: 2, timeoutSeconds: 30);
+        var revision = WorkflowRevision.Create(sourceDefinition with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Index", "0"))
+        }, "array-iteration-structured-collaboration-failure-proof");
+        using var runStore = new ProofRunStore(revision, "[\"item-a\",\"item-b\"]", sqlite);
+        var events = new List<ExecutionEvent>();
+        var gate = new object();
+        ValueTask Record(ExecutionEvent evt)
+        {
+            lock (gate) events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+        var failedNodeId = phased ? "p2-branch_a" : "publish-branch_a";
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(agents:
+                new ActivationScopedCollaborationAgentExecutor(branchCount: 2, failNodeId: failedNodeId))
+            .ExecuteStructuredActivationSequenceProofAsync(runStore.RunId, revision,
+                "[\"item-a\",\"item-b\"]", "index", null, Record)
+            .WaitAsync(TimeSpan.FromSeconds(10)));
+
+        runStore.Store.Append(runStore.RunId, 0, events);
+        AssertPersistedSequence(runStore, events, "failed");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationAborted);
+        Assert.Equal(phased ? 1 : 0, events.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationReleased));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted && evt.NodeId == "array-loop" &&
+            evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task StructuredFrameCoordinator_CancellationAbortsAndSettlesActivation(bool phased, bool sqlite)
+    {
+        var sourceDefinition = phased
+            ? WorkflowRunnerCollaborationTests.CreatePhasedGraph(branchCount: 2, timeoutSeconds: 30)
+            : WorkflowRunnerCollaborationTests.CreateGraph(branchCount: 2, timeoutSeconds: 30);
+        var revision = WorkflowRevision.Create(sourceDefinition with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Index", "0"))
+        }, "array-iteration-structured-collaboration-cancellation-proof");
+        using var runStore = new ProofRunStore(revision, "[\"item-a\",\"item-b\"]", sqlite);
+        var events = new List<ExecutionEvent>();
+        var gate = new object();
+        using var cancellation = new CancellationTokenSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask Record(ExecutionEvent evt)
+        {
+            lock (gate) events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+        var blockedNodeId = phased ? "r1-branch_a" : "publish-branch_a";
+        var execution = new WorkflowRunner(agents: new ActivationScopedCollaborationAgentExecutor(
+                branchCount: 2, blockNodeId: blockedNodeId, blockedNodeEntered: entered))
+            .ExecuteStructuredActivationSequenceProofAsync(runStore.RunId, revision,
+                "[\"item-a\",\"item-b\"]", "index", null, Record, cancellation.Token);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        runStore.Store.Append(runStore.RunId, 0, events);
+        AssertPersistedSequence(runStore, events, "cancelled");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationAborted);
+        Assert.Equal(phased ? 1 : 0, events.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationReleased));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted && evt.NodeId == "array-loop" &&
+            evt.ScopeId == "array-loop/1");
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task StructuredFrameCoordinator_TimeoutAbortsAndSettlesActivation(bool phased, bool sqlite)
+    {
+        var sourceDefinition = phased
+            ? WorkflowRunnerCollaborationTests.CreatePhasedGraph(branchCount: 2, timeoutSeconds: 1)
+            : WorkflowRunnerCollaborationTests.CreateGraph(branchCount: 2, timeoutSeconds: 1);
+        var revision = WorkflowRevision.Create(sourceDefinition with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Index", "0"))
+        }, "array-iteration-structured-collaboration-timeout-proof");
+        using var runStore = new ProofRunStore(revision, "[\"item-a\",\"item-b\"]", sqlite);
+        var events = new List<ExecutionEvent>();
+        var gate = new object();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask Record(ExecutionEvent evt)
+        {
+            lock (gate) events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+        var blockedNodeId = phased ? "r1-branch_a" : "publish-branch_a";
+
+        await Assert.ThrowsAsync<TimeoutException>(() => new WorkflowRunner(agents:
+                new ActivationScopedCollaborationAgentExecutor(branchCount: 2, blockNodeId: blockedNodeId,
+                    blockedNodeEntered: entered))
+            .ExecuteStructuredActivationSequenceProofAsync(runStore.RunId, revision,
+                "[\"item-a\",\"item-b\"]", "index", null, Record)
+            .WaitAsync(TimeSpan.FromSeconds(5)));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        runStore.Store.Append(runStore.RunId, 0, events);
+        AssertPersistedSequence(runStore, events, "failed");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationAborted);
+        Assert.Equal(phased ? 1 : 0, events.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationReleased));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted && evt.NodeId == "array-loop" &&
+            evt.ScopeId == "array-loop/1");
+    }
+
     private static WorkflowDefinition SequenceBodyDefinition()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
@@ -5625,14 +5831,26 @@ public sealed class ArrayIterationVawBodyProofTests
 
     private sealed record HybridBudgetLoopResult(string? Output, string? Error, bool Cancelled = false);
 
-    private sealed class ActivationScopedCollaborationAgentExecutor(int branchCount) : IAgentNodeExecutor
+    private sealed class ActivationScopedCollaborationAgentExecutor(int branchCount, string? failNodeId = null,
+        string? blockNodeId = null, TaskCompletionSource? blockedNodeEntered = null,
+        bool attemptUnauthorizedChannel = false) : IAgentNodeExecutor
     {
+        private readonly ConcurrentQueue<bool> unauthorizedChannelRejections = new();
+        public IReadOnlyCollection<bool> UnauthorizedChannelRejections => unauthorizedChannelRejections.ToArray();
+
         public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
             Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("fixture", "Fixture", "test", true)]);
 
         public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
             CancellationToken cancellationToken = default)
         {
+            if (invocation.NodeId == failNodeId)
+                throw new InvalidOperationException($"Injected collaboration-member failure at {invocation.NodeId}.");
+            if (invocation.NodeId == blockNodeId)
+            {
+                blockedNodeEntered?.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
             var branchId = invocation.Revision.Definition.Nodes[invocation.NodeId].Agent!.Instructions;
             var phase = invocation.Revision.Definition.ParallelCollaborationRegions!.Values.Single()
                 .SecondRendezvousNodeId is null ? null : invocation.CollaborationPhase;
@@ -5641,6 +5859,18 @@ public sealed class ArrayIterationVawBodyProofTests
                 Assert.NotNull(invocation.CollaborationSend);
                 var content = phase is null ? $"{input}|{branchId}" : $"{input}|{phase}|{branchId}";
                 await invocation.CollaborationSend!("work", content, cancellationToken);
+                if (attemptUnauthorizedChannel)
+                {
+                    try
+                    {
+                        await invocation.CollaborationSend!("unauthorized", "must not be appended", cancellationToken);
+                        unauthorizedChannelRejections.Enqueue(false);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        unauthorizedChannelRejections.Enqueue(true);
+                    }
+                }
                 return input;
             }
 
