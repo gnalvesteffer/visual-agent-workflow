@@ -1056,9 +1056,11 @@ through explicit graph pins, and sends the combined value to the Agent in the
 structured, fresh-subworkflow, and hybrid candidates. Outputs, activation
 scopes, and node lifecycle ordering match; persisted prefixes pass for file
 and SQLite stores (6 candidate/store executions). This demonstrates typed
-parameter dataflow only. Dedicated iterator element/index pins and production
-nearest-loop `Break` dispatch remain unproven, so the architecture gate stays
-open.
+parameter dataflow only. The proof also compares each `data.evaluated` record's
+scope, connection identity, and serialized value, confirming that changing
+item/index results are attributed to the matching activation in each candidate.
+Dedicated iterator element/index pins and production nearest-loop `Break`
+dispatch remain unproven, so the architecture gate stays open.
 
 The structured node-dispatch proof now runs the same production
 `NestedBodyDefinition` used by the hybrid nested-break case through
@@ -1245,6 +1247,11 @@ identity, caches, and production iterator frames remain unresolved.
      scoped variable evidence through file and SQLite stores (2/2 focused
      theory cases). This proves the tested variable boundary; immutable source
      evaluation and cache-key/lifetime semantics remain open.
+   - [x] Compare persisted `data.evaluated` evidence for changing typed item
+     and index parameters across all three candidates. Per-activation values,
+     connection IDs, scopes, and serialized payloads match in file and SQLite
+     (2/2 focused theory cases). This proves the tested parameter-evaluation
+     boundary; graph-function/runtime-output cache lifetimes remain open.
 4. Define and implement an explicit run-level budget context that reaches
    nested agents, delegates/teams, MCP broker scopes, and the single run event
    recorder. The product direction remains full capability composition;

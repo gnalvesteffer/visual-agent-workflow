@@ -181,12 +181,37 @@ public sealed class ArrayIterationVawBodyProofTests
         AssertPersistedSequence(hybridStore, hybridEvents, "completed");
         Assert.Equal(EventShape(structuredEvents), EventShape(subworkflowEvents));
         Assert.Equal(EventShape(structuredEvents), EventShape(hybridEvents));
+        Assert.Equal(DataEvaluationShape(structuredEvents), DataEvaluationShape(subworkflowEvents));
+        Assert.Equal(DataEvaluationShape(structuredEvents), DataEvaluationShape(hybridEvents));
+
+        var expectedItems = new long[] { long.MinValue, 0, long.MaxValue };
+        foreach (var events in new[] { structuredEvents, subworkflowEvents, hybridEvents })
+        {
+            for (var index = 0; index < expectedItems.Length; index++)
+            {
+                var scopeId = $"array-loop/{index}";
+                Assert.Equal(expectedItems[index], ReadIntegerDataEvaluation(events, scopeId, "data:item-value"));
+                Assert.Equal(index, ReadIntegerDataEvaluation(events, scopeId, "data:index-value"));
+            }
+        }
 
         static (string Kind, string? NodeId, string? ScopeId)[] EventShape(IEnumerable<ExecutionEvent> events) =>
             events.Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
                 ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.NodeStarted or
                 ExecutionEventKinds.NodeCompleted)
                 .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
+
+        static (string? NodeId, string? ScopeId, string? ConnectionId, string? Data)[] DataEvaluationShape(
+            IEnumerable<ExecutionEvent> events) => events.Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated)
+            .Select(evt => (evt.NodeId, evt.ScopeId, evt.ConnectionId, evt.Data)).ToArray();
+
+        static long ReadIntegerDataEvaluation(IEnumerable<ExecutionEvent> events, string scopeId, string connectionId)
+        {
+            var evt = Assert.Single(events, item => item.Kind == ExecutionEventKinds.DataEvaluated &&
+                item.ScopeId == scopeId && item.ConnectionId == connectionId);
+            using var payload = JsonDocument.Parse(evt.Data!);
+            return payload.RootElement.GetProperty("value").GetInt64();
+        }
     }
 
     [Theory]
