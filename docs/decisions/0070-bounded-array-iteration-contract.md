@@ -1209,6 +1209,14 @@ history persists through file and SQLite stores (2/2 focused theory cases).
 This verifies variable isolation for this body shape only; source evaluator
 identity, caches, and production iterator frames remain unresolved.
 
+`IteratorCandidates_ScopeGraphFunctionResultsAndEvidenceToEachActivation`
+reuses one pinned pure graph function across three changing string items. The
+structured, fresh-subworkflow, and hybrid candidates produce the same outputs
+and persisted function input/evaluated-node evidence, scoped to the matching
+item in file and SQLite stores (2/2 focused theory cases). This proves the
+linear pure-data function-call boundary only; runtime-node output caches and
+parallel function-call activations remain open.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the
@@ -1252,6 +1260,11 @@ identity, caches, and production iterator frames remain unresolved.
      connection IDs, scopes, and serialized payloads match in file and SQLite
      (2/2 focused theory cases). This proves the tested parameter-evaluation
      boundary; graph-function/runtime-output cache lifetimes remain open.
+   - [x] Compare a pinned pure graph-function call across three item
+     activations. Outputs and function input/evaluated-node evidence match the
+     fresh-subworkflow and hybrid candidates, with each event scoped to its
+     own item in both stores (2/2 focused theory cases). Runtime-node output
+     caches and parallel function-call activations remain unproven.
 4. Define and implement an explicit run-level budget context that reaches
    nested agents, delegates/teams, MCP broker scopes, and the single run event
    recorder. The product direction remains full capability composition;

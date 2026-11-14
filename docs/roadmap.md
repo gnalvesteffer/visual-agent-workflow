@@ -158,6 +158,11 @@ will be introduced.
     Evaluated values, activation scopes, and data connection IDs match and
     persist in both stores (2/2 focused theory cases). Graph-function and
     runtime-output cache lifetimes remain open.
+  - [x] Compare a pinned graph-function result and nested evaluation evidence
+    over three changing items. All candidates agree on output, function inputs,
+    evaluated values, and per-item scopes; file and SQLite persistence passes
+    (2/2 focused theory cases). Parallel calls and runtime-node output caches
+    remain open.
   - [x] Candidate subworkflow proof: fresh per-item AF 1.26.0 workflow bindings
     preserve exclusive routing and parallel barrier state across sequential
     items. A nested test workflow returns a typed Break control signal with

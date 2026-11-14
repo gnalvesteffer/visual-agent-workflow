@@ -310,6 +310,96 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_ScopeGraphFunctionResultsAndEvidenceToEachActivation(bool sqlite)
+    {
+        const string input = "[\"alpha\",\"beta\",\"gamma\"]";
+        var revision = WorkflowRevision.Create(GraphFunctionValueBodyDefinition(),
+            "array-iteration-function-activation-scope-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+
+        var structured = await new WorkflowRunner().ExecuteStructuredActivationSequenceProofAsync(
+            structuredStore.RunId, revision, input, "index", null, evt =>
+            {
+                structuredRecorder.Append(evt);
+                return ValueTask.CompletedTask;
+            });
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, new EchoAgentExecutor(), new EchoToolBroker());
+        var subworkflow = new WorkflowBuilder(subworkflowIterator).WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflow, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            new EchoAgentExecutor(), new EchoToolBroker(), "array-loop",
+            ParseProofArrayItems(input, WorkflowDataTypes.String), null, "index", [], async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(
+                    hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
+                if (result.Failed || result.Output is null)
+                    throw new InvalidOperationException("The hybrid graph-function body failed.");
+                return new ActivationLoopProofValue(result.Output);
+            });
+        hybridRecorder.CompleteRoot();
+
+        const string expectedOutput = "alpha!;beta!;gamma!";
+        Assert.Equal(expectedOutput, structured.Output);
+        Assert.Equal(structured.Output, subworkflowOutput);
+        Assert.Equal(structured.Output, hybridOutput);
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "completed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "completed");
+        AssertPersistedSequence(hybridStore, hybridEvents, "completed");
+        Assert.Equal(FunctionEvidenceShape(structuredEvents), FunctionEvidenceShape(subworkflowEvents));
+        Assert.Equal(FunctionEvidenceShape(structuredEvents), FunctionEvidenceShape(hybridEvents));
+
+        var expectedItems = new[] { "alpha", "beta", "gamma" };
+        foreach (var events in new[] { structuredEvents, subworkflowEvents, hybridEvents })
+        {
+            for (var index = 0; index < expectedItems.Length; index++)
+            {
+                var evt = Assert.Single(events, item => item.Kind == ExecutionEventKinds.DataEvaluated &&
+                    item.NodeId == "call" && item.ScopeId == $"array-loop/{index}");
+                Assert.Equal("data:call-output", evt.ConnectionId);
+                using var payload = JsonDocument.Parse(evt.Data!);
+                Assert.Equal(expectedItems[index] + "!", payload.RootElement.GetProperty("value").GetString());
+                var functionEvidence = payload.RootElement.GetProperty("function");
+                Assert.Equal(expectedItems[index], functionEvidence.GetProperty("inputs")
+                    .GetProperty("text").GetString());
+                Assert.Contains(functionEvidence.GetProperty("evaluatedValues").EnumerateArray(), value =>
+                    value.GetProperty("nodeId").GetString() == "concat" &&
+                    value.GetProperty("value").GetString() == expectedItems[index] + "!");
+            }
+        }
+
+        static (string? NodeId, string? ScopeId, string? ConnectionId, string? Data)[] FunctionEvidenceShape(
+            IEnumerable<ExecutionEvent> events) => events.Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.NodeId == "call").Select(evt => (evt.NodeId, evt.ScopeId, evt.ConnectionId, evt.Data)).ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_EmptyTypedArrayCompletesWithoutBodyActivation(bool sqlite)
     {
         const string input = "[]";
@@ -6768,6 +6858,45 @@ public sealed class ArrayIterationVawBodyProofTests
         };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
+    }
+
+    private static WorkflowDefinition GraphFunctionValueBodyDefinition()
+    {
+        var function = new GraphFunctionDefinition("proof.append-suffix", 1, "Append suffix",
+            "Append a fixed suffix to the supplied text.",
+            ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("text", new("Text", WorkflowDataTypes.String)),
+            ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("result", new("Result", WorkflowDataTypes.String)),
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "text" })
+                .Add("suffix", new(NodeTypes.StringConstant, "1.0.0")
+                    { StringConstant = new("!") })
+                .Add("concat", new(NodeTypes.TextConcat, "1.0.0"))
+                .Add("output", new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "result" }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(new("input", "out"), new("concat", "left"), "data"))
+                .Add("suffix", new(new("suffix", "out"), new("concat", "right"), "data"))
+                .Add("result", new(new("concat", "out"), new("output", "in"), "data")));
+        var call = new NodeDefinition(NodeTypes.FunctionCall, "1.0.0")
+        {
+            GraphFunction = new(function, GraphFunctionJson.ComputeHash(function))
+        };
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-function-values", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("call", call)
+                .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input-call", new(new("input", "out"), new("call", "text"), "data"))
+                .Add("call-output", new(new("call", "result"), new("output", "in"), "data")))
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input-output", Edge("input", "then", "output", "execute"))
+        };
     }
 
     private static WorkflowDefinition TypedItemAndIndexBodyDefinition()
