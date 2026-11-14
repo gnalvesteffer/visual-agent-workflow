@@ -1093,6 +1093,16 @@ the test would otherwise leave the sibling call running. This does not yet
 compare Sequence failure settlement across candidates, and it is not production
 iterator behavior. The Agent Framework suite passes 384/384 after this change.
 
+`IteratorCandidates_SequenceFailureCancelsSiblingOutput` extends the same
+synchronized failure through all three candidates. Across file and SQLite
+stores (six candidate/store executions), each records the same failed output,
+cancelled sibling output, failed Sequence terminal, uncertain in-flight MCP
+outcome, and failed root status. The focused theory passes 2/2. This closes
+this Sequence failure case in the comparison matrix only; broader Sequence
+failure shapes, cancellation races, custom-broker conformance, and production
+budget/lifecycle ownership remain open. The full Agent Framework suite passes
+386/386.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the

@@ -5275,6 +5275,118 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_SequenceFailureCancelsSiblingOutput(bool sqlite)
+    {
+        var definition = SequenceBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition, "array-iteration-sequence-failure-candidates-proof");
+        const string input = "[\"hello\"]";
+        var candidates = new[]
+        {
+            await RunCandidateAsync("structured"),
+            await RunCandidateAsync("fresh-subworkflow"),
+            await RunCandidateAsync("hybrid")
+        };
+
+        Assert.All(candidates, candidate => Assert.True(candidate.SiblingCancelled));
+        Assert.All(candidates, candidate =>
+        {
+            Assert.Single(candidate.SequenceEvents, evt => evt.Kind == ExecutionEventKinds.SequenceStarted);
+            Assert.Equal(2, candidate.SequenceEvents.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched));
+            Assert.Single(candidate.SequenceEvents, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed);
+            Assert.Single(candidate.SequenceEvents, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled);
+            Assert.Single(candidate.SequenceEvents, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+            Assert.DoesNotContain(candidate.SequenceEvents, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+            Assert.Single(candidate.Events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain);
+        });
+        Assert.Equal(SequenceShape(candidates[0].SequenceEvents), SequenceShape(candidates[1].SequenceEvents));
+        Assert.Equal(SequenceShape(candidates[0].SequenceEvents), SequenceShape(candidates[2].SequenceEvents));
+
+        async Task<(ExecutionEvent[] Events, ExecutionEvent[] SequenceEvents, bool SiblingCancelled)> RunCandidateAsync(
+            string candidate)
+        {
+            using var runStore = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ProofRecorder(runStore);
+            var tools = new FailSequenceOutputToolBroker("proof.inventory", "proof.architecture");
+            var itemParameters = ImmutableSortedDictionary<string, string>.Empty.Add("index", "0");
+            var scopeId = "array-loop/0";
+
+            if (candidate == "structured")
+            {
+                var execution = new WorkflowRunner(tools).ExecuteStructuredActivationSequenceProofAsync(
+                    runStore.RunId, revision, input, "index", null, evt =>
+                    {
+                        recorder.Append(evt);
+                        return ValueTask.CompletedTask;
+                    });
+                await Assert.ThrowsAsync<InvalidOperationException>(async () => await execution);
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                var iterator = new PerItemWorkflowExecutor(runStore.RunId, revision, recorder,
+                    new EchoAgentExecutor(), tools);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                var workflowFailed = false;
+                var watch = Task.Run(async () =>
+                {
+                    await foreach (var evt in run.WatchStreamAsync())
+                        workflowFailed |= evt is WorkflowErrorEvent;
+                });
+                try
+                {
+                    await watch.WaitAsync(TimeSpan.FromSeconds(10));
+                }
+                finally
+                {
+                    if (!watch.IsCompleted) await run.CancelRunAsync();
+                }
+                Assert.True(workflowFailed);
+                recorder.FailRoot();
+            }
+            else
+            {
+                var frame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null,
+                    "array-loop", 0, "hello", itemParameters);
+                recorder.Append(ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id, scopeId);
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    recorder.Append(evt with { ScopeId = scopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var failure = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await new WorkflowRunner(tools).ExecuteWithOutcomeAsync(runStore.RunId,
+                        revision, "hello", itemParameters, Record).WaitAsync(TimeSpan.FromSeconds(10)));
+                Assert.Contains("inventory-tool", failure.Message, StringComparison.Ordinal);
+                recorder.FailRoot();
+            }
+
+            var events = recorder.Snapshot();
+            AssertPersistedSequence(runStore, events, "failed");
+            var sequenceEvents = events.Where(evt => evt.Kind.StartsWith("sequence.", StringComparison.Ordinal))
+                .ToArray();
+            return (events, sequenceEvents, tools.SiblingObservedCancellation);
+        }
+
+        static (string Kind, string? NodeId, string? ConnectionId, string? ScopeId)[] SequenceShape(
+            IEnumerable<ExecutionEvent> events) => events
+            .Select(evt => (evt.Kind, evt.NodeId, evt.ConnectionId, evt.ScopeId))
+            .OrderBy(evt => evt.Kind, StringComparer.Ordinal)
+            .ThenBy(evt => evt.ConnectionId, StringComparer.Ordinal)
+            .ThenBy(evt => evt.ScopeId, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task HybridFrameCoordinator_ExecutesUnifiedSequenceBodyPerActivation(bool sqlite)
     {
         var revision = WorkflowRevision.Create(SequenceBodyDefinition(),

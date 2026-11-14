@@ -250,6 +250,12 @@ will be introduced.
       plus cancelled output evidence in file and SQLite stores (focused theory:
       2/2). This does not establish cross-candidate failure parity or production
       iterator behavior.
+    - [x] Compare that Sequence failure across the structured, fresh
+      subworkflow, and hybrid candidates. All six candidate/store runs record
+      the same failed output, cancelled sibling, failed Sequence terminal,
+      uncertain in-flight tool outcome, and failed root status (focused theory:
+      2/2). This remains proof-harness evidence, not production iterator
+      behavior.
     - [x] Exercise single-phase and two-phase collaboration in repeated hybrid
       activations using the unified workflow schema. Each activation reads only
       its own branch messages, and scoped evidence persists through file and
