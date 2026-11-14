@@ -275,33 +275,36 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Single(reopened.Events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
     }
 
-    [Fact]
-    public async Task StructuredActivationSequenceProof_AdmittedForkFailureWinsBreakRace()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredActivationSequenceProof_PersistsAdmittedForkFailureWinningBreakRace(bool sqlite)
     {
-        var definition = ParallelBodyDefinition();
-        var nodes = definition.Nodes.SetItem("agent-left",
-            new NodeDefinition(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"));
-        var revision = WorkflowRevision.CreateProofOnly(definition with
+        var definition = ParallelBodyDefinition() with
         {
-            Nodes = nodes,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                 .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
-        }, "array-iteration-fork-break-failure-race-proof");
-        var events = new ConcurrentQueue<ExecutionEvent>();
+        };
+        var revision = WorkflowRevision.Create(definition, "array-iteration-fork-break-failure-race-proof");
+        using var runStore = new ProofRunStore(revision, "[\"north\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
         var agents = new FailingForkSiblingAgentExecutor();
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            new WorkflowRunner(agents: agents)
-                .ExecuteStructuredActivationSequenceProofAsync(Guid.NewGuid(), revision, "[\"north\"]",
-                    "index", null, evt =>
-                    {
-                        events.Enqueue(evt);
-                        return ValueTask.CompletedTask;
-                    }, afterNodeStarted: (nodeId, token) => nodeId == "agent-left"
-                        ? new(agents.FailureReached.Task.WaitAsync(TimeSpan.FromSeconds(5), token))
-                        : ValueTask.CompletedTask));
+            new WorkflowRunner(agents: agents).ExecuteStructuredActivationSequenceProofAsync(runStore.RunId,
+                revision, "[\"north\"]", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, afterNodeStarted: (nodeId, token) => nodeId == "agent-left"
+                    ? new(agents.FailureReached.Task.WaitAsync(TimeSpan.FromSeconds(5), token))
+                    : ValueTask.CompletedTask,
+                proofBreakNodeIds: new HashSet<string>(StringComparer.Ordinal) { "agent-left" }));
 
-        var recorded = events.ToArray();
+        var recorded = recorder.Snapshot();
+        AssertPersistedSequence(runStore, recorded, "failed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(recorded, reopened.Events);
         Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent-right");
         Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
         Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);

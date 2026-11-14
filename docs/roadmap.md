@@ -157,6 +157,11 @@ will be introduced.
     including scoped playback evidence, joins, cancellation/failure races,
     custom-broker uncertainty, and store append failures. Document the
     persisted-prefix and recovery limits before proposing a public contract.
+    - [x] Persist and reopen the static-fork Break-versus-admitted-failure
+      race through file and SQLite stores. Both retain the descendant failure
+      and failed root outcome without completing the join. Sequence Break
+      remains an in-memory proof only; its abort marker is not a supported
+      passive-playback event. See Decision 0070's 2026-11-14 adjudication.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core

@@ -1455,9 +1455,12 @@ frame, and scope identity to the activation coordinator. Sequence output paths
 and static fork branches use local cancellation scopes: Break stops new work,
 settles admitted siblings, suppresses normal Sequence/join completion, and
 propagates to the nearest frame. Host cancellation still wins, while a settled
-non-cancellation descendant failure is selected before Break. The private
-proof event `sequence.aborted` records Sequence abort without claiming an
-ordinary Sequence terminal outcome. `core.terminate` retains its separate
+non-cancellation descendant failure is selected before Break. The in-memory
+proof callback emits `sequence.aborted` when Break exits a Sequence, without
+claiming an ordinary Sequence terminal outcome. This event is not a recognized
+`SequenceEvidence` lifecycle kind and is not supported passive playback
+evidence. The Sequence-break proof remains in-memory; it does not persist or
+reopen that history through a run store. `core.terminate` retains its separate
 workflow-exit behavior.
 
 Focused structured tests pass (10 cases), including Break through Sequence and
@@ -1468,8 +1471,20 @@ failed-fork cancellation regression. A test-only node-dispatch override runs
 the fork proof against an otherwise validated revision; its root/branch
 event prefix persists and reopens through both file and SQLite stores (2/2).
 The Break behavior itself is not serialized in that revision, and the
-proof-only Sequence graph remains in-memory. Passive playback compatibility,
-persisted failure-race coverage, a production-selected scheduler, authored
-iterator pins, and public Break/array contracts remain open. This increments
-the proof only and does not change the **REVISE** architecture outcome or
-authorize public schema/Studio work.
+proof-only Sequence graph remains in-memory. A three-role adjudication keeps
+Break-driven Sequence abort out of persisted Sequence lifecycle evidence until
+a contract identifies the exact Sequence invocation and Break frame, settles
+every dispatched output and join, preserves uncertain external outcomes, and
+specifies older-reader behavior. Continue proving graph-dispatched Break in
+memory and persist only histories the current reader reconstructs consistently;
+do not encode Break as cancellation.
+
+The static-fork failure race also runs against both supported stores. When an
+admitted sibling fails after Break dispatch, the file and SQLite histories
+reopen with the sibling failure and failed root outcome, with no completed join
+or successful root outcome (2/2 focused store cases). This closes persisted
+failure-race coverage for this static-fork proof only. Passive playback for
+Sequence abort, persisted host-cancellation race coverage, a production-selected
+scheduler, authored iterator pins, and public Break/array contracts remain open.
+This increments the proof only and does not change the **REVISE** architecture
+outcome or authorize public schema/Studio work.
