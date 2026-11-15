@@ -1669,9 +1669,19 @@ completed joins (2/2 focused cases).
 This closes only successful parallel direct-MCP argument/result composition
 through the private VAW coordinator and production body dispatcher. The test
 uses a controlled broker, so production `McpToolBroker` integration through
-this coordinator, parallel MCP failure/cancellation races, process recovery,
-and the architecture selection gate remain open. This is not public iterator
+this coordinator, sibling-cancellation races, process recovery, and the
+architecture selection gate remain open. This is not public iterator
 authoring or a shipped workflow capability.
+
+`ProductionBodyActivationCoordinator_ParallelMcpFailureSuppressesJoinAndLaterItems`
+adds the corresponding synchronized failure boundary for two parallel direct
+MCP branches. Both branches authorize before deterministic failure; the test
+proves authorization/failure reservation IDs match, both reservations settle,
+the join and iteration completion are suppressed, and the following item is
+not admitted. The failed scoped history reopens and passive playback shows the
+incomplete iteration through both stores (2/2 focused cases). This is a
+controlled-broker failure proof, not a sibling-cancellation race or
+production-broker qualification.
 
 ## Production body Break transport proof (2026-11-14)
 

@@ -1320,6 +1320,67 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ParallelMcpFailureSuppressesJoinAndLaterItems(bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-parallel-mcp-failure-per-item-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var broker = new ParallelMcpBroker(failNode: "*", waitForBothAuthorizations: true,
+            recordReservationIds: true);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(broker)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 4));
+
+        Assert.True(result.Failed);
+        Assert.False(result.OutcomeUnknown);
+        Assert.Equal(2, broker.Calls.Length);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolFailed));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        foreach (var call in broker.Calls)
+        {
+            var authorization = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+                evt.NodeId == call.NodeId && evt.InvocationId == call.InvocationId);
+            var failure = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed &&
+                evt.NodeId == call.NodeId && evt.InvocationId == call.InvocationId);
+            using var authorizedPayload = JsonDocument.Parse(authorization.Data!);
+            using var failedPayload = JsonDocument.Parse(failure.Data!);
+            Assert.Equal(authorizedPayload.RootElement.GetProperty("toolCallId").GetString(),
+                failedPayload.RootElement.GetProperty("toolCallId").GetString());
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal("failed", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_SequenceFailureCancelsSiblingAndStopsLaterItems(bool sqlite)
     {
         var definition = SequenceBodyDefinition() with
@@ -12184,9 +12245,15 @@ public sealed class ArrayIterationVawBodyProofTests
                     Interlocked.Increment(ref owner.dispatchedCalls);
                     if (releaseAfterReservationRejected is not null)
                         await releaseAfterReservationRejected;
-                    if (nodeId == failNode)
+                    if (nodeId == failNode || failNode == "*")
                     {
-                        await record(ExecutionEventKinds.ToolFailed, "Deterministic branch tool failure.");
+                        await record(ExecutionEventKinds.ToolFailed, recordReservationIds
+                            ? JsonSerializer.Serialize(new
+                            {
+                                toolCallId, bindingId, failureCode = "tool.host_failure",
+                                reason = "Deterministic branch tool failure."
+                            })
+                            : "Deterministic branch tool failure.");
                         throw new ToolInvocationException("Deterministic branch tool failure.");
                     }
                     if (holdUntilCancelled)

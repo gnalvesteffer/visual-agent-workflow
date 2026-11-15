@@ -252,8 +252,14 @@ will be introduced.
       correlated tool calls complete per item, each join contains that item's
       two results, and file/SQLite histories reopen and render both joins
       (2/2 focused cases). This uses a test broker with reservation-correlated
-      evidence; production broker integration and parallel failure/cancel
-      races remain open.
+      evidence; production broker integration and sibling-cancellation races
+      remain open.
+    - [x] Fail both synchronized direct-MCP branches through the integrated
+      coordinator. Correlated tool-failure events settle both reservations,
+      suppress the join and iteration completion, prevent the next item, and
+      reopen/render as an incomplete failed run through file and SQLite (2/2
+      focused cases). Sibling cancellation races and production broker
+      integration remain open.
     - [x] Qualify one transformed production-body path across two items:
       Variable Set/Get, TextConcat, Uppercase, Agent, and MCP run under fresh
       activation state with correlated values and lifecycle evidence, reopened
