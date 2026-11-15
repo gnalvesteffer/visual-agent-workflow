@@ -344,6 +344,10 @@ will be introduced.
       persist through both stores (2/2); an out-of-range third item fails at
       `ArrayGet` and prevents further admission (2/2). Other literal element
       types and mutable-array semantics remain open.
+    - [x] Exercise the pure `Reverse` node over changing string items including
+      an empty string, an accented character, and a supplementary Unicode rune.
+      Rune order, scoped output evidence, and reopened file/SQLite histories
+      match (2 focused cases).
     - [x] Execute a current-schema two-output Sequence body through the private
       coordinator for two items. Both MCP outputs dispatch and complete per
       activation; Sequence lifecycle, tool authorization, and loop events

@@ -2206,6 +2206,13 @@ reopen through file and SQLite stores (2/2). An out-of-range item fails at
 (2/2). Other literal element kinds and mutable-array behavior remain outside
 this proof.
 
+`ProductionBodyActivationCoordinator_ReversesUnicodeStringItems` exercises
+the pure `Reverse` node over three changing inputs, including an accented
+character, a supplementary Unicode rune, and empty text. Reversed values and
+scoped evaluation evidence persist through both stores (2/2). This adds one
+deterministic transform family to the body matrix; it does not close the full
+matrix or alter the architecture review gate.
+
 `ProductionBodyActivationCoordinator_EnforcesSharedActivationLimit` now
 exercises the run-context activation cap through the integrated path. After the
 first item's Agent and MCP work completes, a one-activation budget rejects

@@ -110,6 +110,15 @@ at `ArrayGet`, records the consumer failure, and prevents a later activation
 (2/2). Other literal element kinds and mutable collections remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Unicode reverse transform in array-iteration proof
+
+The pure `Reverse` node now runs on changing string items in the integrated
+production-body seam. Coverage includes empty text, an accented character, and
+a supplementary Unicode rune; output and scoped evaluation evidence reopen
+through file and SQLite stores (2/2). This qualifies one more deterministic
+transform family without changing public iterator support. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Bounded-loop playback pairs lifecycle events by iteration
 
 The passive Run inspector now pairs ordinary bounded-loop start/completion
