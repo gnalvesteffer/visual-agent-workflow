@@ -259,8 +259,8 @@ will be introduced.
       receive each item's typed text pin; real authorization/completion
       evidence, uppercase outputs, joined values, and passive playback persist
       through file and SQLite (2/2 focused cases). Production broker failure,
-      timeout, and sibling-cancellation behavior inside this coordinator remain
-      open.
+      and failure-triggered sibling cancellation inside this coordinator
+      remain open.
     - [x] Fail both synchronized direct-MCP branches through the integrated
       coordinator. Correlated tool-failure events settle both reservations,
       suppress the join and iteration completion, prevent the next item, and
@@ -271,8 +271,15 @@ will be introduced.
       sibling's correlated `tool.uncertain`; the root remains failed, the
       join/iteration completion are suppressed, and the next item is not
       admitted. Both stores reopen the same incomplete prefix (2/2 focused
-      cases). This is controlled-broker evidence; real production-broker
-      sibling cancellation remains open.
+      cases). This is controlled-broker evidence; failure-triggered
+      production-broker sibling cancellation remains open.
+    - [x] Cancel a two-branch parallel body through the integrated coordinator
+      after both real stdio MCP calls persist authorization. The production
+      broker records correlated `tool.uncertain` outcomes, the root is
+      cancelled, and neither join completion nor the next item is admitted;
+      reopened file/SQLite playback preserves the uncertainty (2/2 focused
+      cases). This proves host cancellation with the real broker, not
+      failure-triggered sibling cancellation.
     - [x] Qualify one transformed production-body path across two items:
       Variable Set/Get, TextConcat, Uppercase, Agent, and MCP run under fresh
       activation state with correlated values and lifecycle evidence, reopened

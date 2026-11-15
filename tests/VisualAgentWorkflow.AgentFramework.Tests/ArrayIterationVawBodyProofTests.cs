@@ -1547,6 +1547,88 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_HostCancellationUnsettlesParallelProductionMcpCalls(bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        var registrations = CreateDemoMcpRegistrations();
+        var discovery = new McpToolBroker(registrations, new DemoToolPolicy());
+        var binding = Assert.Single(await discovery.ListBindingsAsync(), item => item.BindingId == "demo.slow");
+        var configuredTool = new ToolBindingRequest(binding.BindingId, binding.ContractHash)
+        {
+            DescriptionHash = binding.DescriptionHash
+        };
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var nodes = definition.Nodes;
+        foreach (var nodeId in new[] { "tool-research", "tool-review" })
+            nodes = nodes.SetItem(nodeId, nodes[nodeId] with
+            {
+                Tool = configuredTool,
+                McpArgumentsJson = "{}"
+            });
+        definition = definition with { Nodes = nodes };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-parallel-real-mcp-host-cancellation-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var broker = CreateSynchronizedDemoMcpBroker(registrations, expectedConnections: 2);
+        using var cancellation = new CancellationTokenSource();
+        var events = new List<ExecutionEvent>();
+        var authorizedCalls = 0;
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            if (evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+                Interlocked.Increment(ref authorizedCalls) == 2)
+                cancellation.Cancel();
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(broker)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, cancellation.Token, runBudget: StructuredRunBudget(maximumToolDispatches: 4))
+            .WaitAsync(TimeSpan.FromSeconds(20));
+
+        Assert.True(result.Cancelled);
+        Assert.False(result.Failed);
+        Assert.False(result.OutcomeUnknown);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolUncertain));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "cancelled");
+
+        foreach (var nodeId in new[] { "tool-research", "tool-review" })
+        {
+            var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+                evt.NodeId == nodeId);
+            var uncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+                evt.NodeId == nodeId && evt.InvocationId == authorized.InvocationId);
+            using var authorizationPayload = JsonDocument.Parse(authorized.Data!);
+            using var uncertaintyPayload = JsonDocument.Parse(uncertain.Data!);
+            Assert.Equal(authorizationPayload.RootElement.GetProperty("toolCallId").GetString(),
+                uncertaintyPayload.RootElement.GetProperty("toolCallId").GetString());
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal("cancelled", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: cancelled", playback, StringComparison.Ordinal);
+        Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_SequenceFailureCancelsSiblingAndStopsLaterItems(bool sqlite)
     {
         var definition = SequenceBodyDefinition() with
