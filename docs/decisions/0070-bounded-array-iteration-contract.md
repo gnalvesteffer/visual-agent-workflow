@@ -2214,6 +2214,16 @@ with the string literal proof above, this covers all four currently supported
 primitive array literal element types in this composition. It does not establish
 mutable collections or the full body/architecture contract.
 
+`ProductionBodyActivationCoordinator_AttributesMalformedNestedJsonInput`
+records a specific JSON parse failure on the JSON Input node for malformed
+nested JSON content. The runtime suppresses a duplicate generic consumer error
+when source and consumer are the same node. The item-count-limit case attributes
+overflow to `JsonToArray`; excessive depth is rejected earlier by the JSON
+Input boundary, which enforces the maximum-depth guard. All three failures stop
+before a later activation and persist/reopen identically in file and SQLite
+stores (6 focused cases). These boundary proofs do not imply that the complete
+body matrix or public iterator contract is closed.
+
 `ProductionBodyActivationCoordinator_ReversesUnicodeStringItems` exercises
 the pure `Reverse` node over three changing inputs, including an accented
 character, a supplementary Unicode rune, and empty text. Reversed values and

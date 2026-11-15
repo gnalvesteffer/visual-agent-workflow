@@ -1802,6 +1802,111 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_AttributesMalformedNestedJsonInput(bool sqlite)
+    {
+        const string input = "[\"not-json\",\"[1]\"]";
+        var revision = WorkflowRevision.Create(TypedStringItemJsonArrayLengthBodyDefinition(),
+            "production-body-malformed-nested-json-input-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.True(result.Failed);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        var inputFailure = Assert.Single(events,
+            evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "input");
+        Assert.Contains("valid JSON", inputFailure.Data, StringComparison.OrdinalIgnoreCase);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_RejectsNestedJsonArrayItemLimit(bool sqlite)
+    {
+        var tooManyItems = "[" + string.Join(',', Enumerable.Range(0, WorkflowJsonArrayLimits.MaximumItems + 1)) + "]";
+        var input = JsonSerializer.Serialize(new[] { tooManyItems, "[1]" });
+        var revision = WorkflowRevision.Create(TypedStringItemJsonArrayLengthBodyDefinition(),
+            "production-body-json-array-item-limit-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.True(result.Failed);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        var arrayFailure = Assert.Single(events,
+            evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "to-array");
+        Assert.Contains($"exceeds {WorkflowJsonArrayLimits.MaximumItems} items", arrayFailure.Data, StringComparison.Ordinal);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_RejectsNestedJsonArrayDepthLimit(bool sqlite)
+    {
+        var tooDeep = new string('[', WorkflowJsonArrayLimits.MaximumDepth + 1) + "0" +
+            new string(']', WorkflowJsonArrayLimits.MaximumDepth + 1);
+        var input = JsonSerializer.Serialize(new[] { tooDeep, "[1]" });
+        var revision = WorkflowRevision.Create(TypedStringItemJsonArrayLengthBodyDefinition(),
+            "production-body-json-array-depth-limit-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.True(result.Failed);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        var inputFailure = Assert.Single(events,
+            evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "input");
+        Assert.Contains($"maximum depth of {WorkflowJsonArrayLimits.MaximumDepth}", inputFailure.Data, StringComparison.Ordinal);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ComposesTypedIntegerArithmeticAndConditionalRouting(bool sqlite)
     {
         const string input = "[-1,0,1,2]";

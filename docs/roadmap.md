@@ -326,8 +326,8 @@ will be introduced.
       them through `ArrayLength` per item. Non-empty and empty arrays produce
       scoped lengths and output; a non-array root identifies `JsonToArray` and
       the executing consumer, fails the root, and prevents later items. File
-      and SQLite proofs pass (4 focused cases). Other element types, malformed
-      JSON and size/depth boundaries remain open.
+      and SQLite proofs pass (4 focused cases). Other element types remain open;
+      malformed JSON and resource boundaries are covered below.
     - [x] Read a fixed zero-based JSON item with `ArrayGet` after `JsonToArray`,
       then select a field. Changing per-item arrays produce matching outputs
       and scoped evidence; an out-of-range index identifies `ArrayGet` and its
@@ -349,6 +349,11 @@ will be introduced.
       through file and SQLite stores (6 cases); all four supported primitive
       literal kinds now have an integrated success proof. Mutability and other
       body compositions remain open.
+    - [x] Exercise malformed JSON and nested JSON resource bounds in the
+      production body seam. JSON Input failures carry safe, node-attributed
+      parse/depth messages; nested-array item overflow is attributed to
+      `JsonToArray`. Failures stop before later items and reopen from file and
+      SQLite stores (6 focused cases). Broader body support remains open.
     - [x] Exercise the pure `Reverse` node over changing string items including
       an empty string, an accented character, and a supplementary Unicode rune.
       Rune order, scoped output evidence, and reopened file/SQLite histories

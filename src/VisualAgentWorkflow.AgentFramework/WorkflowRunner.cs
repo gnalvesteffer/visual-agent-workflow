@@ -1906,7 +1906,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     resultAvailable = childOutcome?.HasOutput == true;
                 var result = node.Type switch
                 {
-                    NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(message),
+                    NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(Id, message),
                     NodeTypes.BooleanBranch => string.Empty,
                     NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.LoopBody or NodeTypes.VariableGet or NodeTypes.VariableSet => message,
                     NodeTypes.Terminate => string.Empty,
@@ -2151,7 +2151,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (recordSequenceTerminal is not null && received.SequenceLineage is { } sequenceLineage)
                     await recordSequenceTerminal(sequenceLineage, SequenceTerminalState.Failed);
                 await Emit(ExecutionEventKinds.NodeFailed, exception.NodeId, invocation, null, exception.Message);
-                await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Node execution failed while evaluating a connected data value.");
+                if (!string.Equals(exception.NodeId, Id, StringComparison.Ordinal))
+                    await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Node execution failed while evaluating a connected data value.");
                 throw;
             }
             catch
@@ -2405,12 +2406,20 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             _ => throw new InvalidOperationException($"MCP argument data type '{value.DataType}' is not supported.")
         };
 
-        private static string NormalizeJson(string input)
+        private static string NormalizeJson(string nodeId, string input)
         {
-            using var document = JsonDocument.Parse(input, new JsonDocumentOptions { MaxDepth = 32 });
-            using var output = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(output)) document.RootElement.WriteTo(writer);
-            return System.Text.Encoding.UTF8.GetString(output.ToArray());
+            try
+            {
+                using var document = JsonDocument.Parse(input, new JsonDocumentOptions { MaxDepth = 32 });
+                using var output = new MemoryStream();
+                using (var writer = new Utf8JsonWriter(output)) document.RootElement.WriteTo(writer);
+                return System.Text.Encoding.UTF8.GetString(output.ToArray());
+            }
+            catch (JsonException exception)
+            {
+                throw new GraphDataEvaluationException(nodeId,
+                    "JSON input must be valid JSON with a maximum depth of 32.", exception);
+            }
         }
 
         internal static string SelectJsonText(string input, string pointer)

@@ -120,6 +120,18 @@ cases). This completes the primitive-type slice for immutable literals, not
 mutable arrays or general iterator parity. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## JSON input and nested-array bounds in iteration proof
+
+Malformed JSON supplied through the production body now records a specific,
+safe failure on the JSON `Input` node instead of the generic execution error.
+The runtime suppresses a duplicate consumer failure when the Input node is also
+the source. Nested JSON array item-count overflow is attributed to `JsonToArray`;
+excessive depth is rejected earlier at the JSON Input boundary. All three
+failure cases stop before a later item and reopen identically from file and
+SQLite stores (6 focused cases). This remains private proof-matrix coverage,
+not public iterator support. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Unicode reverse transform in array-iteration proof
 
 The pure `Reverse` node now runs on changing string items in the integrated
