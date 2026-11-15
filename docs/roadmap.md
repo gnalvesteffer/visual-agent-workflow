@@ -1133,6 +1133,12 @@ will be introduced.
   persistence, and suppression of the next item (2/2). This advances
   deterministic composition and one failure boundary only; architecture,
   broader failure/race, shared-budget, and full-body gates remain.
+- [x] Compose typed string array items through strict string-to-integer parsing,
+  checked integer addition, invariant integer-to-string formatting, and the
+  workflow output. File/SQLite histories verify scoped values and output (2/2);
+  malformed input is attributed to the conversion node and prevents later-item
+  admission (2/2). Other conversion boundaries and the integrated iterator
+  architecture remain open.
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

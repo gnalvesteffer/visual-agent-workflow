@@ -1265,6 +1265,108 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ComposesStringIntegerConversionPerItem(bool sqlite)
+    {
+        const string input = "[\"40\",\"41\",\"42\"]";
+        var revision = WorkflowRevision.Create(TypedStringIntegerConversionBodyDefinition(),
+            "production-body-typed-string-integer-conversion-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.False(result.Failed);
+        Assert.Equal("41;42;43", result.Output);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var expectedValues = new long[] { 40, 41, 42 };
+        for (var index = 0; index < expectedValues.Length; index++)
+        {
+            var scopeId = $"array-loop/{index}";
+            Assert.Equal(expectedValues[index], ReadInteger("data:parse-value"));
+            Assert.Equal(expectedValues[index] + 1, ReadInteger("data:sum-value"));
+            Assert.Equal((expectedValues[index] + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ReadString("data:format-value"));
+
+            long ReadInteger(string connectionId)
+            {
+                var evt = Assert.Single(events, candidate => candidate.Kind == ExecutionEventKinds.DataEvaluated &&
+                    candidate.ScopeId == scopeId && candidate.ConnectionId == connectionId);
+                using var payload = JsonDocument.Parse(evt.Data!);
+                return payload.RootElement.GetProperty("value").GetInt64();
+            }
+
+            string ReadString(string connectionId)
+            {
+                var evt = Assert.Single(events, candidate => candidate.Kind == ExecutionEventKinds.DataEvaluated &&
+                    candidate.ScopeId == scopeId && candidate.ConnectionId == connectionId);
+                using var payload = JsonDocument.Parse(evt.Data!);
+                return payload.RootElement.GetProperty("value").GetString()!;
+            }
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+        Assert.Equal(3, reopened.Events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_AttributesInvalidIntegerTextAndStopsLaterItems(bool sqlite)
+    {
+        const string input = "[\"12x\",\"13\"]";
+        var revision = WorkflowRevision.Create(TypedStringIntegerConversionBodyDefinition(),
+            "production-body-invalid-string-integer-conversion-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.True(result.Failed);
+        Assert.False(result.OutcomeUnknown);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+
+        var conversionFailure = Assert.Single(events,
+            evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "parse");
+        using var failure = JsonDocument.Parse(conversionFailure.Data!);
+        Assert.Equal("string-to-integer.invalid", failure.RootElement.GetProperty("code").GetString());
+        Assert.Equal("syntax", failure.RootElement.GetProperty("reason").GetString());
+        Assert.Equal(3, failure.RootElement.GetProperty("inputLength").GetInt32());
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "output");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_JoinsParallelAgentsPerItem(bool sqlite)
     {
         const string input = "[\"north\",\"south\"]";
@@ -11229,6 +11331,38 @@ public sealed class ArrayIterationVawBodyProofTests
             ExecutionConnections = execution,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                 .Add("item", new("Array item", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition TypedStringIntegerConversionBodyDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "item", OutputDataType = WorkflowDataTypes.String })
+            .Add("parse", new(NodeTypes.StringToInteger, "1.0.0"))
+            .Add("offset", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
+            .Add("sum", new(NodeTypes.IntegerAdd, "1.0.0"))
+            .Add("format", new(NodeTypes.IntegerToString, "1.0.0"))
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.String });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("item-value", new(new("item", "out"), new("parse", "in"), "data"))
+            .Add("parse-value", new(new("parse", "out"), new("sum", "left"), "data"))
+            .Add("offset-value", new(new("offset", "out"), new("sum", "right"), "data"))
+            .Add("sum-value", new(new("sum", "out"), new("format", "in"), "data"))
+            .Add("format-value", new(new("format", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-output", Edge("input", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-string-integer-conversion", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "0") { Type = WorkflowDataTypes.String })
                 .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
         };
         WorkflowValidator.ThrowIfInvalid(definition);

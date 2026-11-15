@@ -35,6 +35,16 @@ identically (2/2). This verifies one deterministic failure boundary without
 choosing an iterator architecture or adding public authoring. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## String and integer conversion in array-iteration proof
+
+Typed string items now pass through strict parsing, checked integer addition,
+and invariant formatting to the workflow output. Scoped values and completed
+histories reopen from file and SQLite (2/2). A malformed value records the
+stable parser code, reason, and input length against the conversion node, fails
+the root, and suppresses the next item in both stores (2/2). This remains
+proof-only matrix coverage. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Bounded-loop playback pairs lifecycle events by iteration
 
 The passive Run inspector now pairs ordinary bounded-loop start/completion

@@ -2126,6 +2126,18 @@ event history after reopening file and SQLite stores (2/2 focused cases). This
 does not cover other deterministic-node failures or select the iterator
 architecture.
 
+`ProductionBodyActivationCoordinator_ComposesStringIntegerConversionPerItem`
+passes typed string items through strict `StringToInteger`, checked
+`IntegerAdd`, invariant `IntegerToString`, and Output. It verifies the parsed,
+arithmetic, and formatted values in each activation scope and reopens the
+completed history from both stores (2/2 focused cases).
+`ProductionBodyActivationCoordinator_AttributesInvalidIntegerTextAndStopsLaterItems`
+uses malformed text to verify stable parser code/reason/length evidence at the
+conversion node, root failure, no iteration completion, and suppression of the
+next item, again through file and SQLite (2/2). This covers one conversion
+composition and malformed-text boundary; the broader supported-body and
+architecture gates remain.
+
 `ProductionBodyActivationCoordinator_EnforcesSharedActivationLimit` now
 exercises the run-context activation cap through the integrated path. After the
 first item's Agent and MCP work completes, a one-activation budget rejects
