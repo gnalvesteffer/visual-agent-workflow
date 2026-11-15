@@ -158,6 +158,12 @@ will be introduced.
     only source identity and derive/consume the target in the coordinator.
     Prove nested outer-loop continuation and rejection of stale or foreign
     requests without changing `core.terminate` semantics.
+  - [x] Compare conditional item routing across structured, fresh-subworkflow,
+    and hybrid candidates with each Agent result explicitly wired into its
+    exclusive Merge. The candidates produce matching result values, branch
+    decisions, invocation events, and scopes, persisted through file and
+    SQLite stores (2/2 focused cases). This is proof-matrix evidence only; the
+    production iterator contract remains open.
     - [x] Prove a private condition-routed Break through the production Agent
       Framework body workflow and output handoff. The dispatcher records only
       source node/frame/scope; the VAW frame derives and consumes the target

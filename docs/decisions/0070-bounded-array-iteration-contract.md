@@ -1253,7 +1253,10 @@ current-schema production body containing `String Equals`, `Boolean Branch`,
 two Agent arms, and an exclusive Merge. For `yes/no/yes`, the three candidates
 produce the same output, branch decisions, selected Agent invocations, event
 shape, and activation scopes; file and SQLite histories pass (2/2 focused
-cases). This closes one real conditional-routing slice in the candidate
+cases). Each Agent result is connected by its own data edge to the Merge; the
+fixture does not substitute a shared Input-to-Merge edge for the selected
+branch's value. The output comparison includes the deterministic Agent result
+payloads. This closes one real conditional-routing slice in the candidate
 matrix. The loop coordinator is still test-owned, and the proof does not
 establish iterator pins, authored `Break`, or recovery.
 

@@ -2684,7 +2684,8 @@ public sealed class ArrayIterationVawBodyProofTests
             });
         hybridRecorder.CompleteRoot();
 
-        const string expected = "yes;no;yes";
+        const string expected = "{\"query\":\"yes-agent-yes\"};" +
+            "{\"query\":\"no-agent-no\"};" + "{\"query\":\"yes-agent-yes\"}";
         Assert.False(structured.Failed);
         Assert.Equal(expected, structured.Output);
         Assert.Equal(expected, subworkflowOutput);
@@ -9589,7 +9590,8 @@ public sealed class ArrayIterationVawBodyProofTests
             .Add("condition-route", new(new("equals", "out"), new("route", "condition"), "data"))
             .Add("input-agent-yes", new(new("input", "out"), new("agent-yes", "in"), "data"))
             .Add("input-agent-no", new(new("input", "out"), new("agent-no", "in"), "data"))
-            .Add("input-merge", new(new("input", "out"), new("merge", "in"), "data"))
+            .Add("yes-merge-value", new(new("agent-yes", "out"), new("merge", "in"), "data"))
+            .Add("no-merge-value", new(new("agent-no", "out"), new("merge", "in"), "data"))
             .Add("merge-output", new(new("merge", "out"), new("output", "in"), "data"));
         var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
             .Add("input-route", Edge("input", "then", "route", "execute"))
