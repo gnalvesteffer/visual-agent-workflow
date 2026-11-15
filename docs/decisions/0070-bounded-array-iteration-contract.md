@@ -2146,3 +2146,11 @@ one host classification policy. It does not prove that the remote fixture
 processed the canceled request, select the iterator architecture, or add
 public iterator schema/Studio authoring. The broader append-failure, race,
 recovery, and supported-body matrices remain open.
+
+The same production-broker test now rejects the sibling's `tool.uncertain`
+append in both stores under both root-outcome policies (8/8 focused matrix
+cases). The append attempt is correlated to the accepted authorization, but
+the rejected uncertainty and subsequent `node.cancelled` are absent from the
+persisted event prefix. Reopened playback retains the authorization and does
+not invent a tool terminal event. This records a narrow failed-evidence-write
+prefix; it does not establish recovery or a general append-failure policy.

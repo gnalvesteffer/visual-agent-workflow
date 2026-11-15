@@ -1627,12 +1627,16 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
     public async Task ProductionBodyActivationCoordinator_ProductionMcpFailureCancelsSiblingAndPreservesEvidence(
-        bool sqlite, bool classifyProtocolFailure)
+        bool sqlite, bool classifyProtocolFailure, bool rejectSiblingUncertainty = false)
     {
         const string input = "[\"first\",\"must-not-run\"]";
         var registrations = CreateDemoMcpRegistrations("demo.protocol-failure")
@@ -1673,12 +1677,16 @@ public sealed class ArrayIterationVawBodyProofTests
         WorkflowValidator.ThrowIfInvalid(definition);
         var revision = WorkflowRevision.Create(definition,
             "production-body-parallel-real-mcp-failure-cancels-sibling-proof");
-        using var runStore = new ProofRunStore(revision, input, sqlite);
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendPredicate: evt => rejectSiblingUncertainty &&
+                evt.Kind == ExecutionEventKinds.ToolUncertain && evt.NodeId == "tool-review");
         var broker = CreateSynchronizedDemoMcpBroker(registrations, expectedConnections: 2);
         var events = new List<ExecutionEvent>();
+        var appendAttempts = new ConcurrentQueue<ExecutionEvent>();
 
         ValueTask Record(ExecutionEvent evt)
         {
+            appendAttempts.Enqueue(evt);
             runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
             events.Add(evt);
             return ValueTask.CompletedTask;
@@ -1691,7 +1699,7 @@ public sealed class ArrayIterationVawBodyProofTests
 
         Assert.Equal(!classifyProtocolFailure, result.OutcomeUnknown);
         Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
-        Assert.Equal(classifyProtocolFailure ? 1 : 2,
+        Assert.Equal((classifyProtocolFailure ? 0 : 1) + (rejectSiblingUncertainty ? 0 : 1),
             events.Count(evt => evt.Kind == ExecutionEventKinds.ToolUncertain));
         Assert.Equal(classifyProtocolFailure ? 1 : 0,
             events.Count(evt => evt.Kind == ExecutionEventKinds.ToolFailed));
@@ -1729,29 +1737,54 @@ public sealed class ArrayIterationVawBodyProofTests
                 evt.NodeId == nodeId);
             var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
                 evt.NodeId == nodeId && evt.InvocationId == started.InvocationId);
-            var terminalToolEvent = Assert.Single(events, evt => evt.Kind == (nodeId == "tool-research" &&
-                    classifyProtocolFailure ? ExecutionEventKinds.ToolFailed : ExecutionEventKinds.ToolUncertain) &&
-                evt.NodeId == nodeId && evt.InvocationId == started.InvocationId);
             using var authorizationPayload = JsonDocument.Parse(authorized.Data!);
-            using var uncertaintyPayload = JsonDocument.Parse(terminalToolEvent.Data!);
-            Assert.Equal(authorizationPayload.RootElement.GetProperty("toolCallId").GetString(),
-                uncertaintyPayload.RootElement.GetProperty("toolCallId").GetString());
+            var expectedToolEvent = nodeId == "tool-research"
+                ? classifyProtocolFailure ? ExecutionEventKinds.ToolFailed : ExecutionEventKinds.ToolUncertain
+                : ExecutionEventKinds.ToolUncertain;
+            var matchingToolEvents = events.Where(evt => evt.Kind == expectedToolEvent && evt.NodeId == nodeId &&
+                evt.InvocationId == started.InvocationId).ToArray();
+            if (nodeId == "tool-review" && rejectSiblingUncertainty)
+            {
+                Assert.Empty(matchingToolEvents);
+                var rejectedAttempt = Assert.Single(appendAttempts, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+                    evt.NodeId == nodeId && evt.InvocationId == started.InvocationId);
+                using var rejectedPayload = JsonDocument.Parse(rejectedAttempt.Data!);
+                Assert.Equal(authorizationPayload.RootElement.GetProperty("toolCallId").GetString(),
+                    rejectedPayload.RootElement.GetProperty("toolCallId").GetString());
+            }
+            else
+            {
+                var terminalToolEvent = Assert.Single(matchingToolEvents);
+                using var terminalPayload = JsonDocument.Parse(terminalToolEvent.Data!);
+                Assert.Equal(authorizationPayload.RootElement.GetProperty("toolCallId").GetString(),
+                    terminalPayload.RootElement.GetProperty("toolCallId").GetString());
+            }
         }
 
         var failedCallOutcome = Assert.Single(events, evt => evt.Kind == (classifyProtocolFailure
                 ? ExecutionEventKinds.ToolFailed
                 : ExecutionEventKinds.ToolUncertain) && evt.NodeId == "tool-research");
-        var cancelledSiblingUncertainty = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+        var cancelledSiblingUncertainty = appendAttempts.Single(evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
             evt.NodeId == "tool-review");
         Assert.True(failedCallOutcome.Sequence < cancelledSiblingUncertainty.Sequence);
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "tool-review");
+        if (rejectSiblingUncertainty)
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+                evt.NodeId == "tool-review");
+        else
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "tool-review");
 
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(expectedStatus, reopened.Status);
         Assert.Equal(events, reopened.Events);
         var playback = await RenderPlayback(reopened);
         Assert.Contains($"Latest run status: {expectedStatus}", playback, StringComparison.Ordinal);
-        Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+        if (events.Any(evt => evt.Kind == ExecutionEventKinds.ToolUncertain))
+            Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+        else
+        {
+            Assert.Contains(ExecutionEventKinds.ToolAuthorized, playback, StringComparison.Ordinal);
+            Assert.DoesNotContain(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+        }
         Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
     }
 

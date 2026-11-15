@@ -286,8 +286,10 @@ will be introduced.
       the next item runs. Only the unknown-outcome case emits an iteration
       terminal event; the definitive failure remains an incomplete iteration.
       File/SQLite reopen and passive playback preserve the evidence (4/4
-      focused cases). This does not resolve possible remote side effects or
-      establish public iterator semantics.
+      focused cases). A rejected sibling `tool.uncertain` append also preserves
+      only the accepted authorization prefix in both stores, without persisting
+      a false cancellation outcome (8/8 matrix cases). This does not resolve
+      possible remote side effects or establish public iterator semantics.
     - [x] Qualify one transformed production-body path across two items:
       Variable Set/Get, TextConcat, Uppercase, Agent, and MCP run under fresh
       activation state with correlated values and lifecycle evidence, reopened
