@@ -2001,3 +2001,11 @@ scopes, merged outputs, one root lifecycle, and file/SQLite reopen (2/2 focused
 cases). This closes conditional body composition for this path only. It does
 not select an architecture, establish all supported-body parity, or authorize
 public iterator/Break schema and Studio authoring.
+
+`ProductionBodyActivationCoordinator_ExecutesSequencePerItem` adds one
+current-schema Sequence body to the integrated private path. Two MCP outputs
+dispatch and complete in each of two activations; scoped Sequence/tool/loop
+evidence and the root lifecycle reopen through file and SQLite (2/2 focused
+cases). This verifies successful Sequence composition only; Sequence failure
+races, the full supported-body matrix, architecture selection, and public
+iterator authoring remain open.

@@ -863,6 +863,56 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ExecutesSequencePerItem(bool sqlite)
+    {
+        var definition = SequenceBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition, "production-body-sequence-proof");
+        const string input = "[\"hello\",\"world\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner(tools)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 4));
+
+        Assert.False(outcome.Failed);
+        Assert.Equal("echo:sequence;echo:sequence", outcome.Output);
+        Assert.Equal(["sequence", "sequence", "sequence", "sequence"], tools.Queries);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        for (var index = 0; index < 2; index++)
+        {
+            var scopeId = $"array-loop/{index}";
+            var scoped = reopened.Events.Where(evt => evt.ScopeId == scopeId).ToArray();
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.SequenceStarted);
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched));
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        }
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyNestedBreak_StopsInnerLoopAndContinuesOuterLoop(bool sqlite)
     {
         var body = StructuredBreakProofDefinition();

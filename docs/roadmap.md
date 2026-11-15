@@ -241,6 +241,11 @@ will be introduced.
       activation state with correlated values and lifecycle evidence, reopened
       from file and SQLite (2/2 focused cases). Other deterministic node
       families and their compositions remain to be qualified.
+    - [x] Execute a current-schema two-output Sequence body through the private
+      coordinator for two items. Both MCP outputs dispatch and complete per
+      activation; Sequence lifecycle, tool authorization, and loop events
+      retain exact scopes and reopen from file and SQLite (2/2 focused cases).
+      Broader Sequence failure races and public iterator semantics remain open.
     - [x] Persist and reopen the static-fork Break-versus-admitted-failure
       race through file and SQLite stores. Both retain the descendant failure
       and failed root outcome without completing the join. Sequence Break
