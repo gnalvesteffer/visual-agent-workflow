@@ -225,6 +225,59 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_BindsTypedIntegerItemAndIndex(bool sqlite)
+    {
+        const string input = "[-9223372036854775808,0,9223372036854775807]";
+        var revision = WorkflowRevision.Create(TypedItemAndIndexBodyDefinition(),
+            "production-body-typed-item-index-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+        var agents = new EchoAgentExecutor();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner(agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.Integer);
+
+        Assert.False(outcome.Failed);
+        Assert.Equal(
+            "{\"query\":\"-9223372036854775808:0\"};{\"query\":\"0:1\"};{\"query\":\"9223372036854775807:2\"}",
+            outcome.Output);
+        Assert.Equal(["-9223372036854775808:0", "0:1", "9223372036854775807:2"], agents.Inputs);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var expectedItems = new[] { long.MinValue, 0, long.MaxValue };
+        for (var index = 0; index < expectedItems.Length; index++)
+        {
+            var scopeId = $"array-loop/{index}";
+            var evaluated = events.Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.ScopeId == scopeId).ToArray();
+            Assert.Equal(expectedItems[index], ReadInteger(evaluated, "data:item-value"));
+            Assert.Equal(index, ReadInteger(evaluated, "data:index-value"));
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal(3, reopened.Events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
+        Assert.Single(reopened.Events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+
+        static long ReadInteger(IEnumerable<ExecutionEvent> iterationEvents, string connectionId)
+        {
+            var evt = Assert.Single(iterationEvents, candidate => candidate.ConnectionId == connectionId);
+            using var payload = JsonDocument.Parse(evt.Data!);
+            return payload.RootElement.GetProperty("value").GetInt64();
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_RejectsToolBeforeDispatchAtSharedLimit(bool sqlite)
     {
         var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);

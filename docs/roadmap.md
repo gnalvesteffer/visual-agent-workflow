@@ -247,6 +247,11 @@ will be introduced.
       scope, and the completed history reopens from file and SQLite (2/2
       focused cases). Broader function failure and shared-budget interactions
       remain open.
+    - [x] Bind typed integer items and indices through the private coordinator
+      into existing WorkflowValue pins at the signed 64-bit boundaries. The
+      production Agent body receives each correctly paired item/index, scoped
+      data evaluations reopen from file and SQLite, and the root result matches
+      (2/2 focused cases). Dedicated authored iterator pins remain unimplemented.
     - [x] Execute a current-schema two-output Sequence body through the private
       coordinator for two items. Both MCP outputs dispatch and complete per
       activation; Sequence lifecycle, tool authorization, and loop events

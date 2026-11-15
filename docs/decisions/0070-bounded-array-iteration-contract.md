@@ -2023,3 +2023,11 @@ the one-root history reopens from file and SQLite (2/2 focused cases). This
 qualifies successful graph-function composition only; function failures,
 shared-budget interaction, the broader body matrix, architecture selection,
 and public iterator authoring remain open.
+
+`ProductionBodyActivationCoordinator_BindsTypedIntegerItemAndIndex` exercises
+the Core parameter-binding seam through the same coordinator and production
+Agent dispatcher. It uses `long.MinValue`, zero, and `long.MaxValue`, verifies
+each typed item is paired with its zero-based integer index at the Agent, and
+checks the scoped `data.evaluated` records and completed root after reopening
+both stores (2/2 focused cases). This does not add serialized iterator pins or
+Studio authoring; those remain behind the architecture review.
