@@ -92,6 +92,15 @@ Negative indices and other element types remain open. This remains private
 proof-matrix evidence, not public iterator support. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Template rendering in array-iteration proof
+
+An explicit `TextTemplate` now combines the current string item with its typed
+index parameter over three activations. The rendered strings and scoped
+evaluation evidence match and reopen identically from file and SQLite stores
+(2/2). Other template shapes, broader body compatibility, and public iterator
+authoring remain open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Bounded-loop playback pairs lifecycle events by iteration
 
 The passive Run inspector now pairs ordinary bounded-loop start/completion

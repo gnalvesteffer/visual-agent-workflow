@@ -334,6 +334,11 @@ will be introduced.
       consumer, fails the root, and prevents later items. File/SQLite proofs
       pass (4 focused cases). Negative indices and other element kinds remain
       unproven in this composed body seam.
+    - [x] Render an explicit `TextTemplate` from the current item and typed
+      index parameter across three changing string items. Output and scoped
+      evaluated values agree after file/SQLite reopen (2 focused cases). This
+      proves item/index template interpolation in the private seam; other
+      template part shapes and public iterator authoring remain open.
     - [x] Execute a current-schema two-output Sequence body through the private
       coordinator for two items. Both MCP outputs dispatch and complete per
       activation; Sequence lifecycle, tool authorization, and loop events

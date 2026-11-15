@@ -1585,6 +1585,46 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_RendersTextTemplateFromItemAndIndex(bool sqlite)
+    {
+        const string input = "[\"red\",\"blue\",\"green\"]";
+        var revision = WorkflowRevision.Create(TypedStringItemTemplateBodyDefinition(),
+            "production-body-typed-string-template-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.False(result.Failed);
+        Assert.Equal("item=red,index=0;item=blue,index=1;item=green,index=2", result.Output);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var expected = new[] { "item=red,index=0", "item=blue,index=1", "item=green,index=2" };
+        for (var index = 0; index < expected.Length; index++)
+        {
+            var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.ScopeId == $"array-loop/{index}" && evt.ConnectionId == "data:template-output");
+            using var payload = JsonDocument.Parse(evaluated.Data!);
+            Assert.Equal(expected[index], payload.RootElement.GetProperty("value").GetString());
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ComposesTypedIntegerArithmeticAndConditionalRouting(bool sqlite)
     {
         const string input = "[-1,0,1,2]";
@@ -11992,6 +12032,38 @@ public sealed class ArrayIterationVawBodyProofTests
             ExecutionConnections = execution,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                 .Add("item", new("Array item", "[]") { Type = WorkflowDataTypes.String })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition TypedStringItemTemplateBodyDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("template", new(NodeTypes.TextTemplate, "1.0.0")
+            {
+                TextTemplate = new([
+                    new("literal", "item="),
+                    new("input", ""),
+                    new("literal", ",index="),
+                    new("parameter", "index")
+                ])
+            })
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.String });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-template", new(new("input", "out"), new("template", "in"), "data"))
+            .Add("template-output", new(new("template", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-output", Edge("input", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-text-template", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
                 .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
         };
         WorkflowValidator.ThrowIfInvalid(definition);

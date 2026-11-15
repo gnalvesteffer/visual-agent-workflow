@@ -2191,6 +2191,13 @@ uses an empty first array to prove the out-of-range error is attributed to
 ArrayGet and its consumer, fails the root, and stops before the next item (2/2).
 Negative indices and other element kinds remain unproven in this seam.
 
+`ProductionBodyActivationCoordinator_RendersTextTemplateFromItemAndIndex`
+renders one explicit template from the current string item and the typed index
+parameter over three activations. Each output and scoped evaluation matches,
+and file/SQLite histories reopen identically (2/2). This verifies this template
+part combination only; the coordinator architecture, broader body matrix, and
+public iterator authoring remain under review.
+
 `ProductionBodyActivationCoordinator_EnforcesSharedActivationLimit` now
 exercises the run-context activation cap through the integrated path. After the
 first item's Agent and MCP work completes, a one-activation budget rejects
