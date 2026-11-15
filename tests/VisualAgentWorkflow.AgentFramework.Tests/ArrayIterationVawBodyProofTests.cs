@@ -1510,6 +1510,81 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_SelectsNestedJsonArrayItemPerActivation(bool sqlite)
+    {
+        const string input = "[\"[{\\\"name\\\":\\\"Ada\\\"},{\\\"name\\\":\\\"Beta\\\"}]\",\"[{\\\"name\\\":\\\"Gamma\\\"},{\\\"name\\\":\\\"Delta\\\"}]\"]";
+        var revision = WorkflowRevision.Create(TypedStringItemJsonArrayGetBodyDefinition(),
+            "production-body-typed-string-json-array-get-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.False(result.Failed);
+        Assert.Equal("Beta;Delta", result.Output);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var expectedNames = new[] { "Beta", "Delta" };
+        for (var index = 0; index < expectedNames.Length; index++)
+        {
+            var selected = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.ScopeId == $"array-loop/{index}" && evt.ConnectionId == "data:selected-output");
+            using var payload = JsonDocument.Parse(selected.Data!);
+            Assert.Equal(expectedNames[index], payload.RootElement.GetProperty("value").GetString());
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_AttributesNestedJsonArrayIndexFailure(bool sqlite)
+    {
+        const string input = "[\"[]\",\"[{\\\"name\\\":\\\"Later\\\"}]\"]";
+        var revision = WorkflowRevision.Create(TypedStringItemJsonArrayGetBodyDefinition(),
+            "production-body-json-array-index-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.True(result.Failed);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        var indexFailure = Assert.Single(events,
+            evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "get");
+        Assert.Contains("Array index 1 is outside an array containing 0 items", indexFailure.Data, StringComparison.Ordinal);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "output");
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ComposesTypedIntegerArithmeticAndConditionalRouting(bool sqlite)
     {
         const string input = "[-1,0,1,2]";
@@ -11882,6 +11957,37 @@ public sealed class ArrayIterationVawBodyProofTests
             .Add("input-output", Edge("input", "then", "output", "execute"));
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
             "array-iteration-json-array-length", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "[]") { Type = WorkflowDataTypes.String })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition TypedStringItemJsonArrayGetBodyDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json })
+            .Add("to-array", new(NodeTypes.JsonToArray, "1.0.0"))
+            .Add("index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
+            .Add("get", new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("select", new(NodeTypes.JsonSelectString, "1.0.0")
+                { JsonPropertySelection = new("/name") })
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.String });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-array", new(new("input", "out"), new("to-array", "in"), "data"))
+            .Add("array-get", new(new("to-array", "out"), new("get", "array"), "data"))
+            .Add("index-get", new(new("index", "out"), new("get", "index"), "data"))
+            .Add("item-select", new(new("get", "item"), new("select", "in"), "data"))
+            .Add("selected-output", new(new("select", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-output", Edge("input", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-json-array-get", "input", nodes, data)
         {
             ExecutionConnections = execution,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty

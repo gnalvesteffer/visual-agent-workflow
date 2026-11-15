@@ -328,6 +328,12 @@ will be introduced.
       the executing consumer, fails the root, and prevents later items. File
       and SQLite proofs pass (4 focused cases). Other element types, malformed
       JSON and size/depth boundaries remain open.
+    - [x] Read a fixed zero-based JSON item with `ArrayGet` after `JsonToArray`,
+      then select a field. Changing per-item arrays produce matching outputs
+      and scoped evidence; an out-of-range index identifies `ArrayGet` and its
+      consumer, fails the root, and prevents later items. File/SQLite proofs
+      pass (4 focused cases). Negative indices and other element kinds remain
+      unproven in this composed body seam.
     - [x] Execute a current-schema two-output Sequence body through the private
       coordinator for two items. Both MCP outputs dispatch and complete per
       activation; Sequence lifecycle, tool authorization, and loop events

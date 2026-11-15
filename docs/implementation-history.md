@@ -81,6 +81,17 @@ Malformed JSON and depth/item-limit boundaries remain open; this is matrix
 coverage only, not public iterator support. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Nested JSON array indexing in array-iteration proof
+
+`JsonToArray` and a fixed zero-based `ArrayGet` now select a JSON object from
+each activation's nested array, then return a chosen field. Changing arrays
+produce the expected second-item values and scoped evaluation evidence in
+reopened file/SQLite histories (2/2). An empty first array fails at `ArrayGet`,
+records the consumer failure, and prevents the next activation (2/2).
+Negative indices and other element types remain open. This remains private
+proof-matrix evidence, not public iterator support. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Bounded-loop playback pairs lifecycle events by iteration
 
 The passive Run inspector now pairs ordinary bounded-loop start/completion

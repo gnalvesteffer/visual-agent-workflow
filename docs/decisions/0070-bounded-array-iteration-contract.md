@@ -2183,6 +2183,14 @@ rejects a valid non-array JSON root at `JsonToArray`, attributes the consumer
 failure to Output, fails the root, and admits no later item (2/2). Malformed
 JSON and configured depth/item-limit boundaries remain unproven.
 
+`ProductionBodyActivationCoordinator_SelectsNestedJsonArrayItemPerActivation`
+composes `JsonToArray`, a fixed zero-based `ArrayGet`, and `JsonSelectString`.
+Changing arrays return their second item's name with scoped data evidence and
+file/SQLite reopen (2/2). `ProductionBodyActivationCoordinator_AttributesNestedJsonArrayIndexFailure`
+uses an empty first array to prove the out-of-range error is attributed to
+ArrayGet and its consumer, fails the root, and stops before the next item (2/2).
+Negative indices and other element kinds remain unproven in this seam.
+
 `ProductionBodyActivationCoordinator_EnforcesSharedActivationLimit` now
 exercises the run-context activation cap through the integrated path. After the
 first item's Agent and MCP work completes, a one-activation budget rejects
