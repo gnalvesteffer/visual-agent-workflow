@@ -2153,6 +2153,18 @@ each activation scope plus file/SQLite reopen (2/2 focused cases). It does not
 cover JSON projection, merge, malformed input, or the broader supported-body
 matrix.
 
+`ProductionBodyActivationCoordinator_ProjectsTypedStringItemJsonBeforeSelection`
+now composes `JsonProject` with `JsonSelectString` for each typed string item.
+The proof checks that declared field types are enforced, unselected fields are
+dropped, and projected values and final output survive file/SQLite reopen
+(2/2). `ProductionBodyActivationCoordinator_AttributesJsonProjectionFailureAndStopsLaterItems`
+also proves a projection type mismatch is attributed to `project` and its
+consumer, fails the root, and prevents admission of the next item (2/2).
+Pure data evaluation now wraps projection contract errors with the originating
+node ID, matching the explicit-node failure evidence. JSON merge, malformed
+JSON, and the broader body matrix remain unproven; this is still proof-only and
+does not settle the iterator architecture or public authoring contract.
+
 `ProductionBodyActivationCoordinator_EnforcesSharedActivationLimit` now
 exercises the run-context activation cap through the integrated path. After the
 first item's Agent and MCP work completes, a one-activation budget rejects

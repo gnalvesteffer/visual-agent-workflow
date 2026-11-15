@@ -1126,7 +1126,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.JsonSelectString when outputPort == "out" => new ExplicitGraphValue("string",
                         StringExecutor.SelectJsonText(ResolveJsonInput(nodeId, "in", evaluated, cache, active), node.JsonPropertySelection!.Pointer)),
                     NodeTypes.JsonProject when outputPort == "out" => new ExplicitGraphValue("json",
-                        ParseJson(StringExecutor.ProjectJson(ResolveJsonInput(nodeId, "in", evaluated, cache, active), node.JsonProjection!))),
+                        ProjectJsonValue(nodeId, ResolveJsonInput(nodeId, "in", evaluated, cache, active), node.JsonProjection!)),
                     NodeTypes.JsonMerge when outputPort == "out" => new ExplicitGraphValue("json",
                         ParseJson(StringExecutor.MergeJson(
                             ResolveJsonInput(nodeId, "left", evaluated, cache, active),
@@ -1407,6 +1407,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         {
             using var document = JsonDocument.Parse(value, new JsonDocumentOptions { MaxDepth = 32 });
             return document.RootElement.Clone();
+        }
+
+        private static JsonElement ProjectJsonValue(string nodeId, string input, JsonProjectionConfiguration projection)
+        {
+            try
+            {
+                return ParseJson(StringExecutor.ProjectJson(input, projection));
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new GraphDataEvaluationException(nodeId, exception.Message, exception);
+            }
         }
 
         private JsonElement ParseTypedArrayInput(string nodeId, string elementType, string sourceInput)

@@ -54,12 +54,17 @@ checks each negated value, chosen path, output, and reopened file/SQLite history
 coverage, not a public iterator contract. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
-## JSON selection in array-iteration proof
+## JSON projection and failure attribution in array-iteration proof
 
 Typed string items containing JSON records now flow through a JSON-typed body
-Input and JSON Pointer selection to Output. The proof checks selected values
-and source JSON in each activation's evidence and reopens file/SQLite history
-(2/2). JSON projection, merge, and failure shapes remain unproven. See
+Input and JSON Pointer selection to Output. A second composition projects typed
+fields before selecting a string. These proofs check projected/selected values
+and source JSON in each activation's evidence and reopen file/SQLite history
+(4/4 focused cases). A projection type mismatch is attributed to the projection
+node and its consumer, fails the root, and prevents the next item from starting
+(2/2). Pure data evaluation now wraps projection contract errors with the
+originating node ID. JSON merge, malformed JSON, and the broader body matrix
+remain unproven. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 ## Bounded-loop playback pairs lifecycle events by iteration
