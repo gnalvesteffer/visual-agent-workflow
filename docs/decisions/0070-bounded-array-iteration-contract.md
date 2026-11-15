@@ -2040,3 +2040,10 @@ and produce activation-scoped branch evidence in file/SQLite histories (2/2
 focused cases). This extends the prior string-valued condition and integer
 item/index proofs; it does not establish every element type, branch-failure
 shape, or the remaining body matrix.
+
+`ProductionBodyActivationCoordinator_EvaluatesTypedNumberItems` adds finite
+double items to the integrated typed binding matrix. Each item flows through a
+`number` WorkflowValue and `NumberAdd` before Output; its exact expected sum
+and scoped input/output evaluations persist through file and SQLite (2/2
+focused cases). Non-finite values remain excluded by Core array validation,
+and broader node compositions and failure cases remain open.

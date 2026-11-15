@@ -1061,6 +1061,55 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_EvaluatesTypedNumberItems(bool sqlite)
+    {
+        const string input = "[-1.25,0,9.5]";
+        var revision = WorkflowRevision.Create(TypedNumberItemBodyDefinition(),
+            "production-body-typed-number-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.Number);
+
+        Assert.False(result.Failed);
+        Assert.Equal("-0.5;0.75;10.25", result.Output);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var expectedItems = new[] { -1.25d, 0d, 9.5d };
+        var expectedSums = new[] { -0.5d, 0.75d, 10.25d };
+        for (var index = 0; index < expectedItems.Length; index++)
+        {
+            var scopeId = $"array-loop/{index}";
+            Assert.Equal(expectedItems[index], ReadNumber("data:item-value"));
+            Assert.Equal(expectedSums[index], ReadNumber("data:sum-value"));
+
+            double ReadNumber(string connectionId)
+            {
+                var evt = Assert.Single(events, candidate => candidate.Kind == ExecutionEventKinds.DataEvaluated &&
+                    candidate.ScopeId == scopeId && candidate.ConnectionId == connectionId);
+                using var payload = JsonDocument.Parse(evt.Data!);
+                return payload.RootElement.GetProperty("value").GetDouble();
+            }
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+        Assert.Equal(3, reopened.Events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_SequenceFailureCancelsSiblingAndStopsLaterItems(bool sqlite)
     {
         var definition = SequenceBodyDefinition() with
@@ -10304,6 +10353,35 @@ public sealed class ArrayIterationVawBodyProofTests
             ExecutionConnections = execution,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                 .Add("item", new("Array item", "false") { Type = WorkflowDataTypes.Boolean })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition TypedNumberItemBodyDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "item", OutputDataType = WorkflowDataTypes.Number })
+            .Add("offset", new(NodeTypes.NumberConstant, "1.0.0")
+                { NumberConstant = new(0.75d) })
+            .Add("sum", new(NodeTypes.NumberAdd, "1.0.0"))
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.Number });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("item-value", new(new("item", "out"), new("sum", "left"), "data"))
+            .Add("offset-value", new(new("offset", "out"), new("sum", "right"), "data"))
+            .Add("sum-value", new(new("sum", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-output", Edge("input", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-typed-number", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "0") { Type = WorkflowDataTypes.Number })
                 .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
         };
         WorkflowValidator.ThrowIfInvalid(definition);

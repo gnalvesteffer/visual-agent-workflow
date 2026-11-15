@@ -258,6 +258,10 @@ will be introduced.
       production Agent body receives each correctly paired item/index, scoped
       data evaluations reopen from file and SQLite, and the root result matches
       (2/2 focused cases). Dedicated authored iterator pins remain unimplemented.
+    - [x] Bind finite number items through the coordinator into a typed
+      WorkflowValue and NumberAdd graph, verifying item-specific arithmetic,
+      scoped data evaluations, and completed file/SQLite histories (2/2 focused
+      cases). Non-finite inputs remain rejected by the array contract.
     - [x] Execute a current-schema two-output Sequence body through the private
       coordinator for two items. Both MCP outputs dispatch and complete per
       activation; Sequence lifecycle, tool authorization, and loop events
