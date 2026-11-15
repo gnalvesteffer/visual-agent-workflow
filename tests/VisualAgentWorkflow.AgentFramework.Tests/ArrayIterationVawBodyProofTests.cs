@@ -358,7 +358,12 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.DoesNotContain(events, evt => evt.Data?.Contains(secret, StringComparison.Ordinal) == true);
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
         AssertPersistedSequence(runStore, events, "failed");
-        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iteration 1 · Completed", playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -395,7 +400,11 @@ public sealed class ArrayIterationVawBodyProofTests
             ExecutionEventKinds.ToolUncertain);
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
         AssertPersistedSequence(runStore, events, "failed");
-        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iteration 1 · Completed", playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -454,6 +463,11 @@ public sealed class ArrayIterationVawBodyProofTests
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal("failed", reopened.Status);
         Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("agent · node.failed", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.Contains("Recorded node failure event; the iteration outcome is not established.",
+            playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -569,6 +583,10 @@ public sealed class ArrayIterationVawBodyProofTests
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(committed.Events.ToArray(), reopened.Events.ToArray());
         Assert.Equal("running", reopened.Status);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: running", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 1 · In progress", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iteration 1 · Incomplete", playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -610,6 +628,11 @@ public sealed class ArrayIterationVawBodyProofTests
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal("failed", reopened.Status);
         Assert.Equal(events.ToArray(), reopened.Events.ToArray());
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.Contains("tool · tool.completed", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iteration 1 · Completed", playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -673,7 +696,11 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Single(tools.Queries);
         Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Failed);
         AssertPersistedSequence(runStore, events, "running");
-        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: running", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 1 · Completed", playback, StringComparison.Ordinal);
     }
 
     [Theory]

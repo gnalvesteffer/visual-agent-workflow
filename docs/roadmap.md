@@ -289,8 +289,12 @@ will be introduced.
       evidence and no join event; explicit coordinator outcomes retain their
       `Outcome unknown` or `Cancelled` labels and correlated uncertainty
       evidence. A rendering regression also verifies the terminal run status
-      reaches the loop playback component. Append-failure-prefix playback and
-      public iterator authoring remain open.
+      reaches the loop playback component. Append-failure-prefix rendering is
+      now checked for rejected model/tool outcomes and iteration completion,
+      a committed iteration start with a lost acknowledgment (which remains
+      in progress), and a rejected root completion after an accepted iteration
+      completion (which remains completed at the iteration level). Other
+      append-failure positions and public iterator authoring remain open.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core

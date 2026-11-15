@@ -1933,3 +1933,26 @@ other control flow, deterministic transforms, and the remaining shared frame,
 lifecycle, and budget readiness criteria remain open. The architecture
 overview and user guide are unchanged because this is private proof evidence,
 not shipped workflow behavior.
+
+## Passive playback for terminal and append-failure prefixes (2026-11-14)
+
+The integrated production-body MCP failure, unknown-outcome, and cancellation
+matrix now renders reopened file and SQLite snapshots in the Run inspector.
+Failure is shown as an incomplete iteration with exact-scope node-failure
+evidence and no inferred join; explicit coordinator outcomes retain their
+`Outcome unknown` and `Cancelled` statuses, including correlated uncertainty.
+The Run inspector now passes its selected terminal status to the loop playback
+projection, verified by a regression that previously rendered a failed run's
+iteration as in progress.
+
+Store append-failure playback now covers rejected model and tool outcomes,
+rejected iteration completion after successful body work, a committed
+iteration-start event whose acknowledgment is lost, and rejected root
+completion after an accepted iteration completion. Playback preserves the
+recorded prefix: terminal run failure leaves the unmatched iteration
+incomplete, an unterminal running prefix remains in progress, and an accepted
+iteration completion remains completed even when the run terminal append is
+rejected. These focused tests run against file and SQLite stores. Other append
+failure positions, process-loss recovery, public iterator/Break authoring, and
+the architecture readiness review remain open; this evidence does not select
+an iterator candidate or change the **REVISE** decision.
