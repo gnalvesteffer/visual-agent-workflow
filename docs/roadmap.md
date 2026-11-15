@@ -258,9 +258,9 @@ will be introduced.
       stdio `McpToolBroker` and pinned `demo.uppercase` contract. Both branches
       receive each item's typed text pin; real authorization/completion
       evidence, uppercase outputs, joined values, and passive playback persist
-      through file and SQLite (2/2 focused cases). Production broker failure,
+      through file and SQLite (2/2 focused cases). Production broker failure
       and failure-triggered sibling cancellation inside this coordinator
-      remain open.
+      remain open for definitive failure classification.
     - [x] Fail both synchronized direct-MCP branches through the integrated
       coordinator. Correlated tool-failure events settle both reservations,
       suppress the join and iteration completion, prevent the next item, and
@@ -280,6 +280,13 @@ will be introduced.
       reopened file/SQLite playback preserves the uncertainty (2/2 focused
       cases). This proves host cancellation with the real broker, not
       failure-triggered sibling cancellation.
+    - [x] Trigger sibling cancellation with a real stdio MCP protocol failure
+      after both calls authorize. The failing call and canceled `demo.slow`
+      sibling retain correlated uncertain outcomes, the iteration and root
+      settle as outcome-unknown, and neither join nor the next item runs;
+      reopened file/SQLite playback preserves the event order (2/2 focused
+      cases). This does not qualify definitive production-broker failure
+      classification or public iterator semantics.
     - [x] Qualify one transformed production-body path across two items:
       Variable Set/Get, TextConcat, Uppercase, Agent, and MCP run under fresh
       activation state with correlated values and lifecycle evidence, reopened

@@ -1629,6 +1629,101 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ProductionMcpFailureCancelsSiblingAndPreservesUncertainty(bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        var registrations = CreateDemoMcpRegistrations("demo.protocol-failure")
+            .Concat(CreateDemoMcpRegistrations("demo.slow")).ToArray();
+        var discovery = new McpToolBroker(registrations, new DemoToolPolicy());
+        var bindings = (await discovery.ListBindingsAsync()).ToDictionary(binding => binding.BindingId);
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var nodes = definition.Nodes;
+        nodes = nodes.SetItem("tool-research", nodes["tool-research"] with
+        {
+            Tool = new(bindings["demo.protocol-failure"].BindingId, bindings["demo.protocol-failure"].ContractHash)
+            {
+                DescriptionHash = bindings["demo.protocol-failure"].DescriptionHash
+            },
+            McpArgumentsJson = "{}"
+        });
+        nodes = nodes.SetItem("tool-review", nodes["tool-review"] with
+        {
+            Tool = new(bindings["demo.slow"].BindingId, bindings["demo.slow"].ContractHash)
+            {
+                DescriptionHash = bindings["demo.slow"].DescriptionHash
+            },
+            McpArgumentsJson = "{}"
+        });
+        definition = definition with { Nodes = nodes };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-parallel-real-mcp-failure-cancels-sibling-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var broker = CreateSynchronizedDemoMcpBroker(registrations, expectedConnections: 2);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(broker)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 4))
+            .WaitAsync(TimeSpan.FromSeconds(20));
+
+        Assert.True(result.OutcomeUnknown);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolUncertain));
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolFailed or
+            ExecutionEventKinds.ToolCompleted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        var iterationCompleted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        using (var iterationOutcome = JsonDocument.Parse(iterationCompleted.Data!))
+            Assert.Equal("outcome-unknown", iterationOutcome.RootElement.GetProperty("outcome").GetString());
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "outcome-unknown");
+
+        foreach (var nodeId in new[] { "tool-research", "tool-review" })
+        {
+            var started = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == nodeId);
+            var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+                evt.NodeId == nodeId && evt.InvocationId == started.InvocationId);
+            var uncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+                evt.NodeId == nodeId && evt.InvocationId == started.InvocationId);
+            using var authorizationPayload = JsonDocument.Parse(authorized.Data!);
+            using var uncertaintyPayload = JsonDocument.Parse(uncertain.Data!);
+            Assert.Equal(authorizationPayload.RootElement.GetProperty("toolCallId").GetString(),
+                uncertaintyPayload.RootElement.GetProperty("toolCallId").GetString());
+        }
+
+        var failedCallUncertainty = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            evt.NodeId == "tool-research");
+        var cancelledSiblingUncertainty = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            evt.NodeId == "tool-review");
+        Assert.True(failedCallUncertainty.Sequence < cancelledSiblingUncertainty.Sequence);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "tool-review");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal("outcome-unknown", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: outcome-unknown", playback, StringComparison.Ordinal);
+        Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_SequenceFailureCancelsSiblingAndStopsLaterItems(bool sqlite)
     {
         var definition = SequenceBodyDefinition() with

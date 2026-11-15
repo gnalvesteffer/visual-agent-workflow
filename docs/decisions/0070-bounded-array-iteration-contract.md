@@ -2122,3 +2122,23 @@ results under that iteration scope, and reopened file/SQLite snapshots render
 both joins as completed (2/2 focused cases). This closes only successful
 two-Agent fork/join composition; fork failure, cancellation, other branch body
 types, and the full supported-body matrix remain open.
+
+## Production-broker sibling cancellation after MCP protocol failure (2026-11-15)
+
+`ProductionBodyActivationCoordinator_ProductionMcpFailureCancelsSiblingAndPreservesUncertainty`
+runs `demo.protocol-failure` and `demo.slow` as parallel branches through the
+real stdio `McpToolBroker`, with both broker connections synchronized before
+dispatch. Both calls persist authorization. The protocol-failure branch ends
+with `tool.uncertain`; the coordinator cancels the slow sibling, whose
+invocation-correlated outcome is also recorded as `tool.uncertain`. Event order
+shows the triggering branch uncertainty before sibling uncertainty. The join
+is suppressed, the current iteration and root terminate as `outcome-unknown`,
+and no following item is admitted. File and SQLite reopen with the same
+sequence and passive playback retains the uncertainty (2/2 focused cases).
+
+This closes the real production-broker cancellation path for an MCP call whose
+post-dispatch protocol outcome is unknown. It does not establish a definitive
+production-broker failure classification, prove that the remote fixture
+processed the canceled request, select the iterator architecture, or add
+public iterator schema/Studio authoring. The broader append-failure, race,
+recovery, and supported-body matrices remain open.
