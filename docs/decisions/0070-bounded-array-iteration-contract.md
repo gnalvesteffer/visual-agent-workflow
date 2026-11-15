@@ -2174,6 +2174,15 @@ closes the root as failed, and admits no later item (2/2). The pure evaluator
 now wraps JSON merge contract errors with the originating node ID, matching
 projection errors. Malformed JSON and other bounds/failure shapes remain open.
 
+`ProductionBodyActivationCoordinator_ConvertsNestedJsonArraysAndCountsItems`
+converts each string item containing JSON into bounded `array<json>`, counts
+its elements with `ArrayLength`, and formats the count. Non-empty and empty
+arrays produce scoped evidence and output through both stores (2/2).
+`ProductionBodyActivationCoordinator_AttributesNestedJsonArrayRootFailure`
+rejects a valid non-array JSON root at `JsonToArray`, attributes the consumer
+failure to Output, fails the root, and admits no later item (2/2). Malformed
+JSON and configured depth/item-limit boundaries remain unproven.
+
 `ProductionBodyActivationCoordinator_EnforcesSharedActivationLimit` now
 exercises the run-context activation cap through the integrated path. After the
 first item's Agent and MCP work completes, a one-activation budget rejects

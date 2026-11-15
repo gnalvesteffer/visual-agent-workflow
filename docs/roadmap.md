@@ -322,6 +322,12 @@ will be introduced.
       errors retain their originating projection/merge node identity. This
       closes only the tested JSON composition/failure slice; malformed input,
       other JSON limits, and the supported-body matrix remain open.
+    - [x] Convert nested JSON arrays to bounded `array<json>` values and count
+      them through `ArrayLength` per item. Non-empty and empty arrays produce
+      scoped lengths and output; a non-array root identifies `JsonToArray` and
+      the executing consumer, fails the root, and prevents later items. File
+      and SQLite proofs pass (4 focused cases). Other element types, malformed
+      JSON and size/depth boundaries remain open.
     - [x] Execute a current-schema two-output Sequence body through the private
       coordinator for two items. Both MCP outputs dispatch and complete per
       activation; Sequence lifecycle, tool authorization, and loop events

@@ -70,6 +70,17 @@ and merge contract errors with their source node IDs. Malformed JSON, other
 bounds/failure shapes, and the broader body matrix remain unproven. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Nested JSON array length in array-iteration proof
+
+Typed string items containing JSON arrays now pass through `JsonToArray`,
+`ArrayLength`, and integer formatting in the private production-body seam.
+Empty and non-empty arrays retain scoped lengths and output through file and
+SQLite stores (2/2). A valid non-array root is attributed to `JsonToArray` and
+the executing Output consumer, fails the run, and suppresses later items (2/2).
+Malformed JSON and depth/item-limit boundaries remain open; this is matrix
+coverage only, not public iterator support. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Bounded-loop playback pairs lifecycle events by iteration
 
 The passive Run inspector now pairs ordinary bounded-loop start/completion
