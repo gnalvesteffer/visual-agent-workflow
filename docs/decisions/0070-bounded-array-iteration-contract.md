@@ -1693,6 +1693,17 @@ incomplete iteration through both stores (2/2 focused cases). This is a
 controlled-broker failure proof, not a sibling-cancellation race or
 production-broker qualification.
 
+`ProductionBodyActivationCoordinator_ParallelMcpFailurePreservesCancelledSiblingUncertainty`
+holds the review branch after authorization and dispatch, then makes the
+research branch fail. The canceled review call records `tool.uncertain` with
+the same `toolCallId` as its authorization; both branches settle, the join and
+next item stay suppressed, and file/SQLite playback preserves the incomplete
+failed iteration (2/2 focused cases). The root status remains `failed` because
+the graph has a definitive branch failure; the sibling's unresolved external
+outcome remains explicit in its tool evidence and is not cleared by terminal
+status. This validates the controlled coordinator path, not cancellation
+behavior of the real MCP broker in a parallel body.
+
 ## Production body Break transport proof (2026-11-14)
 
 The private proof now carries a graph-dispatched Break through the production

@@ -1482,6 +1482,71 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ParallelMcpFailurePreservesCancelledSiblingUncertainty(bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-parallel-mcp-failure-uncertain-sibling-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var broker = new ParallelMcpBroker(failNode: "tool-research", holdUntilCancelled: true,
+            waitForBothAuthorizations: true, recordReservationIds: true);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(broker)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 4))
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(result.Failed);
+        Assert.False(result.OutcomeUnknown);
+        Assert.Equal(2, broker.Calls.Length);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed && evt.NodeId == "tool-research");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain && evt.NodeId == "tool-review");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        foreach (var nodeId in new[] { "tool-research", "tool-review" })
+        {
+            var call = Assert.Single(broker.Calls, item => item.NodeId == nodeId);
+            var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+                evt.NodeId == nodeId && evt.InvocationId == call.InvocationId);
+            var terminalToolEvent = Assert.Single(events, evt =>
+                evt.Kind is ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ToolUncertain &&
+                evt.NodeId == nodeId && evt.InvocationId == call.InvocationId);
+            using var authorizedPayload = JsonDocument.Parse(authorized.Data!);
+            using var outcomePayload = JsonDocument.Parse(terminalToolEvent.Data!);
+            Assert.Equal(authorizedPayload.RootElement.GetProperty("toolCallId").GetString(),
+                outcomePayload.RootElement.GetProperty("toolCallId").GetString());
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal("failed", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_SequenceFailureCancelsSiblingAndStopsLaterItems(bool sqlite)
     {
         var definition = SequenceBodyDefinition() with
@@ -12358,7 +12423,21 @@ public sealed class ArrayIterationVawBodyProofTests
                         throw new ToolInvocationException("Deterministic branch tool failure.");
                     }
                     if (holdUntilCancelled)
-                        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    {
+                        try { await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); }
+                        catch (OperationCanceledException) when (recordReservationIds)
+                        {
+                            await record(ExecutionEventKinds.ToolUncertain, JsonSerializer.Serialize(new
+                            {
+                                toolCallId, parentToolCallId = (Guid?)null, bindingId,
+                                failureCode = "tool.outcome_unknown",
+                                reason = "The dispatched sibling call was cancelled before its outcome was observed."
+                            }));
+                            throw new ToolInvocationException(
+                                "The dispatched sibling call has an unknown outcome.",
+                                ToolInvocationFailureDisposition.OutcomeUnknown);
+                        }
+                    }
                     var result = resultPayload ?? $"result:{query}";
                     await record(ExecutionEventKinds.ToolCompleted, JsonSerializer.Serialize(new
                     {
