@@ -25,6 +25,16 @@ SQLite histories (2/2). This is matrix evidence only; it does not select the
 iterator architecture or establish a public iterator contract. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Typed integer overflow attribution in array-iteration proof
+
+Checked integer addition now has a private integrated failure proof for typed
+array items. An input of `long.MaxValue` overflows when incremented; the run
+records the `IntegerAdd` node failure and its consuming Branch failure, closes
+as failed, and never starts the next item. File and SQLite histories reopen
+identically (2/2). This verifies one deterministic failure boundary without
+choosing an iterator architecture or adding public authoring. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Bounded-loop playback pairs lifecycle events by iteration
 
 The passive Run inspector now pairs ordinary bounded-loop start/completion

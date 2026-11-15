@@ -1129,8 +1129,10 @@ will be introduced.
   items composed through checked `IntegerAdd`, `IntegerEquals`, Boolean Branch,
   exclusive Agent paths, and Merge. File and SQLite histories verify item and
   arithmetic values, route evidence, output, and reopened iteration completion
-  (focused proof: 2/2). This advances deterministic composition coverage only;
-  the architecture, failure/race, shared-budget, and full-body gates remain.
+  (2/2); a checked-add overflow proof verifies node attribution, failed root
+  persistence, and suppression of the next item (2/2). This advances
+  deterministic composition and one failure boundary only; architecture,
+  broader failure/race, shared-budget, and full-body gates remain.
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

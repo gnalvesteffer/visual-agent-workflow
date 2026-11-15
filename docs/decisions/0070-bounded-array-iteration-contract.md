@@ -2113,9 +2113,18 @@ adds typed signed-integer items composed through `IntegerAdd`, `IntegerEquals`,
 Boolean Branch, mutually exclusive Agent paths, and Merge. It verifies input
 and arithmetic evaluation values, branch choices, merged output, and reopened
 iteration histories in file and SQLite stores (2/2 focused cases). This covers
-one deterministic integer composition only; overflow/failure behavior, the
-remaining body matrix, architecture selection, and public iterator authoring
-remain open.
+one deterministic integer composition. The separately recorded overflow case
+below covers one checked-add failure boundary; other deterministic failures,
+the remaining body matrix, architecture selection, and public iterator
+authoring remain open.
+
+`ProductionBodyActivationCoordinator_AttributesTypedIntegerOverflowAndStopsLaterItems`
+exercises checked `IntegerAdd` overflow with `long.MaxValue + 1`. The runtime
+attributes the failure to the arithmetic node and its consuming Branch, closes
+the root as failed, admits no later item, and preserves the same contiguous
+event history after reopening file and SQLite stores (2/2 focused cases). This
+does not cover other deterministic-node failures or select the iterator
+architecture.
 
 `ProductionBodyActivationCoordinator_EnforcesSharedActivationLimit` now
 exercises the run-context activation cap through the integrated path. After the
