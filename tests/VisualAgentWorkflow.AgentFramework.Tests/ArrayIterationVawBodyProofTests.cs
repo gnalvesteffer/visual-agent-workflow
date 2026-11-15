@@ -1110,6 +1110,62 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ComposesBooleanNotWithTypedItemsAndBranch(bool sqlite)
+    {
+        const string input = "[true,false,true]";
+        const string expected = "{\"query\":\"negative-agent-no\"};" +
+            "{\"query\":\"affirmative-agent-yes\"};{\"query\":\"negative-agent-no\"}";
+        var revision = WorkflowRevision.Create(TypedBooleanNotConditionalBodyDefinition(),
+            "production-body-typed-boolean-not-branch-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var agents = new EchoAgentExecutor();
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.Boolean);
+
+        Assert.False(result.Failed);
+        Assert.Equal(expected, result.Output);
+        Assert.Equal(["negative", "affirmative", "negative"], agents.Inputs);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var expectedItems = new[] { true, false, true };
+        var expectedPorts = new[] { "false", "true", "false" };
+        for (var index = 0; index < expectedItems.Length; index++)
+        {
+            var scopeId = $"array-loop/{index}";
+            var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.ScopeId == scopeId && evt.ConnectionId == "data:not-condition");
+            using var payload = JsonDocument.Parse(evaluated.Data!);
+            Assert.Equal(!expectedItems[index], payload.RootElement.GetProperty("value").GetBoolean());
+        }
+
+        var branchPorts = events.Where(evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "route")
+            .Select(evt =>
+            {
+                using var payload = JsonDocument.Parse(evt.Data!);
+                return payload.RootElement.GetProperty("port").GetString();
+            }).ToArray();
+        Assert.Equal(expectedPorts, branchPorts);
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "merge"));
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+        Assert.Equal(3, reopened.Events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_EvaluatesTypedNumberItems(bool sqlite)
     {
         const string input = "[-1.25,0,9.5]";
@@ -11247,6 +11303,51 @@ public sealed class ArrayIterationVawBodyProofTests
             .Add("merge-output", Edge("merge", "then", "output", "execute"));
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
             "array-iteration-typed-boolean-route", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "false") { Type = WorkflowDataTypes.Boolean })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition TypedBooleanNotConditionalBodyDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "item", OutputDataType = WorkflowDataTypes.Boolean })
+            .Add("not", new(NodeTypes.BooleanNot, "1.0.0"))
+            .Add("yes-value", new(NodeTypes.StringConstant, "1.0.0")
+                { StringConstant = new("affirmative") })
+            .Add("no-value", new(NodeTypes.StringConstant, "1.0.0")
+                { StringConstant = new("negative") })
+            .Add("route", new(NodeTypes.BooleanBranch, "1.0.0"))
+            .Add("agent-yes", new(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.echo-agent", null, "Handle the true route.", [])))
+            .Add("agent-no", new(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.echo-agent", null, "Handle the false route.", [])))
+            .Add("merge", new(NodeTypes.Merge, "1.0.0"))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("item-not", new(new("item", "out"), new("not", "value"), "data"))
+            .Add("not-condition", new(new("not", "out"), new("route", "condition"), "data"))
+            .Add("yes-agent-input", new(new("yes-value", "out"), new("agent-yes", "in"), "data"))
+            .Add("no-agent-input", new(new("no-value", "out"), new("agent-no", "in"), "data"))
+            .Add("yes-merge-value", new(new("agent-yes", "out"), new("merge", "in"), "data"))
+            .Add("no-merge-value", new(new("agent-no", "out"), new("merge", "in"), "data"))
+            .Add("merge-output", new(new("merge", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-route", Edge("input", "then", "route", "execute"))
+            .Add("route-yes", Edge("route", "true", "agent-yes", "execute"))
+            .Add("route-no", Edge("route", "false", "agent-no", "execute"))
+            .Add("yes-merge", Edge("agent-yes", "out", "merge", "execute"))
+            .Add("no-merge", Edge("agent-no", "out", "merge", "execute"))
+            .Add("merge-output", Edge("merge", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-typed-boolean-not-route", "input", nodes, data)
         {
             ExecutionConnections = execution,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty

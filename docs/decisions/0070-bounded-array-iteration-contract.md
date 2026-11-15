@@ -2138,6 +2138,13 @@ next item, again through file and SQLite (2/2). This covers one conversion
 composition and malformed-text boundary; the broader supported-body and
 architecture gates remain.
 
+`ProductionBodyActivationCoordinator_ComposesBooleanNotWithTypedItemsAndBranch`
+composes coordinator-bound Boolean items through `BooleanNot`, Boolean Branch,
+exclusive Agent paths, and Merge. The test verifies each negated scoped value,
+selected route, merged output, and reopened file/SQLite history (2/2 focused
+cases), while retaining the separate direct typed-item-to-Branch proof. Other
+deterministic body compositions and the architecture review remain open.
+
 `ProductionBodyActivationCoordinator_EnforcesSharedActivationLimit` now
 exercises the run-context activation cap through the integrated path. After the
 first item's Agent and MCP work completes, a one-activation budget rejects

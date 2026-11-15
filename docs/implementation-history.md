@@ -45,6 +45,15 @@ the root, and suppresses the next item in both stores (2/2). This remains
 proof-only matrix coverage. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Boolean negation in array-iteration proof
+
+Typed Boolean items now compose through `BooleanNot`, exclusive Branch routes,
+Agent paths, and Merge in the private production-body coordinator. The proof
+checks each negated value, chosen path, output, and reopened file/SQLite history
+(2/2), while leaving the direct-item Branch proof intact. This remains matrix
+coverage, not a public iterator contract. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Bounded-loop playback pairs lifecycle events by iteration
 
 The passive Run inspector now pairs ordinary bounded-loop start/completion

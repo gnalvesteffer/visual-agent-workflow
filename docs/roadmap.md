@@ -1139,6 +1139,10 @@ will be introduced.
   malformed input is attributed to the conversion node and prevents later-item
   admission (2/2). Other conversion boundaries and the integrated iterator
   architecture remain open.
+- [x] Compose typed Boolean array items through `BooleanNot` and Boolean Branch,
+  preserving the direct-item branch proof separately. Both outcomes, scoped
+  negated values, merge results, and reopened file/SQLite histories pass (2/2).
+  This verifies a Boolean transform composition, not the complete body matrix.
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable
