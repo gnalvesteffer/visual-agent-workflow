@@ -282,9 +282,15 @@ will be introduced.
       playback, append-failure prefixes, or public iterator authoring.
     - [x] Surface exact-scope node failure and cancellation evidence for
       incomplete activations without inferring an iteration outcome. Root and
-      descendant events do not label the activation. Definitive failure,
-      cancellation, uncertain-outcome, and append-failure playback remain
-      open until the coordinator records an explicit iteration outcome.
+      unrelated descendant events do not label the activation. The integrated
+      production-body MCP failure/unknown/cancellation proof now verifies
+      reopened file and SQLite histories in passive run playback: a failed
+      body is shown as `Incomplete · run ended` with exact-scope failure
+      evidence and no join event; explicit coordinator outcomes retain their
+      `Outcome unknown` or `Cancelled` labels and correlated uncertainty
+      evidence. A rendering regression also verifies the terminal run status
+      reaches the loop playback component. Append-failure-prefix playback and
+      public iterator authoring remain open.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core
