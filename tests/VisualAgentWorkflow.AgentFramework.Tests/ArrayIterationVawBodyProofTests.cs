@@ -1029,6 +1029,206 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(recorded, runStore.ReopenStore().Get(runStore.RunId)!.Events);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ProductionBodyBreakAfterDirectMcpOrMixedChainSettlesAndPersists(bool mixed, bool sqlite)
+    {
+        var revision = WorkflowRevision.CreateProofOnly(StaticForkMcpBreakDefinition(mixed),
+            mixed ? "production-body-mixed-mcp-break-proof" : "production-body-multi-mcp-break-proof");
+        using var runStore = new ProofRunStore(revision, "[\"first\",\"must-not-run\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new ControlledForkPathAgentExecutor();
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+        var firstPathNode = mixed ? "agent-left" : "mcp-first";
+        var firstPathNodeCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == firstPathNode)
+                firstPathNodeCompleted.TrySetResult();
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break-left")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(tools: tools, agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision,
+                "[\"first\",\"must-not-run\"]", "index", null, Record);
+        try
+        {
+            await agents.RightStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await firstPathNodeCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.DoesNotContain(recorder.Snapshot(), evt =>
+                evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "mcp-second");
+            agents.ReleaseRight.TrySetResult();
+            await breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally { agents.ReleaseRight.TrySetResult(); }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.False(result.Failed, string.Join(", ", events.Select(evt =>
+            $"{evt.Sequence}:{evt.NodeId ?? "root"}:{evt.Kind}:{evt.ScopeId ?? "root"}")));
+        Assert.Equal(mixed ? new[] { "second" } : new[] { "first", "second" }, tools.Queries);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "mcp-second");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break-left");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right");
+        Assert.DoesNotContain(events, evt =>
+            (evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted) && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "completed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("mcp-second · node.completed", playback, StringComparison.Ordinal);
+        Assert.Contains("· Break", playback, StringComparison.Ordinal);
+        Assert.Contains("Parallel join join · no event recorded at this position", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ProductionBodyBreakAfterMcpFailurePersistsAndSuppressesJoin(bool mixed, bool sqlite)
+    {
+        var revision = WorkflowRevision.CreateProofOnly(StaticForkMcpBreakDefinition(mixed),
+            mixed ? "production-body-mixed-mcp-failure-proof" : "production-body-multi-mcp-failure-proof");
+        using var runStore = new ProofRunStore(revision, "[\"first\",\"must-not-run\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new ControlledForkPathAgentExecutor();
+        var tools = new ThrowingCustomOutcomeToolBroker("proof.parallel-tool", "Controlled MCP failure.");
+        var failedNode = mixed ? "mcp-second" : "mcp-first";
+        var execution = new WorkflowRunner(tools: tools, agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision,
+                "[\"first\",\"must-not-run\"]", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                });
+        agents.ReleaseRight.TrySetResult();
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.False(result.OutcomeUnknown);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == failedNode);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "proof-break-left");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains($"{failedNode} · node.failed", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ProductionBodyBreakAfterMcpUnknownOutcomePersistsAndSuppressesJoin(bool mixed, bool sqlite)
+    {
+        var revision = WorkflowRevision.CreateProofOnly(StaticForkMcpBreakDefinition(mixed),
+            mixed ? "production-body-mixed-mcp-unknown-proof" : "production-body-multi-mcp-unknown-proof");
+        using var runStore = new ProofRunStore(revision, "[\"first\",\"must-not-run\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new ControlledForkPathAgentExecutor();
+        var tools = new ControlledUnknownOutcomeToolBroker("proof.parallel-tool");
+        var failedNode = mixed ? "mcp-second" : "mcp-first";
+        var execution = new WorkflowRunner(tools: tools, agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision,
+                "[\"first\",\"must-not-run\"]", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                });
+        agents.ReleaseRight.TrySetResult();
+        try
+        {
+            await tools.DispatchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            tools.ReleaseOutcome.TrySetResult();
+        }
+        finally
+        {
+            agents.ReleaseRight.TrySetResult();
+            tools.ReleaseOutcome.TrySetResult();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.True(result.OutcomeUnknown);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain && evt.NodeId == failedNode);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "proof-break-left");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "outcome-unknown");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: outcome-unknown", playback, StringComparison.Ordinal);
+        Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ProductionBodyBreakAfterMcpCancellationPersistsAndSuppressesJoin(bool mixed, bool sqlite)
+    {
+        var revision = WorkflowRevision.CreateProofOnly(StaticForkMcpBreakDefinition(mixed),
+            mixed ? "production-body-mixed-mcp-cancellation-proof" : "production-body-multi-mcp-cancellation-proof");
+        using var runStore = new ProofRunStore(revision, "[\"first\",\"must-not-run\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new ControlledForkPathAgentExecutor();
+        var tools = new CancelAfterDispatchToolBroker("proof.parallel-tool");
+        var cancelledNode = mixed ? "mcp-second" : "mcp-first";
+        using var cancellation = new CancellationTokenSource();
+        var execution = new WorkflowRunner(tools: tools, agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision,
+                "[\"first\",\"must-not-run\"]", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, cancellation.Token);
+        agents.ReleaseRight.TrySetResult();
+        try
+        {
+            await tools.DispatchStarted.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+        }
+        finally
+        {
+            agents.ReleaseRight.TrySetResult();
+            cancellation.Cancel();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.True(result.Cancelled);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain && evt.NodeId == cancelledNode);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "proof-break-left");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "cancelled");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: cancelled", playback, StringComparison.Ordinal);
+        Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task LoopPlayback_ShowsScopedFailureAndCancellationAsEvidenceWithoutInferringIterationOutcome()
     {
@@ -9962,6 +10162,56 @@ public sealed class ArrayIterationVawBodyProofTests
                 .Add($"{toolId}-join", Edge(toolId, "then", "join", $"branch.{branch}"));
         }
         return definition with { Nodes = nodes, Connections = data, ExecutionConnections = execution };
+    }
+
+    private static WorkflowDefinition StaticForkMcpBreakDefinition(bool mixed)
+    {
+        const string bindingId = "proof.parallel-tool";
+        var body = ParallelBodyDefinition();
+        var nodes = body.Nodes.Add("proof-break-left",
+            new NodeDefinition(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"));
+        var data = body.Connections.Add("break-input",
+            new ConnectionDefinition(new("mcp-second", "out"),
+                new("proof-break-left", "in"), "data"));
+        var execution = body.ExecutionConnections!.Remove("left-join");
+
+        nodes = nodes.Add("mcp-second", new NodeDefinition(NodeTypes.McpTool, "1.0.0",
+            new ToolBindingRequest(bindingId, new string('a', 64)))
+        {
+            McpArgumentsJson = "{\"query\":\"second\"}"
+        });
+        if (mixed)
+        {
+            data = data.Add("agent-mcp", new(new("agent-left", "out"), new("mcp-second", "in"), "data"));
+            execution = execution
+                .Add("agent-mcp", Edge("agent-left", "out", "mcp-second", "execute"));
+        }
+        else
+        {
+            nodes = nodes.Remove("agent-left").Add("mcp-first", new NodeDefinition(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest(bindingId, new string('a', 64)))
+            {
+                McpArgumentsJson = "{\"query\":\"first\"}"
+            });
+            data = data.Remove("input-left")
+                .Add("input-mcp-first", new(new("input", "out"), new("mcp-first", "in"), "data"))
+                .Add("first-second", new(new("mcp-first", "out"), new("mcp-second", "in"), "data"));
+            execution = execution.Remove("left-agent")
+                .Add("anchor-mcp-first", Edge("anchor-left", "then", "mcp-first", "execute"))
+                .Add("first-second", Edge("mcp-first", "then", "mcp-second", "execute"));
+        }
+
+        execution = execution
+            .Add("second-break", Edge("mcp-second", "then", "proof-break-left", "execute"))
+            .Add("break-join", Edge("proof-break-left", "out", "join", "branch.left"));
+        return body with
+        {
+            Nodes = nodes,
+            Connections = data,
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
     }
 
     private static string? ReadVariableValue(IEnumerable<ExecutionEvent> events, string eventKind, string nodeId)

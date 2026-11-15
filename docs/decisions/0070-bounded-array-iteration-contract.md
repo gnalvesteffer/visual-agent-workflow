@@ -1911,3 +1911,25 @@ node identity and event kind. This adds no runtime event or serialized
 contract. Definitive failure, cancellation, and uncertain iteration outcomes,
 append-failure prefixes, and public iterator/Break schema and Studio authoring
 remain open; the architecture readiness gate stays **REVISE**.
+
+## Multi-node direct MCP and mixed-path follow-up (2026-11-14)
+
+The private production-body proof now exercises a two-node direct-MCP branch
+and an Agent-to-MCP branch ending at the private Break while a sibling static
+branch settles. The success cases prove the next superstep dispatches after
+the sibling settles, the Break is consumed by the VAW coordinator, the join
+does not execute, and no later array item is admitted. Tool failure, unknown
+external outcome, and host cancellation each stop the MCP path before Break,
+suppress the join, persist their terminal evidence, and reopen identically
+from file and SQLite stores. HtmlRenderer playback verifies the persisted
+success, failure, uncertain-tool, and cancelled-run projections. The focused
+matrix passes 16/16 cases.
+
+These tests use the production Agent Framework graph translation and MCP node
+adapter with controlled executors/brokers. They do not invoke a real MCP server,
+prove real external-service behavior, add a public iterator/Break contract, or
+select the production iterator architecture. Static branch paths containing
+other control flow, deterministic transforms, and the remaining shared frame,
+lifecycle, and budget readiness criteria remain open. The architecture
+overview and user guide are unchanged because this is private proof evidence,
+not shipped workflow behavior.

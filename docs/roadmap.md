@@ -163,11 +163,14 @@ will be introduced.
     boundary and file/SQLite persistence/reopen. The sibling must settle
     before downstream nodes in the next superstep are expected to activate.
     See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md#multi-node-static-fork-dispatch-follow-up-2026-11-14).
-  - [ ] Prove multi-node direct-MCP and mixed Agent/MCP static-fork paths
-    through the production runner, including success, failure/unknown outcome,
-    cancellation, persisted playback, and join suppression. The private proof
-    remains non-publishable; broader control flow and deterministic transforms
-    still require independent evidence.
+  - [x] Prove multi-node direct-MCP and mixed Agent/MCP static-fork paths
+    through the production runner. Two-MCP and Agent→MCP paths cover success,
+    tool failure, unknown outcome, and host cancellation through file and
+    SQLite persistence/reopen; HtmlRenderer playback retains the tool/Break
+    evidence and confirms join suppression. These remain private proofs using
+    a controlled MCP broker, not public iterator behavior or a real-server
+    qualification. Broader control flow and deterministic transforms still
+    require independent evidence. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md#multi-node-direct-mcp-and-mixed-path-follow-up-2026-11-14).
   - [x] Compare conditional item routing across structured, fresh-subworkflow,
     and hybrid candidates with each Agent result explicitly wired into its
     exclusive Merge. The candidates produce matching result values, branch
