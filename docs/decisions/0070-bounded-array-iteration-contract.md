@@ -2198,6 +2198,14 @@ and file/SQLite histories reopen identically (2/2). This verifies this template
 part combination only; the coordinator architecture, broader body matrix, and
 public iterator authoring remain under review.
 
+`ProductionBodyActivationCoordinator_IndexesTypedArrayLiteralWithEachIntegerItem`
+creates an immutable `array<string>` with `ArrayLiteral` and uses each typed
+integer item as the index for `ArrayGet`. Per-item output and data evidence
+reopen through file and SQLite stores (2/2). An out-of-range item fails at
+`ArrayGet`, records the Output consumer failure, and blocks later activation
+(2/2). Other literal element kinds and mutable-array behavior remain outside
+this proof.
+
 `ProductionBodyActivationCoordinator_EnforcesSharedActivationLimit` now
 exercises the run-context activation cap through the integrated path. After the
 first item's Agent and MCP work completes, a one-activation budget rejects

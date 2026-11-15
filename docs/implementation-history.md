@@ -101,6 +101,15 @@ evaluation evidence match and reopen identically from file and SQLite stores
 authoring remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Typed array literal and indexed read in iteration proof
+
+The integrated body now builds an immutable `array<string>` and indexes it
+with the current typed integer item. Successful values and scoped evaluations
+persist in file and SQLite histories (2/2). An out-of-range third item fails
+at `ArrayGet`, records the consumer failure, and prevents a later activation
+(2/2). Other literal element kinds and mutable collections remain open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Bounded-loop playback pairs lifecycle events by iteration
 
 The passive Run inspector now pairs ordinary bounded-loop start/completion

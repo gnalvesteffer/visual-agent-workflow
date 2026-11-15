@@ -339,6 +339,11 @@ will be introduced.
       evaluated values agree after file/SQLite reopen (2 focused cases). This
       proves item/index template interpolation in the private seam; other
       template part shapes and public iterator authoring remain open.
+    - [x] Build an immutable `array<string>` with `ArrayLiteral` and use each
+      typed integer item as the `ArrayGet` index. Returned values and evidence
+      persist through both stores (2/2); an out-of-range third item fails at
+      `ArrayGet` and prevents further admission (2/2). Other literal element
+      types and mutable-array semantics remain open.
     - [x] Execute a current-schema two-output Sequence body through the private
       coordinator for two items. Both MCP outputs dispatch and complete per
       activation; Sequence lifecycle, tool authorization, and loop events
