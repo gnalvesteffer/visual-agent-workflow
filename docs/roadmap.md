@@ -255,8 +255,9 @@ will be introduced.
       the external effect was settled. File/SQLite histories reopen in both
       cases. The real stdio demo MCP timeout also persists correlated
       uncertainty and a terminal `outcome-unknown` through the production-body
-      coordinator. Passive playback and the remaining failure/race/append
-      matrix stay open.
+      coordinator. HtmlRenderer now verifies its reopened playback projection
+      through both stores, including uncertainty evidence and suppressed join.
+      The remaining failure/race/append matrix stays open.
     - [x] Explain terminal `outcome-unknown` in the run inspector and direct
       users to review recorded events before another run, since the external
       operation may already have taken effect. An HtmlRenderer regression
@@ -294,7 +295,9 @@ will be introduced.
       a committed iteration start with a lost acknowledgment (which remains
       in progress), and a rejected root completion after an accepted iteration
       completion (which remains completed at the iteration level). Other
-      append-failure positions and public iterator authoring remain open.
+      append-failure positions and public iterator authoring remain open. The
+      real stdio MCP timeout projection is also rendered for the production
+      body and both stores.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core

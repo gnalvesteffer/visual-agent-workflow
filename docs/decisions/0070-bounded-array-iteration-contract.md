@@ -1956,3 +1956,11 @@ rejected. These focused tests run against file and SQLite stores. Other append
 failure positions, process-loss recovery, public iterator/Break authoring, and
 the architecture readiness review remain open; this evidence does not select
 an iterator candidate or change the **REVISE** decision.
+
+The real stdio `demo.slow` timeout path is also rendered for the production-body
+candidate after reopening both stores. The inspector retains the terminal run
+status and correlated `tool.uncertain` evidence, reports the iteration outcome
+from its recorded completion (or leaves it incomplete when absent), and shows
+that the parallel join has no event. The focused timeout theory passes for
+both file and SQLite. This adds playback evidence for the real adapter path;
+it does not close other append/failure cases or architecture selection.

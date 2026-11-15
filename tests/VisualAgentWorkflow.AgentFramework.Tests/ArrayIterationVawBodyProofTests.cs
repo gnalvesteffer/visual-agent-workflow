@@ -8615,6 +8615,20 @@ public sealed class ArrayIterationVawBodyProofTests
                 : output is null ? "failed" : "completed";
             AssertPersistedSequence(store, events, expectedStatus);
             Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+            if (candidate == "production-body")
+            {
+                var snapshot = store.Store.Get(store.RunId)!;
+                var playback = await RenderPlayback(snapshot);
+                Assert.Contains($"Latest run status: {expectedStatus}", playback, StringComparison.Ordinal);
+                Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+                Assert.Contains("Parallel join join · no event recorded at this position", playback,
+                    StringComparison.Ordinal);
+                if (events.Any(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted))
+                    Assert.Contains("Iteration 1 · Outcome unknown", playback, StringComparison.Ordinal);
+                else
+                    Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback,
+                        StringComparison.Ordinal);
+            }
             return new(output, events, recorder.MaximumPendingOutcomeReservationsObserved,
                 recorder.PendingOutcomeReservations, recorder.ReservationRejected.IsCompleted);
 
