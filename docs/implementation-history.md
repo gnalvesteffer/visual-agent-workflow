@@ -2,6 +2,19 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Actionable loop playback for unresolved MCP outcomes
+
+Loop activation playback correlates authorized MCP call IDs with recorded
+completion, failure, denial, or uncertainty events inside that exact iteration
+scope. If authorization is recorded but no matching outcome is, the inspector
+now says the external effect may be unknown. Persisted MCP failure and
+uncertainty reasons are also surfaced instead of only reporting a generic node
+failure. A production stdio MCP proof rejects the sibling uncertainty append
+and verifies the rendered explanation through file and SQLite histories (8/8
+matrix cases). This improves passive inspection; it does not retry or recover
+the call. See [bounded loop graphs](loop-graphs.md) and
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Bounded-loop playback pairs lifecycle events by iteration
 
 The passive Run inspector now pairs ordinary bounded-loop start/completion

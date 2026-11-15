@@ -1779,12 +1779,21 @@ public sealed class ArrayIterationVawBodyProofTests
         var playback = await RenderPlayback(reopened);
         Assert.Contains($"Latest run status: {expectedStatus}", playback, StringComparison.Ordinal);
         if (events.Any(evt => evt.Kind == ExecutionEventKinds.ToolUncertain))
+        {
             Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+            Assert.Contains("MCP outcome is unknown:", playback, StringComparison.Ordinal);
+        }
         else
         {
             Assert.Contains(ExecutionEventKinds.ToolAuthorized, playback, StringComparison.Ordinal);
             Assert.DoesNotContain(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+            Assert.Contains("An MCP call was authorized, but no outcome event was recorded.", playback,
+                StringComparison.Ordinal);
+            Assert.Contains("Its external effect may be unknown.", playback, StringComparison.Ordinal);
+            Assert.DoesNotContain("Execution failed without a recorded detail.", playback, StringComparison.Ordinal);
         }
+        if (classifyProtocolFailure)
+            Assert.Contains("MCP call failed:", playback, StringComparison.Ordinal);
         Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
     }
 

@@ -290,6 +290,11 @@ will be introduced.
       only the accepted authorization prefix in both stores, without persisting
       a false cancellation outcome (8/8 matrix cases). This does not resolve
       possible remote side effects or establish public iterator semantics.
+    - [x] Make loop playback surface the exact-scope MCP cause: an unmatched
+      authorization warns that the external effect may be unknown, while
+      persisted MCP failure/uncertainty events show their safe recorded reason.
+      Rendered file/SQLite regression coverage is included in the same 8-case
+      production-broker matrix.
     - [x] Qualify one transformed production-body path across two items:
       Variable Set/Get, TextConcat, Uppercase, Agent, and MCP run under fresh
       activation state with correlated values and lifecycle evidence, reopened

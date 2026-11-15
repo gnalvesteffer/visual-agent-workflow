@@ -2154,3 +2154,14 @@ the rejected uncertainty and subsequent `node.cancelled` are absent from the
 persisted event prefix. Reopened playback retains the authorization and does
 not invent a tool terminal event. This records a narrow failed-evidence-write
 prefix; it does not establish recovery or a general append-failure policy.
+
+## Actionable scoped MCP outcomes in loop playback (2026-11-15)
+
+Passive loop playback now correlates authorized MCP call IDs with completion,
+failure, denial, or uncertainty events in the exact iteration scope. An
+unmatched authorization is described as an unrecorded outcome whose external
+effect may be unknown. Persisted `tool.failed` and `tool.outcome-unknown`
+records surface their safe `reason` payload. The production-broker sibling
+cancellation matrix renders the explanation from reopened file and SQLite
+histories, including the rejected uncertainty append (8/8 cases). The view
+does not infer completion, retry the call, or establish process recovery.

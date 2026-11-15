@@ -21,7 +21,7 @@
                                 <strong>@activation.NodeId · Iteration @activation.Iteration · @activation.Status</strong>
                                 <code>@(activation.Start.ScopeId ?? "root")</code>
                             </summary>
-                            @if (activation.IncompleteOutcomeEvidence is { } outcomeEvidence)
+                            @if (activation.OutcomeEvidence is { } outcomeEvidence)
                             {
                                 <p class="vaw-loop-activation-evidence" role="note">@outcomeEvidence</p>
                             }
@@ -88,9 +88,8 @@
             : events.Where(evt => evt.ScopeId == start.ScopeId &&
                     evt.Kind is not (ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted))
                 .ToArray();
-        var incompleteOutcomeEvidence = matchingCompletions.Length == 0
-            ? IncompleteOutcomeEvidence(bodyEvents)
-            : null;
+        var outcomeEvidence = ToolOutcomeEvidence(bodyEvents, includeFailureDetails: status != "Completed") ??
+            (matchingCompletions.Length == 0 ? IncompleteOutcomeEvidence(bodyEvents) : null);
         var joins = start.ScopeId is null || Definition is null
             ? []
             : Definition.Nodes.Where(pair => pair.Value.Type == NodeTypes.ParallelJoin)
@@ -98,7 +97,41 @@
                 .ToArray();
 
         return new(start, start.NodeId ?? "Loop", Iteration(start), status, bodyEvents,
-            incompleteOutcomeEvidence, joins);
+            outcomeEvidence, joins);
+    }
+
+    private static string? ToolOutcomeEvidence(ExecutionEvent[] bodyEvents, bool includeFailureDetails)
+    {
+        var authorizedCallIds = bodyEvents
+            .Where(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized)
+            .Select(ToolCallId)
+            .Where(callId => !string.IsNullOrWhiteSpace(callId))
+            .ToHashSet(StringComparer.Ordinal);
+        var settledCallIds = bodyEvents
+            .Where(evt => evt.Kind is ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolFailed or
+                ExecutionEventKinds.ToolDenied or ExecutionEventKinds.ToolUncertain)
+            .Select(ToolCallId)
+            .Where(callId => !string.IsNullOrWhiteSpace(callId))
+            .ToHashSet(StringComparer.Ordinal);
+        var evidence = new List<string>();
+        if (authorizedCallIds.Any(callId => !settledCallIds.Contains(callId)))
+            evidence.Add("An MCP call was authorized, but no outcome event was recorded. Its external effect may be unknown.");
+
+        foreach (var uncertainTool in bodyEvents.Where(evt => evt.Kind == ExecutionEventKinds.ToolUncertain))
+        {
+            var reason = ToolReason(uncertainTool.Data);
+            evidence.Add(reason is { Length: > 0 }
+                ? $"MCP outcome is unknown: {reason}"
+                : "MCP outcome is unknown; review its recorded event before retrying.");
+        }
+
+        foreach (var failedTool in bodyEvents.Where(evt => includeFailureDetails && evt.Kind == ExecutionEventKinds.ToolFailed))
+        {
+            if (ToolReason(failedTool.Data) is { Length: > 0 } failure)
+                evidence.Add($"MCP call failed: {failure}");
+        }
+
+        return evidence.Count > 0 ? string.Join(" ", evidence) : null;
     }
 
     private static string? IncompleteOutcomeEvidence(ExecutionEvent[] bodyEvents)
@@ -112,6 +145,25 @@
             (false, true) => "Recorded node cancellation event; the iteration outcome is not established.",
             _ => null
         };
+    }
+
+    private static string? ToolCallId(ExecutionEvent evt) => ReadToolString(evt.Data, "toolCallId");
+
+    private static string? ToolReason(string? data) => ReadToolString(data, "reason");
+
+    private static string? ReadToolString(string? data, string propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(data)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(data);
+            return document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.TryGetProperty(propertyName, out var value) &&
+                value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
+        }
+        catch (JsonException) { return null; }
     }
 
     private static bool IsMatchingPair(ExecutionEvent start, ExecutionEvent candidate) =>
@@ -208,7 +260,7 @@
         "failed" or "cancelled" or "interrupted" or "outcome-unknown";
 
     private sealed record Activation(ExecutionEvent Start, string NodeId, int Iteration, string Status,
-        IReadOnlyList<ExecutionEvent> BodyEvents, string? IncompleteOutcomeEvidence,
+        IReadOnlyList<ExecutionEvent> BodyEvents, string? OutcomeEvidence,
         IReadOnlyList<JoinActivity> Joins);
 
     private sealed record JoinActivity(string NodeId, string Status);
