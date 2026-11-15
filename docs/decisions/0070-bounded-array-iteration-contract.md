@@ -2125,20 +2125,22 @@ types, and the full supported-body matrix remain open.
 
 ## Production-broker sibling cancellation after MCP protocol failure (2026-11-15)
 
-`ProductionBodyActivationCoordinator_ProductionMcpFailureCancelsSiblingAndPreservesUncertainty`
+`ProductionBodyActivationCoordinator_ProductionMcpFailureCancelsSiblingAndPreservesEvidence`
 runs `demo.protocol-failure` and `demo.slow` as parallel branches through the
 real stdio `McpToolBroker`, with both broker connections synchronized before
-dispatch. Both calls persist authorization. The protocol-failure branch ends
-with `tool.uncertain`; the coordinator cancels the slow sibling, whose
-invocation-correlated outcome is also recorded as `tool.uncertain`. Event order
-shows the triggering branch uncertainty before sibling uncertainty. The join
-is suppressed, the current iteration and root terminate as `outcome-unknown`,
-and no following item is admitted. File and SQLite reopen with the same
-sequence and passive playback retains the uncertainty (2/2 focused cases).
+dispatch. It verifies both default post-dispatch uncertainty and host
+classification of the protocol exception as a definitive tool failure. Both
+calls persist authorization; the canceled slow sibling retains its correlated
+`tool.uncertain` outcome in either case. The failed call's `tool.uncertain` or
+`tool.failed` event precedes sibling uncertainty. The join is suppressed and
+the next item is not admitted. The root settles as `outcome-unknown` under the
+default policy and `failed` under the host classifier. Only the
+unknown-outcome case emits an iteration terminal event; the definitive failure
+remains an incomplete iteration. File and SQLite reopen with identical event
+sequences and passive playback retains the evidence (4/4 focused cases).
 
-This closes the real production-broker cancellation path for an MCP call whose
-post-dispatch protocol outcome is unknown. It does not establish a definitive
-production-broker failure classification, prove that the remote fixture
+This qualifies one production-broker protocol-failure cancellation path and
+one host classification policy. It does not prove that the remote fixture
 processed the canceled request, select the iterator architecture, or add
 public iterator schema/Studio authoring. The broader append-failure, race,
 recovery, and supported-body matrices remain open.

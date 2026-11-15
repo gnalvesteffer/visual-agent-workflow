@@ -258,9 +258,8 @@ will be introduced.
       stdio `McpToolBroker` and pinned `demo.uppercase` contract. Both branches
       receive each item's typed text pin; real authorization/completion
       evidence, uppercase outputs, joined values, and passive playback persist
-      through file and SQLite (2/2 focused cases). Production broker failure
-      and failure-triggered sibling cancellation inside this coordinator
-      remain open for definitive failure classification.
+      through file and SQLite (2/2 focused cases). Failure and cancellation
+      qualification is tracked in the following checks.
     - [x] Fail both synchronized direct-MCP branches through the integrated
       coordinator. Correlated tool-failure events settle both reservations,
       suppress the join and iteration completion, prevent the next item, and
@@ -281,12 +280,15 @@ will be introduced.
       cases). This proves host cancellation with the real broker, not
       failure-triggered sibling cancellation.
     - [x] Trigger sibling cancellation with a real stdio MCP protocol failure
-      after both calls authorize. The failing call and canceled `demo.slow`
-      sibling retain correlated uncertain outcomes, the iteration and root
-      settle as outcome-unknown, and neither join nor the next item runs;
-      reopened file/SQLite playback preserves the event order (2/2 focused
-      cases). This does not qualify definitive production-broker failure
-      classification or public iterator semantics.
+      after both calls authorize, testing both the default unknown-outcome
+      path and a host-classified definitive failure. In both cases the canceled
+      `demo.slow` sibling retains its correlated uncertain outcome; the root
+      settles respectively as outcome-unknown or failed, and neither join nor
+      the next item runs. Only the unknown-outcome case emits an iteration
+      terminal event; the definitive failure remains an incomplete iteration.
+      File/SQLite reopen and passive playback preserve the evidence (4/4
+      focused cases). This does not resolve possible remote side effects or
+      establish public iterator semantics.
     - [x] Qualify one transformed production-body path across two items:
       Variable Set/Get, TextConcat, Uppercase, Agent, and MCP run under fresh
       activation state with correlated values and lifecycle evidence, reopened

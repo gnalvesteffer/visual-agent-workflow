@@ -1627,13 +1627,24 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ProductionBodyActivationCoordinator_ProductionMcpFailureCancelsSiblingAndPreservesUncertainty(bool sqlite)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task ProductionBodyActivationCoordinator_ProductionMcpFailureCancelsSiblingAndPreservesEvidence(
+        bool sqlite, bool classifyProtocolFailure)
     {
         const string input = "[\"first\",\"must-not-run\"]";
         var registrations = CreateDemoMcpRegistrations("demo.protocol-failure")
-            .Concat(CreateDemoMcpRegistrations("demo.slow")).ToArray();
+            .Concat(CreateDemoMcpRegistrations("demo.slow"))
+            .Select(registration => classifyProtocolFailure && registration.BindingId == "demo.protocol-failure"
+                ? registration with
+                {
+                    AllowModelRecoveryAfterFailure = true,
+                    IsDefinitiveToolFailure = exception => exception is ModelContextProtocol.McpProtocolException
+                }
+                : registration)
+            .ToArray();
         var discovery = new McpToolBroker(registrations, new DemoToolPolicy());
         var bindings = (await discovery.ListBindingsAsync()).ToDictionary(binding => binding.BindingId);
         var definition = ParallelMcpDefinition() with
@@ -1678,18 +1689,29 @@ public sealed class ArrayIterationVawBodyProofTests
                 Record, runBudget: StructuredRunBudget(maximumToolDispatches: 4))
             .WaitAsync(TimeSpan.FromSeconds(20));
 
-        Assert.True(result.OutcomeUnknown);
+        Assert.Equal(!classifyProtocolFailure, result.OutcomeUnknown);
         Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
-        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolUncertain));
-        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolFailed or
-            ExecutionEventKinds.ToolCompleted);
+        Assert.Equal(classifyProtocolFailure ? 1 : 2,
+            events.Count(evt => evt.Kind == ExecutionEventKinds.ToolUncertain));
+        Assert.Equal(classifyProtocolFailure ? 1 : 0,
+            events.Count(evt => evt.Kind == ExecutionEventKinds.ToolFailed));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
-        var iterationCompleted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
-        using (var iterationOutcome = JsonDocument.Parse(iterationCompleted.Data!))
+        if (classifyProtocolFailure)
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        else
+        {
+            var iterationCompleted = Assert.Single(events,
+                evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+            using var iterationOutcome = JsonDocument.Parse(iterationCompleted.Data!);
             Assert.Equal("outcome-unknown", iterationOutcome.RootElement.GetProperty("outcome").GetString());
+        }
         Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
-        AssertPersistedSequence(runStore, events, "outcome-unknown");
+        Assert.Single(events, evt => evt.Kind == (classifyProtocolFailure
+            ? ExecutionEventKinds.Failed
+            : ExecutionEventKinds.OutcomeUnknown) && evt.NodeId is null);
+        var expectedStatus = classifyProtocolFailure ? "failed" : "outcome-unknown";
+        AssertPersistedSequence(runStore, events, expectedStatus);
 
         foreach (var nodeId in new[] { "tool-research", "tool-review" })
         {
@@ -1697,26 +1719,28 @@ public sealed class ArrayIterationVawBodyProofTests
                 evt.NodeId == nodeId);
             var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
                 evt.NodeId == nodeId && evt.InvocationId == started.InvocationId);
-            var uncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            var terminalToolEvent = Assert.Single(events, evt => evt.Kind == (nodeId == "tool-research" &&
+                    classifyProtocolFailure ? ExecutionEventKinds.ToolFailed : ExecutionEventKinds.ToolUncertain) &&
                 evt.NodeId == nodeId && evt.InvocationId == started.InvocationId);
             using var authorizationPayload = JsonDocument.Parse(authorized.Data!);
-            using var uncertaintyPayload = JsonDocument.Parse(uncertain.Data!);
+            using var uncertaintyPayload = JsonDocument.Parse(terminalToolEvent.Data!);
             Assert.Equal(authorizationPayload.RootElement.GetProperty("toolCallId").GetString(),
                 uncertaintyPayload.RootElement.GetProperty("toolCallId").GetString());
         }
 
-        var failedCallUncertainty = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
-            evt.NodeId == "tool-research");
+        var failedCallOutcome = Assert.Single(events, evt => evt.Kind == (classifyProtocolFailure
+                ? ExecutionEventKinds.ToolFailed
+                : ExecutionEventKinds.ToolUncertain) && evt.NodeId == "tool-research");
         var cancelledSiblingUncertainty = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
             evt.NodeId == "tool-review");
-        Assert.True(failedCallUncertainty.Sequence < cancelledSiblingUncertainty.Sequence);
+        Assert.True(failedCallOutcome.Sequence < cancelledSiblingUncertainty.Sequence);
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "tool-review");
 
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
-        Assert.Equal("outcome-unknown", reopened.Status);
+        Assert.Equal(expectedStatus, reopened.Status);
         Assert.Equal(events, reopened.Events);
         var playback = await RenderPlayback(reopened);
-        Assert.Contains("Latest run status: outcome-unknown", playback, StringComparison.Ordinal);
+        Assert.Contains($"Latest run status: {expectedStatus}", playback, StringComparison.Ordinal);
         Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
         Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
     }
