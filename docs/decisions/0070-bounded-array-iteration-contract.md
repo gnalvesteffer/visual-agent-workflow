@@ -2056,3 +2056,11 @@ The failed prefix reopens through both stores, and passive playback preserves
 the first iteration as completed without inventing a second (2/2 focused
 cases). Model/tool limits are covered by adjacent coordinator tests; aggregate
 event/byte and descendant-work limits remain separate proof obligations.
+
+`ProductionBodyActivationCoordinator_JoinsParallelAgentsPerItem` covers the
+normal static-fork path through the integrated coordinator. Two Agent branches
+receive each item's input, the join event preserves the correct left/right
+results under that iteration scope, and reopened file/SQLite snapshots render
+both joins as completed (2/2 focused cases). This closes only successful
+two-Agent fork/join composition; fork failure, cancellation, other branch body
+types, and the full supported-body matrix remain open.

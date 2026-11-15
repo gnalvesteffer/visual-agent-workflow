@@ -1159,6 +1159,80 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_JoinsParallelAgentsPerItem(bool sqlite)
+    {
+        const string input = "[\"north\",\"south\"]";
+        var body = ParallelBodyDefinition();
+        var definition = body with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-parallel-join-per-item-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var agents = new EchoAgentExecutor();
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 4));
+
+        Assert.False(result.Failed);
+        Assert.Equal(4, agents.Inputs.Length);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        for (var index = 0; index < 2; index++)
+        {
+            var item = index == 0 ? "north" : "south";
+            var scopeId = $"array-loop/{index}";
+            var scoped = events.Where(evt => evt.ScopeId == scopeId).ToArray();
+            foreach (var (branchId, agentId) in new[]
+            {
+                ("left", "agent-left"),
+                ("right", "agent-right")
+            })
+            {
+                var started = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                    evt.NodeId == agentId);
+                Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                    evt.NodeId == agentId && evt.InvocationId == started.InvocationId);
+                Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+                    evt.NodeId == "join"));
+            }
+
+            var join = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "join");
+            using var joined = JsonDocument.Parse(join.Data!);
+            foreach (var agentId in new[] { "agent-left", "agent-right" })
+            {
+                using var agentOutput = JsonDocument.Parse(joined.RootElement.GetProperty(
+                    agentId == "agent-left" ? "left" : "right").GetString()!);
+                Assert.Equal($"{item}-{agentId}", agentOutput.RootElement.GetProperty("query").GetString());
+            }
+
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Equal(2, CountOccurrences(playback, "Parallel join join · completed"));
+
+        static int CountOccurrences(string text, string value) =>
+            (text.Length - text.Replace(value, string.Empty, StringComparison.Ordinal).Length) / value.Length;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_SequenceFailureCancelsSiblingAndStopsLaterItems(bool sqlite)
     {
         var definition = SequenceBodyDefinition() with

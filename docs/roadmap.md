@@ -242,6 +242,11 @@ will be introduced.
       branch evidence, and reopened histories agree in file and SQLite (2/2
       focused cases). Other element types and control-flow compositions remain
       open.
+    - [x] Run a successful two-branch Agent fork and join for two items through
+      the production body. Each item retains its own branch outputs, both join
+      arrivals, and completed join in reopened file/SQLite playback (2/2
+      focused cases). Fork failure/cancellation and broader parallel-body
+      compositions remain open.
     - [x] Qualify one transformed production-body path across two items:
       Variable Set/Get, TextConcat, Uppercase, Agent, and MCP run under fresh
       activation state with correlated values and lifecycle evidence, reopened
