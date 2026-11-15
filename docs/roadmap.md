@@ -314,14 +314,17 @@ will be introduced.
     - [x] Bind finite number items through the coordinator into a typed
       WorkflowValue and NumberAdd graph, verifying item-specific arithmetic,
       scoped data evaluations, and completed file/SQLite histories (2/2 focused
-      cases). Non-finite inputs remain rejected by the array contract.
+      cases). A finite-input overflow case also attributes a non-finite sum to
+      NumberAdd, fails the consumer/root, stops later items, and reopens from
+      both stores (2 focused cases). Other numeric compositions remain open.
     - [x] Compose two typed JSON projections with JsonMerge and JsonSelectString
       in the production body seam. Reopened file/SQLite evidence contains each
       merged item value (2/2); duplicate-key failures identify JsonMerge and its
       consumer, fail the root, and stop later items (2/2). Pure data-evaluation
       errors retain their originating projection/merge node identity. This
-      closes only the tested JSON composition/failure slice; malformed input,
-      other JSON limits, and the supported-body matrix remain open.
+      closes only the tested JSON composition/failure slice. The following
+      checklist item covers malformed input and JSON resource limits; the
+      supported-body matrix remains open.
     - [x] Convert nested JSON arrays to bounded `array<json>` values and count
       them through `ArrayLength` per item. Non-empty and empty arrays produce
       scoped lengths and output; a non-array root identifies `JsonToArray` and

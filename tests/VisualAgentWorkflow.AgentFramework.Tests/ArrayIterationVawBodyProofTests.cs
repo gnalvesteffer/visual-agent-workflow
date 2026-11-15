@@ -1215,6 +1215,46 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_AttributesTypedNumberOverflowAndStopsLaterItems(bool sqlite)
+    {
+        var input = JsonSerializer.Serialize(new[] { double.MaxValue, 0d });
+        var revision = WorkflowRevision.Create(TypedNumberItemBodyDefinition(double.MaxValue),
+            "production-body-typed-number-overflow-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.Number);
+
+        Assert.True(result.Failed);
+        Assert.False(result.OutcomeUnknown);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+
+        var overflow = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "sum");
+        Assert.Equal("number.add.nonfinite-result", overflow.Data);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "output");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_SelectsJsonFieldsFromTypedStringItems(bool sqlite)
     {
         const string input = "[\"{\\\"name\\\":\\\"Ada\\\"}\",\"{\\\"name\\\":\\\"Lin\\\"}\"]";
@@ -12050,14 +12090,14 @@ public sealed class ArrayIterationVawBodyProofTests
         return definition;
     }
 
-    private static WorkflowDefinition TypedNumberItemBodyDefinition()
+    private static WorkflowDefinition TypedNumberItemBodyDefinition(double offset = 0.75d)
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
             .Add("input", new(NodeTypes.Input, "1.0.0"))
             .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
                 { ParameterId = "item", OutputDataType = WorkflowDataTypes.Number })
             .Add("offset", new(NodeTypes.NumberConstant, "1.0.0")
-                { NumberConstant = new(0.75d) })
+                { NumberConstant = new(offset) })
             .Add("sum", new(NodeTypes.NumberAdd, "1.0.0"))
             .Add("output", new(NodeTypes.Output, "1.0.0")
                 { OutputDataType = WorkflowDataTypes.Number });

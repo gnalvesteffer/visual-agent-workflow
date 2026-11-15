@@ -66,8 +66,10 @@ node and its consumer, fails the root, and prevents the next item from starting
 originating node ID. Two disjoint projections now compose through JSON merge
 and selection (2/2); duplicate-key failure is attributed to the merge node and
 consumer and suppresses later items (2/2). Pure evaluation wraps both projection
-and merge contract errors with their source node IDs. Malformed JSON, other
-bounds/failure shapes, and the broader body matrix remain unproven. See
+and merge contract errors with their source node IDs. Malformed JSON and other
+bounds/failure shapes were still unproven at that increment; the later JSON
+boundary proof below covers malformed input and configured resource limits.
+The broader body matrix remains open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 ## Nested JSON array length in array-iteration proof
@@ -77,8 +79,9 @@ Typed string items containing JSON arrays now pass through `JsonToArray`,
 Empty and non-empty arrays retain scoped lengths and output through file and
 SQLite stores (2/2). A valid non-array root is attributed to `JsonToArray` and
 the executing Output consumer, fails the run, and suppresses later items (2/2).
-Malformed JSON and depth/item-limit boundaries remain open; this is matrix
-coverage only, not public iterator support. See
+Malformed JSON and depth/item-limit boundaries were still open at this
+increment and are covered by the later JSON boundary proof below. This remains
+matrix coverage only, not public iterator support. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 ## Nested JSON array indexing in array-iteration proof
@@ -118,6 +121,16 @@ number arrays in addition to strings. Each changing integer item selects the
 expected typed element, and scoped values persist through both run stores (6
 cases). This completes the primitive-type slice for immutable literals, not
 mutable arrays or general iterator parity. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Finite-number overflow in array-iteration proof
+
+The production-body proof now also adds two finite `double.MaxValue` operands
+per item and confirms that a non-finite sum fails at `NumberAdd`, records the
+consumer failure, suppresses later items, and persists the same failed prefix
+through file and SQLite reopen (2 focused cases). This qualifies the failure
+boundary for one numeric composition; it does not close the supported-body
+matrix or public iterator contract. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 ## JSON input and nested-array bounds in iteration proof

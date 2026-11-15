@@ -2105,8 +2105,11 @@ shape, or the remaining body matrix.
 double items to the integrated typed binding matrix. Each item flows through a
 `number` WorkflowValue and `NumberAdd` before Output; its exact expected sum
 and scoped input/output evaluations persist through file and SQLite (2/2
-focused cases). Non-finite values remain excluded by Core array validation,
-and broader node compositions and failure cases remain open.
+focused cases). `ProductionBodyActivationCoordinator_AttributesTypedNumberOverflowAndStopsLaterItems`
+adds finite `double.MaxValue` inputs whose sum overflows to a non-finite result.
+The failure is attributed to NumberAdd and its Output consumer, stops later
+items, and reopens as the same failed file/SQLite history (2/2 focused cases).
+Other numeric compositions and failure cases remain open.
 
 `ProductionBodyActivationCoordinator_ComposesTypedIntegerArithmeticAndConditionalRouting`
 adds typed signed-integer items composed through `IntegerAdd`, `IntegerEquals`,
@@ -2162,8 +2165,10 @@ also proves a projection type mismatch is attributed to `project` and its
 consumer, fails the root, and prevents admission of the next item (2/2).
 Pure data evaluation now wraps projection contract errors with the originating
 node ID, matching the explicit-node failure evidence. JSON merge, malformed
-JSON, and the broader body matrix remain unproven; this is still proof-only and
-does not settle the iterator architecture or public authoring contract.
+JSON, and the broader body matrix were still unproven at this increment; later
+proofs record JSON merge and input/resource failure coverage. This is still
+proof-only and does not settle the iterator architecture or public authoring
+contract.
 
 `ProductionBodyActivationCoordinator_MergesProjectedJsonPerItem` extends that
 composition through two disjoint `JsonProject` nodes, `JsonMerge`, and
@@ -2172,7 +2177,8 @@ SQLite (2/2). `ProductionBodyActivationCoordinator_AttributesJsonMergeConflictAn
 proves duplicate-key failure is attributed to the merge and its consumer,
 closes the root as failed, and admits no later item (2/2). The pure evaluator
 now wraps JSON merge contract errors with the originating node ID, matching
-projection errors. Malformed JSON and other bounds/failure shapes remain open.
+projection errors. Malformed JSON and other bounds/failure shapes remained
+open at this stage and are documented in the later JSON boundary proof.
 
 `ProductionBodyActivationCoordinator_ConvertsNestedJsonArraysAndCountsItems`
 converts each string item containing JSON into bounded `array<json>`, counts
@@ -2181,7 +2187,8 @@ arrays produce scoped evidence and output through both stores (2/2).
 `ProductionBodyActivationCoordinator_AttributesNestedJsonArrayRootFailure`
 rejects a valid non-array JSON root at `JsonToArray`, attributes the consumer
 failure to Output, fails the root, and admits no later item (2/2). Malformed
-JSON and configured depth/item-limit boundaries remain unproven.
+JSON and configured depth/item-limit boundaries remained unproven at this
+stage; see the later boundary proof.
 
 `ProductionBodyActivationCoordinator_SelectsNestedJsonArrayItemPerActivation`
 composes `JsonToArray`, a fixed zero-based `ArrayGet`, and `JsonSelectString`.
