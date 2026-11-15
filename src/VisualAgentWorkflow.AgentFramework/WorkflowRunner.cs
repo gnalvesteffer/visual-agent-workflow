@@ -105,7 +105,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var dataEdges = revision.Definition.Connections.Values
                 .Where(edge => edge.Source.NodeId == nodeId || edge.Target.NodeId == nodeId).ToArray();
             var allowedDataInputs = dataEdges.All(edge => edge.Target.NodeId == nodeId && edge.Target.PortId == "in" &&
-                edge.Source.NodeId == revision.Definition.EntryNodeId && edge.Source.PortId == "out");
+                edge.Source.PortId == "out" && (edge.Source.NodeId == revision.Definition.EntryNodeId ||
+                    revision.Definition.Nodes.TryGetValue(edge.Source.NodeId, out var source) &&
+                    source.Type is NodeTypes.Agent or NodeTypes.McpTool));
             var allowedJoinExit = outgoing.Length == 1 && outgoing[0].Source.PortId == "out" &&
                 revision.Definition.Nodes.TryGetValue(outgoing[0].Target.NodeId, out var target) &&
                 target.Type == NodeTypes.ParallelJoin && outgoing[0].Target.PortId.StartsWith("branch.", StringComparison.Ordinal);
@@ -117,7 +119,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         if (proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node => node.Type == NodeTypes.Sequence))
             throw new NotSupportedException("The production Break proof does not yet cover Sequence settlement.");
         if (proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node => node.Type == NodeTypes.ParallelFork))
-            ValidateDirectParallelBreakProofTopology(revision.Definition, proofBreakNodeIds);
+            ValidateStaticForkBreakProofTopology(revision.Definition, proofBreakNodeIds);
         if (proofBreakNodeIds.Count > 0) WorkflowValidator.ThrowIfInvalid(ValidationProjection(revision.Definition));
 
         async ValueTask RecordBodyEvent(ExecutionEvent evt)
@@ -384,40 +386,71 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         return timeout;
     }
 
-    private static void ValidateDirectParallelBreakProofTopology(WorkflowDefinition definition,
+    private static void ValidateStaticForkBreakProofTopology(WorkflowDefinition definition,
         IReadOnlySet<string> breakNodeIds)
     {
-        if (breakNodeIds.Count != 1)
-            throw new NotSupportedException("This production Break proof supports one Break endpoint in one direct static fork.");
-
         var forks = definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelFork).ToArray();
         if (forks.Length != 1 || forks[0].Value.ParallelFork is not { } fork)
             throw new NotSupportedException("This production Break proof supports one static fork.");
 
         var edges = definition.ExecutionConnections?.Values ?? [];
+        var dataEdges = definition.Connections.Values;
         var joinId = (string?)null;
-        var breakEndpoints = new HashSet<string>(StringComparer.Ordinal);
+        var visitedNodes = new HashSet<string>(StringComparer.Ordinal);
+        var visitedBreaks = new HashSet<string>(StringComparer.Ordinal);
         foreach (var branch in fork.Branches)
         {
-            var branchNodeId = edges.SingleOrDefault(edge => edge.Source.NodeId == branch.AnchorNodeId &&
+            var currentNodeId = edges.SingleOrDefault(edge => edge.Source.NodeId == branch.AnchorNodeId &&
                 edge.Source.PortId == "then")?.Target.NodeId;
-            if (branchNodeId is null || !definition.Nodes.TryGetValue(branchNodeId, out var branchNode) ||
-                branchNode.Type is not (NodeTypes.Agent or NodeTypes.McpTool) && !breakNodeIds.Contains(branchNodeId))
-                throw new NotSupportedException("Each fork branch must end in one direct Agent, MCP tool, or proof Break node.");
+            if (currentNodeId is null)
+                throw new NotSupportedException("Each static fork branch must have one connected path to its matching join.");
 
-            var exit = edges.SingleOrDefault(edge => edge.Source.NodeId == branchNodeId);
-            if (exit is null || !definition.Nodes.TryGetValue(exit.Target.NodeId, out var target) ||
-                target.Type != NodeTypes.ParallelJoin || exit.Target.PortId != $"branch.{branch.Id}" ||
-                target.ParallelJoin?.ForkNodeId != forks[0].Key)
-                throw new NotSupportedException("Each direct fork branch must connect once to its matching join input.");
-            if (joinId is not null && joinId != exit.Target.NodeId)
-                throw new NotSupportedException("All direct fork branches must use the same join.");
-            joinId = exit.Target.NodeId;
-            if (breakNodeIds.Contains(branchNodeId)) breakEndpoints.Add(branchNodeId);
+            var branchPath = new HashSet<string>(StringComparer.Ordinal);
+            while (true)
+            {
+                if (!definition.Nodes.TryGetValue(currentNodeId, out var current) ||
+                    !branchPath.Add(currentNodeId) || !visitedNodes.Add(currentNodeId))
+                    throw new NotSupportedException("Static fork Break paths must be acyclic and disjoint.");
+
+                if (!breakNodeIds.Contains(currentNodeId) && current.Type is not (NodeTypes.Agent or NodeTypes.McpTool))
+                    throw new NotSupportedException("Static fork Break paths support only Agent and MCP steps.");
+
+                var outgoing = edges.Where(edge => edge.Source.NodeId == currentNodeId).ToArray();
+                if (outgoing.Length != 1)
+                    throw new NotSupportedException("Each node on a static fork Break path must have exactly one execution output.");
+
+                var exit = outgoing[0];
+                if (!definition.Nodes.TryGetValue(exit.Target.NodeId, out var target))
+                    throw new NotSupportedException("Static fork Break paths must remain inside the workflow graph.");
+                if (target.Type == NodeTypes.ParallelJoin)
+                {
+                    if (exit.Target.PortId != $"branch.{branch.Id}" ||
+                        target.ParallelJoin?.ForkNodeId != forks[0].Key ||
+                        breakNodeIds.Contains(currentNodeId) && exit.Source.PortId != "out")
+                        throw new NotSupportedException("Each static fork branch must end at its matching join input.");
+                    if (joinId is not null && joinId != exit.Target.NodeId)
+                        throw new NotSupportedException("All static fork branches must use the same join.");
+                    joinId = exit.Target.NodeId;
+                    if (breakNodeIds.Contains(currentNodeId)) visitedBreaks.Add(currentNodeId);
+                    if (breakNodeIds.Contains(currentNodeId))
+                    {
+                        var breakInputs = dataEdges.Where(edge => edge.Target.NodeId == currentNodeId).ToArray();
+                        if (breakInputs.Length > 1 || breakInputs.Any(edge => edge.Target.PortId != "in" ||
+                            edge.Source.PortId != "out" ||
+                            edge.Source.NodeId != definition.EntryNodeId && !branchPath.Contains(edge.Source.NodeId)))
+                            throw new NotSupportedException("A static fork Break input must come from the workflow input or its own branch path.");
+                    }
+                    break;
+                }
+
+                if (breakNodeIds.Contains(currentNodeId))
+                    throw new NotSupportedException("A proof Break must be the final node on its static fork branch.");
+                currentNodeId = exit.Target.NodeId;
+            }
         }
 
-        if (!breakEndpoints.SetEquals(breakNodeIds))
-            throw new NotSupportedException("Every proof Break must be a direct branch endpoint in the supported fork.");
+        if (!visitedBreaks.SetEquals(breakNodeIds))
+            throw new NotSupportedException("Every proof Break must be on a static fork path and terminate at its matching join.");
     }
 
     private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision, string input,

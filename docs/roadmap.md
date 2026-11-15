@@ -158,6 +158,16 @@ will be introduced.
     only source identity and derive/consume the target in the coordinator.
     Prove nested outer-loop continuation and rejection of stale or foreign
     requests without changing `core.terminate` semantics.
+  - [x] Prove an Agent-to-Agent static-fork path ending in the private Break
+    through the production runner, including the Agent Framework superstep
+    boundary and file/SQLite persistence/reopen. The sibling must settle
+    before downstream nodes in the next superstep are expected to activate.
+    See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md#multi-node-static-fork-dispatch-follow-up-2026-11-14).
+  - [ ] Prove multi-node direct-MCP and mixed Agent/MCP static-fork paths
+    through the production runner, including success, failure/unknown outcome,
+    cancellation, persisted playback, and join suppression. The private proof
+    remains non-publishable; broader control flow and deterministic transforms
+    still require independent evidence.
   - [x] Compare conditional item routing across structured, fresh-subworkflow,
     and hybrid candidates with each Agent result explicitly wired into its
     exclusive Merge. The candidates produce matching result values, branch

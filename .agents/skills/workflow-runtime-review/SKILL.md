@@ -26,6 +26,8 @@ Use deterministic executors, a controlled MCP fixture, and explicit synchronizat
 
 In unified schema 2.0, a static parallel branch may contain a direct MCP node. Branch topology does not grant access: each tool call still passes through its node-scoped broker policy and retains its invocation/audit identity. Denial, failure, or cancellation must suppress the aggregate join result; a completed sibling side effect cannot be rolled back. Keep historical schema admission unchanged and do not infer branch-local approval support from direct-tool support.
 
+`InProcessExecution.Concurrent` advances connected branch work in Agent Framework supersteps. A longer branch's next node can remain queued while another executor from the current superstep is still running. In deterministic tests, release or settle the sibling before awaiting downstream activation; otherwise the test can deadlock while appearing to show a missing edge. The production-body Break proof verifies an Agent-to-Agent branch continuation followed by Break through this boundary in file and SQLite stores. MCP and mixed Agent/MCP chains remain unproven.
+
 Do not promise universal exactly-once external effects. Separate browser independence from crash recovery and checkpoint recovery from historical playback. Apply [audit-playback-review](../audit-playback-review/SKILL.md) when changing event instrumentation.
 
 ## Verified local pause boundary

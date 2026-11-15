@@ -1718,6 +1718,27 @@ roadmap parent remains open. Since the increment changes no public runtime
 contract or user-visible workflow behavior, the architecture overview and
 user guide remain unchanged.
 
+## Multi-node static-fork dispatch follow-up (2026-11-14)
+
+The initial longer-path tests timed out because they waited for a downstream
+branch node while deliberately holding a sibling Agent that was active in the
+same Agent Framework superstep. That timeout did not show a missing edge.
+`ProductionBodyBreakAfterAgentChainDispatchesSuccessorsAndSettlesSibling`
+corrects the gate: the first branch Agent and its sibling start together, the
+test confirms the next branch Agent has not advanced yet, releases the sibling,
+then observes the second Agent and private Break dispatch. Both file- and
+SQLite-backed event histories persist and reopen exactly. The static-fork
+proof topology now walks disjoint linear Agent/MCP paths and checks each
+private Break's branch-local data input and matching join endpoint.
+
+The focused production-body Break and configurable-parallel tests pass (9/9).
+This proves the two-Agent branch path and the framework's superstep boundary;
+it does not yet prove multi-node MCP paths, mixed Agent/MCP chains, deterministic
+transforms, conditional paths, or the full failure/cancellation/playback matrix
+for longer paths. Continue those cases through the real runner before widening
+the proof or selecting a public iterator contract. No public iterator schema
+or Studio authoring is introduced by this proof.
+
 ## Nested production-body Break proof boundary (reviewed 2026-11-14)
 
 The three-role review recommends that the VAW coordinator own both the nested

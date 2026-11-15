@@ -950,6 +950,85 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains("· Break", playbackHtml, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyBreakAfterAgentChainDispatchesSuccessorsAndSettlesSibling(bool sqlite)
+    {
+        var body = ParallelBodyDefinition();
+        var nodes = body.Nodes
+            .Add("agent-middle", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.echo-agent", null, "Middle", [])))
+            .Add("proof-break-left", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"));
+        var data = body.Connections
+            .Add("left-middle", new(new("agent-left", "out"), new("agent-middle", "in"), "data"))
+            .Add("middle-break", new(new("agent-middle", "out"), new("proof-break-left", "in"), "data"));
+        var execution = body.ExecutionConnections!
+            .Remove("left-join").Remove("right-join")
+            .Add("left-middle", Edge("agent-left", "out", "agent-middle", "execute"))
+            .Add("middle-break", Edge("agent-middle", "out", "proof-break-left", "execute"))
+            .Add("break-join", Edge("proof-break-left", "out", "join", "branch.left"))
+            .Add("right-join", Edge("agent-right", "out", "join", "branch.right"));
+        var definition = body with
+        {
+            Nodes = nodes,
+            Connections = data,
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "production-body-multi-agent-fork-break-proof");
+        using var runStore = new ProofRunStore(revision, "[\"first\",\"must-not-run\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new ControlledForkPathAgentExecutor();
+        var leftCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-left")
+                leftCompleted.TrySetResult();
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break-left")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var executionTask = new WorkflowRunner(agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision,
+                "[\"first\",\"must-not-run\"]", "index", null, Record);
+        try
+        {
+            await agents.RightStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await leftCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.DoesNotContain(recorder.Snapshot(), evt =>
+                evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent-middle");
+            agents.ReleaseRight.TrySetResult();
+            await breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(executionTask.IsCompleted, "The coordinator must consume Break before completing the body.");
+        }
+        catch (TimeoutException exception)
+        {
+            var summary = string.Join(", ", recorder.Snapshot().Select(evt =>
+                $"{evt.Sequence}:{evt.NodeId ?? "root"}:{evt.Kind}:{evt.ScopeId ?? "root"}"));
+            throw new Xunit.Sdk.XunitException($"The controlled fork path did not reach its expected gate. Events: {summary}. {exception.Message}");
+        }
+        finally { agents.ReleaseRight.TrySetResult(); }
+
+        var result = await executionTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var recorded = recorder.Snapshot();
+        Assert.False(result.Failed);
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-left");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-middle");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break-left");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right");
+        Assert.DoesNotContain(recorded, evt =>
+            (evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted) && evt.NodeId == "join");
+        Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, recorded, "completed");
+        Assert.Equal(recorded, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+    }
+
     [Fact]
     public async Task LoopPlayback_ShowsScopedFailureAndCancellationAsEvidenceWithoutInferringIterationOutcome()
     {
@@ -10521,6 +10600,29 @@ public sealed class ArrayIterationVawBodyProofTests
                 Started.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             }
+            return JsonSerializer.Serialize(new { query = input });
+        }
+    }
+
+    private sealed class ControlledForkPathAgentExecutor : IAgentNodeExecutor
+    {
+        public TaskCompletionSource RightStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseRight { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.fork-path", "Fork path proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId is "agent-left" or "agent-middle")
+                return JsonSerializer.Serialize(new { query = input });
+            if (invocation.NodeId != "agent-right")
+                throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
+
+            RightStarted.TrySetResult();
+            await ReleaseRight.Task.WaitAsync(cancellationToken);
             return JsonSerializer.Serialize(new { query = input });
         }
     }
