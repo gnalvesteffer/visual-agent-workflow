@@ -2108,6 +2108,15 @@ and scoped input/output evaluations persist through file and SQLite (2/2
 focused cases). Non-finite values remain excluded by Core array validation,
 and broader node compositions and failure cases remain open.
 
+`ProductionBodyActivationCoordinator_ComposesTypedIntegerArithmeticAndConditionalRouting`
+adds typed signed-integer items composed through `IntegerAdd`, `IntegerEquals`,
+Boolean Branch, mutually exclusive Agent paths, and Merge. It verifies input
+and arithmetic evaluation values, branch choices, merged output, and reopened
+iteration histories in file and SQLite stores (2/2 focused cases). This covers
+one deterministic integer composition only; overflow/failure behavior, the
+remaining body matrix, architecture selection, and public iterator authoring
+remain open.
+
 `ProductionBodyActivationCoordinator_EnforcesSharedActivationLimit` now
 exercises the run-context activation cap through the integrated path. After the
 first item's Agent and MCP work completes, a one-activation budget rejects

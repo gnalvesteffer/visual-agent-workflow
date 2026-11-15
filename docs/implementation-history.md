@@ -15,6 +15,16 @@ matrix cases). This improves passive inspection; it does not retry or recover
 the call. See [bounded loop graphs](loop-graphs.md) and
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Typed integer composition in array-iteration proof
+
+The private production-body coordinator now carries typed signed-integer array
+items through `IntegerAdd` and `IntegerEquals`, then uses the result to route
+mutually exclusive Agent paths through a Merge. The focused proof verifies
+scoped item/arithmetic values, branch decisions, output, and reopened file and
+SQLite histories (2/2). This is matrix evidence only; it does not select the
+iterator architecture or establish a public iterator contract. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Bounded-loop playback pairs lifecycle events by iteration
 
 The passive Run inspector now pairs ordinary bounded-loop start/completion

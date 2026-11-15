@@ -1159,6 +1159,70 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ComposesTypedIntegerArithmeticAndConditionalRouting(bool sqlite)
+    {
+        const string input = "[-1,0,1,2]";
+        const string expected = "{\"query\":\"integer-other-agent-no\"};" +
+            "{\"query\":\"integer-other-agent-no\"};{\"query\":\"integer-match-agent-yes\"};" +
+            "{\"query\":\"integer-other-agent-no\"}";
+        var revision = WorkflowRevision.Create(TypedIntegerArithmeticConditionalBodyDefinition(),
+            "production-body-typed-integer-arithmetic-branch-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var agents = new EchoAgentExecutor();
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.Integer);
+
+        Assert.False(result.Failed);
+        Assert.Equal(expected, result.Output);
+        Assert.Equal(["integer-other", "integer-other", "integer-match", "integer-other"], agents.Inputs);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var expectedItems = new long[] { -1, 0, 1, 2 };
+        var expectedSums = new long[] { 0, 1, 2, 3 };
+        var expectedPorts = new[] { "false", "false", "true", "false" };
+        for (var index = 0; index < expectedItems.Length; index++)
+        {
+            var scopeId = $"array-loop/{index}";
+            Assert.Equal(expectedItems[index], ReadInteger("data:item-value"));
+            Assert.Equal(expectedSums[index], ReadInteger("data:sum-condition"));
+
+            long ReadInteger(string connectionId)
+            {
+                var evt = Assert.Single(events, candidate => candidate.Kind == ExecutionEventKinds.DataEvaluated &&
+                    candidate.ScopeId == scopeId && candidate.ConnectionId == connectionId);
+                using var payload = JsonDocument.Parse(evt.Data!);
+                return payload.RootElement.GetProperty("value").GetInt64();
+            }
+        }
+
+        var branchPorts = events.Where(evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "route")
+            .Select(evt =>
+            {
+                using var payload = JsonDocument.Parse(evt.Data!);
+                return payload.RootElement.GetProperty("port").GetString();
+            }).ToArray();
+        Assert.Equal(expectedPorts, branchPorts);
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "merge"));
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+        Assert.Equal(4, reopened.Events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_JoinsParallelAgentsPerItem(bool sqlite)
     {
         const string input = "[\"north\",\"south\"]";
@@ -2221,7 +2285,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var playback = await RenderPlayback(reopened);
         Assert.Contains($"{failedNode} · node.failed", playback, StringComparison.Ordinal);
         Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
-        Assert.Contains("Recorded node failure event; the iteration outcome is not established.",
+        Assert.Contains("An MCP call was authorized, but no outcome event was recorded. Its external effect may be unknown.",
             playback, StringComparison.Ordinal);
         Assert.Contains("Parallel join join · no event recorded at this position", playback, StringComparison.Ordinal);
     }
@@ -11072,6 +11136,57 @@ public sealed class ArrayIterationVawBodyProofTests
             ExecutionConnections = execution,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                 .Add("item", new("Array item", "0") { Type = WorkflowDataTypes.Number })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition TypedIntegerArithmeticConditionalBodyDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "item", OutputDataType = WorkflowDataTypes.Integer })
+            .Add("offset", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
+            .Add("target", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(2) })
+            .Add("sum", new(NodeTypes.IntegerAdd, "1.0.0"))
+            .Add("equals", new(NodeTypes.IntegerEquals, "1.0.0"))
+            .Add("yes-value", new(NodeTypes.StringConstant, "1.0.0")
+                { StringConstant = new("integer-match") })
+            .Add("no-value", new(NodeTypes.StringConstant, "1.0.0")
+                { StringConstant = new("integer-other") })
+            .Add("route", new(NodeTypes.BooleanBranch, "1.0.0"))
+            .Add("agent-yes", new(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.echo-agent", null, "Handle the matching route.", [])))
+            .Add("agent-no", new(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.echo-agent", null, "Handle the other route.", [])))
+            .Add("merge", new(NodeTypes.Merge, "1.0.0"))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("item-value", new(new("item", "out"), new("sum", "left"), "data"))
+            .Add("offset-value", new(new("offset", "out"), new("sum", "right"), "data"))
+            .Add("sum-condition", new(new("sum", "out"), new("equals", "left"), "data"))
+            .Add("target-condition", new(new("target", "out"), new("equals", "right"), "data"))
+            .Add("condition-route", new(new("equals", "out"), new("route", "condition"), "data"))
+            .Add("yes-agent-input", new(new("yes-value", "out"), new("agent-yes", "in"), "data"))
+            .Add("no-agent-input", new(new("no-value", "out"), new("agent-no", "in"), "data"))
+            .Add("yes-merge-value", new(new("agent-yes", "out"), new("merge", "in"), "data"))
+            .Add("no-merge-value", new(new("agent-no", "out"), new("merge", "in"), "data"))
+            .Add("merge-output", new(new("merge", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-route", Edge("input", "then", "route", "execute"))
+            .Add("route-yes", Edge("route", "true", "agent-yes", "execute"))
+            .Add("route-no", Edge("route", "false", "agent-no", "execute"))
+            .Add("yes-merge", Edge("agent-yes", "out", "merge", "execute"))
+            .Add("no-merge", Edge("agent-no", "out", "merge", "execute"))
+            .Add("merge-output", Edge("merge", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-typed-integer-arithmetic-route", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "0") { Type = WorkflowDataTypes.Integer })
                 .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
         };
         WorkflowValidator.ThrowIfInvalid(definition);

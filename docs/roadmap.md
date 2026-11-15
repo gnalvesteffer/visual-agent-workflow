@@ -1125,6 +1125,12 @@ will be introduced.
       This remains proof-only and does not resolve typed graph-dispatched
       `Break` or select a production architecture; see [Decision 0070](
       decisions/0070-bounded-array-iteration-contract.md).
+- [x] Extend the integrated production-body matrix with typed signed-integer
+  items composed through checked `IntegerAdd`, `IntegerEquals`, Boolean Branch,
+  exclusive Agent paths, and Merge. File and SQLite histories verify item and
+  arithmetic values, route evidence, output, and reopened iteration completion
+  (focused proof: 2/2). This advances deterministic composition coverage only;
+  the architecture, failure/race, shared-budget, and full-body gates remain.
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable
