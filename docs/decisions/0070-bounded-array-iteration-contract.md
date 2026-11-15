@@ -2206,6 +2206,14 @@ reopen through file and SQLite stores (2/2). An out-of-range item fails at
 (2/2). Other literal element kinds and mutable-array behavior remain outside
 this proof.
 
+`ProductionBodyActivationCoordinator_IndexesEveryPrimitiveArrayLiteralType`
+extends the `ArrayLiteral`/`ArrayGet` proof to Boolean, integer, and finite
+number arrays. The changing integer items select typed values, and outputs plus
+scoped data evidence reopen from file and SQLite (6 theory cases). Together
+with the string literal proof above, this covers all four currently supported
+primitive array literal element types in this composition. It does not establish
+mutable collections or the full body/architecture contract.
+
 `ProductionBodyActivationCoordinator_ReversesUnicodeStringItems` exercises
 the pure `Reverse` node over three changing inputs, including an accented
 character, a supplementary Unicode rune, and empty text. Reversed values and

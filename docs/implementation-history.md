@@ -107,7 +107,17 @@ The integrated body now builds an immutable `array<string>` and indexes it
 with the current typed integer item. Successful values and scoped evaluations
 persist in file and SQLite histories (2/2). An out-of-range third item fails
 at `ArrayGet`, records the consumer failure, and prevents a later activation
-(2/2). Other literal element kinds and mutable collections remain open. See
+(2/2). Additional primitive literal types are proven below; mutable
+collections remain open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Primitive array literal types in iteration proof
+
+The indexed `ArrayLiteral` composition now covers Boolean, integer, and finite
+number arrays in addition to strings. Each changing integer item selects the
+expected typed element, and scoped values persist through both run stores (6
+cases). This completes the primitive-type slice for immutable literals, not
+mutable arrays or general iterator parity. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 ## Unicode reverse transform in array-iteration proof

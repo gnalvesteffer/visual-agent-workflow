@@ -1738,6 +1738,68 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
+    [InlineData(WorkflowDataTypes.Boolean, "[true,false]", "false;true", "false", "true", false)]
+    [InlineData(WorkflowDataTypes.Boolean, "[true,false]", "false;true", "false", "true", true)]
+    [InlineData(WorkflowDataTypes.Integer, "[10,-2]", "-2;10", "-2", "10", false)]
+    [InlineData(WorkflowDataTypes.Integer, "[10,-2]", "-2;10", "-2", "10", true)]
+    [InlineData(WorkflowDataTypes.Number, "[1.25,-2.5]", "-2.5;1.25", "-2.5", "1.25", false)]
+    [InlineData(WorkflowDataTypes.Number, "[1.25,-2.5]", "-2.5;1.25", "-2.5", "1.25", true)]
+    public async Task ProductionBodyActivationCoordinator_IndexesEveryPrimitiveArrayLiteralType(
+        string elementType, string literalJson, string expectedOutput, string firstValue, string secondValue,
+        bool sqlite)
+    {
+        const string input = "[1,0]";
+        var revision = WorkflowRevision.Create(
+            TypedIntegerItemPrimitiveArrayGetBodyDefinition(elementType, literalJson),
+            $"production-body-integer-item-array-{elementType}-get-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.Integer);
+
+        Assert.False(result.Failed);
+        Assert.Equal(expectedOutput, result.Output);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var expectedValues = new[] { firstValue, secondValue };
+        for (var index = 0; index < expectedValues.Length; index++)
+        {
+            var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.ScopeId == $"array-loop/{index}" && evt.ConnectionId == "data:get-output");
+            using var payload = JsonDocument.Parse(evaluated.Data!);
+            Assert.Equal(elementType, payload.RootElement.GetProperty("dataType").GetString());
+            var value = payload.RootElement.GetProperty("value");
+            switch (elementType)
+            {
+                case WorkflowDataTypes.Boolean:
+                    Assert.Equal(bool.Parse(expectedValues[index]), value.GetBoolean());
+                    break;
+                case WorkflowDataTypes.Integer:
+                    Assert.Equal(long.Parse(expectedValues[index], System.Globalization.CultureInfo.InvariantCulture),
+                        value.GetInt64());
+                    break;
+                case WorkflowDataTypes.Number:
+                    Assert.Equal(double.Parse(expectedValues[index], System.Globalization.CultureInfo.InvariantCulture),
+                        value.GetDouble());
+                    break;
+            }
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ComposesTypedIntegerArithmeticAndConditionalRouting(bool sqlite)
@@ -12237,6 +12299,37 @@ public sealed class ArrayIterationVawBodyProofTests
             ExecutionConnections = execution,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                 .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition TypedIntegerItemPrimitiveArrayGetBodyDefinition(
+        string elementType, string literalJson)
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "item", OutputDataType = WorkflowDataTypes.Integer })
+            .Add("values", new(NodeTypes.ArrayLiteral, "1.0.0")
+            {
+                ArrayLiteral = new(elementType, literalJson)
+            })
+            .Add("get", new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = elementType })
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = elementType });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("item-index", new(new("item", "out"), new("get", "index"), "data"))
+            .Add("values-get", new(new("values", "out"), new("get", "array"), "data"))
+            .Add("get-output", new(new("get", "item"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-output", Edge("input", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            $"array-iteration-{elementType}-literal-get", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "0") { Type = WorkflowDataTypes.Integer })
                 .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
         };
         WorkflowValidator.ThrowIfInvalid(definition);

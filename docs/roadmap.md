@@ -343,7 +343,12 @@ will be introduced.
       typed integer item as the `ArrayGet` index. Returned values and evidence
       persist through both stores (2/2); an out-of-range third item fails at
       `ArrayGet` and prevents further admission (2/2). Other literal element
-      types and mutable-array semantics remain open.
+      types are covered below; mutable-array semantics remain open.
+    - [x] Repeat indexed literal reads for `array<boolean>`, `array<integer>`,
+      and `array<number>`. Typed results and activation-scoped evidence persist
+      through file and SQLite stores (6 cases); all four supported primitive
+      literal kinds now have an integrated success proof. Mutability and other
+      body compositions remain open.
     - [x] Exercise the pure `Reverse` node over changing string items including
       an empty string, an accented character, and a supplementary Unicode rune.
       Rune order, scoped output evidence, and reopened file/SQLite histories
