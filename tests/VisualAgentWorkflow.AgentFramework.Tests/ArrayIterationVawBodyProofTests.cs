@@ -1695,6 +1695,16 @@ public sealed class ArrayIterationVawBodyProofTests
             events.Count(evt => evt.Kind == ExecutionEventKinds.ToolUncertain));
         Assert.Equal(classifyProtocolFailure ? 1 : 0,
             events.Count(evt => evt.Kind == ExecutionEventKinds.ToolFailed));
+        if (classifyProtocolFailure)
+        {
+            var classifiedFailure = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed &&
+                evt.NodeId == "tool-research");
+            using var failurePayload = JsonDocument.Parse(classifiedFailure.Data!);
+            Assert.Equal("host.classified_failure",
+                failurePayload.RootElement.GetProperty("failureCode").GetString());
+            Assert.Equal(ToolInvocationFailureDisposition.RecoverableFeedback.ToString(),
+                failurePayload.RootElement.GetProperty("disposition").GetString());
+        }
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
         if (classifyProtocolFailure)

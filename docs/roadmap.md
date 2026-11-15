@@ -252,8 +252,7 @@ will be introduced.
       correlated tool calls complete per item, each join contains that item's
       two results, and file/SQLite histories reopen and render both joins
       (2/2 focused cases). This uses a test broker with reservation-correlated
-      evidence; the next check qualifies the production broker, while
-      real production-broker cancellation races remain open.
+      evidence; the next check qualifies successful production-broker calls.
     - [x] Repeat the two-item parallel direct-MCP proof with the production
       stdio `McpToolBroker` and pinned `demo.uppercase` contract. Both branches
       receive each item's typed text pin; real authorization/completion
@@ -270,8 +269,8 @@ will be introduced.
       sibling's correlated `tool.uncertain`; the root remains failed, the
       join/iteration completion are suppressed, and the next item is not
       admitted. Both stores reopen the same incomplete prefix (2/2 focused
-      cases). This is controlled-broker evidence; failure-triggered
-      production-broker sibling cancellation remains open.
+      cases). This is controlled-broker evidence; the production-broker
+      cancellation case is recorded below.
     - [x] Cancel a two-branch parallel body through the integrated coordinator
       after both real stdio MCP calls persist authorization. The production
       broker records correlated `tool.uncertain` outcomes, the root is

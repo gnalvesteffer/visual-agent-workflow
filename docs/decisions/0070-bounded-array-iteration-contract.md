@@ -1669,9 +1669,10 @@ completed joins (2/2 focused cases).
 This closes only successful parallel direct-MCP argument/result composition
 through the private VAW coordinator and production body dispatcher. The test
 uses a controlled broker; the following production stdio broker proof extends
-the evidence to the real MCP boundary. Failure-triggered sibling-cancellation races, process
-recovery, and the architecture selection gate remain open. This is not public
-iterator authoring or a shipped workflow capability.
+the evidence to the real MCP boundary. At this stage, failure-triggered
+sibling-cancellation races, process recovery, and architecture selection were
+still open; a later section records the production broker cancellation proofs.
+This is not public iterator authoring or a shipped workflow capability.
 
 `ProductionBodyActivationCoordinator_ExecutesParallelProductionMcpPerItem`
 runs the same two-item fork/join using the real stdio `McpToolBroker`, exact
@@ -1679,9 +1680,10 @@ pinned `demo.uppercase` contract, and separate typed `text` input pins sourced
 from the current item. Four actual calls authorize and complete; each item's
 uppercase values reach its own join, and reopened file/SQLite histories render
 both joins (2/2 focused cases). This proves successful production-broker
-dispatch and evidence through the private integrated coordinator. It does
-not prove production-broker failure-triggered sibling cancellation in a
-parallel body, nor does it select or publish an iterator architecture.
+dispatch and evidence through the private integrated coordinator. At this
+point it did not prove production-broker failure-triggered sibling
+cancellation; the later cancellation sections add that evidence. No iterator
+architecture is selected or published.
 
 `ProductionBodyActivationCoordinator_HostCancellationUnsettlesParallelProductionMcpCalls`
 cancels the root only after both real stdio MCP branches persist
