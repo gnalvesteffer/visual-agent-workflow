@@ -1233,6 +1233,93 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_JoinsParallelMcpPerItem(bool sqlite)
+    {
+        const string input = "[\"north\",\"south\"]";
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var nodes = definition.Nodes;
+        var connections = definition.Connections;
+        foreach (var toolId in new[] { "tool-research", "tool-review" })
+        {
+            nodes = nodes.SetItem(toolId, nodes[toolId] with
+            {
+                McpArgumentsJson = null,
+                McpInputPorts = [new("arg.query", "query", WorkflowDataTypes.String, true)]
+            });
+            connections = connections.SetItem($"input-{toolId}",
+                new(new("input", "out"), new(toolId, "arg.query"), "data"));
+        }
+
+        definition = definition with { Nodes = nodes, Connections = connections };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-parallel-mcp-join-per-item-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var broker = new ParallelMcpBroker(recordReservationIds: true);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(broker)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 4));
+
+        Assert.False(result.Failed);
+        Assert.Equal(4, broker.Calls.Length);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        for (var index = 0; index < 2; index++)
+        {
+            var item = index == 0 ? "north" : "south";
+            var scopeId = $"array-loop/{index}";
+            var scoped = events.Where(evt => evt.ScopeId == scopeId).ToArray();
+            foreach (var toolId in new[] { "tool-research", "tool-review" })
+            {
+                var started = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                    evt.NodeId == toolId);
+                var call = Assert.Single(broker.Calls, call => call.NodeId == toolId &&
+                    call.InvocationId == started.InvocationId && call.Query == item);
+                Assert.Equal(started.InvocationId, call.InvocationId);
+                Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                    evt.NodeId == toolId && evt.InvocationId == started.InvocationId);
+                Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.ToolCompleted &&
+                    evt.NodeId == toolId && evt.InvocationId == started.InvocationId);
+                Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+                    evt.NodeId == "join"));
+            }
+
+            var join = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "join");
+            using var joined = JsonDocument.Parse(join.Data!);
+            Assert.Equal($"result:{item}", joined.RootElement.GetProperty("left").GetString());
+            Assert.Equal($"result:{item}", joined.RootElement.GetProperty("right").GetString());
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        }
+
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolCompleted));
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+        var playback = await RenderPlayback(reopened);
+        Assert.Equal(2, CountOccurrences(playback, "Parallel join join · completed"));
+
+        static int CountOccurrences(string text, string value) =>
+            (text.Length - text.Replace(value, string.Empty, StringComparison.Ordinal).Length) / value.Length;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_SequenceFailureCancelsSiblingAndStopsLaterItems(bool sqlite)
     {
         var definition = SequenceBodyDefinition() with
@@ -12040,7 +12127,7 @@ public sealed class ArrayIterationVawBodyProofTests
     private sealed class ParallelMcpBroker(string? denyNode = null, string? failNode = null,
         bool holdUntilCancelled = false, string? resultPayload = null,
         Task? releaseAfterReservationRejected = null, bool waitForBothAuthorizations = false,
-        bool denyAll = false) : INodeToolBroker
+        bool denyAll = false, bool recordReservationIds = false) : INodeToolBroker
     {
         private readonly ConcurrentQueue<ParallelToolCall> calls = new();
         private readonly TaskCompletionSource branchesStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -12059,12 +12146,12 @@ public sealed class ArrayIterationVawBodyProofTests
         public INodeToolScope OpenScope(NodeInvocationContext invocation) =>
             new Scope(this, invocation.NodeId, invocation.InvocationId, invocation.Record,
                 denyNode, failNode, holdUntilCancelled, resultPayload, releaseAfterReservationRejected,
-                waitForBothAuthorizations, denyAll);
+                waitForBothAuthorizations, denyAll, recordReservationIds);
 
         private sealed class Scope(ParallelMcpBroker owner, string nodeId, Guid invocationId,
             Func<string, string?, ValueTask> record, string? denyNode, string? failNode,
             bool holdUntilCancelled, string? resultPayload, Task? releaseAfterReservationRejected,
-            bool waitForBothAuthorizations, bool denyAll) : INodeToolScope
+            bool waitForBothAuthorizations, bool denyAll, bool recordReservationIds) : INodeToolScope
         {
             public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
                 Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
@@ -12076,6 +12163,7 @@ public sealed class ArrayIterationVawBodyProofTests
                 UpdateMaximum(owner, active);
                 var query = arguments.GetProperty("query").GetString()!;
                 owner.calls.Enqueue(new(nodeId, invocationId, query));
+                var toolCallId = Guid.NewGuid();
                 if (owner.calls.Count >= 2) owner.branchesStarted.TrySetResult();
                 try
                 {
@@ -12086,7 +12174,9 @@ public sealed class ArrayIterationVawBodyProofTests
                         await record(ExecutionEventKinds.ToolDenied, "No effective node grant.");
                         throw new ToolAccessDeniedException();
                     }
-                    await record(ExecutionEventKinds.ToolAuthorized, query);
+                    await record(ExecutionEventKinds.ToolAuthorized, recordReservationIds
+                        ? JsonSerializer.Serialize(new { toolCallId, bindingId, input = arguments })
+                        : query);
                     if (waitForBothAuthorizations && Interlocked.Increment(ref owner.authorizationCount) == 2)
                         owner.bothAuthorizationsRecorded.TrySetResult();
                     if (waitForBothAuthorizations)
@@ -12104,7 +12194,8 @@ public sealed class ArrayIterationVawBodyProofTests
                     var result = resultPayload ?? $"result:{query}";
                     await record(ExecutionEventKinds.ToolCompleted, JsonSerializer.Serialize(new
                     {
-                        toolCallId = Guid.NewGuid(), parentToolCallId = (Guid?)null, bindingId, output = result
+                        toolCallId = recordReservationIds ? toolCallId : Guid.NewGuid(),
+                        parentToolCallId = (Guid?)null, bindingId, output = result
                     }));
                     return result;
                 }

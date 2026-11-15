@@ -247,6 +247,13 @@ will be introduced.
       arrivals, and completed join in reopened file/SQLite playback (2/2
       focused cases). Fork failure/cancellation and broader parallel-body
       compositions remain open.
+    - [x] Run a parallel direct-MCP fork/join with separate typed query pins
+      fed by each current array item through the production body. Both
+      correlated tool calls complete per item, each join contains that item's
+      two results, and file/SQLite histories reopen and render both joins
+      (2/2 focused cases). This uses a test broker with reservation-correlated
+      evidence; production broker integration and parallel failure/cancel
+      races remain open.
     - [x] Qualify one transformed production-body path across two items:
       Variable Set/Get, TextConcat, Uppercase, Agent, and MCP run under fresh
       activation state with correlated values and lifecycle evidence, reopened

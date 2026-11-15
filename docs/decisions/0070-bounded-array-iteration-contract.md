@@ -1655,6 +1655,24 @@ the persisted failure/race/custom-broker/store-fault matrix, or prove all
 reservation-settlement cases. The main gate remains **REVISE**; public typed
 iteration, Studio authoring, and checkpoint recovery remain out of scope.
 
+## Parallel direct-MCP join in the integrated coordinator (2026-11-15)
+
+`ProductionBodyActivationCoordinator_JoinsParallelMcpPerItem` extends the
+private integrated coordinator proof from parallel Agents to two direct-MCP
+branches. Each branch receives its own typed query pin sourced from the
+current array item; the test broker records reservation-correlated
+authorization/completion evidence, and the static join retains both item
+specific results. File and SQLite histories reopen with matching invocation,
+scope, join-arrival, and terminal evidence, and passive playback renders both
+completed joins (2/2 focused cases).
+
+This closes only successful parallel direct-MCP argument/result composition
+through the private VAW coordinator and production body dispatcher. The test
+uses a controlled broker, so production `McpToolBroker` integration through
+this coordinator, parallel MCP failure/cancellation races, process recovery,
+and the architecture selection gate remain open. This is not public iterator
+authoring or a shipped workflow capability.
+
 ## Production body Break transport proof (2026-11-14)
 
 The private proof now carries a graph-dispatched Break through the production
