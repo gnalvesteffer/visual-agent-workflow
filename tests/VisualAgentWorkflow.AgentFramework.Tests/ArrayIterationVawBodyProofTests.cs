@@ -913,6 +913,64 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_SequenceFailureCancelsSiblingAndStopsLaterItems(bool sqlite)
+    {
+        var definition = SequenceBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-sequence-failure-proof");
+        const string input = "[\"first\",\"must-not-run\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var tools = new FailSequenceOutputToolBroker("proof.inventory", "proof.architecture");
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner(tools)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 4))
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(outcome.Failed);
+        Assert.False(outcome.OutcomeUnknown);
+        Assert.True(tools.FailingOutputReachedSibling);
+        Assert.True(tools.SiblingObservedCancellation);
+        var scoped = events.Where(evt => evt.ScopeId == "array-loop/0").ToArray();
+        Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.SequenceStarted);
+        Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched));
+        Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed);
+        Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled);
+        Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.ToolUncertain);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "array-loop/0");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "array-loop" && evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+
+        AssertPersistedSequence(runStore, events, "failed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+        Assert.True(reopened.IsTerminal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyNestedBreak_StopsInnerLoopAndContinuesOuterLoop(bool sqlite)
     {
         var body = StructuredBreakProofDefinition();

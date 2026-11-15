@@ -245,6 +245,10 @@ will be introduced.
       coordinator for two items. Both MCP outputs dispatch and complete per
       activation; Sequence lifecycle, tool authorization, and loop events
       retain exact scopes and reopen from file and SQLite (2/2 focused cases).
+      The integrated coordinator also fails one output after its sibling has
+      dispatched, records the sibling's cancellation and uncertain MCP outcome,
+      attributes failure to the active iteration, stops before the next item,
+      and reopens the failed root through both stores (2/2 focused cases).
       Broader Sequence failure races and public iterator semantics remain open.
     - [x] Persist and reopen the static-fork Break-versus-admitted-failure
       race through file and SQLite stores. Both retain the descendant failure

@@ -2006,6 +2006,10 @@ public iterator/Break schema and Studio authoring.
 current-schema Sequence body to the integrated private path. Two MCP outputs
 dispatch and complete in each of two activations; scoped Sequence/tool/loop
 evidence and the root lifecycle reopen through file and SQLite (2/2 focused
-cases). This verifies successful Sequence composition only; Sequence failure
-races, the full supported-body matrix, architecture selection, and public
+cases). `ProductionBodyActivationCoordinator_SequenceFailureCancelsSiblingAndStopsLaterItems`
+then fails one output after its sibling has dispatched. Both stores retain the
+failed output, cancelled sibling, uncertain in-flight MCP outcome, failed
+iteration attribution, failed root status, and no later item admission (2/2
+focused cases). These tests verify bounded Sequence composition and one failure
+shape only; the full supported-body matrix, architecture selection, and public
 iterator authoring remain open.
