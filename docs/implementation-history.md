@@ -54,6 +54,14 @@ checks each negated value, chosen path, output, and reopened file/SQLite history
 coverage, not a public iterator contract. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## JSON selection in array-iteration proof
+
+Typed string items containing JSON records now flow through a JSON-typed body
+Input and JSON Pointer selection to Output. The proof checks selected values
+and source JSON in each activation's evidence and reopens file/SQLite history
+(2/2). JSON projection, merge, and failure shapes remain unproven. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Bounded-loop playback pairs lifecycle events by iteration
 
 The passive Run inspector now pairs ordinary bounded-loop start/completion

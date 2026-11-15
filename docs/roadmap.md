@@ -1143,6 +1143,10 @@ will be introduced.
   preserving the direct-item branch proof separately. Both outcomes, scoped
   negated values, merge results, and reopened file/SQLite histories pass (2/2).
   This verifies a Boolean transform composition, not the complete body matrix.
+- [x] Compose typed string items containing JSON records through a JSON-typed
+  Input and JSON Pointer selection to the workflow output. Selected values and
+  source JSON persist as scoped evidence with file/SQLite reopen (2/2). This
+  proves one JSON-input composition; projection, merge, and failure cases remain.
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

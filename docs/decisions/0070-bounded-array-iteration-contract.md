@@ -2145,6 +2145,14 @@ selected route, merged output, and reopened file/SQLite history (2/2 focused
 cases), while retaining the separate direct typed-item-to-Branch proof. Other
 deterministic body compositions and the architecture review remain open.
 
+`ProductionBodyActivationCoordinator_SelectsJsonFieldsFromTypedStringItems`
+uses typed string array items containing JSON objects. A JSON-typed body Input
+parses each value, `JsonSelectString` selects `/name`, and Output returns the
+selected strings. The proof verifies the original JSON and selected string in
+each activation scope plus file/SQLite reopen (2/2 focused cases). It does not
+cover JSON projection, merge, malformed input, or the broader supported-body
+matrix.
+
 `ProductionBodyActivationCoordinator_EnforcesSharedActivationLimit` now
 exercises the run-context activation cap through the integrated path. After the
 first item's Agent and MCP work completes, a one-activation budget rejects
