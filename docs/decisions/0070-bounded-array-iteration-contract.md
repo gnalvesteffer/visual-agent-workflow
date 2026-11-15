@@ -2010,6 +2010,16 @@ cases). `ProductionBodyActivationCoordinator_SequenceFailureCancelsSiblingAndSto
 then fails one output after its sibling has dispatched. Both stores retain the
 failed output, cancelled sibling, uncertain in-flight MCP outcome, failed
 iteration attribution, failed root status, and no later item admission (2/2
-focused cases). These tests verify bounded Sequence composition and one failure
-shape only; the full supported-body matrix, architecture selection, and public
-iterator authoring remain open.
+focused cases). The reopened snapshots also render through the Run inspector as
+an incomplete iteration rather than implying completion. These tests verify
+bounded Sequence composition and one failure shape only; the full supported-body
+matrix, architecture selection, and public iterator authoring remain open.
+
+`ProductionBodyActivationCoordinator_EvaluatesGraphFunctionPerItem` adds a
+current-schema pure graph function to the integrated body path. The function
+receives each item's value, returns the expected transformed output, and
+records its evaluated input/output evidence in the matching activation scope;
+the one-root history reopens from file and SQLite (2/2 focused cases). This
+qualifies successful graph-function composition only; function failures,
+shared-budget interaction, the broader body matrix, architecture selection,
+and public iterator authoring remain open.

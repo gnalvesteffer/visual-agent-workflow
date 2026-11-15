@@ -178,6 +178,53 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_EvaluatesGraphFunctionPerItem(bool sqlite)
+    {
+        const string input = "[\"alpha\",\"beta\"]";
+        var revision = WorkflowRevision.Create(GraphFunctionValueBodyDefinition(),
+            "production-body-graph-function-activation-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record);
+
+        Assert.False(outcome.Failed);
+        Assert.Equal("alpha!;beta!", outcome.Output);
+        AssertPersistedSequence(runStore, events, "completed");
+        for (var index = 0; index < 2; index++)
+        {
+            var scopeId = $"array-loop/{index}";
+            var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.NodeId == "call" && evt.ScopeId == scopeId);
+            Assert.Equal("data:call-output", evaluated.ConnectionId);
+            using var payload = JsonDocument.Parse(evaluated.Data!);
+            var expectedItem = index == 0 ? "alpha" : "beta";
+            Assert.Equal(expectedItem + "!", payload.RootElement.GetProperty("value").GetString());
+            Assert.Equal(expectedItem, payload.RootElement.GetProperty("function")
+                .GetProperty("inputs").GetProperty("text").GetString());
+            Assert.Contains(payload.RootElement.GetProperty("function").GetProperty("evaluatedValues")
+                .EnumerateArray(), value => value.GetProperty("nodeId").GetString() == "concat" &&
+                value.GetProperty("value").GetString() == expectedItem + "!");
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_RejectsToolBeforeDispatchAtSharedLimit(bool sqlite)
     {
         var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
@@ -966,6 +1013,10 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(events, reopened.Events);
         Assert.Equal("failed", reopened.Status);
         Assert.True(reopened.IsTerminal);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iteration 1 · Completed", playback, StringComparison.Ordinal);
     }
 
     [Theory]

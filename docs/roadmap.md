@@ -241,6 +241,12 @@ will be introduced.
       activation state with correlated values and lifecycle evidence, reopened
       from file and SQLite (2/2 focused cases). Other deterministic node
       families and their compositions remain to be qualified.
+    - [x] Execute a pinned pure graph function inside the production body for
+      two items. Each call receives the current item, emits the expected
+      suffixed result and evaluated-value evidence under its own activation
+      scope, and the completed history reopens from file and SQLite (2/2
+      focused cases). Broader function failure and shared-budget interactions
+      remain open.
     - [x] Execute a current-schema two-output Sequence body through the private
       coordinator for two items. Both MCP outputs dispatch and complete per
       activation; Sequence lifecycle, tool authorization, and loop events
@@ -248,7 +254,8 @@ will be introduced.
       The integrated coordinator also fails one output after its sibling has
       dispatched, records the sibling's cancellation and uncertain MCP outcome,
       attributes failure to the active iteration, stops before the next item,
-      and reopens the failed root through both stores (2/2 focused cases).
+      and reopens/renders the failed root through both stores as an incomplete
+      iteration (2/2 focused cases).
       Broader Sequence failure races and public iterator semantics remain open.
     - [x] Persist and reopen the static-fork Break-versus-admitted-failure
       race through file and SQLite stores. Both retain the descendant failure
