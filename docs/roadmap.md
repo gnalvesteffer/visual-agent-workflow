@@ -236,6 +236,11 @@ will be introduced.
       outputs, per-iteration lifecycle, and file/SQLite reopen agree (2/2
       focused cases). This proves conditional composition on the integrated
       path only; broader capability and failure matrices remain open.
+    - [x] Qualify one transformed production-body path across two items:
+      Variable Set/Get, TextConcat, Uppercase, Agent, and MCP run under fresh
+      activation state with correlated values and lifecycle evidence, reopened
+      from file and SQLite (2/2 focused cases). Other deterministic node
+      families and their compositions remain to be qualified.
     - [x] Persist and reopen the static-fork Break-versus-admitted-failure
       race through file and SQLite stores. Both retain the descendant failure
       and failed root outcome without completing the join. Sequence Break

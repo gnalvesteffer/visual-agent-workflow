@@ -1978,13 +1978,18 @@ append-prefix playback cases.
 
 The reviewers found the proof matrix still narrower than the supported body
 contract: candidate comparisons and private coordinator proofs do not yet
-cover the same breadth of control flow, deterministic transforms, failure and
-append boundaries, or every shared-budget settlement path. WorkflowValue
-parameter dataflow also does not establish authored iterator-pin serialization
-or Studio compatibility. Checkpoint recovery remains excluded until activation
-frames can be captured and restored. Continue proof-only integration, preserve
-the existing predicate-based string Loop, and run another three-role review
-only after the remaining matrix is complete.
+cover the same breadth of control flow, the full deterministic-node family,
+failure and append boundaries, or every shared-budget settlement path. A
+post-review source audit confirmed existing coordinator coverage for
+Variable Set/Get, TextConcat, Uppercase, Agent, and MCP across two activations
+in both stores (`ProductionBodyActivationCoordinator_PersistsOneScopedRunLedger`,
+2/2 focused cases); the gap is the remaining deterministic node families and
+their compositions, not all transforms. WorkflowValue parameter dataflow also
+does not establish authored iterator-pin serialization or Studio
+compatibility. Checkpoint recovery remains excluded until activation frames
+can be captured and restored. Continue proof-only integration, preserve the
+existing predicate-based string Loop, and run another three-role review only
+after the remaining matrix is complete.
 
 ## Conditional-body composition on the private coordinator (2026-11-15)
 
