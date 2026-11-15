@@ -133,6 +133,15 @@ boundary for one numeric composition; it does not close the supported-body
 matrix or public iterator contract. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Graph-function failure attribution in array-iteration proof
+
+A pure graph function that fails at an internal ArrayGet now records failure
+against its visible FunctionCall node, with the function's internal node ID and
+safe reason in the event. The failure stops before a later item, and file and
+SQLite histories reopen identically (2 focused cases). This improves evidence
+for one function failure shape without establishing complete function/runtime
+parity. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## JSON input and nested-array bounds in iteration proof
 
 Malformed JSON supplied through the production body now records a specific,

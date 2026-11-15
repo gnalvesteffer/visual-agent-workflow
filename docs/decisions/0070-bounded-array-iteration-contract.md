@@ -2084,6 +2084,15 @@ qualifies successful graph-function composition only; function failures,
 shared-budget interaction, the broader body matrix, architecture selection,
 and public iterator authoring remain open.
 
+`ProductionBodyActivationCoordinator_AttributesGraphFunctionFailureToCall`
+fails a pinned pure function's `ArrayGet` on the second typed item. The event
+uses the visible outer FunctionCall node ID and includes the function display
+name, internal failing node ID, and deterministic failure reason. The Output
+consumer also records its failure; the run stops before a third item and
+file/SQLite histories reopen identically (2/2 focused cases). This qualifies
+one function failure shape only; broader function failure and budget coverage
+remain open.
+
 `ProductionBodyActivationCoordinator_BindsTypedIntegerItemAndIndex` exercises
 the Core parameter-binding seam through the same coordinator and production
 Agent dispatcher. It uses `long.MinValue`, zero, and `long.MaxValue`, verifies

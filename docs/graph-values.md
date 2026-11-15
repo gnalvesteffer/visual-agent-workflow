@@ -44,6 +44,12 @@ type is distinct from every `array<T>` primitive type. See [Decision
 0068](decisions/0068-typed-array-workflow-parameters.md), and [Decision
 0069](decisions/0069-typed-arrays-in-pure-graph-functions.md).
 
+When a pure graph function fails during a workflow run, recorded failure is
+attributed to the visible FunctionCall node. The event reason preserves the
+function's internal failing node ID and safe deterministic explanation, so the
+failure can be located without treating an internal function node as a node on
+the outer workflow canvas.
+
 Schema 1.44 adds linear run-scoped scalar variables with explicit typed Get/Set
 nodes and passive evidence playback. Extend this slice to loop, concurrency,
 nested-workflow, checkpoint, and richer replay semantics only through separate

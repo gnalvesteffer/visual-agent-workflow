@@ -1148,7 +1148,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 }
                 catch (GraphFunctionEvaluationException exception)
                 {
-                    throw new GraphDataEvaluationException(exception.NodeId, exception.Message, exception);
+                    var functionName = node.GraphFunction?.Definition.DisplayName ?? "unnamed function";
+                    throw new GraphDataEvaluationException(nodeId,
+                        $"Graph function '{functionName}' failed at internal node '{exception.NodeId}': {exception.Message}",
+                        exception);
                 }
                 if (result.DataType == "string" && ((string)result.Value).Length > 16_384)
                     throw new InvalidOperationException("Pure data output exceeds 16,384 characters.");

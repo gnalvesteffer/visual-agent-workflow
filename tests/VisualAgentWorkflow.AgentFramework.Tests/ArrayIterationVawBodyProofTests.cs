@@ -225,6 +225,46 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_AttributesGraphFunctionFailureToCall(bool sqlite)
+    {
+        const string input = "[0,1]";
+        var revision = WorkflowRevision.Create(GraphFunctionArrayGetBodyDefinition(),
+            "production-body-graph-function-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.Integer);
+
+        Assert.True(outcome.Failed);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/1");
+        var callFailure = Assert.Single(events,
+            evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "call");
+        Assert.Contains("Graph function 'Lookup' failed at internal node 'get'", callFailure.Data, StringComparison.Ordinal);
+        Assert.Contains("outside an array containing 1 items", callFailure.Data, StringComparison.Ordinal);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "output");
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_BindsTypedIntegerItemAndIndex(bool sqlite)
     {
         const string input = "[-9223372036854775808,0,9223372036854775807]";
@@ -12518,6 +12558,53 @@ public sealed class ArrayIterationVawBodyProofTests
             ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
                 .Add("input-output", Edge("input", "then", "output", "execute"))
         };
+    }
+
+    private static WorkflowDefinition GraphFunctionArrayGetBodyDefinition()
+    {
+        var function = new GraphFunctionDefinition("proof.lookup", 1, "Lookup", "Select one item.",
+            ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("index", new("Index", WorkflowDataTypes.Integer)),
+            ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("item", new("Item", WorkflowDataTypes.String)),
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("index", new(NodeTypes.FunctionInput, "1.0.0")
+                    { FunctionPortId = "index", OutputDataType = WorkflowDataTypes.Integer })
+                .Add("items", new(NodeTypes.ArrayLiteral, "1.0.0")
+                    { ArrayLiteral = new(WorkflowDataTypes.String, "[\"only\"]") })
+                .Add("get", new(NodeTypes.ArrayGet, "1.0.0")
+                    { ArrayElementType = WorkflowDataTypes.String })
+                .Add("output", new(NodeTypes.FunctionOutput, "1.0.0")
+                    { FunctionPortId = "item", InputDataType = WorkflowDataTypes.String }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("array", new(new("items", "out"), new("get", "array"), "data"))
+                .Add("index", new(new("index", "out"), new("get", "index"), "data"))
+                .Add("result", new(new("get", "item"), new("output", "in"), "data")));
+        var call = new NodeDefinition(NodeTypes.FunctionCall, "1.0.0")
+        {
+            GraphFunction = new(function, GraphFunctionJson.ComputeHash(function))
+        };
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-function-failure", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                    { ParameterId = "item", OutputDataType = WorkflowDataTypes.Integer })
+                .Add("call", call)
+                .Add("output", new(NodeTypes.Output, "1.0.0")
+                    { OutputDataType = WorkflowDataTypes.String }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("item-index", new(new("item", "out"), new("call", "index"), "data"))
+                .Add("call-output", new(new("call", "item"), new("output", "in"), "data")))
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("item", new("Array item", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input-output", Edge("input", "then", "output", "execute"))
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
     }
 
     private static WorkflowDefinition TypedItemAndIndexBodyDefinition()
