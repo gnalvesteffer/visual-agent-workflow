@@ -2031,3 +2031,12 @@ each typed item is paired with its zero-based integer index at the Agent, and
 checks the scoped `data.evaluated` records and completed root after reopening
 both stores (2/2 focused cases). This does not add serialized iterator pins or
 Studio authoring; those remain behind the architecture review.
+
+`ProductionBodyActivationCoordinator_RoutesTypedBooleanItemsThroughBranch`
+proves a second typed item shape at the integrated boundary. Boolean items
+flow directly from the coordinator-bound typed workflow parameter into
+Boolean Branch, select only the matching Agent path, pass through the Merge,
+and produce activation-scoped branch evidence in file/SQLite histories (2/2
+focused cases). This extends the prior string-valued condition and integer
+item/index proofs; it does not establish every element type, branch-failure
+shape, or the remaining body matrix.

@@ -236,6 +236,12 @@ will be introduced.
       outputs, per-iteration lifecycle, and file/SQLite reopen agree (2/2
       focused cases). This proves conditional composition on the integrated
       path only; broader capability and failure matrices remain open.
+    - [x] Route typed Boolean array items directly through Boolean Branch,
+      mutually exclusive Agent paths, and Merge in the production body. The
+      true/false/true selections, selected Agent inputs, merged output, scoped
+      branch evidence, and reopened histories agree in file and SQLite (2/2
+      focused cases). Other element types and control-flow compositions remain
+      open.
     - [x] Qualify one transformed production-body path across two items:
       Variable Set/Get, TextConcat, Uppercase, Agent, and MCP run under fresh
       activation state with correlated values and lifecycle evidence, reopened
