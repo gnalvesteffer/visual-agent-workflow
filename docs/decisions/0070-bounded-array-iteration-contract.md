@@ -2165,6 +2165,15 @@ node ID, matching the explicit-node failure evidence. JSON merge, malformed
 JSON, and the broader body matrix remain unproven; this is still proof-only and
 does not settle the iterator architecture or public authoring contract.
 
+`ProductionBodyActivationCoordinator_MergesProjectedJsonPerItem` extends that
+composition through two disjoint `JsonProject` nodes, `JsonMerge`, and
+`JsonSelectString`. Merged fields and final outputs persist through file and
+SQLite (2/2). `ProductionBodyActivationCoordinator_AttributesJsonMergeConflictAndStopsLaterItems`
+proves duplicate-key failure is attributed to the merge and its consumer,
+closes the root as failed, and admits no later item (2/2). The pure evaluator
+now wraps JSON merge contract errors with the originating node ID, matching
+projection errors. Malformed JSON and other bounds/failure shapes remain open.
+
 `ProductionBodyActivationCoordinator_EnforcesSharedActivationLimit` now
 exercises the run-context activation cap through the integrated path. After the
 first item's Agent and MCP work completes, a one-activation budget rejects

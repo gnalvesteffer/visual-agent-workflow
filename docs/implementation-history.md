@@ -63,8 +63,11 @@ and source JSON in each activation's evidence and reopen file/SQLite history
 (4/4 focused cases). A projection type mismatch is attributed to the projection
 node and its consumer, fails the root, and prevents the next item from starting
 (2/2). Pure data evaluation now wraps projection contract errors with the
-originating node ID. JSON merge, malformed JSON, and the broader body matrix
-remain unproven. See
+originating node ID. Two disjoint projections now compose through JSON merge
+and selection (2/2); duplicate-key failure is attributed to the merge node and
+consumer and suppresses later items (2/2). Pure evaluation wraps both projection
+and merge contract errors with their source node IDs. Malformed JSON, other
+bounds/failure shapes, and the broader body matrix remain unproven. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 ## Bounded-loop playback pairs lifecycle events by iteration

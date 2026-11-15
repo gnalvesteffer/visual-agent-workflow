@@ -1128,9 +1128,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.JsonProject when outputPort == "out" => new ExplicitGraphValue("json",
                         ProjectJsonValue(nodeId, ResolveJsonInput(nodeId, "in", evaluated, cache, active), node.JsonProjection!)),
                     NodeTypes.JsonMerge when outputPort == "out" => new ExplicitGraphValue("json",
-                        ParseJson(StringExecutor.MergeJson(
+                        MergeJsonValue(nodeId,
                             ResolveJsonInput(nodeId, "left", evaluated, cache, active),
-                            ResolveJsonInput(nodeId, "right", evaluated, cache, active)))),
+                            ResolveJsonInput(nodeId, "right", evaluated, cache, active))),
                     NodeTypes.JsonToArray when outputPort == "out" => ConvertJsonToArray(nodeId, evaluated, cache, active),
                     NodeTypes.ArrayLiteral when outputPort == "out" => CreateArrayLiteral(nodeId),
                     NodeTypes.ArrayLength when outputPort == "out" => new ExplicitGraphValue(WorkflowDataTypes.Integer,
@@ -1414,6 +1414,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             try
             {
                 return ParseJson(StringExecutor.ProjectJson(input, projection));
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new GraphDataEvaluationException(nodeId, exception.Message, exception);
+            }
+        }
+
+        private static JsonElement MergeJsonValue(string nodeId, string left, string right)
+        {
+            try
+            {
+                return ParseJson(StringExecutor.MergeJson(left, right));
             }
             catch (InvalidOperationException exception)
             {

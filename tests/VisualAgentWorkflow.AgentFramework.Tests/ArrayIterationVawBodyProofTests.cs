@@ -1355,6 +1355,86 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_MergesProjectedJsonPerItem(bool sqlite)
+    {
+        const string input = "[\"{\\\"name\\\":\\\"Ada\\\",\\\"amount\\\":42}\",\"{\\\"name\\\":\\\"Lin\\\",\\\"amount\\\":99}\"]";
+        var revision = WorkflowRevision.Create(TypedStringItemJsonMergeBodyDefinition(),
+            "production-body-typed-string-json-merge-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.False(result.Failed);
+        Assert.Equal("Ada;Lin", result.Output);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var expectedNames = new[] { "Ada", "Lin" };
+        var expectedAmounts = new[] { 42, 99 };
+        for (var index = 0; index < expectedNames.Length; index++)
+        {
+            var scopeId = $"array-loop/{index}";
+            var merged = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.ScopeId == scopeId && evt.ConnectionId == "data:merge-output");
+            using var mergedPayload = JsonDocument.Parse(merged.Data!);
+            var mergedValue = mergedPayload.RootElement.GetProperty("value");
+            Assert.Equal(expectedNames[index], mergedValue.GetProperty("name").GetString());
+            Assert.Equal(expectedAmounts[index], mergedValue.GetProperty("amount").GetInt32());
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_AttributesJsonMergeConflictAndStopsLaterItems(bool sqlite)
+    {
+        const string input = "[\"{\\\"name\\\":\\\"Ada\\\"}\",\"{\\\"name\\\":\\\"Lin\\\"}\"]";
+        var revision = WorkflowRevision.Create(TypedStringItemJsonMergeBodyDefinition(duplicateName: true),
+            "production-body-json-merge-conflict-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.True(result.Failed);
+        Assert.False(result.OutcomeUnknown);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        var mergeFailure = Assert.Single(events,
+            evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "merge");
+        Assert.Contains("duplicate property 'name'", mergeFailure.Data, StringComparison.Ordinal);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "output");
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ComposesTypedIntegerArithmeticAndConditionalRouting(bool sqlite)
     {
         const string input = "[-1,0,1,2]";
@@ -11658,6 +11738,47 @@ public sealed class ArrayIterationVawBodyProofTests
             .Add("input-output", Edge("input", "then", "output", "execute"));
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
             "array-iteration-json-project-selection", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "{}") { Type = WorkflowDataTypes.String })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition TypedStringItemJsonMergeBodyDefinition(bool duplicateName = false)
+    {
+        var rightField = duplicateName
+            ? new JsonProjectionField("name", "/name") { ValueType = WorkflowDataTypes.String }
+            : new JsonProjectionField("amount", "/amount") { ValueType = WorkflowDataTypes.Number };
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json })
+            .Add("project-name", new(NodeTypes.JsonProject, "1.0.0")
+            {
+                JsonProjection = new([new JsonProjectionField("name", "/name") { ValueType = WorkflowDataTypes.String }])
+            })
+            .Add("project-value", new(NodeTypes.JsonProject, "1.0.0")
+            {
+                JsonProjection = new([rightField])
+            })
+            .Add("merge", new(NodeTypes.JsonMerge, "1.0.0"))
+            .Add("select", new(NodeTypes.JsonSelectString, "1.0.0")
+                { JsonPropertySelection = new("/name") })
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.String });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-name", new(new("input", "out"), new("project-name", "in"), "data"))
+            .Add("input-value", new(new("input", "out"), new("project-value", "in"), "data"))
+            .Add("name-merge", new(new("project-name", "out"), new("merge", "left"), "data"))
+            .Add("value-merge", new(new("project-value", "out"), new("merge", "right"), "data"))
+            .Add("merge-output", new(new("merge", "out"), new("select", "in"), "data"))
+            .Add("selected-output", new(new("select", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-output", Edge("input", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-json-merge-selection", "input", nodes, data)
         {
             ExecutionConnections = execution,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty

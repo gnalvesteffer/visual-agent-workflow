@@ -315,6 +315,13 @@ will be introduced.
       WorkflowValue and NumberAdd graph, verifying item-specific arithmetic,
       scoped data evaluations, and completed file/SQLite histories (2/2 focused
       cases). Non-finite inputs remain rejected by the array contract.
+    - [x] Compose two typed JSON projections with JsonMerge and JsonSelectString
+      in the production body seam. Reopened file/SQLite evidence contains each
+      merged item value (2/2); duplicate-key failures identify JsonMerge and its
+      consumer, fail the root, and stop later items (2/2). Pure data-evaluation
+      errors retain their originating projection/merge node identity. This
+      closes only the tested JSON composition/failure slice; malformed input,
+      other JSON limits, and the supported-body matrix remain open.
     - [x] Execute a current-schema two-output Sequence body through the private
       coordinator for two items. Both MCP outputs dispatch and complete per
       activation; Sequence lifecycle, tool authorization, and loop events
