@@ -1320,6 +1320,107 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ExecutesParallelProductionMcpPerItem(bool sqlite)
+    {
+        const string input = "[\"north\",\"south\"]";
+        var registrations = CreateDemoMcpRegistrations("demo.uppercase");
+        var discovery = new McpToolBroker(registrations, new DemoToolPolicy());
+        var binding = Assert.Single(await discovery.ListBindingsAsync(), item => item.BindingId == "demo.uppercase");
+        var configuredTool = new ToolBindingRequest(binding.BindingId, binding.ContractHash)
+        {
+            DescriptionHash = binding.DescriptionHash
+        };
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var nodes = definition.Nodes;
+        var connections = definition.Connections;
+        foreach (var nodeId in new[] { "tool-research", "tool-review" })
+        {
+            nodes = nodes.SetItem(nodeId, nodes[nodeId] with
+            {
+                Tool = configuredTool,
+                McpArgumentsJson = null,
+                McpInputPorts = [new("arg.text", "text", WorkflowDataTypes.String, true)]
+            });
+            connections = connections.SetItem($"input-{nodeId}",
+                new(new("input", "out"), new(nodeId, "arg.text"), "data"));
+        }
+
+        definition = definition with { Nodes = nodes, Connections = connections };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-parallel-real-mcp-per-item-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var broker = CreateSynchronizedDemoMcpBroker(registrations, expectedConnections: 2);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(broker)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 4))
+            .WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.False(result.Failed);
+        Assert.Equal("{\"left\":\"NORTH\",\"right\":\"NORTH\"};{\"left\":\"SOUTH\",\"right\":\"SOUTH\"}",
+            result.Output);
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolCompleted));
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolFailed or
+            ExecutionEventKinds.ToolUncertain);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        for (var index = 0; index < 2; index++)
+        {
+            var item = index == 0 ? "north" : "south";
+            var scopeId = $"array-loop/{index}";
+            var scoped = events.Where(evt => evt.ScopeId == scopeId).ToArray();
+            foreach (var nodeId in new[] { "tool-research", "tool-review" })
+            {
+                var started = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                    evt.NodeId == nodeId);
+                var authorized = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+                    evt.NodeId == nodeId && evt.InvocationId == started.InvocationId);
+                var completed = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.ToolCompleted &&
+                    evt.NodeId == nodeId && evt.InvocationId == started.InvocationId);
+                using var authorizationPayload = JsonDocument.Parse(authorized.Data!);
+                using var completionPayload = JsonDocument.Parse(completed.Data!);
+                Assert.Equal(item, authorizationPayload.RootElement.GetProperty("input")
+                    .GetProperty("text").GetString());
+                Assert.Equal(item.ToUpperInvariant(), completionPayload.RootElement.GetProperty("output").GetString());
+                Assert.Equal(authorized.InvocationId, completed.InvocationId);
+            }
+
+            var join = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "join");
+            using var joined = JsonDocument.Parse(join.Data!);
+            Assert.Equal(item.ToUpperInvariant(), joined.RootElement.GetProperty("left").GetString());
+            Assert.Equal(item.ToUpperInvariant(), joined.RootElement.GetProperty("right").GetString());
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+                evt.NodeId == "join"));
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+        var playback = await RenderPlayback(reopened);
+        Assert.Equal(2, CountOccurrences(playback, "Parallel join join · completed"));
+
+        static int CountOccurrences(string text, string value) =>
+            (text.Length - text.Replace(value, string.Empty, StringComparison.Ordinal).Length) / value.Length;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ParallelMcpFailureSuppressesJoinAndLaterItems(bool sqlite)
     {
         const string input = "[\"first\",\"must-not-run\"]";
@@ -11935,7 +12036,7 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
-    private static IReadOnlyList<McpToolRegistration> CreateDemoMcpRegistrations()
+    private static IReadOnlyList<McpToolRegistration> CreateDemoMcpRegistrations(string bindingId = "demo.slow")
     {
         DirectoryInfo? root = new(AppContext.BaseDirectory);
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "VisualAgentWorkflow.slnx")))
@@ -11949,7 +12050,7 @@ public sealed class ArrayIterationVawBodyProofTests
             .TrimEnd(Path.DirectorySeparatorChar))!.Parent!.Parent!.FullName;
         var dotnet = Path.Combine(runtimeRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
         return DemoMcpServer.Registrations(dotnet, [studio, "--mcp-demo-server"])
-            .Where(registration => registration.BindingId == "demo.slow").ToArray();
+            .Where(registration => registration.BindingId == bindingId).ToArray();
     }
 
     private static McpToolBroker CreateSynchronizedDemoMcpBroker(
