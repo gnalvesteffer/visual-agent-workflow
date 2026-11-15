@@ -1964,3 +1964,35 @@ from its recorded completion (or leaves it incomplete when absent), and shows
 that the parallel join has no event. The focused timeout theory passes for
 both file and SQLite. This adds playback evidence for the real adapter path;
 it does not close other append/failure cases or architecture selection.
+
+## Three-role readiness re-review (2026-11-15)
+
+An independent proponent, opponent, and adjudicator review returned
+**REVISE**. The VAW-owned coordinator remains a viable candidate, but the
+review did not select it or authorize public typed array pins/Break authoring.
+Confirmed evidence includes private frame ownership, root lifecycle and
+budget-ledger proofs, source-only nearest-frame Break consumption, production
+Agent Framework dispatch, selected Agent/MCP fork shapes, file/SQLite
+reopening, and the newly qualified terminal, uncertainty, cancellation, and
+append-prefix playback cases.
+
+The reviewers found the proof matrix still narrower than the supported body
+contract: candidate comparisons and private coordinator proofs do not yet
+cover the same breadth of control flow, deterministic transforms, failure and
+append boundaries, or every shared-budget settlement path. WorkflowValue
+parameter dataflow also does not establish authored iterator-pin serialization
+or Studio compatibility. Checkpoint recovery remains excluded until activation
+frames can be captured and restored. Continue proof-only integration, preserve
+the existing predicate-based string Loop, and run another three-role review
+only after the remaining matrix is complete.
+
+## Conditional-body composition on the private coordinator (2026-11-15)
+
+`ProductionBodyActivationCoordinator_RoutesConditionalItemsThroughExclusiveMerge`
+now sends three values through a current-schema Boolean Branch, mutually
+exclusive Agent paths, and a Merge using the private VAW coordinator and
+production body dispatcher. It verifies selected ports, exact iteration
+scopes, merged outputs, one root lifecycle, and file/SQLite reopen (2/2 focused
+cases). This closes conditional body composition for this path only. It does
+not select an architecture, establish all supported-body parity, or authorize
+public iterator/Break schema and Studio authoring.

@@ -797,6 +797,72 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_RoutesConditionalItemsThroughExclusiveMerge(bool sqlite)
+    {
+        const string input = "[\"yes\",\"no\",\"yes\"]";
+        const string expected = "{\"query\":\"yes-agent-yes\"};" +
+            "{\"query\":\"no-agent-no\"};" + "{\"query\":\"yes-agent-yes\"}";
+        var revision = WorkflowRevision.Create(ConditionalItemBodyDefinition(),
+            "production-body-conditional-merge-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var agents = new EchoAgentExecutor();
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 1) with
+                {
+                    MaximumModelDispatches = 8
+                });
+
+        Assert.False(result.Failed);
+        Assert.Equal(expected, result.Output);
+        Assert.Equal(["yes", "no", "yes"], agents.Inputs);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal(["true", "false", "true"], BranchPorts(events));
+        Assert.Equal(["array-loop/0", "array-loop/1", "array-loop/2"], BranchScopes(events));
+        Assert.Equal(["agent-yes", "agent-no", "agent-yes"], StartedAgents(events));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        for (var index = 0; index < 3; index++)
+        {
+            var scoped = reopened.Events.Where(evt => evt.ScopeId == $"array-loop/{index}").ToArray();
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+            Assert.Contains(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "merge");
+        }
+
+        static string[] BranchPorts(IEnumerable<ExecutionEvent> recorded) => recorded
+            .Where(evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "route")
+            .Select(evt =>
+            {
+                using var payload = JsonDocument.Parse(evt.Data!);
+                return payload.RootElement.GetProperty("port").GetString()!;
+            }).ToArray();
+
+        static string[] BranchScopes(IEnumerable<ExecutionEvent> recorded) => recorded
+            .Where(evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "route")
+            .Select(evt => evt.ScopeId ?? string.Empty).ToArray();
+
+        static string[] StartedAgents(IEnumerable<ExecutionEvent> recorded) => recorded
+            .Where(evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId?.StartsWith("agent-", StringComparison.Ordinal) == true)
+            .Select(evt => evt.NodeId!).ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyNestedBreak_StopsInnerLoopAndContinuesOuterLoop(bool sqlite)
     {
         var body = StructuredBreakProofDefinition();

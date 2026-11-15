@@ -142,11 +142,14 @@ will be introduced.
   skipped; it was not rerun for this increment.
 - [ ] Prove one integrated runtime seam for Blueprint-style typed array
   iteration against pinned Agent Framework 1.26.0. Candidate comparisons now
-  cover structured, fresh-subworkflow, and hybrid execution; the missing
-  evidence is one VAW-owned coordinator carrying frames, root lifecycle, and
-  atomic work/evidence budgets across real graph dispatch and production Agent/
-  MCP nodes. Do not introduce public iterator/Break schema or Studio authoring
-  until that seam passes and a new three-role review selects the architecture.
+  cover structured, fresh-subworkflow, and hybrid execution. A private
+  VAW-owned coordinator now carries frames, root lifecycle, and atomic
+  work/evidence budgets across production Agent Framework body dispatch and
+  Agent/MCP nodes. The remaining evidence is the complete supported-body,
+  failure/race, shared-budget, persistence, and playback matrix, followed by a
+  fresh three-role architecture review. Do not introduce public iterator/Break
+  schema or Studio authoring until that seam passes and the review selects the
+  architecture.
   The final runtime must compose with existing body capabilities, keep Agent
   Framework behind its adapter, preserve the separate predicate-based string
   Loop, and exclude checkpoint recovery until frame restoration is proven. The
@@ -227,6 +230,12 @@ will be introduced.
     including scoped playback evidence, joins, cancellation/failure races,
     custom-broker uncertainty, and store append failures. Document the
     persisted-prefix and recovery limits before proposing a public contract.
+    - [x] Run current-schema Boolean Branch + exclusive Merge composition
+      through the private VAW coordinator and production body dispatcher for
+      three items. The yes/no/yes route, exclusive Agent dispatch, merged
+      outputs, per-iteration lifecycle, and file/SQLite reopen agree (2/2
+      focused cases). This proves conditional composition on the integrated
+      path only; broader capability and failure matrices remain open.
     - [x] Persist and reopen the static-fork Break-versus-admitted-failure
       race through file and SQLite stores. Both retain the descendant failure
       and failed root outcome without completing the join. Sequence Break
