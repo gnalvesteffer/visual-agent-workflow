@@ -314,6 +314,55 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_EnforcesSharedActivationLimit(bool sqlite)
+    {
+        var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-shared-activation-limit-proof");
+        const string input = "[\"first\",\"must-not-start\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner(tools, agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 4) with
+                {
+                    MaximumLoopActivations = 1
+                });
+
+        Assert.True(outcome.Failed);
+        Assert.Null(outcome.Output);
+        Assert.Equal(["FIRST:0"], agents.Inputs);
+        Assert.Equal(["FIRST:0"], tools.Queries);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "array-loop/0");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+        Assert.True(reopened.IsTerminal);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Iteration 1 · Completed", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iteration 2", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_RejectsModelBeforeDispatchAtSharedLimit(bool sqlite)
     {
         var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);

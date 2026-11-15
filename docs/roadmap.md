@@ -406,6 +406,10 @@ will be introduced.
       failure append behavior through this context. Nearest-frame Break is now
       coordinator-consumed in the private structured proof; cross-candidate
       lifecycle/budget ownership and architecture selection remain open.
+      The production-body coordinator now also rejects a second item at a
+      shared one-activation cap after the first item's Agent/MCP work completes;
+      both stores reopen the failed root and playback shows only the completed
+      first iteration (2/2 focused cases).
       - [x] Verify reservation identity extraction for delegated model and
         production-MCP calls through the structured run context. Delegated
         evidence wraps the original call ID inside its `eventData` envelope;
