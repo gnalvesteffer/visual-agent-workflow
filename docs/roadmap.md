@@ -437,6 +437,10 @@ will be introduced.
       (2 focused cases). This proves activation-scoped state in the private
       body seam only; public iterator authoring and architecture selection
       remain open.
+    - [x] Reject an append that exceeds the typed array item bound inside an
+      activation. Failure is attributed to `ArrayAppend`, the run fails with
+      an incomplete item and no variable write, and later items do not start;
+      file/SQLite prefixes reopen identically (2 focused cases).
     - [x] Build an immutable `array<string>` with `ArrayLiteral` and use each
       typed integer item as the `ArrayGet` index. Returned values and evidence
       persist through both stores (2/2); an out-of-range third item fails at

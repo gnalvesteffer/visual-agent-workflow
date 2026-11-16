@@ -2570,6 +2570,44 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ArrayVariableOverflowStopsLaterItems(bool sqlite)
+    {
+        var maximumArray = "[" + string.Join(',', Enumerable.Range(0, WorkflowJsonArrayLimits.MaximumItems)
+            .Select(index => JsonSerializer.Serialize($"seed-{index}"))) + "]";
+        const string input = "[\"first\",\"must-not-run\"]";
+        var revision = WorkflowRevision.Create(TypedArrayVariableItemBodyDefinition(maximumArray),
+            "production-body-array-variable-overflow-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner().ExecuteProductionBodyActivationSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, Record,
+            itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.True(result.Failed);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "append" && evt.ScopeId == "array-loop/0" &&
+            evt.Data!.Contains($"exceeds {WorkflowJsonArrayLimits.MaximumItems} items", StringComparison.Ordinal));
+        AssertPersistedSequence(runStore, events, "failed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+        Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/0");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_IndexesTypedArrayLiteralWithEachIntegerItem(bool sqlite)
     {
         const string input = "[0,1]";
@@ -13549,7 +13587,7 @@ public sealed class ArrayIterationVawBodyProofTests
         return definition;
     }
 
-    private static WorkflowDefinition TypedArrayVariableItemBodyDefinition()
+    private static WorkflowDefinition TypedArrayVariableItemBodyDefinition(string initialValue = "[\"seed\"]")
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
             .Add("input", new(NodeTypes.Input, "1.0.0"))
@@ -13583,7 +13621,7 @@ public sealed class ArrayIterationVawBodyProofTests
                 .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
                 .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
             Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
-                .Add("items", new("Items", "[\"seed\"]")
+                .Add("items", new("Items", initialValue)
                     { Type = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String) })
         };
         WorkflowValidator.ThrowIfInvalid(definition);

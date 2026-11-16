@@ -2489,3 +2489,10 @@ private coordinator. It does not add public iterator authoring, shared state
 between iterations, or checkpoint recovery; the architecture readiness remains
 **REVISE**. Architecture and user-guide descriptions are unchanged because
 this proof introduces no user-visible runtime behavior.
+
+`ProductionBodyActivationCoordinator_ArrayVariableOverflowStopsLaterItems`
+starts with the maximum-sized valid array, then appends an item during the
+first activation. `ArrayAppend` failure is attributed at the data evaluator;
+the variable write and second activation are absent, and the file/SQLite
+failure prefixes reopen identically (2/2 focused cases). This adds one bounded
+mutation-failure case without changing the proof's architecture status.
