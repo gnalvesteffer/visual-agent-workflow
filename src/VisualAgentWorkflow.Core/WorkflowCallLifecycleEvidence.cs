@@ -37,7 +37,8 @@ public sealed record WorkflowCallLifecycleEvidence(
                 evidence.ChildRevisionId != Guid.Empty && IsHash(evidence.ChildContentHash) &&
                 !string.IsNullOrWhiteSpace(evidence.ChildScopeId) &&
                 (evidence.ChildScopeId == evidence.CallNodeId ||
-                    evidence.ChildScopeId.StartsWith(evidence.CallNodeId + "/", StringComparison.Ordinal));
+                    evidence.ChildScopeId.StartsWith(evidence.CallNodeId + "/", StringComparison.Ordinal) ||
+                    evidence.ChildScopeId.EndsWith("/" + evidence.CallNodeId, StringComparison.Ordinal));
         }
         catch (JsonException)
         {

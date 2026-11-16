@@ -2390,5 +2390,17 @@ decision remain open; readiness remains **REVISE**.
 child's typed string-to-integer conversion to fail during the first item. The
 child's exact-scope failure is recorded, the root fails, the next item is not
 admitted, and both file and SQLite histories reopen identically (2 focused
-cases). Child cancellation and the broader body/architecture gates remain
-open; readiness remains **REVISE**.
+cases). The broader body/architecture gates remain open; readiness remains
+**REVISE**.
+
+The same production pinned-child proof now cancels the host immediately after
+the child starts. The child and root each record cancellation, the activation
+is marked cancelled, no later item starts, and file/SQLite playback reopens
+with the same prefix (2 focused cases). This surfaced a playback validation
+defect: legitimate activation-prefixed call scopes such as
+`array-loop/0/call` were rejected because the call node ID was only accepted at
+the start of the scope. `WorkflowCallLifecycleEvidence.TryRead` now also
+accepts the call node ID as the final scope segment, while retaining exact
+event/payload identity checks and rejecting unrelated final segments. The
+broader body matrix and architecture decision remain open; readiness remains
+**REVISE**.

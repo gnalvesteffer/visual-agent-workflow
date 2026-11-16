@@ -508,12 +508,19 @@ will be introduced.
   - [x] Exercise a pinned WorkflowCall child through the production body
     activation coordinator for each array item. Child input/output and
     lifecycle evidence are isolated to each item scope and file/SQLite histories
-    reopen identically (2 focused cases). Child failure/cancellation and the
-    broader supported-body matrix remain open.
+    reopen identically (2 focused cases). A failing child stops before the
+    next item, and host cancellation during a child records child/root
+    cancellation without admitting later items; both paths reopen from file
+    and SQLite (4 focused cases). The broader supported-body matrix remains
+    open.
     - [x] Fail a pinned child during typed string-to-integer conversion in the
       first activation. Child failure evidence is attributed beneath that
       activation, the root fails, and no later item starts; both stores reopen
-      the same prefix (2 focused cases). Child cancellation remains open.
+      the same prefix (2 focused cases).
+    - [x] Cancel the host immediately after the pinned child starts. Child and
+      root cancellation are recorded, the current activation is marked
+      cancelled, and no later item starts; both stores reopen the same prefix
+      (2 focused cases).
   - [ ] Complete the non-public production-seam proof before selecting an
     iterator architecture: dispatch typed item/index values through Core's
     existing typed value contracts, consume a nearest-frame `Break`, and

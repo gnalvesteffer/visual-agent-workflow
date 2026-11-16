@@ -26,6 +26,17 @@ identically (2/2 focused cases). Other budget settlement paths and the broader
 body matrix remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Typed-array iteration proof: pinned WorkflowCall cancellation and playback (2026-11-15)
+
+The pinned child production proof now includes host cancellation immediately
+after child start in both file and SQLite stores. Child and root cancellation
+are persisted, the current activation is marked cancelled, and the next item
+does not start (2 focused cases). This exposed and fixed replay rejection of
+valid activation-prefixed call scopes; the lifecycle reader now accepts the
+call node ID as the final scope segment and still rejects unrelated segments.
+The complete supported-body matrix and architecture review remain open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Graph-function array budget exhaustion attribution
 
 An integrated production-body test exceeds the 65,536-byte graph-function

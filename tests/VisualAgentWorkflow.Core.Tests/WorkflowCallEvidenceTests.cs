@@ -122,6 +122,28 @@ public sealed class WorkflowCallEvidenceTests
     }
 
     [Fact]
+    public void Reconstructs_child_call_evidence_under_an_activation_scope_prefix()
+    {
+        var revision = Guid.NewGuid();
+        var hash = new string('8', 64);
+        var scope = "array-loop/0/call";
+        var events = Events(
+            Call("call", scope, revision, hash, ExecutionEventKinds.SubworkflowStarted),
+            Call("call", scope, revision, hash, ExecutionEventKinds.SubworkflowCancelled),
+            Root(ExecutionEventKinds.Cancelled));
+        var unrelated = Call("call", "array-loop/0/another-node", revision, hash,
+            ExecutionEventKinds.SubworkflowStarted);
+
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("cancelled", playback!.Status);
+        var call = Assert.Single(playback.Calls);
+        Assert.Equal(scope, call.ChildScopeId);
+        Assert.Equal("cancelled", call.State);
+        Assert.False(WorkflowCallLifecycleEvidence.TryRead(
+            Events(unrelated)[0].Data, out _));
+    }
+
+    [Fact]
     public void Rejects_identity_drift_between_evidence_events_of_one_call()
     {
         // Tampered storage: one field of the child identity changes between the start and terminal evidence.

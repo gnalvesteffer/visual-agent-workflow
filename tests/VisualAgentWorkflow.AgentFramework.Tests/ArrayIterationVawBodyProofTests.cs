@@ -301,6 +301,45 @@ public sealed class ArrayIterationVawBodyProofTests
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(events, reopened.Events);
         Assert.Equal("completed", reopened.Status);
+
+        const string cancelledInput = "[\"alpha\",\"beta\"]";
+        using var cancelledStore = new ProofRunStore(revision, cancelledInput, sqlite);
+        using var cancellation = new CancellationTokenSource();
+        var cancelledEvents = new List<ExecutionEvent>();
+
+        ValueTask RecordCancelled(ExecutionEvent evt)
+        {
+            cancelledStore.Store.Append(cancelledStore.RunId, evt.Sequence - 1, [evt]);
+            cancelledEvents.Add(evt);
+            if (evt.Kind == ExecutionEventKinds.SubworkflowStarted && evt.ScopeId == "array-loop/0/call")
+                cancellation.Cancel();
+            return ValueTask.CompletedTask;
+        }
+
+        var cancelled = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(cancelledStore.RunId, revision, cancelledInput,
+                "index", null, RecordCancelled, cancellation.Token);
+
+        Assert.True(cancelled.Cancelled);
+        Assert.False(cancelled.Failed);
+        Assert.Single(cancelledEvents, evt => evt.Kind == ExecutionEventKinds.SubworkflowStarted &&
+            evt.ScopeId == "array-loop/0/call");
+        Assert.Single(cancelledEvents, evt => evt.Kind == ExecutionEventKinds.SubworkflowCancelled &&
+            evt.ScopeId == "array-loop/0/call");
+        Assert.Contains(cancelledEvents, evt => evt.Kind == ExecutionEventKinds.SubworkflowEvidence &&
+            evt.ScopeId == "array-loop/0/call" &&
+            WorkflowCallLifecycleEvidence.TryRead(evt.Data, out var evidence) &&
+            evidence!.Lifecycle == ExecutionEventKinds.SubworkflowCancelled);
+        Assert.Contains(cancelledEvents, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/0" && evt.Data!.Contains("cancelled", StringComparison.Ordinal));
+        Assert.DoesNotContain(cancelledEvents, evt => evt.ScopeId == "array-loop/1" ||
+            evt.ScopeId?.StartsWith("array-loop/1/", StringComparison.Ordinal) == true);
+        Assert.Single(cancelledEvents, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        AssertPersistedSequence(cancelledStore, cancelledEvents, "cancelled");
+
+        var reopenedCancelled = cancelledStore.ReopenStore().Get(cancelledStore.RunId)!;
+        Assert.Equal(cancelledEvents, reopenedCancelled.Events);
+        Assert.Equal("cancelled", reopenedCancelled.Status);
     }
 
     [Theory]
