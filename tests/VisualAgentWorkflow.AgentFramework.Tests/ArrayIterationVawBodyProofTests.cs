@@ -2397,6 +2397,62 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ComposesPredicateLoopInsideEachArrayActivation(bool sqlite)
+    {
+        const string input = "[\"continue-alpha\",\"continue-beta\"]";
+        var revision = WorkflowRevision.Create(PredicateLoopBodyDefinition(),
+            "production-body-nested-predicate-loop-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+        var agents = new EchoAgentExecutor();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.False(result.Failed);
+        Assert.Equal(new[]
+        {
+            "continue-alpha", "{\"query\":\"continue-alpha\"}",
+            "continue-beta", "{\"query\":\"continue-beta\"}"
+        }, agents.Inputs);
+        Assert.Contains("continue-alpha", result.Output, StringComparison.Ordinal);
+        Assert.Contains("continue-beta", result.Output, StringComparison.Ordinal);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "array-loop"));
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "array-loop"));
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "loop"));
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "loop"));
+        var stoppedLoops = events.Where(evt => evt.Kind == ExecutionEventKinds.LoopStopped &&
+            evt.NodeId == "loop").ToArray();
+        Assert.Equal(new[] { "array-loop/0", "array-loop/1" }, stoppedLoops.Select(evt => evt.ScopeId).ToArray());
+        foreach (var stoppedLoop in stoppedLoops)
+        {
+            using var stopReason = JsonDocument.Parse(stoppedLoop.Data!);
+            Assert.Equal("maximum-iterations", stopReason.RootElement.GetProperty("reason").GetString());
+        }
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderLoopActivations(reopened.Events, reopened.Status);
+        Assert.Contains("Loop activations (6)", playback, StringComparison.Ordinal);
+        Assert.Contains("loop · Iteration 2 · Completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_IndexesTypedArrayLiteralWithEachIntegerItem(bool sqlite)
     {
         const string input = "[0,1]";
@@ -13299,6 +13355,37 @@ public sealed class ArrayIterationVawBodyProofTests
             .Add("input-output", Edge("input", "then", "output", "execute"));
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
             "array-iteration-text-template", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition PredicateLoopBodyDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("loop", new(NodeTypes.Loop, "1.0.0")
+                { Loop = new(new("contains", "continue"), 2) })
+            .Add("body", new(NodeTypes.LoopBody, "1.0.0"))
+            .Add("agent", new(NodeTypes.Agent, "1.0.0", Agent:
+                new("proof.echo-agent", null, "Echo the current value.", [])))
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.String });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-loop", Edge("input", "then", "loop", "execute"))
+            .Add("loop-body", Edge("loop", "body", "body", "execute"))
+            .Add("body-agent", Edge("body", "then", "agent", "execute"))
+            .Add("agent-loop", Edge("agent", "out", "loop", "execute"))
+            .Add("loop-output", Edge("loop", "done", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-predicate-loop", "input", nodes, data)
         {
             ExecutionConnections = execution,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty

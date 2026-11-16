@@ -2442,3 +2442,18 @@ does not provide recovery or establish the iterator architecture; readiness
 remains **REVISE**. The existing TextTemplate case also exercises every
 supported part kind (`literal`, connected `input`, and typed `parameter`);
 only broader template/body composition remains open.
+
+## Predicate-based string Loop inside typed-array activations (2026-11-16)
+
+`ProductionBodyActivationCoordinator_ComposesPredicateLoopInsideEachArrayActivation`
+places the existing schema-2.0 predicate `Loop` and its `LoopBody` inside the
+private typed-array body. Each of two string items runs its bounded
+two-iteration Agent path independently. The test checks the item-specific
+inputs, outer and inner iteration lifecycle counts, inner stop reason and
+activation scopes, and rendered playback after reopening both file and SQLite
+stores (2/2 focused cases).
+
+This demonstrates composition with the existing predicate loop while keeping
+its contract separate from array iteration. It does not add nested-loop
+authoring or alter the architecture review outcome; readiness remains
+**REVISE**.

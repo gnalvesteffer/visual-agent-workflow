@@ -419,6 +419,12 @@ will be introduced.
       exercises all three supported template part kinds (`literal`, connected
       `input`, and typed `parameter`) in the private seam. Public iterator
       authoring and broader template/body composition remain open.
+    - [x] Compose the existing predicate-based string `Loop` inside each typed
+      array activation. Two array items each execute the bounded two-iteration
+      loop, retain the item-specific Agent inputs and exact activation scopes,
+      and reopen with matching loop history in file and SQLite (2 focused
+      cases). This verifies composition only; it does not add nested-loop
+      authoring or change the existing Loop contract.
     - [x] Build an immutable `array<string>` with `ArrayLiteral` and use each
       typed integer item as the `ArrayGet` index. Returned values and evidence
       persist through both stores (2/2); an out-of-range third item fails at
