@@ -710,6 +710,12 @@ introduced.
     - [x] Cancel the host after a pinned interface child starts. Child and root
       cancellation are replayable and no later item starts; both stores reopen
       the cancelled prefix (2 focused cases).
+    - [x] Invoke a pinned interface implementation from four nested
+      outer/inner activations. Typed field packing preserves each inner item,
+      lifecycle evidence remains nested-scoped, and file/SQLite playback
+      reconstructs the completed calls. Nested cancellation and child
+      projection failure both stop later activations and reopen with the same
+      playback state (6 focused store cases).
   - [ ] Complete the non-public production-seam proof before selecting an
     iterator architecture: dispatch typed item/index values through Core's
     existing typed value contracts, consume a nearest-frame `Break`, and

@@ -2794,6 +2794,18 @@ WorkflowCall success, failure, and cancellation for the tested linear body
 shape; parallel child settlement and the wider body matrix remain open. The
 proof is private and does not change architecture or user-guide behavior.
 
+`ProductionBodyNestedCoordinator_CallsPinnedWorkflowInterfacePerNestedActivation`
+extends that static composition check to a pinned interface implementation.
+Four nested calls pack each inner string through the declared interface field
+and return the corresponding value; file and SQLite playback reconstructs the
+completed calls with their nested scopes. Host cancellation at the first child
+and a child JSON-projection failure both stop later inner/outer activations,
+preserve child lifecycle evidence, and reopen as cancelled/failed interface
+calls (6 focused store cases total). This closes nested interface-call
+success/failure/cancellation for the tested linear body; parallel child
+settlement and other supported-body compositions remain open. The proof is
+private and leaves architecture readiness at **REVISE**.
+
 The review explicitly keeps the end state unchanged: typed array iteration
 and nearest-loop Break must be authored in the current unified schema without
 feature-specific schema gates. Checkpoint recovery stays excluded until the
