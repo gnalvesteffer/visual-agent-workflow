@@ -47,6 +47,41 @@ public sealed class ExplicitGraphExecutionTests
         Assert.Equal("data:value-output", valueEvent.ConnectionId);
     }
 
+    [Fact]
+    public async Task JsonArrayParameterRunsAsTypedValueAndRecordsItsEvidence()
+    {
+        const string arrayType = "array<json>";
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "json-array-parameter", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("value", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "values", OutputDataType = arrayType })
+                .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = arrayType }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("value-output", new(new("value", "out"), new("output", "in"), "data")))
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("values", new WorkflowParameterDefinition("Values", "[]") { Type = arrayType }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("activate", new(new("input", "then"), new("output", "execute"), "execution"))
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteWithParametersAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "unused",
+            new Dictionary<string, string> { ["values"] = "[ { \"z\": 1.00, \"a\": null }, [true] ]" },
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("[{\"z\":1.00,\"a\":null},[true]]", result);
+        var valueEvent = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "value");
+        using var evidence = JsonDocument.Parse(valueEvent.Data!);
+        Assert.Equal(arrayType, evidence.RootElement.GetProperty("dataType").GetString());
+        Assert.Equal(JsonValueKind.Array, evidence.RootElement.GetProperty("value").ValueKind);
+        Assert.Equal("[{\"z\":1.00,\"a\":null},[true]]", evidence.RootElement.GetProperty("value").GetRawText());
+    }
+
     [Theory]
     [InlineData("yes", "true", "yes", false)]
     [InlineData("no", "false", null, true)]

@@ -178,12 +178,72 @@ public sealed class WorkflowParameterTests
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                 .Add("greeting", new WorkflowParameterDefinition("Values", authored) { Type = type }),
             ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("activate", new(new("input", "then"), new("output", "execute"), "execution"))
         };
 
         Assert.DoesNotContain(WorkflowValidator.Validate(definition), issue => issue.Code.StartsWith("parameter.", StringComparison.Ordinal));
         Assert.Equal(authored, definition.Parameters["greeting"].DefaultValue);
         Assert.Equal(canonical, WorkflowParameters.Resolve(definition, null)!["greeting"]);
         Assert.Equal(type, WorkflowParameterGraphTypes.DataType(definition.Parameters["greeting"], true, true));
+    }
+
+    [Fact]
+    public void CurrentSchemaJsonArrayParameterPreservesJsonValuesAndExposesExactTypedPin()
+    {
+        const string authored = "[ { \"z\": 1.00, \"a\": null }, [true, \"x\"] ]";
+        var definition = Definition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Nodes = Definition().Nodes
+                .SetItem("value", Definition().Nodes["value"] with { OutputDataType = WorkflowDataTypes.JsonArray })
+                .SetItem("output", Definition().Nodes["output"] with { OutputDataType = WorkflowDataTypes.JsonArray }),
+            Connections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("value-output", new(new("value", "out"), new("output", "in"), "data")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("greeting", new WorkflowParameterDefinition("Values", authored) { Type = WorkflowDataTypes.JsonArray }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("activate", new(new("input", "then"), new("output", "execute"), "execution"))
+        };
+
+        Assert.DoesNotContain(WorkflowValidator.Validate(definition), issue => issue.Code.StartsWith("parameter.", StringComparison.Ordinal));
+        Assert.Equal(authored, definition.Parameters["greeting"].DefaultValue);
+        Assert.Equal("[{\"z\":1.00,\"a\":null},[true,\"x\"]]", WorkflowParameters.Resolve(definition, null)!["greeting"]);
+        Assert.Equal(WorkflowDataTypes.JsonArray, WorkflowParameterGraphTypes.DataType(definition.Parameters["greeting"], true, true, true));
+        var package = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(definition, WorkflowLayout.Create(definition)));
+        Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash(package.Definition));
+        Assert.Equal(authored, package.Definition.Parameters!["greeting"].DefaultValue);
+    }
+
+    [Theory]
+    [InlineData("[null, {\"items\":[1,true]}]")]
+    [InlineData("[ { \"a\": 1.00, \"b\": 2e1 } ]")]
+    public void CurrentSchemaJsonArrayParameterAcceptsBoundedArbitraryJson(string value)
+    {
+        var definition = Definition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("greeting", new WorkflowParameterDefinition("Values", "[]") { Type = WorkflowDataTypes.JsonArray })
+        };
+
+        Assert.Equal(value.Replace(" ", ""), WorkflowParameters.Resolve(definition,
+            new Dictionary<string, string> { ["greeting"] = value })!["greeting"]);
+    }
+
+    [Theory]
+    [InlineData("[{\"duplicate\":1,\"duplicate\":2}]")]
+    [InlineData("not-json")]
+    public void CurrentSchemaJsonArrayParameterRejectsInvalidOverrides(string value)
+    {
+        var definition = Definition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("greeting", new WorkflowParameterDefinition("Values", "[]") { Type = WorkflowDataTypes.JsonArray })
+        };
+
+        Assert.Throws<ArgumentException>(() => WorkflowParameters.Resolve(definition,
+            new Dictionary<string, string> { ["greeting"] = value }));
     }
 
     [Theory]

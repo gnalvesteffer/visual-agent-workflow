@@ -160,26 +160,53 @@ def text_template_node_check(page, designer):
     parameters.get_by_label("Default value", exact=True).fill("Ada")
     parameters.get_by_label("Description", exact=True).fill("Person whose question is being answered")
     parameters.get_by_role("button", name="Add parameter", exact=True).click()
+    expect(parameters.locator("fieldset")).to_have_count(1)
+    new_parameter = parameters.locator(".vaw-controls")
+    new_parameter.get_by_label("Parameter ID", exact=True).fill("records")
+    new_parameter.get_by_label("Display name", exact=True).fill("Records")
+    new_parameter.get_by_label("Default value", exact=True).fill("[]")
+    parameters.get_by_role("button", name="Add parameter", exact=True).click()
+    expect(parameters.locator("fieldset")).to_have_count(2)
+    records = parameters.locator("fieldset").last
+    expect(records.locator("select")).to_have_count(1)
+    records.locator("select").select_option("array<json>")
+    records.get_by_label("Default value", exact=True).fill('[{"name":"Ada"}, null]')
+    records.get_by_label("Default value", exact=True).press("Tab")
+    expect(records.get_by_text("Enter a JSON array containing any JSON values. Maximum 64 items and 16 KiB UTF-8. Values are stored as compact JSON when a run starts.", exact=True)).to_be_visible()
     settings(designer, False)
     designer.get_by_label("Node to organize", exact=True).select_option(template_id)
     editor = designer.get_by_role("textbox", name="Template text", exact=True)
-    editor.fill("Customer {{parameter:customer}} asks: {{input}}")
+    editor.fill("Customer {{parameter:customer}} records {{parameter:records}} asks: {{input}}")
     editor.press("Tab")
-    expect(designer.get_by_text("Preview with sample input: Customer Ada asks: Sample input", exact=True)).to_be_visible()
+    expect(designer.get_by_text("Preview with sample input: Customer Ada records [{\"name\":\"Ada\"}, null] asks: Sample input", exact=True)).to_be_visible()
     designer.get_by_role("button", name="Save", exact=True).click()
     designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
     saved = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()
+    page.get_by_role("button", name="Run workflow", exact=True).click()
+    run_dialog = page.locator("dialog.vaw-run-dialog")
+    expect(run_dialog).to_be_visible()
+    records_override = run_dialog.get_by_role("textbox", name=re.compile("^Records"))
+    expect(records_override).to_be_visible()
+    records_override.fill('[{"id":7}, null]')
+    run_dialog.get_by_role("button", name="Cancel", exact=True).click()
+    expect(run_dialog).not_to_be_visible()
     assert saved["draft"]["definition"]["parameters"]["customer"]["description"] == "Person whose question is being answered"
+    assert saved["draft"]["definition"]["parameters"]["records"]["type"] == "array<json>"
+    assert saved["draft"]["definition"]["parameters"]["records"]["defaultValue"] == '[{"name":"Ada"}, null]'
     assert saved["draft"]["definition"]["nodes"][template_id]["type"] == "core.text.template"
     assert saved["draft"]["definition"]["nodes"][template_id]["textTemplate"]["parts"] == [
         {"kind": "literal", "value": "Customer "},
         {"kind": "parameter", "value": "customer"},
+        {"kind": "literal", "value": " records "},
+        {"kind": "parameter", "value": "records"},
         {"kind": "literal", "value": " asks: "},
         {"kind": "input", "value": ""},
     ]
     response = page.request.post(BASE + "/api/runs",
-        data={"definition": saved["draft"]["definition"], "input": "What is 1+1?", "parameters": {"customer": "Grace"}})
+        data={"definition": saved["draft"]["definition"], "input": "What is 1+1?", "parameters": {
+            "customer": "Grace", "records": '[ { "id": 7.00 }, null ]'}})
     assert response.ok, response.text()
+    assert response.json()["header"]["parameters"]["records"] == '[{"id":7.00},null]'
     run_id = response.json()["header"]["runId"]
     page.wait_for_function("""async id => {
         const response = await fetch('/api/runs/'+id, {cache: 'no-store'});
@@ -189,7 +216,7 @@ def text_template_node_check(page, designer):
     }""", arg=run_id)
     run = page.evaluate("""async id => await (await fetch('/api/runs/'+id, {cache: 'no-store'})).json()""", run_id)
     assert any(event["nodeId"] == template_id and event["kind"] == "data.evaluated" and
-               json.loads(event["data"])["value"] == "Customer Grace asks: What is 1+1?" for event in run["events"]), run["events"]
+               json.loads(event["data"])["value"] == 'Customer Grace records [{"id":7.00},null] asks: What is 1+1?' for event in run["events"]), run["events"]
 
 
 def typed_json_projection_check(page, designer):

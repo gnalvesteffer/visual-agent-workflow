@@ -109,18 +109,16 @@ public static class WorkflowValidator
             Error("parameters.limit", "parameters", "A workflow can define at most 64 parameters.");
         if (definition.Parameters is { Count: > 0 } && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph))
             Error("parameters.schema", "parameters", "Workflow parameters require schema 1.6 or later.");
-        var allowsPrimitiveArrayParameters = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
+        var allowsArrayParameters = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
         foreach (var (id, parameter) in parameters)
         {
-            var isPrimitiveArrayParameter = parameter is not null &&
-                WorkflowDataTypes.TryGetArrayElementType(parameter.Type, out var parameterElementType) &&
-                parameterElementType != WorkflowDataTypes.Json;
+            var isArrayParameter = parameter is not null && WorkflowDataTypes.TryGetArrayElementType(parameter.Type, out _);
             if (!ValidParameterId(id) || parameter is null || string.IsNullOrWhiteSpace(parameter.DisplayName) ||
                 parameter.DisplayName.Length > 128 || parameter.DefaultValue is null || parameter.DefaultValue.Length > 16_384 ||
                 parameter.Description?.Length > 512 ||
-                parameter.Type is not (null or "string" or "integer" or "number" or "boolean" or "choice") && !isPrimitiveArrayParameter ||
-                isPrimitiveArrayParameter && !allowsPrimitiveArrayParameters ||
-                parameter.Type is not (null or "string") && !isPrimitiveArrayParameter && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) ||
+                parameter.Type is not (null or "string" or "integer" or "number" or "boolean" or "choice") && !isArrayParameter ||
+                isArrayParameter && !allowsArrayParameters ||
+                parameter.Type is not (null or "string") && !isArrayParameter && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) ||
                 parameter.Type == "choice" && (parameter.Choices is not { Length: > 0 and <= 32 } choices ||
                     choices.Any(choice => string.IsNullOrEmpty(choice) || choice.Length > 128) || choices.Distinct(StringComparer.Ordinal).Count() != choices.Length) ||
                 parameter.Type != "choice" && parameter.Choices is not null)
@@ -129,7 +127,7 @@ public static class WorkflowValidator
         foreach (var (id, parameter) in parameters)
             if (parameter is not null && !WorkflowParameters.IsValidValue(parameter, parameter.DefaultValue,
                 definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph,
-                allowsPrimitiveArrayParameters))
+                allowsArrayParameters, allowsArrayParameters))
                 Error("parameter.default", $"parameters.{id}.defaultValue", "The default must match its declared type and allowed choices.");
         if (parameters.Sum(parameter => (long)parameter.Key.Length + (parameter.Value?.DisplayName.Length ?? 0) + (parameter.Value?.DefaultValue.Length ?? 0) + (parameter.Value?.Description?.Length ?? 0)) > 128_000)
             Error("parameters.size", "parameters", "Combined parameter IDs, display names, descriptions, and defaults must not exceed 128,000 characters.");
@@ -397,8 +395,9 @@ public static class WorkflowValidator
                         !parameters.TryGetValue(valueParameter, out var valueDefinition) ||
                         valueType != WorkflowParameterGraphTypes.DataType(valueDefinition,
                             definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph,
+                            definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph,
                             definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)))
-                    Error("parameter.type", $"nodes.{id}.outputDataType", "Typed workflow value pins must match the parameter's supported scalar or schema-2.0 primitive array type.");
+                    Error("parameter.type", $"nodes.{id}.outputDataType", "Typed workflow value pins must match the parameter's supported scalar or schema-2.0 array type.");
             }
             else if (node.ParameterId is not null)
                 Error("parameter.unexpected", $"nodes.{id}.parameterId", "Only workflow value nodes may reference a parameter.");
@@ -412,13 +411,13 @@ public static class WorkflowValidator
                 node.OutputDataType is not null && node.Type == NodeTypes.Output &&
                     (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph
                         ? !WorkflowDataTypeCatalog.IsSupported(node.OutputDataType) ||
-                          WorkflowDataTypes.TryGetArrayElementType(node.OutputDataType, out var arrayOutputElementType) &&
-                          !WorkflowDataTypes.IsPrimitiveArrayType(node.OutputDataType)
+                          WorkflowDataTypes.TryGetArrayElementType(node.OutputDataType, out _) &&
+                          !WorkflowDataTypes.IsPrimitiveArrayType(node.OutputDataType) && node.OutputDataType != WorkflowDataTypes.JsonArray
                         : definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph
                         ? node.OutputDataType is not ("string" or "integer" or "boolean" or "json")
                         : node.OutputDataType != "json" || definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph)) ||
                 node.OutputDataType is not null && node.Type == NodeTypes.WorkflowValue && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph))
-                Error("output.dataType", $"nodes.{id}.outputDataType", "Output nodes support JSON from schema 1.13; schema 2.0 also supports bounded primitive array types.");
+                Error("output.dataType", $"nodes.{id}.outputDataType", "Output nodes support JSON from schema 1.13; schema 2.0 also supports bounded typed array values.");
             if (node.Type == NodeTypes.JsonSelectString)
             {
                 if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph)) Error("node.schema", $"nodes.{id}", "JSON selection nodes require schema 1.9 or later.");

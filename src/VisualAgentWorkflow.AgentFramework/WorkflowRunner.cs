@@ -1248,8 +1248,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph && definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberPropagationGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberArithmeticGraph)
                 return new("string", value);
             var allowNumber = definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
-            var allowPrimitiveArray = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
-            var dataType = WorkflowParameterGraphTypes.DataType(parameter, allowNumber, allowPrimitiveArray);
+            var allowArray = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
+            var dataType = WorkflowParameterGraphTypes.DataType(parameter, allowNumber, allowArray, allowJsonArray: allowArray);
             if (dataType is null || node.OutputDataType is { } expectedType && expectedType != dataType)
                 throw new InvalidOperationException("The workflow parameter has an unsupported graph data type.");
             object parsed = dataType switch
@@ -1258,7 +1258,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 "number" when WorkflowParameters.TryParseFiniteNumber(value, out var number) => number,
                 "boolean" when bool.TryParse(value, out var boolean) => boolean,
                 "string" => value,
-                _ when allowPrimitiveArray && WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType) &&
+                _ when allowArray && WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType) &&
                     WorkflowArrayLiteral.TryParseValue(elementType, value, out var arrayValue, out _) => arrayValue,
                 _ => throw new InvalidOperationException("The workflow parameter value is invalid.")
             };
@@ -1877,9 +1877,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         "integer" when outputEvaluation.Result.Value is long integerValue => integerValue.ToString(CultureInfo.InvariantCulture),
                         "boolean" when outputEvaluation.Result.Value is bool booleanValue => booleanValue ? "true" : "false",
                         "json" when outputEvaluation.Result.Value is JsonElement jsonValue => jsonValue.GetRawText(),
-                        _ when WorkflowDataTypes.IsPrimitiveArrayType(outputEvaluation.Result.DataType) &&
+                        _ when WorkflowDataTypes.TryGetArrayElementType(outputEvaluation.Result.DataType, out _) &&
                             outputEvaluation.Result.Value is JsonElement { ValueKind: JsonValueKind.Array } arrayValue => arrayValue.GetRawText(),
-                        _ => throw new InvalidOperationException("An Output node requires a string, Boolean, integer, finite number, or bounded JSON value.")
+                        _ => throw new InvalidOperationException("An Output node requires a supported scalar, JSON, or bounded array value.")
                     };
                 }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.BooleanBranch)

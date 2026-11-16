@@ -65,7 +65,7 @@ public sealed class WorkflowArrayLiteralTests
                 .SetItem("output", boundaryGraph.Nodes["output"] with { OutputDataType = WorkflowDataTypes.JsonArray })
         };
         Assert.Contains(WorkflowValidator.Validate(jsonArrayBoundary), issue => issue.Code == "input.dataType");
-        Assert.Contains(WorkflowValidator.Validate(jsonArrayBoundary), issue => issue.Code == "output.dataType");
+        Assert.DoesNotContain(WorkflowValidator.Validate(jsonArrayBoundary), issue => issue.Code == "output.dataType");
 
         var withSequence = graph with
         {

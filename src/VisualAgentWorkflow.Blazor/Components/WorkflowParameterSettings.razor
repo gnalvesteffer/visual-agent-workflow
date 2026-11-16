@@ -1,6 +1,6 @@
         <details class="vaw-parameter-editor">
             <summary>Workflow parameters <span class="vaw-help">@ParameterDefinitions.Count configurable values</span></summary>
-            <p class="vaw-help">Define non-secret text, scalar, choice, or schema-2.0 primitive-array inputs. Workflow value nodes pass the validated value through the graph.</p>
+            <p class="vaw-help">Define non-secret text, scalar, choice, or schema-2.0 array inputs. Workflow value nodes pass the validated value through the graph.</p>
             @foreach (var (parameterId, parameter) in ParameterDefinitions)
             {
                 <fieldset @key="parameterId" disabled="@Disabled">
@@ -11,10 +11,10 @@
                     <label>Type <select value="@(parameter.Type ?? "string")" @onchange="args => ChangeParameterType(parameterId, args)">
                         <option value="string">Text</option><option value="integer">Integer</option><option value="number">Number</option><option value="boolean">True / false</option><option value="choice">Choice</option>
                         @if (Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
-                        { <option value="array<string>">Text array</option><option value="array<boolean>">Boolean array</option><option value="array<integer>">Integer array</option><option value="array<number>">Number array</option> }
+                        { <option value="array<string>">Text array</option><option value="array<boolean>">Boolean array</option><option value="array<integer>">Integer array</option><option value="array<number>">Number array</option><option value="array<json>">JSON array</option> }
                     </select></label>
-                    @if (WorkflowDataTypes.TryGetArrayElementType(parameter.Type, out var arrayElementType) && arrayElementType != WorkflowDataTypes.Json)
-                    { <p class="vaw-help">Enter a JSON array of @arrayElementType values. Maximum 64 items and 16 KiB UTF-8. Values are normalized to compact JSON when a run starts.</p> }
+                    @if (WorkflowDataTypes.TryGetArrayElementType(parameter.Type, out var arrayElementType))
+                    { <p class="vaw-help">Enter a JSON array@(arrayElementType == WorkflowDataTypes.Json ? " containing any JSON values" : $" of {arrayElementType} values"). Maximum 64 items and 16 KiB UTF-8. Values are stored as compact JSON when a run starts.</p> }
                     @if (parameter.Type == "choice")
                     { <label>Allowed choices <input value="@string.Join(",", parameter.Choices ?? [])" @onchange="args => ChangeChoices(parameterId, args)" placeholder="default,low,medium,high" /></label> }
             <button type="button" @onclick="() => Edit(() => WorkflowParameterEditing.Remove(Definition, parameterId))" disabled="@(Disabled || ParameterIsReferenced(parameterId))">Remove parameter</button>

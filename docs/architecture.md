@@ -299,14 +299,17 @@ reuses the array item and encoded-size bounds, records typed evaluated input,
 and attributes malformed or mismatched values to the Input node. Output
 evaluation records the typed array and serializes it through the unchanged
 string return API. Package round-trip preserves the declared type and the
-definition hash includes it. Schema 2.0 parameters now accept the same four
-primitive array types through JSON-text defaults and overrides. Defaults retain
-their authored text; effective values normalize to compact canonical JSON
+definition hash includes it. Schema 2.0 parameters accept primitive array
+types and `array<json>` through JSON-text defaults and overrides. Defaults retain
+their authored text; effective primitive values normalize to compact JSON
 before admission and are recorded through the existing string-valued parameter
-map. `core.workflow-value` emits the exact array type, and prompt/template
-interpolation uses the same canonical string. Invalid overrides fail before
-admission. Schema 2.0 pure-function ports are supported; interface ports,
-direct MCP arguments, and checkpoint state are not. Run-scoped variables
+map. JSON arrays compact through `JsonElement.WriteTo`, preserving object member
+order and number-token spelling; this representation is not canonical JSON.
+`core.workflow-value` emits the exact array type, and prompt/template
+interpolation uses the same resolved text. Invalid overrides fail before
+admission. Schema 2.0 primitive pure-function ports are supported; JSON array
+function ports, interface ports, direct MCP arguments, and checkpoint state
+are not. Run-scoped variables
 support primitive arrays, canonical defaults, immutable transformations, and
 bounded aggregate state evidence in linear and bounded-loop execution.
 The existing `array<json>` identity also composes in unified schema 2.0 through
@@ -317,8 +320,10 @@ limited to 16 KiB before parsing; transformed results are limited to 16 KiB
 after compact serialization, with a 64-item outer limit and depth 32 counting
 the root as level one. Array transforms preserve object member order and
 number-token spelling; this representation is not canonical JSON and does not
-define structural equality or hashing. Parameters and graph functions remain
-separate proof boundaries. See [Decision
+define structural equality or hashing. `array<json>` parameters are bounded to
+defaults, overrides, typed getter pins, prompt/template text, child parameter
+mappings, and output evidence; JSON graph-function ports remain separate. See
+[Decision
 0066](decisions/0066-unified-typed-array-values.md), [Decision
 0067](decisions/0067-typed-array-workflow-boundaries.md), and [Decision
 0068](decisions/0068-typed-array-workflow-parameters.md).

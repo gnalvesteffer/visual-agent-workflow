@@ -1,16 +1,16 @@
 # Decision 0066: Unified typed array values
 
-**Status:** Primitive typed arrays compose across boundaries, parameters, graph functions, and variables in schema 2.0. JSON-valued array composition is implemented for bounded literal and array operations; typed parameters and graph-function ports remain separate increments.
+**Status:** Primitive typed arrays compose across boundaries, parameters, graph functions, and variables in schema 2.0. JSON-valued arrays compose through bounded array operations and typed workflow parameters; JSON-valued graph-function ports remain separate.
 **Date:** 2026-11-02  
 **Scope:** Blueprint parity workstream; current authoring schema 2.0
 
 ## Context
 
-Blueprint arrays are ordinary typed graph values. VAW currently has a bounded
-`array<json>` value, but schema 2.0 admits it only through exact caller-input
-count and indexed-selection topologies. Those contracts prove useful bounds and
-recorded evaluation, but not general graph composition. The type catalog also
-requires exact pin identity and has no typed collection family.
+Blueprint arrays are ordinary typed graph values. VAW has bounded primitive
+array types and a heterogeneous `array<json>` value. Primitive arrays compose
+through graph values, parameters, graph functions, and variables; JSON arrays
+compose through bounded array operations and workflow parameters. Other
+placements retain separate contracts and verification requirements.
 
 The Blueprint parity capability matrix identifies containers as a major
 language gap. Mutable variables, events, async work, reuse, and debugging also
@@ -60,10 +60,10 @@ Each operation rejects a compact serialized result larger than 16,384 UTF-8
 bytes at the operation node. Duplicate object property names are rejected.
 There is no implicit conversion between `json`, `array<json>`, or primitive
 array types. These JSON array operations do not add object equality,
-membership, or canonical object ordering. Typed parameters and graph-function
-ports, workflow-interface fields, MCP arguments, Sequence paths, loop-carried
-state, parallel shared state, and checkpoint state remain separate contracts
-and verification increments. The existing `JsonToArray` path continues to
+membership, or canonical object ordering. JSON-valued graph-function ports,
+workflow-interface fields, MCP arguments, Sequence paths, loop-carried state,
+parallel shared state, and checkpoint state remain separate contracts and
+verification increments. The existing `JsonToArray` path continues to
 produce `array<json>`.
 
 The implementation reuses the 64-item collection bound and adds one explicit
@@ -114,10 +114,11 @@ canonical JSON form. Structural equality, membership, canonical object-key
 ordering, and value hashing are outside this increment. A `json` value and an
 `array<json>` value never connect implicitly.
 
-Workflow parameters and graph functions remain separate increments. Parameter
-support must prove default/override parsing, canonical run text, getter pins,
-child mappings, and playback before admitting `array<json>` to string-valued
-parameter maps. Function support must account the exact retained UTF-8
+JSON-valued parameter support is implemented by [Decision
+0068](0068-typed-array-workflow-parameters.md), including bounded
+default/override parsing, compact run text, typed getter pins, child mappings,
+and playback through the existing string-valued parameter maps. JSON-valued
+function support remains separate and must account the exact retained UTF-8
 representation against the existing 65,536-byte per-invocation evidence
 budget. JSON-valued items may be added to the private iterator candidate proof
 after composition works, but this does not close the integrated lifecycle,

@@ -41,10 +41,10 @@ public static class WorkflowParameters
             if (value is null || value.Length > 16_384)
                 throw new ArgumentException($"Parameter '{id}' must be a string up to 16,384 characters.", nameof(overrides));
             var allowsFiniteNumbers = definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
-            var allowsPrimitiveArrays = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
-            if (!IsValidValue(parameter, value, allowsFiniteNumbers, allowsPrimitiveArrays))
+            var allowsArrays = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
+            if (!IsValidValue(parameter, value, allowsFiniteNumbers, allowsArrays, allowsArrays))
                 throw new ArgumentException($"Value for workflow parameter '{id}' does not match its {parameter.Type ?? "string"} type.", nameof(overrides));
-            resolved.Add(id, NormalizeValue(parameter, value, allowsFiniteNumbers, allowsPrimitiveArrays));
+            resolved.Add(id, NormalizeValue(parameter, value, allowsFiniteNumbers, allowsArrays, allowsArrays));
         }
         var values = resolved.ToImmutable();
         ValidateAgentLimits(definition, values);
@@ -57,9 +57,13 @@ public static class WorkflowParameters
         IsValidValue(parameter, value, allowFiniteNumber, false);
 
     public static bool IsValidValue(WorkflowParameterDefinition parameter, string value, bool allowFiniteNumber, bool allowPrimitiveArray)
+        => IsValidValue(parameter, value, allowFiniteNumber, allowPrimitiveArray, allowJsonArray: false);
+
+    public static bool IsValidValue(WorkflowParameterDefinition parameter, string value, bool allowFiniteNumber, bool allowPrimitiveArray, bool allowJsonArray)
     {
         var type = parameter.Type ?? "string";
-        if (allowPrimitiveArray && WorkflowDataTypes.TryGetArrayElementType(type, out var elementType) && elementType != WorkflowDataTypes.Json)
+        if ((allowPrimitiveArray || allowJsonArray) && WorkflowDataTypes.TryGetArrayElementType(type, out var elementType) &&
+            (elementType != WorkflowDataTypes.Json || allowJsonArray))
             return WorkflowArrayLiteral.TryParseValue(elementType, value, out _, out _);
         return type switch
         {
@@ -86,8 +90,12 @@ public static class WorkflowParameters
             : NormalizeValue(parameter, value);
 
     public static string NormalizeValue(WorkflowParameterDefinition parameter, string value, bool allowFiniteNumber, bool allowPrimitiveArray)
+        => NormalizeValue(parameter, value, allowFiniteNumber, allowPrimitiveArray, allowJsonArray: false);
+
+    public static string NormalizeValue(WorkflowParameterDefinition parameter, string value, bool allowFiniteNumber, bool allowPrimitiveArray, bool allowJsonArray)
     {
-        if (allowPrimitiveArray && WorkflowDataTypes.TryGetArrayElementType(parameter.Type, out var elementType) && elementType != WorkflowDataTypes.Json &&
+        if ((allowPrimitiveArray || allowJsonArray) && WorkflowDataTypes.TryGetArrayElementType(parameter.Type, out var elementType) &&
+            (elementType != WorkflowDataTypes.Json || allowJsonArray) &&
             WorkflowArrayLiteral.TryNormalizeValue(elementType, value, out var normalized, out _))
             return normalized;
         return NormalizeValue(parameter, value, allowFiniteNumber);
@@ -148,9 +156,13 @@ public static class WorkflowParameterGraphTypes
     public static string? DataType(WorkflowParameterDefinition parameter, bool allowNumber = false) => DataType(parameter, allowNumber, false);
 
     public static string? DataType(WorkflowParameterDefinition parameter, bool allowNumber, bool allowPrimitiveArray)
+        => DataType(parameter, allowNumber, allowPrimitiveArray, allowJsonArray: false);
+
+    public static string? DataType(WorkflowParameterDefinition parameter, bool allowNumber, bool allowPrimitiveArray, bool allowJsonArray)
     {
         var type = parameter.Type ?? "string";
-        if (allowPrimitiveArray && WorkflowDataTypes.TryGetArrayElementType(type, out var elementType) && elementType != WorkflowDataTypes.Json)
+        if ((allowPrimitiveArray || allowJsonArray) && WorkflowDataTypes.TryGetArrayElementType(type, out var elementType) &&
+            (elementType != WorkflowDataTypes.Json || allowJsonArray))
             return type;
         return type switch
         {

@@ -109,17 +109,18 @@ creation, wiring, save, and deterministic execution with no promotion controls.
 
 ### Next parity workstream: first-class collections
 
-**Status: Active; primitive typed arrays compose through workflow boundaries, parameters, pure graph functions, and run-scoped variables. JSON-valued arrays now compose through bounded literal and array-operation nodes. Parameters, graph functions, and iteration remain separate increments.**
+**Status: Active; primitive typed arrays compose through workflow boundaries, parameters, pure graph functions, and run-scoped variables. JSON-valued arrays compose through bounded literal and array operations and now support typed workflow parameters. JSON-valued graph-function ports and iteration remain separate increments.**
 The capability audit and three-role adversarial review identify containers as a
 foundational Blueprint language gap. Existing `array<json>` support is useful
-but remains limited to exact graph shapes. [Decision 0066](decisions/0066-unified-typed-array-values.md)
+but remains limited to bounded graph shapes and typed workflow parameters.
+[Decision 0066](decisions/0066-unified-typed-array-values.md)
 sets the staged contract: current schema 2.0, homogeneous bounded primitive
 arrays in ordinary pure-data composition and typed workflow input/output
-boundaries, then separately proven placements. Maps/sets, typed collection
-parameters/functions/interfaces/MCP arguments,
-mutable collection variables, iteration, and checkpoint state remain future
-work. No feature-specific schema gates, promotion controls, or preview modes
-will be introduced.
+boundaries, then separately proven placements. Maps/sets, JSON-valued
+graph-function ports, workflow interfaces, direct MCP arguments, JSON-valued
+mutable variables, iteration, and checkpoint state remain future work. No
+feature-specific schema gates, promotion controls, or preview modes will be
+introduced.
 
 - [x] Add the schema-2.0 immutable typed-array contract and compose literal,
   length, and indexed-read nodes with existing pure scalar dataflow. Verify
@@ -131,8 +132,10 @@ will be introduced.
   package/hash/runtime/evidence proofs, and Studio guidance. See
   [Decision 0067](decisions/0067-typed-array-workflow-boundaries.md).
 - [x] Extend typed arrays through workflow parameters, exact typed getter pins,
-  caller overrides, child-call mappings, and canonical prompt/template text;
-  preserve authored defaults and existing string-map APIs. See
+  caller overrides, child-call mappings, and prompt/template text; preserve
+  authored defaults and existing string-map APIs. Include bounded `array<json>`
+  values while retaining object member order and numeric token spelling through
+  resolution, typed pins, runtime evidence, and Studio JSON editors. See
   [Decision 0068](decisions/0068-typed-array-workflow-parameters.md).
 - [x] Extend typed arrays through pure graph functions, including direct calls
   and Agent graph-function tools, exact package/hash behavior, runtime input
@@ -159,8 +162,8 @@ will be introduced.
   bounds. Core tests cover preservation and limit behavior; runtime tests cover
   JSON literal/get and append/get execution, plus node-attributed oversized
   result failure. Studio browser coverage verifies JSON literal authoring and
-  save/reopen. Parameters and graph functions are separate evidence increments;
-  iterator readiness remains governed by [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  save/reopen. `array<json>` graph-function ports remain a separate evidence
+  increment; iterator readiness remains governed by [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
   252/252 passed. The prior MCP suite result is 98 passed with 2 opt-in tests

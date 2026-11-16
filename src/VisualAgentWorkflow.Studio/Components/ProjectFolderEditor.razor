@@ -452,6 +452,8 @@
                     { <select value="@RunParameterValue(parameterId)" @onchange="args => SetRunParameter(parameterId, args.Value?.ToString())"><option value="true">True</option><option value="false">False</option></select> }
                     else if (parameter.Type == "integer" || parameter.Type == "number")
                     { <input type="number" step="@(parameter.Type == "integer" ? "1" : "any")" value="@RunParameterValue(parameterId)" @oninput="args => SetRunParameter(parameterId, args.Value?.ToString())" /> }
+                    else if (WorkflowDataTypes.TryGetArrayElementType(parameter.Type, out _))
+                    { <textarea value="@RunParameterValue(parameterId)" rows="4" maxlength="16384" @oninput="args => SetRunParameter(parameterId, args.Value?.ToString())" aria-label="@($"{parameter.DisplayName} JSON array")"></textarea> }
                     else
                     { <input value="@RunParameterValue(parameterId)" @oninput="args => SetRunParameter(parameterId, args.Value?.ToString())" /> }
                     @if (!string.IsNullOrWhiteSpace(parameter.Description)) { <small class="vaw-help">@parameter.Description</small> }
