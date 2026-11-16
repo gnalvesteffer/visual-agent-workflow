@@ -505,7 +505,8 @@ will be introduced.
       retried, the accepted prefix contains no fabricated tool outcome, later
       items do not start, and reopened file/SQLite playback warns that the
       external effect may be unknown (2 focused cases). This proves one
-      post-dispatch failure-evidence write boundary, not general recovery.
+      post-dispatch failure-evidence write boundary, not general recovery. The
+      full Agent Framework suite passed 651/651 on 2026-11-16.
     - [x] Reject `tool.requested` from the production MCP broker in both run
       stores. The broker opens no MCP connection, the tool and root fail, and
       reopened playback retains the iteration as incomplete (2 focused

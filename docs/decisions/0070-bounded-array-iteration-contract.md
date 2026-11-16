@@ -2435,6 +2435,7 @@ not retry the dispatched call or admit the next array item; the accepted
 prefix ends with root failure and retains the authorization without claiming
 the tool outcome. Reopened playback reports that the external effect may be
 unknown and keeps the activation incomplete (2/2 focused cases).
+The full Agent Framework test project passes 651/651 with this proof included.
 
 This qualifies one post-dispatch failure-evidence persistence boundary. It
 does not provide recovery or establish the iterator architecture; readiness
