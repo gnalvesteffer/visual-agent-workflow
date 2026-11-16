@@ -196,6 +196,11 @@ introduced.
   Loop, and exclude checkpoint recovery until frame restoration is proven. The
   eventual Studio array editor uses one JSON text field validated by the
   declared type.
+  The integrated `array<json>` body proof also verifies mutable JSON-array
+  variables: each activation starts at the declared default, appends its own
+  heterogeneous item, and reconstructs independent scoped state after file and
+  SQLite reopen. JSON-array variable failure/cancellation and the architecture
+  review remain open.
   See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [ ] **Finish proof for typed arrays in run-scoped variables:** complete the
   accepted unified-schema 2.0 contract for typed array declarations, Get/Set,

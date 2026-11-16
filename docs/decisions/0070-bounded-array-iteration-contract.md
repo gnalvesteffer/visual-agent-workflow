@@ -2636,10 +2636,18 @@ array containing null and Boolean values. Scoped evaluation and output evidence
 preserve object order and `1.00` number tokens, and file/SQLite playback
 reopens with the same completed history (2/2 focused cases).
 
-This proves one successful JSON-array transform across item activations. It
-does not establish a public iterator contract, JSON variable state, failure or
-cancellation behavior for this type, or the architecture choice. Readiness
-remains **REVISE**.
+`ProductionBodyActivationCoordinator_IsolatesJsonArrayVariableStatePerItem`
+extends this body to mutable JSON-array state. Each activation begins from the
+same declared `[null,{"seed":1.00}]` value, appends its heterogeneous input
+item, commits through Variable Set, and returns the state through Variable Get.
+Variable-write evidence and playback reconstruction remain activation-scoped;
+the object and nested-array values preserve their JSON representation after
+file/SQLite reopen (2/2 focused cases).
+
+These prove successful JSON-array transformation and mutable-variable state
+across item activations. They do not establish a public iterator contract,
+JSON-array variable failure or cancellation behavior, or the architecture
+choice. Readiness remains **REVISE**.
 
 `ProductionBodyActivationCoordinator_StopsAfterJsonArrayAppendExceedsPayloadLimit`
 complements the successful path with an oversized Append result in the same
