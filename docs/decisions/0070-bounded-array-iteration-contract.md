@@ -2769,6 +2769,15 @@ focused cases). The existing private run context already accounts for both
 frames; this test verifies cross-activation cap behavior, not a production
 scheduler entry point or all reservation settlement paths.
 
+`ProductionBodyNestedCoordinator_HostCancellationAfterBreakStopsOuterActivation`
+cancels the host from the recorded completion of the inner graph-dispatched
+Break. The coordinator records a cancelled root rather than treating local
+Break as successful root completion, and does not admit the later inner item
+or next outer activation. Both file and SQLite histories reopen identically
+(2 focused cases). This checks cancellation after Break at one deterministic
+boundary; it does not cover cancellation racing already-admitted parallel
+descendants.
+
 The review explicitly keeps the end state unchanged: typed array iteration
 and nearest-loop Break must be authored in the current unified schema without
 feature-specific schema gates. Checkpoint recovery stays excluded until the

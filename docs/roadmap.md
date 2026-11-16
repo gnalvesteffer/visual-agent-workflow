@@ -1135,6 +1135,12 @@ introduced.
       failed terminal history (2 focused cases). This demonstrates shared
       proof-context accounting, not production scheduler ownership. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Cancel the host immediately after a graph-dispatched inner Break.
+      The nested coordinator records root cancellation, does not start another
+      inner item or outer activation, and reopens the same cancelled history in
+      file and SQLite stores (2 focused cases). This keeps host cancellation
+      distinct from activation-local Break in this proof path. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Compare synchronized parallel Agent failure across all three
       candidates. Both branches enter, the left branch fails, the right
       sibling records cancellation with its matching invocation, the join is
