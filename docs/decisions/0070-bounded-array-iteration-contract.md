@@ -2334,3 +2334,17 @@ records surface their safe `reason` payload. The production-broker sibling
 cancellation matrix renders the explanation from reopened file and SQLite
 histories, including the rejected uncertainty append (8/8 cases). The view
 does not infer completion, retry the call, or establish process recovery.
+
+## Authorization evidence append failure in the integrated body proof (2026-11-15)
+
+`ProductionBodyActivationCoordinator_AuthorizationAppendFailurePreventsToolDispatch`
+rejects the `tool.authorized` append at the file and SQLite store boundaries
+(2 focused cases). The already-running body Agent may complete, but the direct
+MCP broker is not invoked. The tool node and root fail; no authorization,
+completion, failure, or uncertain tool outcome is persisted or inferred. The
+reopened event prefix retains the iteration as incomplete and does not claim a
+join or iteration completion.
+
+This qualifies one pre-dispatch evidence-write failure only. It does not
+establish a general append-failure policy, crash recovery, or select the
+iterator architecture; the Decision 0070 readiness gate remains **REVISE**.

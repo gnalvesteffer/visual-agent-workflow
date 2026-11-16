@@ -440,6 +440,11 @@ will be introduced.
       plus iteration-completion append failure after successful tool evidence
       (12 cases). Custom stores that violate sequence/atomicity guarantees
       and other failure/race/append points remain open.
+    - [x] Reject the `tool.authorized` append in both run stores. The broker is
+      never invoked, the tool node and root fail, no authorization or tool
+      outcome is fabricated, and the active iteration remains incomplete after
+      reopen (2 focused cases). This qualifies the pre-dispatch authorization
+      evidence boundary only; remaining append-failure positions stay open.
     - [x] Add passive Loop activations playback for recorded iteration starts
       and completions, scoped body events, and join-event presence at the
       selected cursor. Production-dispatched nested Break continuation and a

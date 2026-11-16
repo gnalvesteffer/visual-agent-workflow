@@ -739,3 +739,13 @@ The graph browser suite now follows the IDE document controls and direct-source 
 The configured-provider browser proof now follows workflow settings, direct source runs, and Runs → Inspect. It retains tool-loop/evidence, rate-limit redaction, parallel user-message template, and independent direct/queued consumer execution checks. It additionally tests model-connection form testing, save, saved-entry testing, model editing under a stable ID, and deletion against a loopback protocol fixture; saves/edits must not issue model requests and connectivity probes request at most one output token.
 
 The built-in pure MCP demo no longer loads or watches appsettings from its caller's working directory. A regression proves discovery succeeds beside invalid application JSON. Configured user MCP server processes keep their existing launch/configuration behavior. These checks use deterministic local responses, not a live model service.
+
+## Typed-array iteration proof: MCP authorization append failure (2026-11-15)
+
+The private production-body coordinator proof now rejects `tool.authorized`
+evidence appends in both file and SQLite stores. The MCP broker is not invoked,
+the tool node and root fail, and reopened playback retains an incomplete
+iteration without fabricating a tool outcome (2 focused cases). This closes
+one pre-dispatch evidence boundary only; Decision 0070 remains **REVISE** and
+public typed-array iterator authoring remains gated. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
