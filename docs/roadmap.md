@@ -688,6 +688,10 @@ introduced.
       root cancellation are recorded, the current activation is marked
       cancelled, and no later item starts; both stores reopen the same prefix
       (2 focused cases).
+    - [x] Invoke a pinned child from each nested outer/inner activation. Four
+      child calls return their matching inner item, lifecycle evidence retains
+      both activation scopes, and file/SQLite histories reopen identically
+      (2 focused cases). Nested child failure and cancellation remain open.
   - [x] Exercise a pinned `WorkflowInterfaceCall` through the production body
     coordinator for each array item. Typed interface fields pack each item into
     the child JSON input and project it back to the output; exact child lifecycle
