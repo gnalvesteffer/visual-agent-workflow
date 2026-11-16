@@ -205,7 +205,11 @@ introduced.
   variable cancellation before the write records neither a write nor Set
   completion; cancellation after a committed write preserves reconstructable
   state. Both paths suppress later items in both stores. Parallel cancellation
-  races remain open, as does the architecture review.
+  races remain open. A recorder exception after a committed JSON-array write
+  preserves that last event and the scoped value in both stores; the resulting
+  expected-sequence conflict leaves an incomplete running prefix and triggers
+  no retry or later item. This is evidence preservation, not automatic recovery.
+  The architecture review remains open.
   See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [ ] **Finish proof for typed arrays in run-scoped variables:** complete the
   accepted unified-schema 2.0 contract for typed array declarations, Get/Set,

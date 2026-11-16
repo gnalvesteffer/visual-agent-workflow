@@ -2661,11 +2661,21 @@ cancels at the first activation's Variable Set start event. No write or Set
 completion is recorded, the second item is not admitted, and both stores reopen
 with the same cancelled prefix (2/2 focused cases).
 
+`ProductionBodyActivationCoordinator_RecorderFailureAfterJsonArrayVariableWritePreservesPrefix`
+injects a recorder exception after the `Variable Written` event has been
+accepted by the store. The coordinator's subsequent failure append encounters
+the expected-sequence conflict; the surfaced conflict does not retry work or
+admit another item. Both stores reopen with the committed write as the final
+event, an incomplete `running` status, and reconstructable scoped variable state
+(2/2 focused cases). This demonstrates preservation of an accepted prefix, not
+automatic recovery or terminal settlement after ambiguous append outcomes.
+
 These prove successful JSON-array transformation and mutable-variable state,
-plus bounded failure and cancellation on both sides of Variable Set, across item
-activations. They do not establish a public iterator contract, parallel
-cancellation races for this type, or the architecture choice. Readiness
-remains **REVISE**.
+plus bounded failure, cancellation on both sides of Variable Set, and one
+post-commit recorder-failure boundary across item activations. They do not
+establish a public iterator contract, parallel cancellation races for this type,
+automatic recovery of ambiguous persistence outcomes, or the architecture
+choice. Readiness remains **REVISE**.
 
 `ProductionBodyActivationCoordinator_StopsAfterJsonArrayAppendExceedsPayloadLimit`
 complements the successful path with an oversized Append result in the same
