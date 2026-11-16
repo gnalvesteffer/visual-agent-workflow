@@ -4,7 +4,7 @@
     @if (!ReadOnly && ShowWorkflowSettings)
     {
         <WorkflowParameterSettings @key='(Definition.WorkflowId, "settings")' Definition="Definition" DefinitionChanged="next => Edit(() => next)" Disabled="Disabled" />
-        @if (Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.MutableVariablesGraph)
+        @if (Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph)
         {
             <WorkflowVariableSettings @key='(Definition.WorkflowId, "variables")' Definition="Definition" DefinitionChanged="next => Edit(() => next)" Disabled="Disabled" />
         }

@@ -35,6 +35,74 @@ public sealed class MutableVariableExecutionTests
     }
 
     [Fact]
+    public async Task Typed_array_transform_set_and_get_preserve_the_canonical_value_in_events_and_output()
+    {
+        var revision = WorkflowRevision.Create(ArrayVariableDefinition(), "typed-array-variable-runtime");
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), revision, "unused",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("[\"seed\",\"next\"]", result);
+        var written = JsonDocument.Parse(events.Single(evt => evt.Kind == ExecutionEventKinds.VariableWritten).Data!);
+        var read = JsonDocument.Parse(events.Single(evt => evt.Kind == ExecutionEventKinds.VariableRead).Data!);
+        Assert.Equal("[\"seed\"]", written.RootElement.GetProperty("previousValue").GetRawText());
+        Assert.Equal("[\"seed\",\"next\"]", written.RootElement.GetProperty("value").GetRawText());
+        Assert.Equal(written.RootElement.GetProperty("value").GetRawText(), read.RootElement.GetProperty("value").GetRawText());
+        Assert.True(VariableEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("[\"seed\",\"next\"]", playback!.Values["items"].Value);
+    }
+
+    [Fact]
+    public async Task Typed_array_variable_updates_are_ordered_across_bounded_loop_iterations()
+    {
+        var revision = WorkflowRevision.Create(ArrayLoopVariableDefinition(), "array-loop-variable-runtime");
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), revision, "continue",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.VariableWritten));
+        Assert.Equal("[\"next\",\"next\",\"next\"]", result);
+        Assert.True(VariableEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("[\"next\",\"next\",\"next\"]", playback!.Values["items"].Value);
+        Assert.Equal([1, 2, 3], playback.Operations.Where(operation => operation.Kind == "write")
+            .Select(operation => operation.LoopIteration).ToArray());
+    }
+
+    [Theory]
+    [InlineData("file")]
+    [InlineData("sqlite")]
+    public async Task Typed_array_variable_evidence_survives_store_reopen(string storeKind)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-array-variable-store-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var revision = WorkflowRevision.Create(ArrayVariableDefinition(), "array-variable-store-reopen");
+            IWorkflowRunStore store = storeKind == "sqlite"
+                ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
+                : new FileRunJournal(Path.Combine(directory, "runs"));
+            var created = store.Create(revision, "unused");
+            await new WorkflowRunner().ExecuteAsync(created.Header.RunId, revision, "unused",
+                evt => { store.Append(evt); return ValueTask.CompletedTask; });
+
+            IWorkflowRunStore reopened = storeKind == "sqlite"
+                ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
+                : new FileRunJournal(Path.Combine(directory, "runs"));
+            var snapshot = reopened.Get(created.Header.RunId)!;
+
+            Assert.Equal("completed", snapshot.Status);
+            Assert.True(VariableEvidence.TryReconstructPlayback(snapshot.Events, out var playback));
+            Assert.Equal("[\"seed\",\"next\"]", playback!.Values["items"].Value);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public async Task Separate_runs_have_isolated_variable_stores()
     {
         var revision = WorkflowRevision.Create(Definition(), "variable-isolation");
@@ -738,6 +806,68 @@ public sealed class MutableVariableExecutionTests
             ExecutionConnections = execution.ToImmutableSortedDictionary()
         };
         return definition;
+    }
+
+    private static WorkflowDefinition ArrayVariableDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("array", new(NodeTypes.ArrayLiteral, "1.0.0")
+            { ArrayLiteral = new(WorkflowDataTypes.String, "[\"seed\"]") })
+            .Add("item", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("next") })
+            .Add("append", new(NodeTypes.ArrayAppend, "1.0.0") { ArrayElementType = WorkflowDataTypes.String })
+            .Add("set", new(NodeTypes.VariableSet, "1.0.0") { VariableId = "items", InputDataType = "array<string>" })
+            .Add("get", new(NodeTypes.VariableGet, "1.0.0") { VariableId = "items", OutputDataType = "array<string>" })
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = "array<string>" });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("array-append", new(new("array", "out"), new("append", "array"), "data"))
+            .Add("item-append", new(new("item", "out"), new("append", "item"), "data"))
+            .Add("append-set", new(new("append", "out"), new("set", "value"), "data"))
+            .Add("get-output", new(new("get", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-set", new(new("input", "then"), new("set", "execute"), "execution"))
+            .Add("set-get", new(new("set", "then"), new("get", "execute"), "execution"))
+            .Add("get-output", new(new("get", "then"), new("output", "execute"), "execution"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "array-variable-runtime", "input", nodes, data)
+        {
+            Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
+                .Add("items", new("Items", "[\"seed\"]") { Type = "array<string>" }),
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition ArrayLoopVariableDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("loop", new(NodeTypes.Loop, "1.0.0") { Loop = new(new("contains", "continue"), 3) })
+            .Add("body", new(NodeTypes.LoopBody, "1.0.0"))
+            .Add("item", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("next") })
+            .Add("get", new(NodeTypes.VariableGet, "1.0.0") { VariableId = "items", OutputDataType = "array<string>" })
+            .Add("append", new(NodeTypes.ArrayAppend, "1.0.0") { ArrayElementType = WorkflowDataTypes.String })
+            .Add("set", new(NodeTypes.VariableSet, "1.0.0") { VariableId = "items", InputDataType = "array<string>" })
+            .Add("final-get", new(NodeTypes.VariableGet, "1.0.0") { VariableId = "items", OutputDataType = "array<string>" })
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = "array<string>" });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-loop", new(new("input", "out"), new("loop", "in"), "data"))
+            .Add("get-array", new(new("get", "out"), new("append", "array"), "data"))
+            .Add("item-append", new(new("item", "out"), new("append", "item"), "data"))
+            .Add("append-set", new(new("append", "out"), new("set", "value"), "data"))
+            .Add("get-output", new(new("final-get", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-loop", new(new("input", "then"), new("loop", "execute"), "execution"))
+            .Add("loop-body", new(new("loop", "body"), new("body", "execute"), "execution"))
+            .Add("body-get", new(new("body", "then"), new("get", "execute"), "execution"))
+            .Add("get-set", new(new("get", "then"), new("set", "execute"), "execution"))
+            .Add("set-loop", new(new("set", "then"), new("loop", "execute"), "execution"))
+            .Add("loop-output", new(new("loop", "done"), new("final-get", "execute"), "execution"))
+            .Add("final-get-output", new(new("final-get", "then"), new("output", "execute"), "execution"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "array-loop-variable-runtime", "input", nodes, data)
+        {
+            Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
+                .Add("items", new("Items", "[]") { Type = "array<string>" }),
+            ExecutionConnections = execution
+        };
     }
 
     private static WorkflowDefinition LoopDefinition()

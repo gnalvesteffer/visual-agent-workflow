@@ -35,8 +35,16 @@ public static class VariableEvidence
             if (root.TryGetProperty("loopIteration", out var loopElement) &&
                 (!loopElement.TryGetInt32(out loopIteration) || loopIteration < 0)) return false;
             evidence = new(variableId, dataType, value, previous, version, loopIteration);
-            return WorkflowVariableStore.Parse(dataType, value) is not null &&
-                (previous is null || WorkflowVariableStore.Parse(dataType, previous) is not null);
+            var parsed = WorkflowVariableStore.Parse(dataType, value);
+            if (WorkflowDataTypes.IsPrimitiveArrayType(dataType) &&
+                !string.Equals(WorkflowVariableStore.FormatValue(dataType, parsed), value, StringComparison.Ordinal)) return false;
+            if (previous is not null)
+            {
+                var parsedPrevious = WorkflowVariableStore.Parse(dataType, previous);
+                if (WorkflowDataTypes.IsPrimitiveArrayType(dataType) &&
+                    !string.Equals(WorkflowVariableStore.FormatValue(dataType, parsedPrevious), previous, StringComparison.Ordinal)) return false;
+            }
+            return true;
         }
         catch (JsonException) { return false; }
         catch (FormatException) { return false; }
@@ -106,9 +114,10 @@ public static class VariableEvidence
         {
             JsonValueKind.String => element.GetString() ?? "",
             JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => element.ToString(),
+            JsonValueKind.Array => element.GetRawText(),
             _ => ""
         };
-        return element.ValueKind is JsonValueKind.String or JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False;
+        return element.ValueKind is JsonValueKind.String or JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False or JsonValueKind.Array;
     }
 }
 

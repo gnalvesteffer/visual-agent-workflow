@@ -128,23 +128,29 @@ The direct node's properties pane is generated from the selected tool's supporte
 
 #### Add run-scoped variables
 
-Open Workflow settings and use **Workflow variables** for non-secret string, Boolean, integer, and
-finite-number declarations. Add a variable with a stable ID, display name,
-default, description, and type, then add **Get variable** or **Set variable**
-from the Variables section of the node picker. Bind each node to a declaration
-in its properties pane and wire both execution and typed value pins explicitly.
-Each workflow run receives an isolated store; reads and writes are recorded as
+Open Workflow settings and use **Workflow variables** for non-secret string,
+Boolean, integer, finite-number, and (in unified schema 2.0) `array<T>` values.
+For an array, choose its element type and enter a JSON default such as
+`["alpha","beta"]`; arrays are limited to 64 non-null primitive values and
+16,384 UTF-8 bytes. Add **Get variable** or **Set variable** from the Variables
+section of the node picker, bind each node to a declaration, and connect both
+execution and typed value pins. Get reads the value at its activation point;
+Set replaces the entire value. Use **Append**, **Insert**, **Replace**,
+**Remove**, or **Concatenate** to construct a new array, then connect that result
+to Set to persist it. Transform nodes do not mutate variables.
+
+Each workflow run receives an isolated store. Reads and writes are recorded as
 `variable.get` and `variable.set` evidence with a write version. In the run
-inspector, scrubbing a recorded prefix reconstructs the selected variable's
-value, version, and read/write history from those events only; it never reruns
-the graph. This first slice is deliberately linear and rejects parallel, Sequence, collaboration,
-async, graph-function, and shared child-workflow variable writes. On a valid
-schema 1.44 variable graph, schema 1.45 adds one explicit bounded loop with a
-single linear body. It can repeat Set/Get operations up to 16 times; variable
-evidence records the non-negative loop iteration and playback reconstructs the
-recorded prefix without rerunning the body. Schema 1.45 remains outside
-checkpoint recovery, and parallel, Sequence, collaboration, and shared-child
-variable state remain unsupported.
+inspector, scrubbing a recorded prefix reconstructs the value and history from
+those events only. Unified-schema array values are stored and recorded as
+compact canonical JSON. A shared 65,536-byte per-run budget covers canonical
+array values in data-evaluation and variable read/write evidence. If a Set would
+exceed the budget, it fails before changing the value or version. Scalar
+variables retain their existing schema-1.44/1.45 behavior. Variables can be
+used in the existing linear graph and bounded single-body loop; parallel,
+Sequence, collaboration, asynchronous continuation, graph-function state,
+shared child-workflow state, and checkpoint snapshots do not support mutable
+array variables.
 
 The node library provides **Compare strings**, **Boolean Branch**, and **Terminate workflow**. Connect two string sources into Compare strings, connect its Boolean output to the Branch condition input, and wire Input execution to Branch. Route Branch `true` to Output and `false` to a Terminate node whose outcome is **Failure**. Connect a string data source to Output's data input. The comparison uses ordinal, case-sensitive equality: no whitespace removal, case folding, or text-to-Boolean conversion occurs. Branch starts one route only. Its selected output and the pure values it read are recorded in the run audit, and playback never reevaluates the graph. Schema 1.26 supports bounded nested Branch nodes and reconvergent routes; see the next subsection for its topology and validation rules.
 
@@ -162,7 +168,7 @@ For the reverse direction, use **Integer to string** with `in · integer` and `o
 
 ### Typed arrays
 
-Add **Array literal**, choose `string`, `boolean`, `integer`, or `number`, and enter a JSON array of up to 64 non-null primitive values (maximum 16 KiB). Configure **Array length** or **Array get** with the same element type; Array get takes a zero-based integer index and returns that scalar type. Connect the result to compatible pure data nodes. Schema 2.0 Input and Output nodes can also declare the same `array<T>` type. For a run, enter one JSON array in the existing workflow input field, such as `["alpha","beta"]`; the Studio does not rewrite the caller's text. The Output returns compact JSON text. Empty arrays are valid; invalid JSON, null items, wrong element types, non-finite numbers, and values over the bounds fail at the input boundary. These arrays are not yet available as parameters, graph-function or interface ports, variables, MCP arguments, Sequence/parallel/loop state, or checkpoints. Typed evaluation evidence is recorded and read passively during playback. Existing **JSON to array** continues to produce heterogeneous `array<json>` values with its existing null and selection behavior. See [Decision 0061](decisions/0061-unified-json-array-input-chain.md), [Decision 0065](decisions/0065-unified-json-array-get.md), [Decision 0066](decisions/0066-unified-typed-array-values.md), and [Decision 0067](decisions/0067-typed-array-workflow-boundaries.md).
+Add **Array literal**, choose `string`, `boolean`, `integer`, or `number`, and enter a JSON array of up to 64 non-null primitive values (maximum 16 KiB). **Array length** returns a count; **Array get** takes a zero-based integer index and returns that scalar type. **Append**, **Insert**, **Replace**, **Remove**, and **Concatenate** produce new typed arrays. Insert accepts indices from zero through the current length; Replace and Remove require an existing index. Connect values using exact matching pins. Schema 2.0 Input and Output nodes and workflow parameters can carry `array<T>` as JSON text. Array variables support the same four types in linear and bounded-loop flows; connect each transformed result to **Set variable** to commit the new whole value. Values are canonicalized and recorded for passive playback under the aggregate evidence limit described above. Direct MCP argument pins, Sequence/parallel state, shared child state, and checkpoint snapshots remain unsupported. Existing **JSON to array** continues to produce heterogeneous `array<json>` values with its existing null and selection behavior. See [Decision 0061](decisions/0061-unified-json-array-input-chain.md), [Decision 0065](decisions/0065-unified-json-array-get.md), [Decision 0066](decisions/0066-unified-typed-array-values.md), [Decision 0067](decisions/0067-typed-array-workflow-boundaries.md), and [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
 
 ### Ordered Sequence nodes
 

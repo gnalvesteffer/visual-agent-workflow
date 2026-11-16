@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using VisualAgentWorkflow.Core;
 using Xunit;
 
@@ -32,6 +33,64 @@ public sealed class MutableVariableContractTests
 
         Assert.Contains(WorkflowValidator.Validate(missing), issue => issue.Code == "variable.reference");
         Assert.Contains(WorkflowValidator.Validate(mismatch), issue => issue.Code == "variable.type");
+    }
+
+    [Fact]
+    public void Unified_schema_accepts_typed_array_variable_defaults_and_exact_get_set_pins()
+    {
+        var definition = ArrayDefinition();
+        var restored = WorkflowJson.Deserialize(WorkflowJson.Serialize(definition));
+
+        Assert.Empty(WorkflowValidator.Validate(restored));
+        Assert.Equal("array<string>", restored.Variables!["items"].Type);
+        Assert.Equal("[\"alpha\",\"beta\"]", WorkflowVariableStore.FormatValue("array<string>",
+            WorkflowVariableStore.Parse("array<string>", "[ \"alpha\", \"beta\" ]")));
+        Assert.Equal("array<string>", WorkflowPorts.ExplicitDataOutputs(restored.Nodes["get"])[0].DataType);
+        Assert.Equal("array<string>", WorkflowPorts.ExplicitDataInputs(restored.Nodes["set"])[0].DataType);
+
+        var wrongPin = restored with
+        {
+            Nodes = restored.Nodes.SetItem("get", restored.Nodes["get"] with { OutputDataType = "array<boolean>" })
+        };
+        Assert.Contains(WorkflowValidator.Validate(wrongPin), issue => issue.Code == "variable.type");
+    }
+
+    [Fact]
+    public void Array_variable_write_is_canonical_bounded_and_atomic_on_invalid_value_or_evidence_exhaustion()
+    {
+        var store = new WorkflowVariableStore(ArrayDefinition());
+        using var initial = JsonDocument.Parse("[ \"next\" ]");
+        var written = store.Write("items", "array<string>", initial.RootElement);
+
+        Assert.Equal("[\"next\"]", WorkflowVariableStore.FormatValue(written.DataType, written.Value));
+        Assert.Equal(2, written.Version);
+        Assert.Throws<ArgumentException>(() => store.Write("items", "array<string>", "[1]"));
+        Assert.True(store.TryRead("items", out var unchanged));
+        Assert.Equal("[\"next\"]", WorkflowVariableStore.FormatValue(unchanged.DataType, unchanged.Value));
+        Assert.Equal(2, unchanged.Version);
+
+        var evidenceBudget = new WorkflowArrayEvidenceBudget();
+        var maximumSizedValue = "[\"" + new string('x', 16_380) + "\"]";
+        using var maximum = JsonDocument.Parse(maximumSizedValue);
+        for (var index = 0; index < 4; index++) evidenceBudget.Consume("array<string>", maximum.RootElement);
+        var tooMuchEvidence = new WorkflowVariableStore(ArrayDefinition(), evidenceBudget);
+        Assert.Throws<WorkflowArrayEvidenceBudgetExceededException>(() => { tooMuchEvidence.Write("items", "array<string>", maximum.RootElement); });
+        Assert.True(tooMuchEvidence.TryRead("items", out var stillDefault));
+        Assert.Equal(1, stillDefault.Version);
+        Assert.Equal("[\"seed\"]", WorkflowVariableStore.FormatValue(stillDefault.DataType, stillDefault.Value));
+    }
+
+    [Fact]
+    public void Typed_array_variables_are_rejected_by_legacy_schema_and_checkpoint_snapshots()
+    {
+        var definition = ArrayDefinition();
+        var legacy = definition with { SchemaVersion = WorkflowSchemaVersions.MutableVariablesGraph };
+
+        Assert.Contains(WorkflowValidator.Validate(legacy), issue => issue.Code == "variable.definition");
+        Assert.Throws<ArgumentException>(() => WorkflowVariableStore.FromSnapshot(definition,
+            new WorkflowVariableSnapshot(WorkflowVariableSnapshot.CurrentFormatVersion,
+                [new("items", "array<string>", "[\"seed\"]", 1)], 1)));
+        Assert.Throws<InvalidOperationException>(() => new WorkflowVariableStore(definition).Snapshot());
     }
 
     [Fact]
@@ -200,4 +259,27 @@ public sealed class MutableVariableContractTests
             .Add("ratio", new("Ratio", "0.5") { Type = WorkflowDataTypes.Number })
             .Add("text", new("Text", "initial") { Type = WorkflowDataTypes.String })
     };
+
+    private static WorkflowDefinition ArrayDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("array", new(NodeTypes.ArrayLiteral, "1.0.0") { ArrayLiteral = new(WorkflowDataTypes.String, "[\"seed\"]") })
+            .Add("set", new(NodeTypes.VariableSet, "1.0.0") { VariableId = "items", InputDataType = "array<string>" })
+            .Add("get", new(NodeTypes.VariableGet, "1.0.0") { VariableId = "items", OutputDataType = "array<string>" })
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = "array<string>" });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("array-set", new(new("array", "out"), new("set", "value"), "data"))
+            .Add("get-output", new(new("get", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-set", new(new("input", "then"), new("set", "execute"), "execution"))
+            .Add("set-get", new(new("set", "then"), new("get", "execute"), "execution"))
+            .Add("get-output", new(new("get", "then"), new("output", "execute"), "execution"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "array-variable", "input", nodes, data)
+        {
+            Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
+                .Add("items", new("Items", "[ \"seed\" ]") { Type = "array<string>" }),
+            ExecutionConnections = execution
+        };
+    }
 }

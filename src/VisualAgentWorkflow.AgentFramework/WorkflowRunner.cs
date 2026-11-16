@@ -470,7 +470,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         IReadOnlySet<string>? proofBreakNodeIds = null)
     {
         var definition = revision.Definition;
-        var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition) ? new ExplicitGraphDataEvaluator(definition, input, parameters) : null;
+        var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition)
+            ? new ExplicitGraphDataEvaluator(definition, input, parameters, variableStore?.ArrayEvidenceBudget)
+            : null;
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
             n => (Executor<GraphMessage, GraphMessage>)new StringExecutor(n.Key, n.Value,
@@ -976,8 +978,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
     /// <summary>Evaluates only bounded, pure explicit-graph data nodes in one activation context.</summary>
     private sealed class ExplicitGraphDataEvaluator(WorkflowDefinition definition, string input,
-        IReadOnlyDictionary<string, string>? parameters)
+        IReadOnlyDictionary<string, string>? parameters, WorkflowArrayEvidenceBudget? arrayEvidenceBudget = null)
     {
+        private readonly WorkflowArrayEvidenceBudget evidenceBudget = arrayEvidenceBudget ?? new WorkflowArrayEvidenceBudget();
         private int functionNodeVisits;
         private readonly AsyncLocal<StructuredActivationFrame?> activeFrame = new();
         private readonly ConcurrentDictionary<(Guid? FrameId, string NodeId, string PortId), GraphFunctionAudit> functionAudits = new();
@@ -1074,7 +1077,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var key = (nodeId, outputPort);
             if (cache.TryGetValue(key, out var cached))
             {
-                evaluated.Add(new(nodeId, outputPort, cached.DataType, cached.Value, connectionId));
+                AddEvaluation(evaluated, new(nodeId, outputPort, cached.DataType, cached.Value, connectionId));
                 return cached;
             }
             if (!active.Add(key)) throw new InvalidOperationException("Pure data evaluation encountered a cycle.");
@@ -1086,7 +1089,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (runtimeValues.TryGetValue(activationKey, out var runtimeValue))
                 {
                     cache.Add(key, runtimeValue);
-                    evaluated.Add(new(nodeId, outputPort, runtimeValue.DataType, runtimeValue.Value, connectionId));
+                    AddEvaluation(evaluated, new(nodeId, outputPort, runtimeValue.DataType, runtimeValue.Value, connectionId));
                     return runtimeValue;
                 }
                 ExplicitGraphValue result;
@@ -1162,13 +1165,26 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     throw new InvalidOperationException("Pure data output exceeds 16,384 characters.");
                 cache.Add(key, result);
                 functionAudits.TryGetValue(activationKey, out var functionEvidence);
-                evaluated.Add(new(nodeId, outputPort, result.DataType, result.Value, connectionId, functionEvidence));
+                AddEvaluation(evaluated, new(nodeId, outputPort, result.DataType, result.Value, connectionId, functionEvidence));
                 return result;
             }
             finally
             {
                 active.Remove(key);
             }
+        }
+
+        private void AddEvaluation(ImmutableArray<EvaluatedDataValue>.Builder evaluated, EvaluatedDataValue value)
+        {
+            if (WorkflowDataTypes.IsPrimitiveArrayType(value.DataType))
+            {
+                try { evidenceBudget.Consume(value.DataType, value.Value); }
+                catch (WorkflowArrayEvidenceBudgetExceededException exception)
+                {
+                    throw new GraphDataEvaluationException(value.NodeId, exception.Message, exception);
+                }
+            }
+            evaluated.Add(value);
         }
 
         private ExplicitGraphValue EvaluateFunction(string nodeId, string outputPort, string outputType,
@@ -1971,7 +1987,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         throw new InvalidOperationException("The variable store or Set value is unavailable.");
                     if (!currentVariableStore.TryRead(variableId, out var previous))
                         throw new InvalidOperationException($"Variable '{variableId}' is not declared.");
-                    var written = currentVariableStore.Write(variableId, variableSetEvaluation.Result.DataType, variableSetEvaluation.Result.Value, cancellationToken);
+                    WorkflowVariableValue written;
+                    try
+                    {
+                        written = currentVariableStore.Write(variableId, variableSetEvaluation.Result.DataType,
+                            variableSetEvaluation.Result.Value, cancellationToken);
+                    }
+                    catch (WorkflowArrayEvidenceBudgetExceededException exception)
+                    {
+                        throw new GraphDataEvaluationException(Id, exception.Message, exception);
+                    }
                     await Emit(ExecutionEventKinds.VariableWritten, Id, invocation, null, JsonSerializer.Serialize(new
                     {
                         variableId,
@@ -1987,6 +2012,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     var currentVariableStore = activationVariableStore?.Invoke(received.ActivationFrame?.Id) ?? variableStore;
                     if (currentVariableStore is null || dataEvaluator is null || node.VariableId is not { } variableId || !currentVariableStore.TryRead(variableId, out var current))
                         throw new InvalidOperationException("The variable store or Get variable is unavailable.");
+                    try { currentVariableStore.RecordReadEvidence(current); }
+                    catch (WorkflowArrayEvidenceBudgetExceededException exception)
+                    {
+                        throw new GraphDataEvaluationException(Id, exception.Message, exception);
+                    }
                     dataEvaluator.SetRuntimeOutput(Id, "out", current.DataType, current.Value);
                     await Emit(ExecutionEventKinds.VariableRead, Id, invocation, null, JsonSerializer.Serialize(new
                     {

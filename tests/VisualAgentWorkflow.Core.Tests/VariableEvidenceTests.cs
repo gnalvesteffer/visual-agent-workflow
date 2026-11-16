@@ -24,6 +24,43 @@ public sealed class VariableEvidenceTests
     }
 
     [Fact]
+    public void Playback_reconstructs_canonical_typed_array_state_from_json_array_evidence()
+    {
+        var events = new[]
+        {
+            Event(1, ExecutionEventKinds.VariableWritten, "set", new
+            {
+                variableId = "items", dataType = "array<string>",
+                previousValue = new[] { "seed" }, value = new[] { "alpha", "beta" }, version = 2L
+            }),
+            Event(2, ExecutionEventKinds.VariableRead, "get", new
+            {
+                variableId = "items", dataType = "array<string>", value = new[] { "alpha", "beta" }, version = 2L
+            })
+        };
+
+        Assert.True(VariableEvidence.TryReconstructPlayback(events, out var snapshot));
+        Assert.Equal("[\"alpha\",\"beta\"]", snapshot!.Values["items"].Value);
+        Assert.Equal("[\"seed\"]", snapshot.Operations[0].PreviousValue);
+    }
+
+    [Fact]
+    public void Playback_rejects_noncanonical_or_wrong_element_type_array_evidence()
+    {
+        var validShapeButNoncanonical = Event(1, ExecutionEventKinds.VariableRead, "get", new
+        {
+            variableId = "items", dataType = "array<string>", value = new[] { "alpha" }, version = 1L
+        }) with { Data = "{\"variableId\":\"items\",\"dataType\":\"array<string>\",\"value\":[ \"alpha\" ],\"version\":1}" };
+        var wrongItemType = Event(1, ExecutionEventKinds.VariableRead, "get", new
+        {
+            variableId = "items", dataType = "array<string>", value = new[] { 42 }, version = 1L
+        });
+
+        Assert.False(VariableEvidence.TryRead(validShapeButNoncanonical, out _));
+        Assert.False(VariableEvidence.TryRead(wrongItemType, out _));
+    }
+
+    [Fact]
     public void Playback_preserves_optional_loop_iteration_identity_for_future_bounded_routes()
     {
         var events = new[]

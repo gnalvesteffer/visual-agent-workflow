@@ -9,7 +9,7 @@ public static class WorkflowVariableEditing
         string defaultValue, string? description = null, string type = WorkflowDataTypes.String)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.MutableVariablesGraph))
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph))
             throw new ArgumentException("Variables require schema 1.44.", nameof(definition));
         if (!IsValidId(id) || string.IsNullOrWhiteSpace(displayName) || displayName.Length > 128)
             throw new ArgumentException("Variable IDs use lowercase letters, digits, dashes, and underscores; names are required and limited to 128 characters.", nameof(id));
@@ -32,9 +32,12 @@ public static class WorkflowVariableEditing
 
     public static WorkflowDefinition SetType(WorkflowDefinition definition, string id, string type, string defaultValue)
     {
-        if (type is not (WorkflowDataTypes.String or WorkflowDataTypes.Boolean or WorkflowDataTypes.Integer or WorkflowDataTypes.Number))
-            throw new ArgumentException("Choose a supported scalar variable type.", nameof(type));
+        var primitiveArray = WorkflowDataTypes.IsPrimitiveArrayType(type);
+        if (type is not (WorkflowDataTypes.String or WorkflowDataTypes.Boolean or WorkflowDataTypes.Integer or WorkflowDataTypes.Number) && !primitiveArray)
+            throw new ArgumentException("Choose a supported scalar or primitive array variable type.", nameof(type));
         var variables = Require(definition, id);
+        if (primitiveArray && definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
+            throw new ArgumentException("Typed array variables require unified schema 2.0.", nameof(type));
         return definition with { Variables = variables.SetItem(id, variables[id] with { Type = type, DefaultValue = defaultValue }) };
     }
 

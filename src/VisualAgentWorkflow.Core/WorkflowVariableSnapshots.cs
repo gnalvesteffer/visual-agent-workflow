@@ -35,6 +35,8 @@ public sealed partial class WorkflowVariableStore
     {
         lock (sync)
         {
+            if (values.Values.Any(value => WorkflowDataTypes.IsPrimitiveArrayType(value.DataType)))
+                throw new InvalidOperationException("Checkpoint snapshots do not support typed array variable state.");
             return new(
                 WorkflowVariableSnapshot.CurrentFormatVersion,
                 values.OrderBy(pair => pair.Key, StringComparer.Ordinal)
@@ -58,6 +60,9 @@ public sealed partial class WorkflowVariableStore
             throw new ArgumentException("The variable snapshot format or bounds are invalid.", nameof(snapshot));
 
         var declarations = definition.Variables ?? ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty;
+        if (declarations.Values.Any(declaration => declaration is not null &&
+                WorkflowDataTypes.IsPrimitiveArrayType(declaration.Type)))
+            throw new ArgumentException("Checkpoint snapshots do not support typed array variable state.", nameof(definition));
         if (snapshot.Values.Length != declarations.Count ||
             snapshot.Values.Select(entry => entry.VariableId).Distinct(StringComparer.Ordinal).Count() != snapshot.Values.Length ||
             !snapshot.Values.Select(entry => entry.VariableId).ToHashSet(StringComparer.Ordinal).SetEquals(declarations.Keys))
@@ -89,12 +94,22 @@ public sealed partial class WorkflowVariableStore
         return restored;
     }
 
-    private static string Format(string dataType, object value) => dataType switch
+    public static string FormatValue(string dataType, object value)
     {
-        WorkflowDataTypes.String when value is string text && text.Length <= MaximumSnapshotValueLength => text,
-        WorkflowDataTypes.Boolean when value is bool boolean => boolean ? "true" : "false",
-        WorkflowDataTypes.Integer when value is long integer => integer.ToString(CultureInfo.InvariantCulture),
-        WorkflowDataTypes.Number when value is double number && double.IsFinite(number) => number.ToString("R", CultureInfo.InvariantCulture),
-        _ => throw new ArgumentException("The variable store contains an unsupported scalar value.", nameof(value))
-    };
+        if (WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType) && elementType != WorkflowDataTypes.Json &&
+            value is JsonElement { ValueKind: JsonValueKind.Array } array &&
+            WorkflowArrayLiteral.TryNormalizeValue(elementType, array.GetRawText(), out var normalizedArray, out _))
+            return normalizedArray;
+
+        return dataType switch
+        {
+            WorkflowDataTypes.String when value is string text && text.Length <= MaximumSnapshotValueLength => text,
+            WorkflowDataTypes.Boolean when value is bool boolean => boolean ? "true" : "false",
+            WorkflowDataTypes.Integer when value is long integer => integer.ToString(CultureInfo.InvariantCulture),
+            WorkflowDataTypes.Number when value is double number && double.IsFinite(number) => number.ToString("R", CultureInfo.InvariantCulture),
+            _ => throw new ArgumentException("The variable store contains an unsupported value.", nameof(value))
+        };
+    }
+
+    private static string Format(string dataType, object value) => FormatValue(dataType, value);
 }

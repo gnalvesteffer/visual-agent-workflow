@@ -20,7 +20,10 @@ values and 16 KiB. **Array length** returns an integer; **Array get** takes an
 integer index and returns exactly `T`. Indexes start at zero. An invalid index
 fails at Array get. The literal and operations can compose with other pure
 nodes through exact typed data pins, and their evaluations are recorded for
-passive playback.
+passive playback. **Append**, **Insert**, **Replace**, **Remove**, and
+**Concatenate** are pure immutable operations: they return new `array<T>` values
+and never update state themselves. Indexes are zero-based; Insert accepts the
+end index, while Replace and Remove require an existing item.
 
 Schema 2.0 Input and Output nodes may declare these exact primitive array
 types. A caller supplies one JSON array through the existing string input field
@@ -35,9 +38,20 @@ function call shares a 65,536-byte aggregate bound across array inputs, retained
 evaluation evidence, and outputs. Playback reads the recorded events without
 reevaluating functions or consulting the catalog. When this budget is exceeded,
 the failure identifies the internal function node that crossed the bound and
-is recorded against the visible FunctionCall node. Arrays remain unavailable in
-variables, direct MCP arguments, Sequence or parallel regions, loop state, and
-checkpoints.
+is recorded against the visible FunctionCall node.
+
+Unified schema 2.0 also permits the four primitive `array<T>` types in
+run-scoped variable declarations. Defaults use JSON text and are normalized to
+compact canonical JSON in the isolated per-run store. Get emits the exact
+declared type; Set atomically replaces the complete array. Use a pure transform
+and explicitly connect its result to Set to retain an update. Linear workflows
+and the existing bounded single-body loop are supported. A per-invocation
+65,536-byte budget counts canonical array values recorded by data evaluation
+and variable read/write events; exhaustion fails deterministically before a
+Set changes its value or version. Playback reconstructs array state from the
+recorded event prefix. Checkpoint snapshots reject array variables. Arrays
+remain unavailable as direct MCP argument pins, Sequence/parallel state,
+shared child-workflow state, and graph-function mutable state.
 Existing `JsonToArray` still produces heterogeneous `array<json>` values,
 including JSON null, with its existing bounds and behavior. That JSON array
 type is distinct from every `array<T>` primitive type. See [Decision
@@ -53,9 +67,10 @@ failure can be located without treating an internal function node as a node on
 the outer workflow canvas.
 
 Schema 1.44 adds linear run-scoped scalar variables with explicit typed Get/Set
-nodes and passive evidence playback. Extend this slice to loop, concurrency,
-nested-workflow, checkpoint, and richer replay semantics only through separate
-reviewed contracts.
+nodes and passive evidence playback. Unified schema 2.0 adds typed primitive
+array variables, pure transform nodes, and bounded-loop use with an aggregate
+evidence budget. Concurrent, Sequence, collaboration, shared child-workflow,
+and checkpoint array state require separate reviewed contracts.
 
 Schema 1.58 also provides a visible `core.convert.integer-to-string` node. It formats signed Int64 values with invariant decimal notation, including both bounds, and never performs implicit coercion.
 

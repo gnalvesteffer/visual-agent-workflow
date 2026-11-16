@@ -1,6 +1,6 @@
 # Decision 0071: typed arrays in run-scoped variables
 
-**Status:** Accepted design; implementation and proof gates remain open  
+**Status:** Accepted design; implementation in progress; proof gates remain open
 **Date:** 2026-11-15  
 **Scope:** Blueprint parity workstream; unified schema 2.0
 
@@ -88,6 +88,19 @@ revisions, and recorded playback retain their existing contracts. Loading a
 workflow never silently rewrites authored array values or graph definitions.
 No capability is considered shipped until validation, runtime, evidence,
 compatibility, Studio behavior, and focused automated regression coverage agree.
+
+## Implementation progress
+
+The initial implementation adds typed array declarations and JSON defaults,
+exact Get/Set pins, pure immutable transformation nodes, canonical run-scoped
+storage, linear and bounded-loop execution, event-prefix playback, checkpoint
+snapshot rejection, and a 65,536-byte per-invocation budget over canonical array
+values recorded by data evaluation and variable read/write evidence. Focused
+Core and Agent Framework checks cover validation, atomic write rejection,
+canonical evidence, transform-to-Set execution, loop order, and file/SQLite store
+reopen. The capability remains incomplete until the broader compatibility,
+bounds/operation, package/hash, user-interface browser, and full event-prefix
+proof matrix is complete.
 
 ## Review record
 

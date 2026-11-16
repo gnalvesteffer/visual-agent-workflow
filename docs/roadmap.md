@@ -109,7 +109,7 @@ creation, wiring, save, and deterministic execution with no promotion controls.
 
 ### Next parity workstream: first-class collections
 
-**Status: Active; typed arrays compose through workflow boundaries, parameters, and pure graph functions.**
+**Status: Active; typed arrays compose through workflow boundaries, parameters, pure graph functions, and run-scoped variables.**
 The capability audit and three-role adversarial review identify containers as a
 foundational Blueprint language gap. Existing `array<json>` support is useful
 but remains limited to exact graph shapes. [Decision 0066](decisions/0066-unified-typed-array-values.md)
@@ -138,6 +138,13 @@ will be introduced.
   and Agent graph-function tools, exact package/hash behavior, runtime input
   validation, and bounded aggregate call evidence recorded in ordinary run events.
   See [Decision 0069](decisions/0069-typed-arrays-in-pure-graph-functions.md).
+- [x] Implement typed array declarations/defaults, exact Get/Set pins, immutable
+  append/insert/replace/remove/concatenate nodes, canonical state and playback
+  evidence, with a shared 65,536-byte per-invocation array-value evidence budget.
+  Linear and bounded-loop runtime paths have focused execution/playback coverage;
+  checkpoint snapshots reject typed array state. Store persistence/reopen,
+  historical compatibility, and browser authoring verification remain open.
+  See [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
   252/252 passed. The prior MCP suite result is 98 passed with 2 opt-in tests
@@ -158,15 +165,15 @@ will be introduced.
   eventual Studio array editor uses one JSON text field validated by the
   declared type.
   See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
-- [ ] **Typed arrays in run-scoped variables:** implement the accepted
-  unified-schema 2.0 contract for typed array declarations, Get/Set, and pure
-  append, insert-at, replace-at, remove-at, and concatenate operations. Set
-  explicitly commits whole transformed values. Keep current linear and bounded
-  loop ordering; reject parallel, Sequence, collaboration, asynchronous,
-  graph-function, shared child-state, and checkpoint placements. Define and
-  enforce canonical array encoding and an aggregate evidence budget before
-  runtime admission, then prove passive playback, compatibility, and Studio
-  authoring. This is accepted design, not shipped behavior. See
+- [ ] **Finish proof for typed arrays in run-scoped variables:** complete the
+  accepted unified-schema 2.0 contract for typed array declarations, Get/Set,
+  and pure append, insert-at, replace-at, remove-at, and concatenate operations.
+  Set explicitly commits whole transformed values. Keep current linear and
+  bounded-loop ordering; reject parallel, Sequence, collaboration, asynchronous,
+  graph-function state, shared child-state, and checkpoint placements. Canonical
+  values and the aggregate evidence budget are implemented; prove store
+  persistence/reopen, full historical compatibility, passive playback prefixes,
+  and Studio authoring before marking this increment shipped. See
   [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
   - [x] Carry a graph-dispatched typed Break result with source and target
     activation identity into the VAW coordinator; have the dispatcher report

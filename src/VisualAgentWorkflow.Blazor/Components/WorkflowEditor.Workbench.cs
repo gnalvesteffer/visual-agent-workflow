@@ -285,8 +285,8 @@ public partial class WorkflowEditor
             ContractEntry(NodeTypes.ParallelBranch, canAdd),
             ContractEntry(NodeTypes.ParallelJoin, canAdd),
             ContractEntry(NodeTypes.ParallelRendezvous, canAdd),
-            ContractEntry(NodeTypes.VariableGet, canAdd, "Read a declared run-scoped scalar variable."),
-            ContractEntry(NodeTypes.VariableSet, canAdd, "Write a declared run-scoped scalar variable.")
+            ContractEntry(NodeTypes.VariableGet, canAdd, "Read a declared run-scoped value at this execution point."),
+            ContractEntry(NodeTypes.VariableSet, canAdd, "Replace a declared run-scoped value at this execution point.")
         };
         entries.AddRange((FunctionCatalog?.List() ?? []).Select(entry => new WorkflowNodeLibraryEntry(
             FunctionKey(entry.Function), $"Function · {entry.Function.Definition.DisplayName} v{entry.Function.Definition.Version}",

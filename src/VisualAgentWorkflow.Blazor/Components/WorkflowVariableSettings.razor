@@ -3,27 +3,40 @@
 
 <details class="vaw-parameter-editor">
     <summary>Workflow variables <span class="vaw-help">@VariableDefinitions.Count run-scoped values</span></summary>
-    <p class="vaw-help">Variables are isolated per workflow run. This bounded Blueprint slice supports string, Boolean, integer, and finite number values through explicit Get variable and Set variable nodes.</p>
+    <p class="vaw-help">Variables are isolated per workflow run. Get and Set nodes read or replace their complete value. Typed arrays also support explicit immutable append, insert, replace, remove, and concatenate operations.</p>
     @foreach (var (variableId, variable) in VariableDefinitions)
     {
         <fieldset @key="variableId" disabled="@Disabled">
             <legend>@variable.DisplayName · @variableId</legend>
             <label>Display name <input value="@variable.DisplayName" maxlength="128" @onchange="args => UpdateVariable(variableId, args, true)" /></label>
-            <label>Default value <input value="@variable.DefaultValue" maxlength="16384" @onchange="args => UpdateVariable(variableId, args, false)" /></label>
+            <label>Default value
+                @if (IsArrayType(variable.Type))
+                { <textarea rows="3" value="@variable.DefaultValue" maxlength="16384" @onchange="args => UpdateVariable(variableId, args, false)" spellcheck="false" aria-label="Default JSON array for @variable.DisplayName" /> }
+                else
+                { <input value="@variable.DefaultValue" maxlength="16384" @onchange="args => UpdateVariable(variableId, args, false)" /> }
+            </label>
             <label>Description <textarea rows="3" maxlength="512" placeholder="Explain what this run-scoped value represents" @onchange="args => UpdateVariableDescription(variableId, args)">@variable.Description</textarea></label>
             <label>Type <select value="@(variable.Type ?? WorkflowDataTypes.String)" @onchange="args => ChangeVariableType(variableId, args)">
                 <option value="string">Text</option><option value="boolean">True / false</option><option value="integer">Integer</option><option value="number">Number</option>
+                @if (IsUnifiedSchema) { <option value="array&lt;string&gt;">String array</option><option value="array&lt;boolean&gt;">Boolean array</option><option value="array&lt;integer&gt;">Integer array</option><option value="array&lt;number&gt;">Number array</option> }
             </select></label>
+            @if (IsArrayType(variable.Type)) { <p class="vaw-help">Enter a JSON array of up to 64 items and 16,384 UTF-8 bytes. Examples: <code>["alpha","beta"]</code>, <code>[1,2,3]</code>.</p> }
             <button type="button" @onclick="() => Edit(() => WorkflowVariableEditing.Remove(Definition, variableId))" disabled="@Disabled">Remove variable</button>
         </fieldset>
     }
     <div class="vaw-controls">
         <label>Variable ID <input @bind="newVariableId" maxlength="64" placeholder="current-count" disabled="@Disabled" /></label>
         <label>Display name <input @bind="newVariableName" maxlength="128" placeholder="Current count" disabled="@Disabled" /></label>
-        <label>Default value <input @bind="newVariableDefault" maxlength="16384" placeholder="0" disabled="@Disabled" /></label>
+        <label>Default value
+            @if (IsArrayType(newVariableType))
+            { <textarea rows="3" @bind="newVariableDefault" maxlength="16384" placeholder="[]" disabled="@Disabled" spellcheck="false" /> }
+            else
+            { <input @bind="newVariableDefault" maxlength="16384" placeholder="0" disabled="@Disabled" /> }
+        </label>
         <label>Description <input @bind="newVariableDescription" maxlength="512" placeholder="Value shared by this run" disabled="@Disabled" /></label>
         <label>Type <select @bind="newVariableType" disabled="@Disabled">
             <option value="string">Text</option><option value="boolean">True / false</option><option value="integer">Integer</option><option value="number">Number</option>
+            @if (IsUnifiedSchema) { <option value="array&lt;string&gt;">String array</option><option value="array&lt;boolean&gt;">Boolean array</option><option value="array&lt;integer&gt;">Integer array</option><option value="array&lt;number&gt;">Number array</option> }
         </select></label>
         <button type="button" @onclick="AddVariable" disabled="@Disabled">Add variable</button>
     </div>
@@ -40,6 +53,8 @@
     private string? error;
     private ImmutableSortedDictionary<string, WorkflowVariableDefinition> VariableDefinitions =>
         Definition.Variables ?? ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty;
+    private bool IsUnifiedSchema => Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
+    private static bool IsArrayType(string? type) => WorkflowDataTypes.IsPrimitiveArrayType(type);
 
     private async Task AddVariable()
     {
@@ -64,7 +79,11 @@
     private Task ChangeVariableType(string id, ChangeEventArgs args)
     {
         var type = args.Value?.ToString() ?? WorkflowDataTypes.String;
-        return Edit(() => WorkflowVariableEditing.SetType(Definition, id, type, VariableDefinitions[id].DefaultValue));
+        var oldDefault = VariableDefinitions[id].DefaultValue;
+        var defaultValue = IsArrayType(type) != IsArrayType(VariableDefinitions[id].Type)
+            ? IsArrayType(type) ? "[]" : ""
+            : oldDefault;
+        return Edit(() => WorkflowVariableEditing.SetType(Definition, id, type, defaultValue));
     }
 
     private async Task Edit(Func<WorkflowDefinition> change)

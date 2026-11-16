@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace VisualAgentWorkflow.Core;
@@ -39,7 +40,7 @@ public sealed record WorkflowParameterDefinition(string DisplayName, string Defa
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<string>? Choices { get; init; }
 }
 
-/// <summary>A workflow-local, run-scoped, non-secret scalar variable declaration.</summary>
+/// <summary>A workflow-local, run-scoped, non-secret scalar or typed primitive-array declaration.</summary>
 public sealed record WorkflowVariableDefinition(string DisplayName, string DefaultValue)
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Description { get; init; }
@@ -336,8 +337,11 @@ public sealed partial class WorkflowVariableStore
     private readonly Dictionary<string, WorkflowVariableValue> values = new(StringComparer.Ordinal);
     private long nextVersion;
 
-    public WorkflowVariableStore(WorkflowDefinition definition)
+    public WorkflowArrayEvidenceBudget ArrayEvidenceBudget { get; }
+
+    public WorkflowVariableStore(WorkflowDefinition definition, WorkflowArrayEvidenceBudget? arrayEvidenceBudget = null)
     {
+        ArrayEvidenceBudget = arrayEvidenceBudget ?? new WorkflowArrayEvidenceBudget();
         foreach (var (id, variable) in definition.Variables ?? ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty)
         {
             if (variable is null) continue;
@@ -360,20 +364,52 @@ public sealed partial class WorkflowVariableStore
                 throw new InvalidOperationException($"Variable '{variableId}' is not declared.");
             if (!string.Equals(previous.DataType, dataType, StringComparison.Ordinal))
                 throw new InvalidOperationException($"Variable '{variableId}' requires {previous.DataType}, not {dataType}.");
-            var written = new WorkflowVariableValue(dataType, value, ++nextVersion);
+            var normalized = Normalize(dataType, value);
+            if (WorkflowDataTypes.TryGetArrayElementType(dataType, out _))
+                ArrayEvidenceBudget.Consume(dataType, previous.Value, normalized);
+            var written = new WorkflowVariableValue(dataType, normalized, ++nextVersion);
             values[variableId] = written;
             return written;
         }
     }
 
-    public static object Parse(string dataType, string value) => dataType switch
+    public void RecordReadEvidence(WorkflowVariableValue value) => ArrayEvidenceBudget.Consume(value.DataType, value.Value);
+
+    public static object Parse(string dataType, string value)
     {
-        WorkflowDataTypes.String when value.Length <= 16_384 => value,
-        WorkflowDataTypes.Boolean when bool.TryParse(value, out var boolean) => boolean,
-        WorkflowDataTypes.Integer when long.TryParse(value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var integer) => integer,
-        WorkflowDataTypes.Number when double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && double.IsFinite(number) => number,
-        _ => throw new ArgumentException($"The default value is invalid for variable type '{dataType}'.", nameof(value))
-    };
+        if (WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType) && elementType != WorkflowDataTypes.Json)
+        {
+            if (!WorkflowArrayLiteral.TryNormalizeValue(elementType, value, out var normalized, out var error))
+                throw new ArgumentException($"The default value is invalid for variable type '{dataType}': {error}", nameof(value));
+            using var document = JsonDocument.Parse(normalized);
+            return document.RootElement.Clone();
+        }
+
+        return dataType switch
+        {
+            WorkflowDataTypes.String when value.Length <= 16_384 => value,
+            WorkflowDataTypes.Boolean when bool.TryParse(value, out var boolean) => boolean,
+            WorkflowDataTypes.Integer when long.TryParse(value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var integer) => integer,
+            WorkflowDataTypes.Number when double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && double.IsFinite(number) => number,
+            _ => throw new ArgumentException($"The default value is invalid for variable type '{dataType}'.", nameof(value))
+        };
+    }
+
+    private static object Normalize(string dataType, object value)
+    {
+        if (!WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType) || elementType == WorkflowDataTypes.Json)
+            return value;
+        var json = value switch
+        {
+            JsonElement element when element.ValueKind == JsonValueKind.Array => element.GetRawText(),
+            string text => text,
+            _ => throw new ArgumentException($"Variable values for '{dataType}' must be a typed JSON array.", nameof(value))
+        };
+        if (!WorkflowArrayLiteral.TryNormalizeValue(elementType, json, out var normalized, out var error))
+            throw new ArgumentException($"Variable value is invalid for '{dataType}': {error}", nameof(value));
+        using var document = JsonDocument.Parse(normalized);
+        return document.RootElement.Clone();
+    }
 }
 
 public sealed record StringConstantConfiguration(string Value);

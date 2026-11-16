@@ -199,6 +199,7 @@ public static class WorkflowCheckpointShape
     public static bool IsLinearVariableGraph(WorkflowDefinition definition)
     {
         if (definition.Variables is not { Count: > 0 } || definition.ExecutionConnections is null ||
+            definition.Variables.Values.Any(variable => WorkflowDataTypes.IsPrimitiveArrayType(variable?.Type)) ||
             definition.Nodes.Values.Any(node => node.Type is not (NodeTypes.Input or NodeTypes.Output or
                 NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.StringConstant or
                 NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant)))
