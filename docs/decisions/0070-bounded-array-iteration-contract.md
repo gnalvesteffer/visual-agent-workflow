@@ -2484,6 +2484,14 @@ focused cases). The gate is deterministic and does not exercise
 `ControlledRun`, persisted approval requests/decisions, or real user approval.
 The iterator architecture status remains **REVISE**.
 
+`ProductionBodyActivationCoordinator_RejectedItemApprovalStopsBeforeMcpDispatch`
+uses a deterministic gate that rejects the exact first-item request with
+`WorkflowApprovalRejectedException`. The approval node and root fail; neither
+the MCP target nor the next item is dispatched, and the failed prefix reopens
+from file and SQLite (2/2 focused cases). The fake gate does not persist the
+host's `ApprovalRejected` decision event; this qualifies body failure handling
+only. Readiness remains **REVISE**.
+
 ## Typed mutable-array state inside activations (2026-11-16)
 
 `ProductionBodyActivationCoordinator_IsolatesTypedArrayVariableStatePerItem`

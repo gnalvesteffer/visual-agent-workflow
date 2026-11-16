@@ -435,6 +435,10 @@ will be introduced.
       records cancellation, dispatches no MCP call, admits no later item, and
       reopens as a cancelled activation in file/SQLite playback (2 focused
       cases). The deterministic gate does not qualify host approval persistence.
+    - [x] Reject the first item's exact approval request. The approval node
+      and root fail, the MCP target and next item are not dispatched, and the
+      failed prefix reopens from both stores (2 focused cases). This gate
+      throws the typed rejection; host decision-event persistence is separate.
     - [x] Exercise typed mutable array variables inside each activation. Both
       items begin from the declared default, append their own item, and persist
       independent scoped state that reconstructs after file/SQLite reopen

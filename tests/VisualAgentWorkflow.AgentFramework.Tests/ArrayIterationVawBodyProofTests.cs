@@ -2565,6 +2565,51 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_RejectedItemApprovalStopsBeforeMcpDispatch(bool sqlite)
+    {
+        const string input = "[\"search-alpha\",\"must-not-run\"]";
+        var revision = WorkflowRevision.Create(ApprovedMcpItemBodyDefinition("proof.array-approved-search"),
+            "production-body-array-approval-rejection-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+        var gate = new RejectingIterationApprovalGate();
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(tools: tools)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String, gate: gate);
+
+        Assert.True(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.Single(gate.Actions);
+        Assert.Equal("search-alpha", JsonDocument.Parse(gate.Actions[0].Input).RootElement
+            .GetProperty("query").GetString());
+        Assert.Empty(tools.Queries);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "approval" &&
+            evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_IsolatesTypedArrayVariableStatePerItem(bool sqlite)
     {
         const string input = "[\"alpha\",\"beta\"]";
@@ -15457,6 +15502,28 @@ public sealed class ArrayIterationVawBodyProofTests
             Requested.TrySetResult(action);
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new OperationCanceledException(cancellationToken);
+        }
+    }
+
+    private sealed class RejectingIterationApprovalGate : IWorkflowExecutionGate, IWorkflowApprovalGate
+    {
+        private readonly ConcurrentQueue<WorkflowApprovalAction> actions = new();
+
+        public WorkflowApprovalAction[] Actions => [.. actions];
+
+        public ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask<WorkflowApprovalPermit> WaitForApprovalAsync(WorkflowApprovalAction action,
+            string prompt, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Assert.Equal("Approve this exact search.", prompt);
+            actions.Enqueue(action);
+            return ValueTask.FromException<WorkflowApprovalPermit>(new WorkflowApprovalRejectedException());
         }
     }
 
