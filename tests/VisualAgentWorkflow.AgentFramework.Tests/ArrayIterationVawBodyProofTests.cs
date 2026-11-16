@@ -1467,6 +1467,51 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_EvaluatesBooleanConstantForEachItem(bool sqlite)
+    {
+        const string input = "[true,false,true]";
+        var revision = WorkflowRevision.Create(TypedBooleanConstantNotConditionalBodyDefinition(),
+            "production-body-boolean-constant-per-item-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var agents = new EchoAgentExecutor();
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, arrayElementType: WorkflowDataTypes.Boolean);
+
+        Assert.False(result.Failed);
+        Assert.Equal("{\"query\":\"negative-agent-no\"};" +
+            "{\"query\":\"negative-agent-no\"};{\"query\":\"negative-agent-no\"}", result.Output);
+        Assert.Equal(["negative", "negative", "negative"], agents.Inputs);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        for (var index = 0; index < 3; index++)
+        {
+            var scopeId = $"array-loop/{index}";
+            var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.ScopeId == scopeId && evt.ConnectionId == "data:not-condition");
+            using var payload = JsonDocument.Parse(evaluated.Data!);
+            Assert.False(payload.RootElement.GetProperty("value").GetBoolean());
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.ScopeId == scopeId);
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_EvaluatesTypedNumberItems(bool sqlite)
     {
         const string input = "[-1.25,0,9.5]";
@@ -12476,6 +12521,23 @@ public sealed class ArrayIterationVawBodyProofTests
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                 .Add("item", new("Array item", "false") { Type = WorkflowDataTypes.Boolean })
                 .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition TypedBooleanConstantNotConditionalBodyDefinition()
+    {
+        var definition = TypedBooleanNotConditionalBodyDefinition();
+        definition = definition with
+        {
+            Nodes = definition.Nodes.SetItem("item", new NodeDefinition(NodeTypes.BooleanConstant, "1.0.0")
+            {
+                BooleanConstant = new(true)
+            }),
+            Connections = definition.Connections.Remove("item-not")
+                .Add("constant-not", new(new("item", "out"), new("not", "value"), "data")),
+            Parameters = definition.Parameters!.Remove("item")
         };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;

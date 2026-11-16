@@ -2364,3 +2364,13 @@ opened; the tool and root fail and the reopened iteration remains incomplete
 (2 focused cases). This establishes the earliest MCP dispatch-evidence
 boundary for the integrated proof, but does not change the architecture
 decision or qualify recovery after a persisted request.
+
+## Boolean constant body composition (2026-11-15)
+
+`ProductionBodyActivationCoordinator_EvaluatesBooleanConstantForEachItem`
+composes a literal Boolean constant with NOT, Boolean Branch, mutually
+exclusive Agent paths, and Merge over three activations. Each selected path
+and evaluated value is scoped to its activation, and file/SQLite histories
+reopen identically (2 focused cases). This closes one deterministic-node
+composition in the private body matrix only; the supported-body matrix remains
+incomplete and the architecture decision remains **REVISE**.

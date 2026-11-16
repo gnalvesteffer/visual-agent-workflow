@@ -319,6 +319,12 @@ will be introduced.
       cases). A finite-input overflow case also attributes a non-finite sum to
       NumberAdd, fails the consumer/root, stops later items, and reopens from
       both stores (2 focused cases). Other numeric compositions remain open.
+    - [x] Evaluate a Boolean constant through NOT, Boolean Branch, exclusive
+      Agent paths, and Merge for three typed array activations. Each activation
+      records its own Boolean evaluation and selected path, and file/SQLite
+      histories reopen identically (2 focused cases). This qualifies the
+      constant node in this composition; broader deterministic body coverage
+      remains open.
     - [x] Fail a pure graph-function ArrayGet during the second activation.
       Function failures identify the visible FunctionCall node and retain the
       inner function node ID plus safe reason; the next item is suppressed and
