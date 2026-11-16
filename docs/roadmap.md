@@ -146,10 +146,11 @@ will be introduced.
   Operation index/type/item bounds and array-variable package/hash round trips
   now have focused Core tests. Browser verification covers declaration creation,
   editing, save/reopen, invalid-default draft persistence, Problems diagnostics,
-  and run blocking. Complete historical compatibility and full event-prefix proof
-  remain open. Runner-backed bounded-loop and file/SQLite reopen tests now
-  reconstruct typed-array values at every captured event prefix; failure and
-  cancellation-prefix coverage remains open.
+  and run blocking. Complete historical compatibility remains open. Runner-backed
+  bounded-loop and file/SQLite reopen tests reconstruct typed-array values at
+  every captured event prefix. Cancellation before/after writes, a fault after a
+  committed write, concurrent root-run isolation, and sequential child-invocation
+  isolation are now covered.
   See [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
@@ -181,10 +182,10 @@ will be introduced.
   persistence/reopen and package/hash proofs now pass. Browser verification now
   covers declaration creation/editing, valid and invalid default save/reopen,
   diagnostics, and execution blocking; callable interface choices omit invalid
-  drafts. Representative runner and reopened-store event prefixes now reconstruct
-  typed-array state without execution; failure-prefix and full historical
-  compatibility proofs remain before marking this increment shipped. Cancellation
-  before and after a committed typed-array write is now covered. See
+  drafts. Runner and reopened-store event prefixes reconstruct typed-array state
+  without execution. Cancellation before and after writes, a post-commit failure,
+  concurrent run isolation, and sequential child-invocation isolation are covered.
+  Full historical compatibility remains before marking this increment shipped. See
   [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
   - [x] Verify append/insert/replace/remove/concatenate ordering, empty-array
     insertion, legal index endpoints, invalid indexes and item types, exact
@@ -192,8 +193,10 @@ will be introduced.
   - [x] Verify runner-backed every-event-prefix reconstruction for bounded-loop
     typed-array variable state and after file/SQLite store reopen. Cancellation
     tests prove pre-write evidence stays empty and a post-write cancellation keeps
-    the committed state reconstructable. The complete Agent Framework suite
-    passed 644/644 on 2026-11-16; the two focused cancellation cases also pass.
+    the committed state reconstructable. A post-commit recorder failure preserves
+    the same evidence. The MutableVariableExecutionTests class passed 34/34; the full Agent
+    Framework suite passed 644/644 immediately before these additions on
+    2026-11-16.
   - [x] Verify folder-backed Studio variable authoring in Playwright: add and
     reopen a typed array declaration, save an invalid typed default as a
     repairable draft, confirm Problems reports it, and confirm execution

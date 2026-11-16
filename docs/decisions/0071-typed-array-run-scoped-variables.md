@@ -105,9 +105,11 @@ strict package and run validation still reject them. Runner-backed bounded-loop
 and file/SQLite reopen tests reconstruct typed-array state at every captured
 event prefix without execution. Focused cancellation tests prove that canceling
 before an array write emits no variable state and canceling after it preserves the
-committed array for playback. The full Agent Framework suite passed 644/644 on
-2026-11-16; both cancellation cases also pass. Failure-prefix and full historical
-compatibility proofs remain open.
+committed array for playback. A fault after a committed write also preserves the
+recorded prefix. Concurrent root runs and sequential invocations of the same
+pinned child each start from an independent array-variable store. The MutableVariableExecutionTests class passed 34/34; the full Agent Framework
+suite passed 644/644 immediately before these additions on 2026-11-16. Full historical compatibility proofs remain
+open.
 
 ## Review record
 

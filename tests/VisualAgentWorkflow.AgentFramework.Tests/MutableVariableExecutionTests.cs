@@ -185,6 +185,105 @@ public sealed class MutableVariableExecutionTests
     }
 
     [Fact]
+    public async Task Typed_array_failure_after_committed_write_preserves_the_recorded_prefix()
+    {
+        var revision = WorkflowRevision.Create(ArrayVariableDefinition(), "typed-array-failure-prefix");
+        var events = new List<ExecutionEvent>();
+        var injectFailure = true;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteAsync(
+            Guid.NewGuid(), revision, "unused", evt =>
+            {
+                events.Add(evt);
+                if (injectFailure && evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "set")
+                {
+                    injectFailure = false;
+                    throw new InvalidOperationException("injected recorder failure");
+                }
+                return ValueTask.CompletedTask;
+            }));
+
+        var written = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
+        using var payload = JsonDocument.Parse(written.Data!);
+        Assert.Equal("[\"seed\",\"next\"]", payload.RootElement.GetProperty("value").GetRawText());
+        AssertEveryArrayVariableEvidencePrefixReconstructs(events);
+    }
+
+    [Fact]
+    public async Task Sequential_child_invocations_get_independent_typed_array_variable_stores()
+    {
+        var childDefinition = ChildWithArrayVariable(ArrayVariableDefinition() with { WorkflowId = "array-variable-child" });
+        var child = WorkflowRevision.Create(childDefinition, "typed-array-child-isolation");
+        var firstCall = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+        };
+        var secondCall = firstCall;
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("call-first", firstCall)
+            .Add("call-second", secondCall)
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-first", new(new("input", "out"), new("call-first", "in"), "data"))
+            .Add("first-second", new(new("call-first", "out"), new("call-second", "in"), "data"))
+            .Add("second-output", new(new("call-second", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-first", new(new("input", "then"), new("call-first", "execute"), "execution"))
+            .Add("first-second", new(new("call-first", "out"), new("call-second", "execute"), "execution"))
+            .Add("second-output", new(new("call-second", "out"), new("output", "execute"), "execution"));
+        var parent = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-variable-parent", "input", nodes, data) { ExecutionConnections = execution };
+        var revision = WorkflowRevision.Create(parent, "typed-array-child-isolation");
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), revision, "unused",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("2", result);
+        foreach (var callId in new[] { "call-first", "call-second" })
+        {
+            var childEvents = events.Where(evt => evt.ScopeId == callId).ToArray();
+            Assert.True(VariableEvidence.TryReconstructPlayback(childEvents, out var playback));
+            Assert.Equal("[\"seed\",\"next\"]", playback!.Values["items"].Value);
+            Assert.Equal(2, playback.Values["items"].Version);
+            var write = Assert.Single(childEvents, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
+            using var payload = JsonDocument.Parse(write.Data!);
+            Assert.Equal("[\"seed\"]", payload.RootElement.GetProperty("previousValue").GetRawText());
+        }
+    }
+
+    [Fact]
+    public async Task Concurrent_runs_get_independent_typed_array_variable_stores()
+    {
+        var revision = WorkflowRevision.Create(ArrayVariableDefinitionUsingInputItem(), "typed-array-run-isolation");
+        var firstEvents = new List<ExecutionEvent>();
+        var secondEvents = new List<ExecutionEvent>();
+        var runner = new WorkflowRunner();
+
+        var results = await Task.WhenAll(
+            runner.ExecuteAsync(Guid.NewGuid(), revision, "first", evt =>
+            {
+                firstEvents.Add(evt);
+                return ValueTask.CompletedTask;
+            }),
+            runner.ExecuteAsync(Guid.NewGuid(), revision, "second", evt =>
+            {
+                secondEvents.Add(evt);
+                return ValueTask.CompletedTask;
+            }));
+
+        Assert.Equal("[\"seed\",\"first\"]", results[0]);
+        Assert.Equal("[\"seed\",\"second\"]", results[1]);
+        Assert.True(VariableEvidence.TryReconstructPlayback(firstEvents, out var firstPlayback));
+        Assert.True(VariableEvidence.TryReconstructPlayback(secondEvents, out var secondPlayback));
+        Assert.Equal("[\"seed\",\"first\"]", firstPlayback!.Values["items"].Value);
+        Assert.Equal("[\"seed\",\"second\"]", secondPlayback!.Values["items"].Value);
+        Assert.Equal(2, firstPlayback.Values["items"].Version);
+        Assert.Equal(2, secondPlayback.Values["items"].Version);
+    }
+
+    [Fact]
     public async Task Failure_after_a_committed_write_preserves_the_recorded_variable_prefix()
     {
         var revision = WorkflowRevision.Create(Definition(), "variable-failure-prefix");
@@ -876,6 +975,30 @@ public sealed class MutableVariableExecutionTests
             Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
                 .Add("items", new("Items", "[\"seed\"]") { Type = "array<string>" }),
             ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition ChildWithArrayVariable(WorkflowDefinition definition)
+    {
+        var nodes = definition.Nodes
+            .SetItem("output", definition.Nodes["output"] with { OutputDataType = WorkflowDataTypes.String })
+            .Add("length", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = WorkflowDataTypes.String })
+            .Add("format-length", new(NodeTypes.IntegerToString, "1.0.0"));
+        var data = definition.Connections.Remove("get-output")
+            .Add("get-length", new(new("get", "out"), new("length", "in"), "data"))
+            .Add("length-format", new(new("length", "out"), new("format-length", "in"), "data"))
+            .Add("format-output", new(new("format-length", "out"), new("output", "in"), "data"));
+        return definition with { Nodes = nodes, Connections = data };
+    }
+
+    private static WorkflowDefinition ArrayVariableDefinitionUsingInputItem()
+    {
+        var definition = ArrayVariableDefinition();
+        return definition with
+        {
+            Nodes = definition.Nodes.Remove("item"),
+            Connections = definition.Connections.SetItem("item-append",
+                new(new("input", "out"), new("append", "item"), "data"))
         };
     }
 
