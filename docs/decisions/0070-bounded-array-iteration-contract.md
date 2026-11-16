@@ -2644,6 +2644,14 @@ Variable-write evidence and playback reconstruction remain activation-scoped;
 the object and nested-array values preserve their JSON representation after
 file/SQLite reopen (2/2 focused cases).
 
+`ProductionBodyActivationCoordinator_ComposesJsonArrayOperationsPerItem`
+composes Append, Insert, Replace, Remove, and Concatenate over each JSON item
+inside the same activation-scoped variable flow. An object with a `1.00` token
+and a nested array pass through all operations, while each activation starts at
+the declared default. Scoped data and write evidence preserve the resulting
+order and exact JSON representation after file/SQLite reopen (2/2 focused
+cases).
+
 `ProductionBodyActivationCoordinator_RejectsJsonArrayVariableOverflowPerItem`
 uses a valid declared default near the 16 KiB typed-array bound. Appending the
 first heterogeneous item fails at Array Append, records no Variable Set, does
