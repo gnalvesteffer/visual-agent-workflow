@@ -101,8 +101,11 @@ canonical evidence, transform-to-Set execution, loop order, and file/SQLite stor
 reopen. Studio browser verification covers declaration creation and editing,
 valid and invalid default save/reopen, Problems diagnostics, and run blocking.
 Invalid folder drafts are excluded from callable interface workflow choices;
-strict package and run validation still reject them. Full historical
-compatibility and event-prefix proof remain open.
+strict package and run validation still reject them. Runner-backed bounded-loop
+and file/SQLite reopen tests reconstruct typed-array state at every captured
+event prefix without execution. The full Agent Framework suite passed 644/644
+on 2026-11-16. Failure/cancellation-prefix and full historical compatibility
+proofs remain open.
 
 ## Review record
 

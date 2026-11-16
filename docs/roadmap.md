@@ -147,7 +147,9 @@ will be introduced.
   now have focused Core tests. Browser verification covers declaration creation,
   editing, save/reopen, invalid-default draft persistence, Problems diagnostics,
   and run blocking. Complete historical compatibility and full event-prefix proof
-  remain open.
+  remain open. Runner-backed bounded-loop and file/SQLite reopen tests now
+  reconstruct typed-array values at every captured event prefix; failure and
+  cancellation-prefix coverage remains open.
   See [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
@@ -179,12 +181,16 @@ will be introduced.
   persistence/reopen and package/hash proofs now pass. Browser verification now
   covers declaration creation/editing, valid and invalid default save/reopen,
   diagnostics, and execution blocking; callable interface choices omit invalid
-  drafts. Full historical compatibility and passive playback prefixes remain
-  before marking this increment shipped. See
+  drafts. Representative runner and reopened-store event prefixes now reconstruct
+  typed-array state without execution; failure/cancellation prefixes and full
+  historical compatibility remain before marking this increment shipped. See
   [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
   - [x] Verify append/insert/replace/remove/concatenate ordering, empty-array
     insertion, legal index endpoints, invalid indexes and item types, exact
     array type matching, and maximum-item result rejection.
+  - [x] Verify runner-backed every-event-prefix reconstruction for bounded-loop
+    typed-array variable state and after file/SQLite store reopen. The
+    complete Agent Framework suite passed 644/644 on 2026-11-16.
   - [x] Verify folder-backed Studio variable authoring in Playwright: add and
     reopen a typed array declaration, save an invalid typed default as a
     repairable draft, confirm Problems reports it, and confirm execution

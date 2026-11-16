@@ -68,6 +68,8 @@ public sealed class MutableVariableExecutionTests
         Assert.Equal("[\"next\",\"next\",\"next\"]", playback!.Values["items"].Value);
         Assert.Equal([1, 2, 3], playback.Operations.Where(operation => operation.Kind == "write")
             .Select(operation => operation.LoopIteration).ToArray());
+
+        AssertEveryArrayVariableEvidencePrefixReconstructs(events);
     }
 
     [Theory]
@@ -95,6 +97,7 @@ public sealed class MutableVariableExecutionTests
             Assert.Equal("completed", snapshot.Status);
             Assert.True(VariableEvidence.TryReconstructPlayback(snapshot.Events, out var playback));
             Assert.Equal("[\"seed\",\"next\"]", playback!.Values["items"].Value);
+            AssertEveryArrayVariableEvidencePrefixReconstructs(snapshot.Events);
         }
         finally
         {
@@ -834,6 +837,23 @@ public sealed class MutableVariableExecutionTests
                 .Add("items", new("Items", "[\"seed\"]") { Type = "array<string>" }),
             ExecutionConnections = execution
         };
+    }
+
+    private static void AssertEveryArrayVariableEvidencePrefixReconstructs(IReadOnlyList<ExecutionEvent> events)
+    {
+        for (var length = 1; length <= events.Count; length++)
+        {
+            var prefix = events.Take(length).ToArray();
+            var stateEvents = prefix.Where(evt => VariableEvidence.IsStateEvent(evt.Kind)).ToArray();
+            if (stateEvents.Length == 0) continue;
+
+            Assert.True(VariableEvidence.TryReconstructPlayback(prefix, out var playback));
+            Assert.Equal(stateEvents.Length, playback!.Operations.Count);
+            Assert.Equal("items", Assert.Single(playback.Values).Key);
+            using var latestState = JsonDocument.Parse(stateEvents[^1].Data!);
+            Assert.Equal(latestState.RootElement.GetProperty("value").GetRawText(), playback.Values["items"].Value);
+            Assert.Equal(latestState.RootElement.GetProperty("version").GetInt64(), playback.Values["items"].Version);
+        }
     }
 
     private static WorkflowDefinition ArrayLoopVariableDefinition()

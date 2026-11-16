@@ -13170,7 +13170,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
             .Add("input", new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json })
             .Add("to-array", new(NodeTypes.JsonToArray, "1.0.0"))
-            .Add("length", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("length", new(NodeTypes.ArrayLength, "1.0.0"))
             .Add("text", new(NodeTypes.IntegerToString, "1.0.0"))
             .Add("output", new(NodeTypes.Output, "1.0.0")
                 { OutputDataType = WorkflowDataTypes.String });
@@ -13199,7 +13199,7 @@ public sealed class ArrayIterationVawBodyProofTests
             .Add("input", new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json })
             .Add("to-array", new(NodeTypes.JsonToArray, "1.0.0"))
             .Add("index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
-            .Add("get", new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("get", new(NodeTypes.ArrayGet, "1.0.0"))
             .Add("select", new(NodeTypes.JsonSelectString, "1.0.0")
                 { JsonPropertySelection = new("/name") })
             .Add("output", new(NodeTypes.Output, "1.0.0")
