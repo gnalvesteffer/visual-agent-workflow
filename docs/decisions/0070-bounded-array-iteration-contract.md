@@ -81,6 +81,31 @@ authoring until the integrated proof passes and the design is reviewed again.
 Checkpoint recovery remains excluded until activation frames are captured and
 restored.
 
+## Checkpoint-recovery sequencing review (2026-11-16)
+
+A new proponent/opponent/adjudicator review returned **REVISE**: keep
+typed-array iteration excluded from `CheckpointWorkflowHost` while completing
+the iterator candidate and persisted-evidence gates. The existing checkpoint
+frame's exact identity, native payload, evidence-prefix, atomic-publication,
+and local-ownership mechanisms are useful foundations, but they do not bind
+the frozen typed input, nested activation stack, per-item state, or
+coordinator-owned control state required by array iteration. The production
+architecture, lifecycle owner, and shared-budget owner are also not selected;
+designing a durable frame against a candidate now could preserve the wrong
+state model.
+
+This review changes recovery sequencing only. It does not reduce the Blueprint
+parity target, add a schema/capability gate, or justify a loop-body allowlist.
+Continue the non-public integrated runtime and evidence matrix through file and
+SQLite stores, then resolve the lifecycle, cancellation, join, and budget
+owners and repeat the architecture review. After selecting that lifecycle,
+specify an immutable frame that binds the frozen array and nested activation
+state to the exact native cursor and evidence prefix. Prove capture and
+restoration, including publication faults, stale or tampered frames,
+cancellation, exclusive ownership, and uncertain external effects, before
+changing checkpoint admission. Read-only feasibility analysis and documenting
+these future requirements remain in scope meanwhile.
+
 On 2026-11-13, the structured proof candidate moved item/index binding into its
 VAW-owned activation frame. The frame carries the declared primitive element
 type, requires an item parameter of that same type when one is requested,

@@ -1220,6 +1220,12 @@ will be introduced.
     - [ ] Complete process-loss/interrupted-execution recovery and the
       remaining evidence matrix. Store reopening does not recover or resume
       execution; candidate reservations are not production budget ownership.
+      A 2026-11-16 three-role sequencing review returned REVISE: keep typed
+      array recovery excluded until the iterator lifecycle and shared-budget
+      owner are selected, then prove activation-frame capture/restoration
+      against that design. This preserves recovery as a required parity gate;
+      it does not authorize schema gates or a reduced body capability set. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Measure representative maximum-shaped `model.responded`,
       `tool.completed`, and `data.evaluated` event envelopes through the actual
       file snapshot and SQLite event-row serializers. The measured envelope
