@@ -231,6 +231,50 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_AppendsJsonItemsAndReopensTypedArrayEvidence(bool sqlite)
+    {
+        const string input = "[{\"name\":\"alpha\",\"n\":1.00},[null,true,{\"n\":2.00}]]";
+        var revision = WorkflowRevision.Create(JsonArrayAppendItemBodyDefinition(),
+            "production-body-json-array-append-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner().ExecuteProductionBodyActivationSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, Record,
+            arrayElementType: WorkflowDataTypes.Json);
+
+        Assert.False(result.Failed);
+        Assert.Equal("[null,{\"seed\":1.00},{\"name\":\"alpha\",\"n\":1.00}];[null,{\"seed\":1.00},[null,true,{\"n\":2.00}]]",
+            result.Output);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        foreach (var (scope, expectedValue) in new[]
+        {
+            ("array-loop/0", "[null,{\"seed\":1.00},{\"name\":\"alpha\",\"n\":1.00}]"),
+            ("array-loop/1", "[null,{\"seed\":1.00},[null,true,{\"n\":2.00}]]")
+        })
+        {
+            var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.ConnectionId == "data:append-output" && evt.ScopeId == scope);
+            using var payload = JsonDocument.Parse(evaluated.Data!);
+            Assert.Equal(expectedValue, payload.RootElement.GetProperty("value").GetRawText());
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_EvaluatesGraphFunctionPerItem(bool sqlite)
     {
         const string input = "[\"alpha\",\"beta\"]";
@@ -13933,6 +13977,33 @@ public sealed class ArrayIterationVawBodyProofTests
             .Add("input-output", Edge("input", "then", "output", "execute"));
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
             "array-iteration-json-root-kinds", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition JsonArrayAppendItemBodyDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json })
+            .Add("seed", new(NodeTypes.ArrayLiteral, "1.0.0")
+                { ArrayLiteral = new(WorkflowDataTypes.Json, "[null,{\"seed\":1.00}]") })
+            .Add("append", new(NodeTypes.ArrayAppend, "1.0.0")
+                { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.JsonArray });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("append-array", new(new("seed", "out"), new("append", "array"), "data"))
+            .Add("append-item", new(new("input", "out"), new("append", "item"), "data"))
+            .Add("append-output", new(new("append", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-output", Edge("input", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-json-array-append", "input", nodes, data)
         {
             ExecutionConnections = execution,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty

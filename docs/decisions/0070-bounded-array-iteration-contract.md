@@ -2625,3 +2625,18 @@ reopen with the same failed status and evidence (2/2 focused cases).
 This proves one deterministic data failure and stop-admission boundary. It
 does not cover cancellation races, sibling settlement, or select the iterator
 architecture; readiness remains **REVISE**.
+
+## JSON array transformation inside item activations (2026-11-16)
+
+`ProductionBodyActivationCoordinator_AppendsJsonItemsAndReopensTypedArrayEvidence`
+uses an `array<json>` as the outer iteration input. Each item enters the
+production body's JSON Input, is appended to a typed JSON-array literal, and
+reaches an `array<json>` Output. The two items include an object and a nested
+array containing null and Boolean values. Scoped evaluation and output evidence
+preserve object order and `1.00` number tokens, and file/SQLite playback
+reopens with the same completed history (2/2 focused cases).
+
+This proves one successful JSON-array transform across item activations. It
+does not establish a public iterator contract, JSON variable state, failure or
+cancellation behavior for this type, or the architecture choice. Readiness
+remains **REVISE**.

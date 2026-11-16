@@ -377,6 +377,10 @@ introduced.
       The safe failure is attributed to Replace and its consuming Variable Set,
       no write or later item is recorded, and the failed file/SQLite prefixes
       reopen consistently (2/2 focused cases).
+    - [x] Append each heterogeneous `array<json>` item to a typed JSON-array
+      literal in the production body. Object, null, nested array, and `1.00`
+      number tokens remain intact in each scoped output; both file and SQLite
+      histories reopen identically (2/2 focused cases).
     - [x] Execute a pinned pure graph function inside the production body for
       two items. Each call receives the current item, emits the expected
       suffixed result and evaluated-value evidence under its own activation
