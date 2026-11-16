@@ -685,7 +685,8 @@ public static class WorkflowValidator
                             !GraphFunctionJson.Validate(function.Definition,
                                 allowNumber: true,
                                 allowNumberAdd: definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph,
-                                allowPrimitiveArrays: definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph).IsEmpty);
+                                allowPrimitiveArrays: definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph,
+                                allowJsonArrays: definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph).IsEmpty);
                         if (!WorkflowSchemaVersions.UsesExplicitGraph(definition) || definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) ||
                             graphFunctionTools.Length > AgentGraphFunctionToolLimits.MaximumAssignedFunctions || invalidFunctionTool ||
                             graphFunctionTools.Select(function => function.Definition.FunctionId).Distinct(StringComparer.Ordinal).Count() != graphFunctionTools.Length)

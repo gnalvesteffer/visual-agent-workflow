@@ -163,7 +163,8 @@ public static class GraphTemplateJson
             return issues.ToImmutable();
         }
 
-        foreach (var issue in GraphFunctionJson.Validate(template.Body, allowNumber: true, allowNumberAdd: false, allowPrimitiveArrays: true))
+        foreach (var issue in GraphFunctionJson.Validate(template.Body, allowNumber: true, allowNumberAdd: false,
+                     allowPrimitiveArrays: true, allowJsonArrays: true))
             issues.Add(issue with { Code = "template." + issue.Code, Path = issue.Path.Replace("graphFunction", "graphTemplate", StringComparison.Ordinal) });
 
         if (template.Body.Nodes is null || template.Body.Connections is null || template.Body.Inputs is null || template.Body.Outputs is null)
@@ -221,7 +222,8 @@ public static class GraphTemplateJson
             Nodes = nodes,
             Connections = connections
         };
-        var expandedIssues = GraphFunctionJson.Validate(body, allowNumber: true, allowNumberAdd: false, allowPrimitiveArrays: true);
+        var expandedIssues = GraphFunctionJson.Validate(body, allowNumber: true, allowNumberAdd: false,
+            allowPrimitiveArrays: true, allowJsonArrays: true);
         if (expandedIssues.Length > 0)
             throw new ArgumentException(string.Join("; ", expandedIssues.Select(issue => issue.Message)), nameof(nodeIdFactory));
         return new(body, ids.ToImmutableSortedDictionary(
@@ -364,7 +366,8 @@ public static class GraphTemplateExtraction
         string displayName, string description)
     {
         ArgumentNullException.ThrowIfNull(source);
-        var sourceIssues = GraphFunctionJson.Validate(source, allowNumber: true, allowNumberAdd: false, allowPrimitiveArrays: true);
+        var sourceIssues = GraphFunctionJson.Validate(source, allowNumber: true, allowNumberAdd: false,
+            allowPrimitiveArrays: true, allowJsonArrays: true);
         if (sourceIssues.Length > 0)
             throw new ArgumentException(string.Join("; ", sourceIssues.Select(issue => issue.Message)), nameof(source));
 

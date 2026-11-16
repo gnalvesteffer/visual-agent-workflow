@@ -42,7 +42,7 @@ public sealed class GraphFunctionEvaluationBudget
     public const int MaximumAggregateArrayBytes = 65_536;
     private long retainedArrayBytes;
 
-    /// <summary>Number of canonical array bytes retained so far.</summary>
+    /// <summary>Number of compact retained array-value bytes so far.</summary>
     public long RetainedArrayBytes => Interlocked.Read(ref retainedArrayBytes);
 
     /// <summary>Charges an array result retained outside the evaluator, such as an output or tool event.</summary>
@@ -50,15 +50,15 @@ public sealed class GraphFunctionEvaluationBudget
 
     internal void Record(string dataType, object value)
     {
-        if (!WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType) || elementType == WorkflowDataTypes.Json)
+        if (!WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType))
             return;
 
         if (value is not JsonElement json || json.ValueKind != JsonValueKind.Array)
             throw new InvalidOperationException($"Graph function array value must be a valid {dataType} value.");
-        if (!WorkflowArrayLiteral.TryNormalizeValue(elementType, json.GetRawText(), out var normalized, out var error))
+        if (!WorkflowArrayLiteral.TryNormalizeValue(elementType, json.GetRawText(), out var retainedJson, out var error))
             throw new InvalidOperationException($"Graph function array value must be a valid {dataType} value: {error}");
 
-        var byteCount = Encoding.UTF8.GetByteCount(normalized);
+        var byteCount = Encoding.UTF8.GetByteCount(retainedJson);
         var total = Interlocked.Add(ref retainedArrayBytes, byteCount);
         if (total > MaximumAggregateArrayBytes)
         {
@@ -115,10 +115,10 @@ public static class GraphFunctionJson
     }
 
     public static ImmutableArray<ValidationIssue> Validate(GraphFunctionDefinition? function, bool allowNumber = true, bool allowNumberAdd = false)
-        => Validate(function, allowNumber, allowNumberAdd, allowPrimitiveArrays: false);
+        => Validate(function, allowNumber, allowNumberAdd, allowPrimitiveArrays: false, allowJsonArrays: false);
 
     public static ImmutableArray<ValidationIssue> Validate(GraphFunctionDefinition? function, bool allowNumber,
-        bool allowNumberAdd, bool allowPrimitiveArrays)
+        bool allowNumberAdd, bool allowPrimitiveArrays, bool allowJsonArrays = false)
     {
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
@@ -149,8 +149,8 @@ public static class GraphFunctionJson
         if (function.Nodes.Count is < 1 or > GraphFunctionLimits.MaximumNodes || function.Connections.Count > GraphFunctionLimits.MaximumConnections)
             Error("function.limit", "graphFunction.definition.nodes", "Function bodies allow 1–64 nodes and at most 128 data connections.");
 
-        ValidatePorts(function.Inputs, "inputs", Error, allowNumber, allowPrimitiveArrays);
-        ValidatePorts(function.Outputs, "outputs", Error, allowNumber, allowPrimitiveArrays);
+        ValidatePorts(function.Inputs, "inputs", Error, allowNumber, allowPrimitiveArrays, allowJsonArrays);
+        ValidatePorts(function.Outputs, "outputs", Error, allowNumber, allowPrimitiveArrays, allowJsonArrays);
         foreach (var (id, node) in function.Nodes)
         {
             if (node is null)
@@ -162,7 +162,7 @@ public static class GraphFunctionJson
             var supportedNode = currentNode.Type is (NodeTypes.FunctionInput or NodeTypes.FunctionOutput or NodeTypes.StringConstant or
                 NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals);
             supportedNode |= allowNumber && (currentNode.Type == NodeTypes.NumberConstant || allowNumberAdd && currentNode.Type == NodeTypes.NumberAdd);
-            supportedNode |= allowPrimitiveArrays && currentNode.Type is (NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate);
+            supportedNode |= (allowPrimitiveArrays || allowJsonArrays) && currentNode.Type is (NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate);
             if (!supportedNode)
             {
                 Error("function.node.unsupported", $"graphFunction.definition.nodes.{id}", "Function bodies support only function boundaries and deterministic string, Boolean, integer, finite number, and enabled bounded-array value nodes.");
@@ -197,16 +197,16 @@ public static class GraphFunctionJson
                 Error("function.constant", $"graphFunction.definition.nodes.{id}.numberConstant", "Number constants must have an explicit finite IEEE-754 double value.");
             if (currentNode.Type == NodeTypes.ArrayLiteral)
             {
-                if (!allowPrimitiveArrays)
+                if (!allowPrimitiveArrays && !allowJsonArrays)
                     Error("function.array.literal", $"graphFunction.definition.nodes.{id}.arrayLiteral", "Typed array nodes require the unified schema 2.0 graph.");
                 else if (currentNode.ArrayLiteral is not { } arrayLiteral ||
-                         !WorkflowDataTypes.IsPrimitiveArrayType(WorkflowDataTypes.ArrayOf(arrayLiteral.ElementType)) ||
+                         !IsSupportedArrayType(arrayLiteral.ElementType, allowPrimitiveArrays, allowJsonArrays) ||
                          !WorkflowArrayLiteral.TryParse(arrayLiteral, out _, out var arrayError))
-                    Error("function.array.literal", $"graphFunction.definition.nodes.{id}.arrayLiteral", "Array literals require a supported bounded primitive element type and valid values.");
+                    Error("function.array.literal", $"graphFunction.definition.nodes.{id}.arrayLiteral", "Array literals require a supported bounded element type and valid values.");
             }
             if (currentNode.Type is NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate &&
-                (!allowPrimitiveArrays || !WorkflowDataTypes.IsPrimitiveArrayType(WorkflowDataTypes.ArrayOf(currentNode.ArrayElementType ?? ""))))
-                Error("function.array.type", $"graphFunction.definition.nodes.{id}.arrayElementType", "Function array operations require a supported primitive array element type in schema 2.0.");
+                !IsSupportedArrayType(currentNode.ArrayElementType ?? "", allowPrimitiveArrays, allowJsonArrays))
+                Error("function.array.type", $"graphFunction.definition.nodes.{id}.arrayElementType", "Function array operations require a supported bounded array element type in schema 2.0.");
         }
 
         foreach (var (id, port) in function.Inputs)
@@ -279,7 +279,7 @@ public static class GraphFunctionJson
         {
             if (!inputs.TryGetValue(inputId, out var input) || input.DataType != inputContract.DataType)
                 throw new InvalidOperationException($"Graph function input '{inputId}' requires a value of type {inputContract.DataType}.");
-            if (WorkflowDataTypes.TryGetArrayElementType(inputContract.DataType, out var elementType) && elementType != WorkflowDataTypes.Json)
+            if (WorkflowDataTypes.TryGetArrayElementType(inputContract.DataType, out var elementType))
             {
                 var inputNodeId = function.Nodes.Single(pair => pair.Value.Type == NodeTypes.FunctionInput &&
                     pair.Value.FunctionPortId == inputId).Key;
@@ -416,7 +416,8 @@ public static class GraphFunctionJson
                 WorkflowDataTypes.Boolean => item.GetBoolean(),
                 WorkflowDataTypes.Integer => item.GetInt64(),
                 WorkflowDataTypes.Number => item.GetDouble(),
-                _ => throw new InvalidOperationException("Array Get requires a supported primitive element type.")
+                WorkflowDataTypes.Json => item.Clone(),
+                _ => throw new InvalidOperationException("Array Get requires a supported array element type.")
             };
             return new(elementType, value, []);
         }
@@ -500,7 +501,7 @@ public static class GraphFunctionJson
     }
 
     private static void ValidatePorts(ImmutableSortedDictionary<string, GraphFunctionPort> ports, string kind,
-        Action<string, string, string> error, bool allowNumber, bool allowPrimitiveArrays)
+        Action<string, string, string> error, bool allowNumber, bool allowPrimitiveArrays, bool allowJsonArrays)
     {
         foreach (var (id, port) in ports)
         {
@@ -510,10 +511,15 @@ public static class GraphFunctionJson
             if (port is null || string.IsNullOrWhiteSpace(port.DisplayName) || port.DisplayName.Length > GraphFunctionLimits.MaximumDisplayNameLength)
                 error("function.port.name", $"graphFunction.definition.{kind}.{id}.displayName", "Function port names must contain 1–160 characters.");
             var primitiveArray = port is not null && WorkflowDataTypes.IsPrimitiveArrayType(port.DataType);
-            if (port is not null && (port.DataType is not ("string" or "boolean" or "integer") && !(allowNumber && port.DataType == "number") && !(allowPrimitiveArrays && primitiveArray)))
-                error("function.port.type", $"graphFunction.definition.{kind}.{id}.dataType", "This function contract supports string, Boolean, signed 64-bit integer, finite number, and—when enabled—bounded primitive-array ports.");
+            var jsonArray = port?.DataType == WorkflowDataTypes.JsonArray;
+            if (port is not null && (port.DataType is not ("string" or "boolean" or "integer") && !(allowNumber && port.DataType == "number") && !(allowPrimitiveArrays && primitiveArray) && !(allowJsonArrays && jsonArray)))
+                error("function.port.type", $"graphFunction.definition.{kind}.{id}.dataType", "This function contract supports string, Boolean, signed 64-bit integer, finite number, and explicitly enabled bounded array ports.");
         }
     }
+
+    private static bool IsSupportedArrayType(string elementType, bool allowPrimitiveArrays, bool allowJsonArrays) =>
+        WorkflowDataTypes.IsPrimitiveArrayType(WorkflowDataTypes.ArrayOf(elementType)) && allowPrimitiveArrays ||
+        elementType == WorkflowDataTypes.Json && allowJsonArrays;
 
     private static void ValidateBoundary(string id, string nodeType, string collection,
         GraphFunctionDefinition function, Action<string, string, string> error)

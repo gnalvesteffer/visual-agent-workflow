@@ -1783,7 +1783,8 @@
         if (!WorkflowSchemaVersions.UsesExplicitGraph(Definition) || Definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes))
             throw new ArgumentException("Function tools require an explicit workflow graph.");
         if (GraphFunctionJson.ComputeHash(function.Definition) != function.ContentHash ||
-            !GraphFunctionJson.Validate(function.Definition, allowNumber: true, allowNumberAdd: IsUnifiedGraph, allowPrimitiveArrays: IsUnifiedGraph).IsEmpty)
+            !GraphFunctionJson.Validate(function.Definition, allowNumber: true, allowNumberAdd: IsUnifiedGraph,
+                allowPrimitiveArrays: IsUnifiedGraph, allowJsonArrays: IsUnifiedGraph).IsEmpty)
             throw new ArgumentException("The selected function revision is invalid or its content hash changed.");
         var node = Definition.Nodes[id];
         var agent = node.Agent ?? throw new ArgumentException("Select an agent node first.");
