@@ -139,17 +139,17 @@ public static class WorkflowValidator
         foreach (var (id, variable) in variables)
         {
             var type = variable?.Type ?? WorkflowDataTypes.String;
-            var primitiveArray = WorkflowDataTypes.IsPrimitiveArrayType(type);
+            var typedArray = WorkflowDataTypes.IsArrayType(type);
             var validDefault = false;
             try { validDefault = variable is not null && WorkflowDataTypeCatalog.IsSupported(type) && type != WorkflowDataTypes.Json &&
-                    (!primitiveArray || definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) &&
+                    (!typedArray || definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) &&
                     WorkflowVariableStore.Parse(type, variable.DefaultValue) is not null; }
             catch (ArgumentException) { }
             if (!ValidParameterId(id) || variable is null || string.IsNullOrWhiteSpace(variable.DisplayName) ||
                 variable.DisplayName.Length > 128 || variable.DefaultValue is null || variable.DefaultValue.Length > 16_384 ||
-                variable.Description?.Length > 512 || type is not (WorkflowDataTypes.String or WorkflowDataTypes.Boolean or WorkflowDataTypes.Integer or WorkflowDataTypes.Number) && !primitiveArray ||
+                variable.Description?.Length > 512 || type is not (WorkflowDataTypes.String or WorkflowDataTypes.Boolean or WorkflowDataTypes.Integer or WorkflowDataTypes.Number) && !typedArray ||
                 !validDefault)
-                Error("variable.definition", $"variables.{id}", "Variables require a safe ID, display name up to 128 characters, a supported scalar or unified-schema primitive array type, and a bounded default matching that type.");
+                Error("variable.definition", $"variables.{id}", "Variables require a safe ID, display name up to 128 characters, a supported scalar or unified-schema typed array type, and a bounded default matching that type.");
         }
         if (variables.Sum(variable => (long)variable.Key.Length + (variable.Value?.DisplayName.Length ?? 0) + (variable.Value?.DefaultValue.Length ?? 0) + (variable.Value?.Description?.Length ?? 0)) > 128_000)
             Error("variables.size", "variables", "Combined variable IDs, display names, descriptions, and defaults must not exceed 128,000 characters.");
@@ -839,7 +839,7 @@ public static class WorkflowValidator
         var hasTypedArrays = definition.Nodes.Values.Any(node => node is not null &&
             (node.Type == NodeTypes.ArrayLiteral || node.ArrayElementType is not null));
         var hasArrayVariables = definition.Variables?.Values.Any(variable => variable is not null &&
-            WorkflowDataTypes.IsPrimitiveArrayType(variable.Type)) == true;
+            WorkflowDataTypes.IsArrayType(variable.Type)) == true;
         if (hasTypedArrays && definition.Nodes.Values.Any(node => node?.Type is
                 NodeTypes.Sequence or NodeTypes.WorkflowCall or
                 NodeTypes.WorkflowInterfaceCall or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or
@@ -851,6 +851,17 @@ public static class WorkflowValidator
                 NodeTypes.Sequence or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.ParallelFork or
                 NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous or NodeTypes.FunctionCall))
             error("variable.array.placement", "nodes", "Typed array variables support linear and bounded-loop execution; Sequence, nested calls, parallel regions, and graph functions are not supported.");
+        foreach (var (id, node) in definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.VariableSet &&
+                     pair.Value.InputDataType == WorkflowDataTypes.JsonArray))
+        {
+            var source = definition.Connections.Values
+                .Where(edge => edge.Target.NodeId == id && edge.Target.PortId == "value")
+                .Select(edge => definition.Nodes.GetValueOrDefault(edge.Source.NodeId))
+                .FirstOrDefault();
+            if (source?.Type is not (NodeTypes.ArrayLiteral or NodeTypes.WorkflowValue or NodeTypes.VariableGet))
+                error("variable.jsonArray.transform", $"nodes.{id}.value",
+                    "Mutable JSON array variables currently accept whole values from literals, parameters, or other variables. JSON-array transformations into Set are a separate roadmap increment.");
+        }
         // Current graphs share typed-pin validation. Specialized control regions
         // retain their bounded contracts, selected from the authored topology.
         if (definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Sequence))

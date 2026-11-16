@@ -109,7 +109,7 @@ creation, wiring, save, and deterministic execution with no promotion controls.
 
 ### Next parity workstream: first-class collections
 
-**Status: Active; primitive and JSON-valued arrays compose through workflow boundaries, parameters, pure graph functions, and bounded operations. Iteration remains a separate increment.**
+**Status: Active; primitive and JSON-valued arrays compose through workflow boundaries, parameters, pure graph functions, bounded operations, and JSON-array variable Get/Set. Iteration remains a separate increment.**
 The capability audit and three-role adversarial review identify containers as a
 foundational Blueprint language gap. Existing `array<json>` support is useful
 but remains subject to bounded graph shapes and explicit placement contracts.
@@ -117,8 +117,7 @@ but remains subject to bounded graph shapes and explicit placement contracts.
 sets the staged contract: current schema 2.0, homogeneous bounded primitive
 arrays in ordinary pure-data composition and typed workflow input/output
 boundaries, then separately proven placements. Maps/sets, workflow interfaces,
-direct MCP arguments, JSON-valued mutable variables, iteration, and checkpoint
-state remain future work. No
+direct MCP arguments, iteration, and checkpoint state remain future work. No
 feature-specific schema gates, promotion controls, or preview modes will be
 introduced.
 
@@ -155,6 +154,12 @@ introduced.
   committed write, concurrent root-run isolation, and sequential child-invocation
   isolation are now covered.
   See [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
+- [x] Add bounded `array<json>` mutable-variable defaults and exact Get/Set in
+  unified schema 2.0. Preserve compact JSON values, member order, and numeric
+  token spelling in variable evidence; enforce the shared aggregate evidence
+  budget atomically across reads and writes. Keep checkpoint snapshots rejected.
+  JSON transformations feeding Set remain a separate proof increment. See
+  [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
 - [x] Compose the existing `array<json>` type with Array literal, length, get,
   append, insert, replace, remove, and concatenate in unified schema 2.0. Keep
   JSON null, nested values, item order, and exact `json` versus `array<json>`
@@ -226,6 +231,11 @@ introduced.
     workflow choices; strict package/run validation remains enforced.
   - [x] Verify typed-array variable package round-trip identity and that changing
     the declared default changes the immutable definition hash.
+  - [x] Prove `array<json>` variable Get/Set evidence through file and SQLite
+    reopen, event-prefix playback reconstruction, compact JSON preservation,
+    atomic aggregate-budget rejection, and continued checkpoint exclusion.
+  - [ ] Prove immutable JSON-array transformations into Set under the same
+    aggregate evidence budget before enabling those sources in Studio.
   - [x] Carry a graph-dispatched typed Break result with source and target
     activation identity into the VAW coordinator; have the dispatcher report
     only source identity and derive/consume the target in the coordinator.

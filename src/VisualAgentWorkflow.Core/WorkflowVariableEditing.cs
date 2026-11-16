@@ -32,11 +32,11 @@ public static class WorkflowVariableEditing
 
     public static WorkflowDefinition SetType(WorkflowDefinition definition, string id, string type, string defaultValue)
     {
-        var primitiveArray = WorkflowDataTypes.IsPrimitiveArrayType(type);
-        if (type is not (WorkflowDataTypes.String or WorkflowDataTypes.Boolean or WorkflowDataTypes.Integer or WorkflowDataTypes.Number) && !primitiveArray)
-            throw new ArgumentException("Choose a supported scalar or primitive array variable type.", nameof(type));
+        var typedArray = WorkflowDataTypes.IsArrayType(type);
+        if (type is not (WorkflowDataTypes.String or WorkflowDataTypes.Boolean or WorkflowDataTypes.Integer or WorkflowDataTypes.Number) && !typedArray)
+            throw new ArgumentException("Choose a supported scalar or typed array variable type.", nameof(type));
         var variables = Require(definition, id);
-        if (primitiveArray && definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
+        if (typedArray && definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
             throw new ArgumentException("Typed array variables require unified schema 2.0.", nameof(type));
         return definition with { Variables = variables.SetItem(id, variables[id] with { Type = type, DefaultValue = defaultValue }) };
     }

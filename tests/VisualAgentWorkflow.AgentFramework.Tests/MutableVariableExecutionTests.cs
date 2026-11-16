@@ -108,6 +108,79 @@ public sealed class MutableVariableExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("file")]
+    [InlineData("sqlite")]
+    public async Task Json_array_variable_get_set_preserves_compact_json_evidence_after_reopen(string storeKind)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-json-array-variable-store-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var revision = WorkflowRevision.Create(JsonArrayVariableDefinition(), "json-array-variable-store-reopen");
+            IWorkflowRunStore store = storeKind == "sqlite"
+                ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
+                : new FileRunJournal(Path.Combine(directory, "runs"));
+            var created = store.Create(revision, "unused");
+            var output = await new WorkflowRunner().ExecuteAsync(created.Header.RunId, revision, "unused",
+                evt => { store.Append(evt); return ValueTask.CompletedTask; });
+
+            IWorkflowRunStore reopened = storeKind == "sqlite"
+                ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
+                : new FileRunJournal(Path.Combine(directory, "runs"));
+            var snapshot = reopened.Get(created.Header.RunId)!;
+
+            Assert.Equal("[null,{\"name\":\"alpha\",\"n\":1.00},[true]]", output);
+            Assert.Equal("completed", snapshot.Status);
+            var written = Assert.Single(snapshot.Events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
+            using var writePayload = JsonDocument.Parse(written.Data!);
+            Assert.Equal("[{\"seed\":1.00}]", writePayload.RootElement.GetProperty("previousValue").GetRawText());
+            Assert.Equal(output, writePayload.RootElement.GetProperty("value").GetRawText());
+            Assert.True(VariableEvidence.TryReconstructPlayback(snapshot.Events, out var playback));
+            Assert.Equal(output, playback!.Values["items"].Value);
+            AssertEveryArrayVariableEvidencePrefixReconstructs(snapshot.Events);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void Json_array_variable_budget_failure_does_not_commit_the_value_or_version()
+    {
+        const string arrayType = WorkflowDataTypes.JsonArray;
+        var definition = WorkflowVariableEditing.Add(
+            new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "json-variable-budget", "input",
+                ImmutableSortedDictionary<string, NodeDefinition>.Empty.Add("input", new(NodeTypes.Input, "1.0.0")),
+                ImmutableSortedDictionary<string, ConnectionDefinition>.Empty),
+            "items", "Items", "[]", type: arrayType);
+        var store = new WorkflowVariableStore(definition);
+        var largeValue = "[\"" + new string('x', WorkflowArrayLiteral.MaximumPayloadBytes - 4) + "\"]";
+
+        var first = store.Write("items", arrayType, largeValue);
+        var second = store.Write("items", arrayType, largeValue);
+        var beforeFailure = second;
+
+        Assert.Throws<WorkflowArrayEvidenceBudgetExceededException>(() => store.Write("items", arrayType, largeValue));
+        Assert.True(store.TryRead("items", out var afterFailure));
+        Assert.Equal(beforeFailure.DataType, afterFailure.DataType);
+        Assert.Equal(3, afterFailure.Version);
+        Assert.Equal(WorkflowVariableStore.FormatValue(arrayType, beforeFailure.Value),
+            WorkflowVariableStore.FormatValue(arrayType, afterFailure.Value));
+        Assert.Equal(WorkflowVariableStore.FormatValue(arrayType, first.Value),
+            WorkflowVariableStore.FormatValue(arrayType, beforeFailure.Value));
+    }
+
+    [Fact]
+    public void Json_array_variable_state_remains_outside_checkpoint_snapshots()
+    {
+        var definition = JsonArrayVariableDefinition();
+        var store = new WorkflowVariableStore(definition);
+
+        Assert.Throws<InvalidOperationException>(() => store.Snapshot());
+    }
+
     [Fact]
     public async Task Separate_runs_have_isolated_variable_stores()
     {
@@ -977,6 +1050,32 @@ public sealed class MutableVariableExecutionTests
         {
             Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
                 .Add("items", new("Items", "[\"seed\"]") { Type = "array<string>" }),
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition JsonArrayVariableDefinition()
+    {
+        const string arrayType = WorkflowDataTypes.JsonArray;
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("array", new(NodeTypes.ArrayLiteral, "1.0.0")
+                { ArrayLiteral = new(WorkflowDataTypes.Json, "[null,{\"name\":\"alpha\",\"n\":1.00},[true]]") })
+            .Add("set", new(NodeTypes.VariableSet, "1.0.0") { VariableId = "items", InputDataType = arrayType })
+            .Add("get", new(NodeTypes.VariableGet, "1.0.0") { VariableId = "items", OutputDataType = arrayType })
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = arrayType });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("array-set", new(new("array", "out"), new("set", "value"), "data"))
+            .Add("get-output", new(new("get", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-set", new(new("input", "then"), new("set", "execute"), "execution"))
+            .Add("set-get", new(new("set", "then"), new("get", "execute"), "execution"))
+            .Add("get-output", new(new("get", "then"), new("output", "execute"), "execution"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "json-array-variable-runtime", "input", nodes, data)
+        {
+            Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
+                .Add("items", new("Items", " [ { \"seed\" : 1.00 } ] ") { Type = arrayType }),
             ExecutionConnections = execution
         };
     }

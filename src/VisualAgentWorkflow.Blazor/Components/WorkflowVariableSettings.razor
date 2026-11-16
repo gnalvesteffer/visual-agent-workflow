@@ -3,7 +3,7 @@
 
 <details class="vaw-parameter-editor">
     <summary>Workflow variables <span class="vaw-help">@VariableDefinitions.Count run-scoped values</span></summary>
-    <p class="vaw-help">Variables are isolated per workflow run. Get and Set nodes read or replace their complete value. Typed arrays also support explicit immutable append, insert, replace, remove, and concatenate operations.</p>
+    <p class="vaw-help">Variables are isolated per workflow run. Get and Set nodes read or replace the complete value; typed arrays are available in unified schema 2.0.</p>
     @foreach (var (variableId, variable) in VariableDefinitions)
     {
         <fieldset @key="variableId" disabled="@Disabled">
@@ -18,9 +18,10 @@
             <label>Description <textarea rows="3" maxlength="512" placeholder="Explain what this run-scoped value represents" @onchange="args => UpdateVariableDescription(variableId, args)">@variable.Description</textarea></label>
             <label>Type <select aria-label="Type for @variable.DisplayName" value="@(variable.Type ?? WorkflowDataTypes.String)" @onchange="args => ChangeVariableType(variableId, args)">
                 <option value="string">Text</option><option value="boolean">True / false</option><option value="integer">Integer</option><option value="number">Number</option>
-                @if (IsUnifiedSchema) { <option value="array<string>">String array</option><option value="array<boolean>">Boolean array</option><option value="array<integer>">Integer array</option><option value="array<number>">Number array</option> }
+                @if (IsUnifiedSchema) { <option value="array<string>">String array</option><option value="array<boolean>">Boolean array</option><option value="array<integer>">Integer array</option><option value="array<number>">Number array</option><option value="array<json>">JSON array</option> }
             </select></label>
-            @if (IsArrayType(variable.Type)) { <p class="vaw-help">Enter a JSON array of up to 64 items and 16,384 UTF-8 bytes. Examples: <code>["alpha","beta"]</code>, <code>[1,2,3]</code>.</p> }
+            @if (IsJsonArrayType(variable.Type)) { <p class="vaw-help">Enter a JSON array of up to 64 items, depth 32, and 16,384 UTF-8 bytes. Values may be mixed, nested, or null. Get and Set support whole-value access; transforms into a JSON array variable are not available yet.</p> }
+            else if (IsArrayType(variable.Type)) { <p class="vaw-help">Enter a JSON array of up to 64 items and 16,384 UTF-8 bytes. Examples: <code>["alpha","beta"]</code>, <code>[1,2,3]</code>. Append, insert, replace, remove, and concatenate are explicit immutable operations.</p> }
             <button type="button" @onclick="() => Edit(() => WorkflowVariableEditing.Remove(Definition, variableId))" disabled="@Disabled">Remove variable</button>
         </fieldset>
     }
@@ -36,7 +37,7 @@
         <label>Description <input @bind="newVariableDescription" maxlength="512" placeholder="Value shared by this run" disabled="@Disabled" /></label>
         <label>Type <select aria-label="New variable type" @bind="newVariableType" disabled="@Disabled">
             <option value="string">Text</option><option value="boolean">True / false</option><option value="integer">Integer</option><option value="number">Number</option>
-            @if (IsUnifiedSchema) { <option value="array<string>">String array</option><option value="array<boolean>">Boolean array</option><option value="array<integer>">Integer array</option><option value="array<number>">Number array</option> }
+            @if (IsUnifiedSchema) { <option value="array<string>">String array</option><option value="array<boolean>">Boolean array</option><option value="array<integer>">Integer array</option><option value="array<number>">Number array</option><option value="array<json>">JSON array</option> }
         </select></label>
         <button type="button" @onclick="AddVariable" disabled="@Disabled">Add variable</button>
     </div>
@@ -54,7 +55,8 @@
     private ImmutableSortedDictionary<string, WorkflowVariableDefinition> VariableDefinitions =>
         Definition.Variables ?? ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty;
     private bool IsUnifiedSchema => Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
-    private static bool IsArrayType(string? type) => WorkflowDataTypes.IsPrimitiveArrayType(type);
+    private static bool IsArrayType(string? type) => WorkflowDataTypes.IsArrayType(type);
+    private static bool IsJsonArrayType(string? type) => type == WorkflowDataTypes.JsonArray;
 
     private async Task AddVariable()
     {

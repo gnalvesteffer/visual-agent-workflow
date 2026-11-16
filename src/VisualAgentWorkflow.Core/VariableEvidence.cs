@@ -36,12 +36,12 @@ public static class VariableEvidence
                 (!loopElement.TryGetInt32(out loopIteration) || loopIteration < 0)) return false;
             evidence = new(variableId, dataType, value, previous, version, loopIteration);
             var parsed = WorkflowVariableStore.Parse(dataType, value);
-            if (WorkflowDataTypes.IsPrimitiveArrayType(dataType) &&
+            if (WorkflowDataTypes.IsArrayType(dataType) &&
                 !string.Equals(WorkflowVariableStore.FormatValue(dataType, parsed), value, StringComparison.Ordinal)) return false;
             if (previous is not null)
             {
                 var parsedPrevious = WorkflowVariableStore.Parse(dataType, previous);
-                if (WorkflowDataTypes.IsPrimitiveArrayType(dataType) &&
+                if (WorkflowDataTypes.IsArrayType(dataType) &&
                     !string.Equals(WorkflowVariableStore.FormatValue(dataType, parsedPrevious), previous, StringComparison.Ordinal)) return false;
             }
             return true;

@@ -165,7 +165,7 @@ public static class LoopVariableTopologyAnalyzer
             issue("variable.reference", $"nodes.{id}", "Every variable node must reference a declared scalar variable.");
             return;
         }
-        if (WorkflowDataTypes.IsPrimitiveArrayType(variable.Type))
+        if (WorkflowDataTypes.IsArrayType(variable.Type))
         {
             issue("variable.array.checkpoint", $"nodes.{id}", "Checkpoint recovery does not support typed array variable state.");
             return;

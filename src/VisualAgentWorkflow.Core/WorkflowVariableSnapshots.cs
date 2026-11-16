@@ -35,7 +35,7 @@ public sealed partial class WorkflowVariableStore
     {
         lock (sync)
         {
-            if (values.Values.Any(value => WorkflowDataTypes.IsPrimitiveArrayType(value.DataType)))
+            if (values.Values.Any(value => WorkflowDataTypes.IsArrayType(value.DataType)))
                 throw new InvalidOperationException("Checkpoint snapshots do not support typed array variable state.");
             return new(
                 WorkflowVariableSnapshot.CurrentFormatVersion,
@@ -61,7 +61,7 @@ public sealed partial class WorkflowVariableStore
 
         var declarations = definition.Variables ?? ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty;
         if (declarations.Values.Any(declaration => declaration is not null &&
-                WorkflowDataTypes.IsPrimitiveArrayType(declaration.Type)))
+                WorkflowDataTypes.IsArrayType(declaration.Type)))
             throw new ArgumentException("Checkpoint snapshots do not support typed array variable state.", nameof(definition));
         if (snapshot.Values.Length != declarations.Count ||
             snapshot.Values.Select(entry => entry.VariableId).Distinct(StringComparer.Ordinal).Count() != snapshot.Values.Length ||
@@ -96,7 +96,7 @@ public sealed partial class WorkflowVariableStore
 
     public static string FormatValue(string dataType, object value)
     {
-        if (WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType) && elementType != WorkflowDataTypes.Json &&
+        if (WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType) &&
             value is JsonElement { ValueKind: JsonValueKind.Array } array &&
             WorkflowArrayLiteral.TryNormalizeValue(elementType, array.GetRawText(), out var normalizedArray, out _))
             return normalizedArray;

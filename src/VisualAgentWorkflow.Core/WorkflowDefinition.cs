@@ -365,19 +365,20 @@ public sealed partial class WorkflowVariableStore
             if (!string.Equals(previous.DataType, dataType, StringComparison.Ordinal))
                 throw new InvalidOperationException($"Variable '{variableId}' requires {previous.DataType}, not {dataType}.");
             var normalized = Normalize(dataType, value);
-            if (WorkflowDataTypes.TryGetArrayElementType(dataType, out _))
-                ArrayEvidenceBudget.Consume(dataType, previous.Value, normalized);
+            if (WorkflowDataTypes.IsArrayType(dataType))
+                ArrayEvidenceBudget.ConsumeVariableState(dataType, previous.Value, normalized);
             var written = new WorkflowVariableValue(dataType, normalized, ++nextVersion);
             values[variableId] = written;
             return written;
         }
     }
 
-    public void RecordReadEvidence(WorkflowVariableValue value) => ArrayEvidenceBudget.Consume(value.DataType, value.Value);
+    public void RecordReadEvidence(WorkflowVariableValue value) =>
+        ArrayEvidenceBudget.ConsumeVariableState(value.DataType, value.Value);
 
     public static object Parse(string dataType, string value)
     {
-        if (WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType) && elementType != WorkflowDataTypes.Json)
+        if (WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType))
         {
             if (!WorkflowArrayLiteral.TryNormalizeValue(elementType, value, out var normalized, out var error))
                 throw new ArgumentException($"The default value is invalid for variable type '{dataType}': {error}", nameof(value));
@@ -397,7 +398,7 @@ public sealed partial class WorkflowVariableStore
 
     private static object Normalize(string dataType, object value)
     {
-        if (!WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType) || elementType == WorkflowDataTypes.Json)
+        if (!WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType))
             return value;
         var json = value switch
         {

@@ -121,3 +121,16 @@ accumulate or combine runtime-produced values and proposed immutable operations.
 The adjudicator selected the combined contract above, adding concatenation to
 the minimal transformation set, and retained the existing concurrency,
 checkpoint, and evidence proof gates.
+
+## Follow-up slice: JSON-valued array variables
+
+Unified schema 2.0 now admits bounded `array<json>` variable declarations and
+defaults, exact typed Get/Set pins, and whole-value writes from array literals,
+workflow parameters, or another variable. JSON state compacts whitespace while
+preserving object member order and number-token spelling; it is not canonical
+JSON. Reads and writes charge the same aggregate evidence budget atomically, and
+file/SQLite reopen playback reconstructs the retained state. JSON-array variable
+state remains excluded from checkpoint snapshots. Immutable JSON-array
+transformations feeding Set are deliberately not admitted in this slice; they
+remain a follow-up proof because they add retained intermediate state and budget
+amplification paths.

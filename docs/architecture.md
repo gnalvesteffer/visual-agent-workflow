@@ -308,9 +308,13 @@ order and number-token spelling; this representation is not canonical JSON.
 `core.workflow-value` emits the exact array type, and prompt/template
 interpolation uses the same resolved text. Invalid overrides fail before
 admission. Schema 2.0 pure-function ports support primitive arrays and `array<json>`;
-interface ports, direct MCP arguments, and checkpoint state remain unsupported. Run-scoped variables
-support primitive arrays, canonical defaults, immutable transformations, and
-bounded aggregate state evidence in linear and bounded-loop execution.
+interface ports, direct MCP arguments, and checkpoint state remain unsupported.
+Run-scoped variables support primitive arrays, canonical defaults, immutable
+transformations, and bounded aggregate state evidence in linear and bounded-loop
+execution. They also support bounded `array<json>` defaults and whole-value
+Get/Set in unified schema 2.0. JSON values compact while preserving member order
+and number-token spelling. JSON-array transformations into Set remain deferred,
+and JSON-array variable state remains excluded from checkpoints.
 The existing `array<json>` identity also composes in unified schema 2.0 through
 Array literal, length, get, append, insert, replace, remove, and concatenate.
 It remains a heterogeneous ordered collection of JSON values including null,
