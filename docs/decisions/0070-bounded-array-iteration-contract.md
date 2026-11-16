@@ -2738,3 +2738,30 @@ iterator pins, a serialized Break contract, scheduler ownership, broader
 failure/cancellation/budget coverage, or checkpoint recovery. It introduces no
 user-visible behavior, so architecture and user-guide descriptions remain
 unchanged. Readiness remains **REVISE**.
+
+## Nested Break and unresolved MCP settlement review (2026-11-16)
+
+A new independent proponent/opponent/adjudicator review returned **REVISE**.
+Keep the hybrid as the leading proof target, but do not select it for
+production or expose public iterator/Break authoring yet. The next gate is one
+coherent VAW owner for activation frames, root lifecycle, and atomic shared
+budgets, with the production body dispatcher returning typed outcomes without
+root finalization. Prove admission-stop/drain behavior and failure or unknown
+external outcomes overriding Break, along with budget settlement, static-body
+compatibility, and file/SQLite playback. Do not broaden into a single-scheduler
+rewrite unless the hybrid cannot establish a reliable body-settlement boundary.
+
+`ProductionBodyNestedBreak_UnknownMcpOutcomePreventsOuterIteration` now
+combines nested production-body coordination, a graph-routed inner Break, and
+an already-admitted parallel MCP call whose external outcome is unknown. The
+coordinator waits for settlement, records root `outcome-unknown`, suppresses
+the join and the next outer activation, and reopens the same history through
+both file and SQLite stores (2 focused cases). This strengthens the settlement
+matrix but remains proof-only; it does not establish production ownership,
+general cancellation/budget races, the public node contract, or recovery.
+
+The review explicitly keeps the end state unchanged: typed array iteration
+and nearest-loop Break must be authored in the current unified schema without
+feature-specific schema gates. Checkpoint recovery stays excluded until the
+complete frame and coordinator state can be captured and restored. Readiness
+remains **REVISE**.

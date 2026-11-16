@@ -1121,6 +1121,13 @@ introduced.
       remains private proof evidence and does not select public iterator
       authoring or a production scheduler. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Extend nested production-body Break evidence to an admitted parallel
+      MCP call with an unknown external outcome. The run waits for the tool
+      settlement, records the uncertainty, suppresses the join and every later
+      outer activation, and reopens with the same terminal history through
+      file and SQLite stores (2 focused cases). This does not yet prove the
+      production budget/lifecycle owner or full race matrix. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Compare synchronized parallel Agent failure across all three
       candidates. Both branches enter, the left branch fails, the right
       sibling records cancellation with its matching invocation, the join is

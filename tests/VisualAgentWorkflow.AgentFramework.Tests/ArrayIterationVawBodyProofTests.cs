@@ -4805,6 +4805,86 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyNestedBreak_UnknownMcpOutcomePreventsOuterIteration(bool sqlite)
+    {
+        var body = ParallelMcpDefinition();
+        var definition = body with
+        {
+            Nodes = body.Nodes.SetItem("tool-research",
+                new NodeDefinition(WorkflowRunner.StructuredProofBreakNodeType, "proof-only")),
+            ExecutionConnections = body.ExecutionConnections!.SetItem("tool-research-join",
+                Edge("tool-research", "out", "join", "branch.left")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "production-body-nested-break-unknown-tool-proof");
+        using var runStore = new ProofRunStore(revision, "[\"outer-a\",\"outer-b\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var tools = new ControlledUnknownOutcomeToolBroker("proof.parallel-tool");
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool-research")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(tools: tools)
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                "[\"outer-a\",\"outer-b\"]", "[\"break\"]", "outerIndex", "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 1) with
+                {
+                    MaximumModelDispatches = 1
+                }, itemParameterId: null);
+
+        try
+        {
+            try
+            {
+                await breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await tools.DispatchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (TimeoutException exception)
+            {
+                var summary = string.Join("\n", recorder.Snapshot().Select(evt =>
+                    $"{evt.Sequence}:{evt.NodeId ?? "root"}:{evt.Kind}:{evt.ScopeId ?? "root"}"));
+                throw new Xunit.Sdk.XunitException(
+                    $"Nested Break/MCP settlement did not reach its gate (task={execution.Status}, error={execution.Exception}): " +
+                    $"{summary}\n{exception.Message}");
+            }
+            Assert.False(execution.IsCompleted,
+                "The nested coordinator must wait for the admitted MCP outcome after Break.");
+        }
+        finally
+        {
+            tools.ReleaseOutcome.TrySetResult();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.True(result.OutcomeUnknown);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain && evt.NodeId == "tool-review");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "outer-loop/1");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+
+        AssertPersistedSequence(runStore, events, "outcome-unknown");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("outcome-unknown", reopened.Status);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: outcome-unknown", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_BreakSettlesForkSiblingBeforeStoppingLaterItems(bool sqlite)
     {
         var body = ParallelBodyDefinition();
