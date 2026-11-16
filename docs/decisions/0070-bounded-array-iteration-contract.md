@@ -2720,3 +2720,21 @@ evidence (6 candidate/store runs). This proves successful JSON-array operation
 parity across the three private candidates; it does not qualify operation
 failures across candidates, authored iterator pins, Break authoring, or select
 the runtime architecture. Readiness remains **REVISE**.
+
+## Integrated typed-pin, Agent/MCP, and nested-Break proof (2026-11-16)
+
+`ProductionBodyCoordinator_ComposesTypedPinsAgentMcpAndNestedBreak` exercises
+one integrated private proof through the production-body coordinator. The
+body's typed item and index WorkflowValue pins feed a real Agent dispatch and
+MCP tool dispatch; a private proof Break node is graph-routed on the selected
+item and requests nearest-frame resolution from the coordinator. The inner
+loop stops before the later item while the outer loop continues. The proof
+checks typed evaluation values, Agent/tool inputs, Break request/consumption
+evidence, lifecycle boundaries, and identical persisted histories after
+reopening both file and SQLite stores (2 focused cases).
+
+This closes one integrated proof seam; it does not establish public authored
+iterator pins, a serialized Break contract, scheduler ownership, broader
+failure/cancellation/budget coverage, or checkpoint recovery. It introduces no
+user-visible behavior, so architecture and user-guide descriptions remain
+unchanged. Readiness remains **REVISE**.

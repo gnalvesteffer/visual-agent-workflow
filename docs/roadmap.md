@@ -1113,6 +1113,14 @@ introduced.
       candidate/store executions). This remains private harness evidence; no
       public node or production scheduler is selected. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Add an integrated production-body coordinator proof combining
+      typed item/index graph pins, real Agent and MCP dispatch, and
+      graph-requested nearest-inner-loop Break. The outer loop resumes after
+      each inner Break, later inner items are skipped, and matching event
+      histories reopen through file and SQLite stores (2 focused cases). This
+      remains private proof evidence and does not select public iterator
+      authoring or a production scheduler. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Compare synchronized parallel Agent failure across all three
       candidates. Both branches enter, the left branch fails, the right
       sibling records cancellation with its matching invocation, the join is

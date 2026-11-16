@@ -4711,6 +4711,100 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyCoordinator_ComposesTypedPinsAgentMcpAndNestedBreak(bool sqlite)
+    {
+        var revision = WorkflowRevision.CreateProofOnly(IntegratedNestedAgentMcpBreakDefinition(),
+            "production-body-integrated-typed-pins-agent-mcp-break-proof");
+        const string outerItems = "[\"outer-a\",\"outer-b\"]";
+        const string innerItems = "[\"continue\",\"break\",\"must-not-run\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker(query => $"echo:{query}");
+
+        var result = await new WorkflowRunner(tools, agents)
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                outerItems, innerItems, "outerIndex", "index", null,
+                evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item", runBudget: StructuredRunBudget(maximumToolDispatches: 4) with
+                {
+                    MaximumModelDispatches = 4
+                });
+
+        Assert.False(result.Failed, string.Join("\n", recorder.Snapshot().Select(evt =>
+            $"{evt.Sequence} {evt.Kind} {evt.NodeId} {evt.ScopeId} {evt.Data}")));
+        Assert.Equal("outer-a:echo:CONTINUE:0/0;outer-b:echo:CONTINUE:0/1", result.Output);
+        Assert.Equal(["CONTINUE:0/0", "BREAK:1/0", "CONTINUE:0/1", "BREAK:1/1"], agents.Inputs);
+        Assert.Equal(agents.Inputs, tools.Queries);
+
+        var events = recorder.Snapshot();
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "proof-break"));
+        Assert.DoesNotContain(events, evt => evt.ScopeId is "outer-loop/0/inner-loop/2" or
+            "outer-loop/1/inner-loop/2");
+
+        foreach (var (scopeId, item, index, outerIndex) in new[]
+        {
+            ("outer-loop/0/inner-loop/0", "continue", 0, 0),
+            ("outer-loop/0/inner-loop/1", "break", 1, 0),
+            ("outer-loop/1/inner-loop/0", "continue", 0, 1),
+            ("outer-loop/1/inner-loop/1", "break", 1, 1)
+        })
+        {
+            Assert.Equal(item, ReadStringEvaluation(events, scopeId, "data:item-pin-set"));
+            Assert.Equal(index, ReadIntegerEvaluation(events, scopeId, "data:index-text-value"));
+            Assert.Equal(outerIndex, ReadIntegerEvaluation(events, scopeId, "data:outer-index-text"));
+
+            if (item == "break")
+            {
+                var requestEvent = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                    evt.NodeId == "proof-break" && evt.ScopeId == scopeId);
+                using var request = JsonDocument.Parse(requestEvent.Data!);
+                Assert.Equal("proof-break", request.RootElement.GetProperty("sourceNodeId").GetString());
+                Assert.False(request.RootElement.TryGetProperty("targetFrameId", out _));
+                var activationStart = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                    evt.NodeId == "inner-loop" && evt.ScopeId == scopeId);
+                Assert.Equal(activationStart.InvocationId, request.RootElement.GetProperty("sourceFrameId").GetGuid());
+                var consumed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                    evt.NodeId == "inner-loop" && evt.ScopeId == scopeId);
+                using var consumedData = JsonDocument.Parse(consumed.Data!);
+                Assert.Equal(activationStart.InvocationId, consumedData.RootElement.GetProperty("targetFrameId").GetGuid());
+            }
+        }
+
+        AssertPersistedSequence(runStore, events, "completed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("· Break", playback, StringComparison.Ordinal);
+        Assert.Contains("Latest run status: completed", playback, StringComparison.Ordinal);
+
+        static string ReadStringEvaluation(IEnumerable<ExecutionEvent> events, string scopeId, string connectionId)
+        {
+            var evt = Assert.Single(events, item => item.Kind == ExecutionEventKinds.DataEvaluated &&
+                item.ScopeId == scopeId && item.ConnectionId == connectionId);
+            using var payload = JsonDocument.Parse(evt.Data!);
+            return payload.RootElement.GetProperty("value").GetString()!;
+        }
+
+        static int ReadIntegerEvaluation(IEnumerable<ExecutionEvent> events, string scopeId, string connectionId)
+        {
+            var evt = Assert.Single(events, item => item.Kind == ExecutionEventKinds.DataEvaluated &&
+                item.ScopeId == scopeId && item.ConnectionId == connectionId);
+            using var payload = JsonDocument.Parse(evt.Data!);
+            return payload.RootElement.GetProperty("value").GetInt32();
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_BreakSettlesForkSiblingBeforeStoppingLaterItems(bool sqlite)
     {
         var body = ParallelBodyDefinition();
@@ -15537,6 +15631,34 @@ public sealed class ArrayIterationVawBodyProofTests
             Connections = connections,
             Parameters = definition.Parameters!.Add("outerIndex",
                 new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+    }
+
+    private static WorkflowDefinition IntegratedNestedAgentMcpBreakDefinition()
+    {
+        var definition = NestedBodyDefinition();
+        var nodes = definition.Nodes
+            .Add("item-pin", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "item", OutputDataType = WorkflowDataTypes.String })
+            .Add("break-condition", new(NodeTypes.Condition, "1.0.0")
+                { Condition = new("equals", "continue") })
+            .Add("proof-break", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"));
+        var connections = definition.Connections
+            .Remove("input-set")
+            .Add("item-pin-set", new(new("item-pin", "out"), new("set", "value"), "data"))
+            .Add("item-pin-condition", new(new("item-pin", "out"), new("break-condition", "in"), "data"));
+        var execution = definition.ExecutionConnections!
+            .Remove("tool-output")
+            .Add("tool-break-condition", Edge("tool", "then", "break-condition", "execute"))
+            .Add("continue-output", Edge("break-condition", "true", "output", "execute"))
+            .Add("break-request", Edge("break-condition", "false", "proof-break", "execute"));
+        return definition with
+        {
+            Nodes = nodes,
+            Connections = connections,
+            ExecutionConnections = execution,
+            Parameters = definition.Parameters!.Add("item",
+                new("Array item", "") { Type = WorkflowDataTypes.String })
         };
     }
 
