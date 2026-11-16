@@ -484,6 +484,10 @@ parallel, loop, Sequence, collaboration, and shared-child state in the bounded
 first slice. The deterministic checkpoint host also persists a hashed variable
 snapshot for this linear graph and restores it before resumed execution. Core's passive variable reader and the run
 inspector reconstruct a recorded prefix without invoking the workflow again.
+The Studio workflow settings drawer exposes declarations for the supported
+variable schemas in both catalog-backed and folder-backed editors; unified
+schema 2.0 additionally exposes the four primitive typed-array declarations
+with JSON-text defaults.
 
 ## Reconciliation assessment and operator assertions
 

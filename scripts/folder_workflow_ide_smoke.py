@@ -13,6 +13,15 @@ from folder_execution_smoke import ROOT, write_project
 
 def verify(base_url, browser_executable):
     package = json.loads((ROOT / 'samples/WorkflowService/artifacts/pure.package.json').read_text())
+    definition = package['definition']
+    definition['schemaVersion'] = '2.0'
+    definition['executionConnections'] = {
+        'activate-output': {
+            'source': {'nodeId': 'input', 'portId': 'then'},
+            'target': {'nodeId': 'output', 'portId': 'execute'},
+            'kind': 'execution',
+        },
+    }
     with tempfile.TemporaryDirectory(prefix='vaw-folder-document-') as temporary:
         project = Path(temporary) / 'project'
         project.mkdir()
@@ -32,11 +41,17 @@ def verify(base_url, browser_executable):
                     folder_form.locator(':scope > summary').click()
                 page.get_by_label('Absolute folder path', exact=True).fill(str(project))
                 page.get_by_role('button', name='Open folder', exact=True).click()
-                page.get_by_role('button', name='Open workflow service-pure.workflow', exact=True).click()
+                open_workflow = page.get_by_role('button', name='Open workflow service-pure.workflow', exact=True)
+                if open_workflow.is_enabled():
+                    open_workflow.click()
                 expect(current_project(page)).to_have_text('Folder execution smoke project')
                 document = page.locator('.vaw-folder-workflow-document')
                 expect(document).to_be_visible()
                 expect(page.get_by_role('navigation', name='Open project files')).to_be_visible()
+                source_save = document.get_by_role('button', name='Save source file', exact=True)
+                if source_save.is_enabled():
+                    source_save.click()
+                    expect(source_save).to_be_disabled()
                 canvas = document.locator('.vaw-canvas-viewport')
                 expect(canvas).to_be_visible()
                 assert canvas.bounding_box()['height'] >= 300, canvas.bounding_box()
@@ -76,9 +91,32 @@ def verify(base_url, browser_executable):
                 expect(page.locator('.vaw-file-tab')).to_have_count(1)
                 expect(document.get_by_role('button', name='Run workflow', exact=True)).to_be_enabled()
                 document.get_by_role('button', name='Workflow settings', exact=True).click()
-                expect(document.locator('.vaw-parameter-editor')).to_be_visible()
+                settings_panel = document.get_by_role('region', name='Workflow settings panel', exact=True)
+                variables = settings_panel.locator('details.vaw-parameter-editor').filter(has_text='Workflow variables')
+                expect(document.locator('.vaw-parameter-editor')).to_have_count(2)
+                expect(variables).to_have_count(1)
+                variables.locator(':scope > summary').click()
+                expect(variables.get_by_label('New variable type', exact=True)).to_have_value('string')
+                variables.get_by_label('Variable ID', exact=True).fill('browser-items')
+                variables.get_by_label('Display name', exact=True).fill('Browser items')
+                variables.get_by_label('New variable type', exact=True).select_option('array<string>')
+                array_editor = variables.locator('.vaw-controls textarea')
+                expect(array_editor).to_be_visible()
+                array_default = variables.get_by_label('Default value', exact=True)
+                expect(array_default).to_be_visible()
+                array_default.fill('["alpha", "beta"]')
+                variables.get_by_role('button', name='Add variable', exact=True).click()
+                stored_default = variables.get_by_label('Default JSON array for Browser items', exact=True)
+                expect(stored_default).to_have_value('["alpha", "beta"]')
+                save.click()
+                expect(save).to_be_disabled()
                 document.get_by_role('button', name='Workflow settings', exact=True).click()
                 expect(document.locator('.vaw-parameter-editor')).to_have_count(0)
+                document.get_by_role('button', name='Workflow settings', exact=True).click()
+                settings_panel = document.get_by_role('region', name='Workflow settings panel', exact=True)
+                variables = settings_panel.locator('details.vaw-parameter-editor').filter(has_text='Workflow variables')
+                expect(variables.get_by_label('Default JSON array for Browser items', exact=True)).to_have_value('["alpha", "beta"]')
+                document.get_by_role('button', name='Workflow settings', exact=True).click()
                 document.get_by_role('tab', name='Runs', exact=True).click()
                 page.screenshot(path='/tmp/vaw-folder-workflow-ide.png')
                 page.set_viewport_size({'width': 390, 'height': 844})

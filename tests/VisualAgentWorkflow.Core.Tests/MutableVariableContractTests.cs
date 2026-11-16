@@ -56,6 +56,26 @@ public sealed class MutableVariableContractTests
     }
 
     [Fact]
+    public void Typed_array_variable_defaults_survive_package_round_trip_and_participate_in_definition_hash()
+    {
+        var definition = ArrayDefinition();
+        var initialHash = WorkflowJson.ComputeHash(definition);
+        var packageJson = WorkflowPackageJson.Serialize(definition, WorkflowLayout.Create(definition));
+        var imported = WorkflowPackageJson.Deserialize(packageJson);
+
+        Assert.Equal(packageJson, WorkflowPackageJson.Serialize(imported.Definition, imported.Layout));
+        Assert.Equal(definition.Variables, imported.Definition.Variables);
+        Assert.Equal(initialHash, imported.DefinitionHash);
+
+        var changed = definition with
+        {
+            Variables = definition.Variables!.SetItem("items",
+                definition.Variables["items"] with { DefaultValue = "[\"different\"]" })
+        };
+        Assert.NotEqual(initialHash, WorkflowJson.ComputeHash(changed));
+    }
+
+    [Fact]
     public void Array_variable_write_is_canonical_bounded_and_atomic_on_invalid_value_or_evidence_exhaustion()
     {
         var store = new WorkflowVariableStore(ArrayDefinition());

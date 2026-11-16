@@ -59,7 +59,14 @@
             <p class="vaw-definition-status"><code>@definition.WorkflowId</code> · @(dirty ? "Unsaved changes" : generation == 0 ? "Not saved" : "Draft saved")</p>
         </div>
         @if (dirty) { <p class="vaw-help">Save or discard edits before switching workflows.</p> }
-        @if (IdeMode) { <WorkflowParameterSettings @key="definition.WorkflowId" Definition="definition" DefinitionChanged="Changed" Disabled="busy" /> }
+        @if (IdeMode)
+        {
+            <WorkflowParameterSettings @key='(definition.WorkflowId, "parameters")' Definition="definition" DefinitionChanged="Changed" Disabled="busy" />
+            @if (definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph)
+            {
+                <WorkflowVariableSettings @key='(definition.WorkflowId, "variables")' Definition="definition" DefinitionChanged="Changed" Disabled="busy" />
+            }
+        }
         <details class="vaw-secondary-workflow-tools @((!IdeMode || documentSettingsOpen) ? "is-visible" : null)">
             <summary>Reusable assets, import / export, and audit</summary>
         <details class="vaw-reuse-panel">

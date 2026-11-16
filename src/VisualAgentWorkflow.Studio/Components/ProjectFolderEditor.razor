@@ -380,6 +380,10 @@
                         <section class="vaw-document-settings is-open" role="region" aria-label="Workflow settings panel" @onkeydown='args => { if (args.Key == "Escape") folderSettingsOpen = false; }'>
                             <header class="vaw-settings-heading"><h2>Workflow settings</h2><button type="button" aria-label="Close workflow settings" @onclick="() => folderSettingsOpen = false">Close</button></header>
                             <WorkflowParameterSettings @key="definition.WorkflowId" Definition="definition" DefinitionChanged="DefinitionChanged" Disabled="busy" />
+                            @if (definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph)
+                            {
+                                <WorkflowVariableSettings @key='(definition.WorkflowId, "variables")' Definition="definition" DefinitionChanged="DefinitionChanged" Disabled="busy" />
+                            }
                         </section>
                     }
                     <WorkflowEditor IdeMode="true" ShowWorkflowSettings="false" @key="definition.WorkflowId" ProjectId="@ProjectId" Definition="definition" DefinitionChanged="DefinitionChanged" HideNodeLibrary="true"

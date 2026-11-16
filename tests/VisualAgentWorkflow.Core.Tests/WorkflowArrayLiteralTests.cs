@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using VisualAgentWorkflow.Core;
 using Xunit;
 
@@ -158,6 +159,87 @@ public sealed class WorkflowArrayLiteralTests
             { ArrayLiteral = new(WorkflowDataTypes.Number, "[1.5]") })
         };
         Assert.Contains(WorkflowValidator.Validate(mismatch), issue => issue.Code == "connection.port");
+    }
+
+    [Fact]
+    public void Typed_array_transformations_preserve_order_and_accept_valid_index_boundaries()
+    {
+        using var source = JsonDocument.Parse("[\"a\",\"c\"]");
+        using var empty = JsonDocument.Parse("[]");
+
+        var insertedAtStart = WorkflowTypedArrayOperations.InsertAt(WorkflowDataTypes.String,
+            source.RootElement, 0, "start");
+        var insertedAtEnd = WorkflowTypedArrayOperations.InsertAt(WorkflowDataTypes.String,
+            source.RootElement, 2, "end");
+        var replaced = WorkflowTypedArrayOperations.ReplaceAt(WorkflowDataTypes.String,
+            source.RootElement, 1, "b");
+        var removed = WorkflowTypedArrayOperations.RemoveAt(WorkflowDataTypes.String,
+            source.RootElement, 0);
+        var appended = WorkflowTypedArrayOperations.Append(WorkflowDataTypes.String,
+            source.RootElement, "d");
+        var concatenated = WorkflowTypedArrayOperations.Concatenate(WorkflowDataTypes.String,
+            source.RootElement, insertedAtStart);
+        var firstEmptyInsert = WorkflowTypedArrayOperations.InsertAt(WorkflowDataTypes.String,
+            empty.RootElement, 0, "only");
+
+        Assert.Equal("[\"start\",\"a\",\"c\"]", insertedAtStart.GetRawText());
+        Assert.Equal("[\"a\",\"c\",\"end\"]", insertedAtEnd.GetRawText());
+        Assert.Equal("[\"a\",\"b\"]", replaced.GetRawText());
+        Assert.Equal("[\"c\"]", removed.GetRawText());
+        Assert.Equal("[\"a\",\"c\",\"d\"]", appended.GetRawText());
+        Assert.Equal("[\"a\",\"c\",\"start\",\"a\",\"c\"]", concatenated.GetRawText());
+        Assert.Equal("[\"only\"]", firstEmptyInsert.GetRawText());
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(3)]
+    public void Typed_array_insert_rejects_indexes_outside_zero_through_length(long index)
+    {
+        using var source = JsonDocument.Parse("[1,2]");
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        {
+            WorkflowTypedArrayOperations.InsertAt(WorkflowDataTypes.Integer, source.RootElement, index, 3L);
+        });
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(2)]
+    public void Typed_array_replace_and_remove_reject_indexes_outside_existing_items(long index)
+    {
+        using var source = JsonDocument.Parse("[1,2]");
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        {
+            WorkflowTypedArrayOperations.ReplaceAt(WorkflowDataTypes.Integer, source.RootElement, index, 3L);
+        });
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        {
+            WorkflowTypedArrayOperations.RemoveAt(WorkflowDataTypes.Integer, source.RootElement, index);
+        });
+    }
+
+    [Fact]
+    public void Typed_array_transformations_reject_wrong_item_types_mismatched_arrays_and_oversized_results()
+    {
+        using var strings = JsonDocument.Parse("[\"a\"]");
+        using var booleans = JsonDocument.Parse("[true]");
+        using var full = JsonDocument.Parse("[" + string.Join(',', Enumerable.Repeat("0", WorkflowJsonArrayLimits.MaximumItems)) + "]");
+
+        Assert.Throws<ArgumentException>(() =>
+        {
+            WorkflowTypedArrayOperations.Append(WorkflowDataTypes.String, strings.RootElement, 1L);
+        });
+        Assert.Throws<ArgumentException>(() =>
+        {
+            WorkflowTypedArrayOperations.Concatenate(WorkflowDataTypes.String, strings.RootElement, booleans.RootElement);
+        });
+        Assert.Throws<ArgumentException>(() =>
+        {
+            WorkflowTypedArrayOperations.Append(WorkflowDataTypes.Integer, full.RootElement, 1L);
+        });
     }
 
     [Fact]

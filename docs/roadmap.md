@@ -141,9 +141,11 @@ will be introduced.
 - [x] Implement typed array declarations/defaults, exact Get/Set pins, immutable
   append/insert/replace/remove/concatenate nodes, canonical state and playback
   evidence, with a shared 65,536-byte per-invocation array-value evidence budget.
-  Linear and bounded-loop runtime paths have focused execution/playback coverage;
-  checkpoint snapshots reject typed array state. Store persistence/reopen,
-  historical compatibility, and browser authoring verification remain open.
+  Linear and bounded-loop runtime paths have focused execution/playback coverage,
+  file/SQLite persistence and reopen tests, and checkpoint snapshot rejection.
+  Operation index/type/item bounds and array-variable package/hash round trips
+  now have focused Core tests. Browser authoring verification, complete
+  historical compatibility, and full event-prefix proof remain open.
   See [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
@@ -171,10 +173,16 @@ will be introduced.
   Set explicitly commits whole transformed values. Keep current linear and
   bounded-loop ordering; reject parallel, Sequence, collaboration, asynchronous,
   graph-function state, shared child-state, and checkpoint placements. Canonical
-  values and the aggregate evidence budget are implemented; prove store
-  persistence/reopen, full historical compatibility, passive playback prefixes,
-  and Studio authoring before marking this increment shipped. See
+  values and the aggregate evidence budget are implemented. Focused file/SQLite
+  persistence/reopen and package/hash proofs now pass; full historical
+  compatibility, passive playback prefixes, and Studio authoring remain before
+  marking this increment shipped. See
   [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
+  - [x] Verify append/insert/replace/remove/concatenate ordering, empty-array
+    insertion, legal index endpoints, invalid indexes and item types, exact
+    array type matching, and maximum-item result rejection.
+  - [x] Verify typed-array variable package round-trip identity and that changing
+    the declared default changes the immutable definition hash.
   - [x] Carry a graph-dispatched typed Break result with source and target
     activation identity into the VAW coordinator; have the dispatcher report
     only source identity and derive/consume the target in the coordinator.

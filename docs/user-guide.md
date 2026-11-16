@@ -24,7 +24,7 @@ Studio connection tests distinguish endpoint errors from stdio executable/proces
 
 Starting a saved workflow from **Run workflow** opens the run inspector automatically. Use **Back to workflow** to resume editing; use **Inspect** in the Runs panel to reopen a prior run. If the interactive server connection drops, Studio keeps the graph visible behind a compact, theme-aware reconnect status toast instead of covering the workspace with a blocking white dialog; retry controls remain available when the connection cannot be restored automatically.
 
-The project workflow editor uses document tabs, a canvas, and a contextual inspector. Choose a workflow in Explorer or an open document tab; Explorer keeps the active file highlighted. The document header provides **Save**, **Run workflow**, and **Workflow settings**. **Run workflow** opens a dialog for test input and typed workflow parameters, then starts the saved workflow with those values; it does not publish or activate a revision. The settings drawer overlays the editor and contains workflow naming, parameters, discard, reuse, and import/export tools without moving the canvas. Create workflows from the Explorer's **workflows** folder context menu. Close a document with its **×** button or middle-click its tab. Closing an unsaved document asks whether to keep it open or discard its edits; closing a clean inactive tab leaves the active editor untouched.
+The project workflow editor uses document tabs, a canvas, and a contextual inspector. Choose a workflow in Explorer or an open document tab; Explorer keeps the active file highlighted. The document header provides **Save**, **Run workflow**, and **Workflow settings**. **Run workflow** opens a dialog for test input and typed workflow parameters, then starts the saved workflow with those values; it does not publish or activate a revision. The settings drawer overlays the editor and contains workflow naming, parameters, run-scoped variables, discard, reuse, and import/export tools without moving the canvas. Create workflows from the Explorer's **workflows** folder context menu. Close a document with its **×** button or middle-click its tab. Closing an unsaved document asks whether to keep it open or discard its edits; closing a clean inactive tab leaves the active editor untouched.
 
 The graph editor offers node duplication, typed template insertion, and bounded clipboard actions from a node's context menu. **Copy selected pure data nodes** uses the existing box/Ctrl/Shift selection when the context-menu node is selected; it preserves internal typed edges, external data boundaries, per-node layout, and fresh IDs. Ctrl/Cmd+C and Ctrl/Cmd+V invoke the same actions; keyboard paste places the fragment at the canvas center. **Paste pure data node here** remains limited to explicit typed graphs. Execution flow, capabilities, mutable state, annotations, and cross-workflow dependency metadata are not copied.
 
@@ -128,7 +128,8 @@ The direct node's properties pane is generated from the selected tool's supporte
 
 #### Add run-scoped variables
 
-Open Workflow settings and use **Workflow variables** for non-secret string,
+Open **Workflow settings** (or **Settings** for a folder-backed workflow) and use
+**Workflow variables** for non-secret string,
 Boolean, integer, finite-number, and (in unified schema 2.0) `array<T>` values.
 For an array, choose its element type and enter a JSON default such as
 `["alpha","beta"]`; arrays are limited to 64 non-null primitive values and
