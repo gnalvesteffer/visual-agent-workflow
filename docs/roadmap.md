@@ -367,6 +367,12 @@ introduced.
       activation state with correlated values and lifecycle evidence, reopened
       from file and SQLite (2/2 focused cases). Other deterministic node
       families and their compositions remain to be qualified.
+    - [x] Compose Array Append, Length, Get, Insert, Replace, Remove, and
+      Concatenate inside each item activation, using the typed item and an
+      isolated array variable. Each transformed value and per-activation write
+      is scoped correctly, and both file/SQLite playback histories reopen
+      identically (2/2 focused cases). Other body families and failure races
+      remain open.
     - [x] Execute a pinned pure graph function inside the production body for
       two items. Each call receives the current item, emits the expected
       suffixed result and evaluated-value evidence under its own activation

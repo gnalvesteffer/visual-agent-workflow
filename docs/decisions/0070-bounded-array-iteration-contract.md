@@ -2597,3 +2597,18 @@ and scoped evaluation preserve the original JSON token text, and file/SQLite
 histories reopen identically (2/2 focused cases). This adds primitive and
 compound JSON value transport evidence; it does not add JSON parameters or
 close the production body/lifecycle/budget matrix.
+
+## Typed array transformations inside item activations (2026-11-16)
+
+`ProductionBodyActivationCoordinator_ComposesEveryTypedArrayOperationPerItem`
+composes Array Append, Length, Get, Insert, Replace, Remove, and Concatenate
+inside each production body activation. The current typed item and a fresh
+per-activation mutable array feed the operations; the resulting array is
+committed through Variable Set and returned through Output. Scoped evaluation
+events and writes retain the correct item values, and file/SQLite playback
+reopens with the same completed history (2/2 focused cases).
+
+This qualifies one successful deterministic collection composition only. It
+does not qualify operation failures, cross-activation state, checkpoint
+recovery, authored iterator semantics, or the runtime architecture. Readiness
+remains **REVISE**.

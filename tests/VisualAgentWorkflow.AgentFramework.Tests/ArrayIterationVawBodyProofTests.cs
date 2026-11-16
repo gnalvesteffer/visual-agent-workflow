@@ -2717,6 +2717,60 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ComposesEveryTypedArrayOperationPerItem(bool sqlite)
+    {
+        const string input = "[\"alpha\",\"beta\"]";
+        var revision = WorkflowRevision.Create(TypedArrayOperationsItemBodyDefinition(),
+            "production-body-array-operations-per-item-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner().ExecuteProductionBodyActivationSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, Record,
+            itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.False(result.Failed);
+        Assert.Equal("[\"alpha\",\"alpha\",\"tail\"];[\"beta\",\"beta\",\"tail\"]", result.Output);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        foreach (var (scope, item) in new[] { ("array-loop/0", "alpha"), ("array-loop/1", "beta") })
+        {
+            var scopedEvents = events.Where(evt => evt.ScopeId == scope).ToArray();
+            foreach (var connectionId in new[]
+            {
+                "data:append-array", "data:append-item", "data:length-array", "data:length-index",
+                "data:index-offset", "data:get-array", "data:get-index", "data:insert-array",
+                "data:insert-index", "data:insert-item", "data:replace-array", "data:replace-index",
+                "data:replace-item", "data:remove-array", "data:remove-index", "data:concat-left",
+                "data:concat-right", "data:set-value", "data:output-value"
+            })
+                Assert.Contains(scopedEvents, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                    evt.ConnectionId == connectionId);
+
+            var write = Assert.Single(scopedEvents, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
+            using var writeData = JsonDocument.Parse(write.Data!);
+            Assert.Equal("[\"seed\"]", writeData.RootElement.GetProperty("previousValue").GetRawText());
+            Assert.Equal($"[\"{item}\",\"{item}\",\"tail\"]",
+                writeData.RootElement.GetProperty("value").GetRawText());
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: completed", playback, StringComparison.Ordinal);
+        Assert.Contains("Array concatenate", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ArrayVariableOverflowStopsLaterItems(bool sqlite)
     {
         var maximumArray = "[" + string.Join(',', Enumerable.Range(0, WorkflowJsonArrayLimits.MaximumItems)
@@ -14255,6 +14309,74 @@ public sealed class ArrayIterationVawBodyProofTests
             Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
                 .Add("items", new("Items", initialValue)
                     { Type = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String) })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition TypedArrayOperationsItemBodyDefinition()
+    {
+        var type = WorkflowDataTypes.String;
+        var arrayType = WorkflowDataTypes.ArrayOf(type);
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "item", OutputDataType = type })
+            .Add("read-before", new(NodeTypes.VariableGet, "1.0.0")
+                { VariableId = "items", OutputDataType = arrayType })
+            .Add("append", new(NodeTypes.ArrayAppend, "1.0.0") { ArrayElementType = type })
+            .Add("length", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = type })
+            .Add("minus-one", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(-1) })
+            .Add("last-index", new(NodeTypes.IntegerAdd, "1.0.0"))
+            .Add("get", new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = type })
+            .Add("insert-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
+            .Add("insert", new(NodeTypes.ArrayInsert, "1.0.0") { ArrayElementType = type })
+            .Add("replace-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(0) })
+            .Add("replace", new(NodeTypes.ArrayReplace, "1.0.0") { ArrayElementType = type })
+            .Add("remove-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
+            .Add("remove", new(NodeTypes.ArrayRemove, "1.0.0") { ArrayElementType = type })
+            .Add("tail", new(NodeTypes.ArrayLiteral, "1.0.0")
+                { ArrayLiteral = new(type, "[\"tail\"]") })
+            .Add("concatenate", new(NodeTypes.ArrayConcatenate, "1.0.0") { ArrayElementType = type })
+            .Add("set", new(NodeTypes.VariableSet, "1.0.0")
+                { VariableId = "items", InputDataType = arrayType })
+            .Add("read-after", new(NodeTypes.VariableGet, "1.0.0")
+                { VariableId = "items", OutputDataType = arrayType })
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = arrayType });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("append-array", new(new("read-before", "out"), new("append", "array"), "data"))
+            .Add("append-item", new(new("item", "out"), new("append", "item"), "data"))
+            .Add("length-array", new(new("append", "out"), new("length", "in"), "data"))
+            .Add("length-index", new(new("length", "out"), new("last-index", "left"), "data"))
+            .Add("index-offset", new(new("minus-one", "out"), new("last-index", "right"), "data"))
+            .Add("get-array", new(new("append", "out"), new("get", "array"), "data"))
+            .Add("get-index", new(new("last-index", "out"), new("get", "index"), "data"))
+            .Add("insert-array", new(new("append", "out"), new("insert", "array"), "data"))
+            .Add("insert-index", new(new("insert-index", "out"), new("insert", "index"), "data"))
+            .Add("insert-item", new(new("get", "item"), new("insert", "item"), "data"))
+            .Add("replace-array", new(new("insert", "out"), new("replace", "array"), "data"))
+            .Add("replace-index", new(new("replace-index", "out"), new("replace", "index"), "data"))
+            .Add("replace-item", new(new("get", "item"), new("replace", "item"), "data"))
+            .Add("remove-array", new(new("replace", "out"), new("remove", "array"), "data"))
+            .Add("remove-index", new(new("remove-index", "out"), new("remove", "index"), "data"))
+            .Add("concat-left", new(new("remove", "out"), new("concatenate", "left"), "data"))
+            .Add("concat-right", new(new("tail", "out"), new("concatenate", "right"), "data"))
+            .Add("set-value", new(new("concatenate", "out"), new("set", "value"), "data"))
+            .Add("output-value", new(new("read-after", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-read", Edge("input", "then", "read-before", "execute"))
+            .Add("read-set", Edge("read-before", "then", "set", "execute"))
+            .Add("set-read", Edge("set", "then", "read-after", "execute"))
+            .Add("read-output", Edge("read-after", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-array-operations-body", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = type })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
+                .Add("items", new("Items", "[\"seed\"]") { Type = arrayType })
         };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
