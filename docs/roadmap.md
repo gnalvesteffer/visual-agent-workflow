@@ -780,6 +780,12 @@ will be introduced.
       and SQLite reopen (2/2 focused store cases). This extends typed item
       comparison beyond integer parameters; it remains proof-only and does not
       add authored iterator pins or select the production architecture.
+    - [x] Bind actual finite `array<number>` items through the candidate-owned
+      item parameter and NumberAdd. All three candidates return the same
+      arithmetic results and preserve item-scoped operand/result evidence after
+      file and SQLite reopen (2/2 focused store cases). This extends the
+      matched primitive-type comparison; overflow and broader numeric behavior
+      remain separate proof cases.
     - [x] Exercise the nested typed Break control result against the structured
       production node dispatcher, in addition to the hybrid and fresh
       subworkflow harnesses. Each candidate-specific body dispatch stops at

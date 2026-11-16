@@ -2550,3 +2550,11 @@ evidence, then reopens both file and SQLite histories (2/2 focused cases).
 This adds matched typed-item evidence beyond the existing integer comparison;
 it remains a private candidate proof and selects no architecture or public
 iterator contract.
+
+`IteratorCandidates_BindTypedNumberItemsThroughArithmetic` sends
+`[-1.25,0,9.5]` through the same candidates with a typed numeric item parameter
+and `NumberAdd`. All candidates produce `-0.5;0.75;10.25`; the proof compares
+each activation's numeric operand/result evidence and reopens both file and
+SQLite histories (2/2 focused cases). This establishes finite numeric item
+binding and arithmetic for this candidate body only; it does not cover numeric
+overflow or select a production architecture.

@@ -6257,6 +6257,109 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_BindTypedNumberItemsThroughArithmetic(bool sqlite)
+    {
+        const string input = "[-1.25,0,9.5]";
+        var revision = WorkflowRevision.Create(TypedNumberItemBodyDefinition(),
+            "array-iteration-typed-number-item-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+
+        var structured = await new WorkflowRunner()
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item", arrayElementType: WorkflowDataTypes.Number);
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, new EchoAgentExecutor(), new EchoToolBroker(),
+            arrayElementType: WorkflowDataTypes.Number);
+        var subworkflowExecutor = new WorkflowBuilder(subworkflowIterator)
+            .WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflowExecutor, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            new EchoAgentExecutor(), new EchoToolBroker(), "array-loop",
+            ParseProofArrayItems(input, WorkflowDataTypes.Number), null, "index", [],
+            async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(
+                    hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
+                if (result.Failed || result.Output is null)
+                    throw new InvalidOperationException("The hybrid Number-item body did not return a result.");
+                return new ActivationLoopProofValue(result.Output);
+            });
+        hybridRecorder.CompleteRoot();
+
+        const string expected = "-0.5;0.75;10.25";
+        Assert.False(structured.Failed);
+        Assert.Equal(expected, structured.Output);
+        Assert.Equal(expected, subworkflowOutput);
+        Assert.Equal(expected, hybridOutput);
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        foreach (var (store, events) in new[]
+        {
+            (structuredStore, structuredEvents), (subworkflowStore, subworkflowEvents), (hybridStore, hybridEvents)
+        })
+        {
+            AssertPersistedSequence(store, events, "completed");
+            Assert.Equal(events, store.ReopenStore().Get(store.RunId)!.Events);
+        }
+        Assert.Equal(EventShape(structuredEvents), EventShape(subworkflowEvents));
+        Assert.Equal(EventShape(structuredEvents), EventShape(hybridEvents));
+
+        var expectedItems = new[] { -1.25d, 0d, 9.5d };
+        var expectedSums = new[] { -0.5d, 0.75d, 10.25d };
+        foreach (var events in new[] { structuredEvents, subworkflowEvents, hybridEvents })
+        {
+            for (var index = 0; index < expectedItems.Length; index++)
+            {
+                var scopeId = $"array-loop/{index}";
+                Assert.Equal(expectedItems[index], ReadNumberDataEvaluation(events, scopeId, "data:item-value"));
+                Assert.Equal(expectedSums[index], ReadNumberDataEvaluation(events, scopeId, "data:sum-value"));
+            }
+        }
+
+        static (string Kind, string? NodeId, string? ScopeId)[] EventShape(IEnumerable<ExecutionEvent> events) =>
+            events.Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
+                ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.NodeStarted or
+                ExecutionEventKinds.NodeCompleted)
+                .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
+
+        static double ReadNumberDataEvaluation(IEnumerable<ExecutionEvent> events, string scopeId, string connectionId)
+        {
+            var evt = Assert.Single(events, item => item.Kind == ExecutionEventKinds.DataEvaluated &&
+                item.ScopeId == scopeId && item.ConnectionId == connectionId);
+            using var payload = JsonDocument.Parse(evt.Data!);
+            return payload.RootElement.GetProperty("value").GetDouble();
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_RouteEachItemThroughUnifiedBooleanBranch(bool sqlite)
     {
         const string input = "[\"yes\",\"no\",\"yes\"]";
