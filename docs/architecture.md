@@ -309,8 +309,16 @@ admission. Schema 2.0 pure-function ports are supported; interface ports,
 direct MCP arguments, and checkpoint state are not. Run-scoped variables
 support primitive arrays, canonical defaults, immutable transformations, and
 bounded aggregate state evidence in linear and bounded-loop execution.
-Historical
-`array<json>` nodes retain their existing semantics. See [Decision
+The existing `array<json>` identity also composes in unified schema 2.0 through
+Array literal, length, get, append, insert, replace, remove, and concatenate.
+It remains a heterogeneous ordered collection of JSON values including null,
+distinct from a single `json` value whose root is an array. JSON array input is
+limited to 16 KiB before parsing; transformed results are limited to 16 KiB
+after compact serialization, with a 64-item outer limit and depth 32 counting
+the root as level one. Array transforms preserve object member order and
+number-token spelling; this representation is not canonical JSON and does not
+define structural equality or hashing. Parameters and graph functions remain
+separate proof boundaries. See [Decision
 0066](decisions/0066-unified-typed-array-values.md), [Decision
 0067](decisions/0067-typed-array-workflow-boundaries.md), and [Decision
 0068](decisions/0068-typed-array-workflow-parameters.md).

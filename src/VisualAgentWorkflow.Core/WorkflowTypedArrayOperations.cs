@@ -1,8 +1,9 @@
 using System.Text.Json;
+using System.Text;
 
 namespace VisualAgentWorkflow.Core;
 
-/// <summary>Deterministic immutable operations over bounded primitive typed arrays.</summary>
+/// <summary>Deterministic immutable operations over bounded typed arrays.</summary>
 public static class WorkflowTypedArrayOperations
 {
     public static JsonElement Append(string elementType, JsonElement array, object item)
@@ -53,10 +54,10 @@ public static class WorkflowTypedArrayOperations
 
     private static void EnsureArray(string elementType, JsonElement array)
     {
-        if (!WorkflowDataTypes.IsArrayElementType(elementType) || elementType == WorkflowDataTypes.Json ||
+        if (!WorkflowDataTypes.IsArrayElementType(elementType) ||
             array.ValueKind != JsonValueKind.Array ||
             !WorkflowArrayLiteral.TryNormalizeValue(elementType, array.GetRawText(), out _, out _))
-            throw new ArgumentException("A bounded primitive typed array is required.", nameof(array));
+            throw new ArgumentException("A bounded typed array is required.", nameof(array));
     }
 
     private static JsonElement ToElement(string elementType, object item)
@@ -67,6 +68,7 @@ public static class WorkflowTypedArrayOperations
             bool boolean when elementType == WorkflowDataTypes.Boolean => JsonSerializer.SerializeToElement(boolean),
             long integer when elementType == WorkflowDataTypes.Integer => JsonSerializer.SerializeToElement(integer),
             double number when elementType == WorkflowDataTypes.Number && double.IsFinite(number) => JsonSerializer.SerializeToElement(number),
+            JsonElement json when elementType == WorkflowDataTypes.Json && json.ValueKind != JsonValueKind.Undefined => json.Clone(),
             _ => throw new ArgumentException($"The array item must be a {elementType} value.", nameof(item))
         };
         return value;
@@ -75,6 +77,8 @@ public static class WorkflowTypedArrayOperations
     private static JsonElement Normalize(string elementType, IEnumerable<JsonElement> values)
     {
         var candidate = JsonSerializer.Serialize(values);
+        if (Encoding.UTF8.GetByteCount(candidate) > WorkflowArrayLiteral.MaximumPayloadBytes)
+            throw new ArgumentException($"Typed array result exceeds {WorkflowArrayLiteral.MaximumPayloadBytes} UTF-8 bytes.", nameof(values));
         if (!WorkflowArrayLiteral.TryNormalizeValue(elementType, candidate, out var normalized, out var error))
             throw new ArgumentException(error, nameof(values));
         using var document = JsonDocument.Parse(normalized);

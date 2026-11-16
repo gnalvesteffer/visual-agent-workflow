@@ -27,9 +27,8 @@ public static class WorkflowArrayLiteral
         out JsonElement values, out string error)
     {
         values = default;
-        error = "A typed array requires a supported primitive element type.";
-        if (valuesJson is null || !WorkflowDataTypes.IsArrayElementType(elementType) ||
-            elementType == WorkflowDataTypes.Json)
+        error = "A typed array requires a supported element type.";
+        if (valuesJson is null || !WorkflowDataTypes.IsArrayElementType(elementType))
         {
             if (valuesJson is null) error = "A typed array JSON value is required.";
             return false;
@@ -44,11 +43,11 @@ public static class WorkflowArrayLiteral
         JsonDocument document;
         try
         {
-            document = JsonDocument.Parse(valuesJson, new JsonDocumentOptions { MaxDepth = 1 });
+            document = JsonDocument.Parse(valuesJson, new JsonDocumentOptions { MaxDepth = WorkflowJsonArrayLimits.MaximumDepth });
         }
         catch (JsonException)
         {
-            error = "Typed array value must be valid JSON containing only scalar values.";
+            error = $"Typed array value must be valid JSON with maximum depth {WorkflowJsonArrayLimits.MaximumDepth}.";
             return false;
         }
 
@@ -67,11 +66,26 @@ public static class WorkflowArrayLiteral
                 return false;
             }
 
+            if (elementType == WorkflowDataTypes.Json)
+            {
+                try
+                {
+                    JsonDocumentSafety.RejectDuplicateProperties(root);
+                }
+                catch (JsonException exception)
+                {
+                    error = exception.Message;
+                    return false;
+                }
+            }
+
             foreach (var item in root.EnumerateArray())
             {
                 if (!Matches(elementType, item))
                 {
-                    error = $"Every typed array item must be a non-null {elementType} value.";
+                    error = elementType == WorkflowDataTypes.Json
+                        ? "Every typed array item must be a valid JSON value."
+                        : $"Every typed array item must be a non-null {elementType} value.";
                     return false;
                 }
             }
@@ -109,6 +123,9 @@ public static class WorkflowArrayLiteral
                         var number = item.GetDouble();
                         writer.WriteRawValue(number == 0d ? "0" : number.ToString("R", CultureInfo.InvariantCulture));
                         break;
+                    case WorkflowDataTypes.Json:
+                        item.WriteTo(writer);
+                        break;
                     default:
                         error = "A typed array requires a supported primitive element type.";
                         return false;
@@ -117,7 +134,14 @@ public static class WorkflowArrayLiteral
             writer.WriteEndArray();
         }
 
-        normalizedJson = Encoding.UTF8.GetString(stream.ToArray());
+        var result = Encoding.UTF8.GetString(stream.ToArray());
+        if (Encoding.UTF8.GetByteCount(result) > MaximumPayloadBytes)
+        {
+            error = $"Typed array result exceeds {MaximumPayloadBytes} UTF-8 bytes.";
+            return false;
+        }
+
+        normalizedJson = result;
         error = string.Empty;
         return true;
     }
@@ -128,6 +152,7 @@ public static class WorkflowArrayLiteral
         WorkflowDataTypes.Boolean => value.ValueKind is JsonValueKind.True or JsonValueKind.False,
         WorkflowDataTypes.Integer => value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out _),
         WorkflowDataTypes.Number => value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number) && double.IsFinite(number),
+        WorkflowDataTypes.Json => value.ValueKind != JsonValueKind.Undefined,
         _ => false
     };
 }

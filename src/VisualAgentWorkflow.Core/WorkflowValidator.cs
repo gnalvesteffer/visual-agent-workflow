@@ -570,7 +570,7 @@ public static class WorkflowValidator
             if (node.ArrayElementType is not null &&
                 (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate) ||
                  definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph ||
-                 !WorkflowDataTypes.IsPrimitiveArrayType(node.ArrayElementType is null ? null : $"array<{node.ArrayElementType}>")))
+                 !WorkflowDataTypes.IsArrayType(node.ArrayElementType is null ? null : $"array<{node.ArrayElementType}>")))
                 Error("array.element-type", $"nodes.{id}.arrayElementType", "Typed array operations require a supported element type in unified schema 2.0; legacy JSON array nodes omit this field.");
             if (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate) && node.ArrayElementType is not null)
                 Error("array.element-type.unexpected", $"nodes.{id}.arrayElementType", "Only array operations may declare an array element type.");

@@ -16,9 +16,10 @@ public sealed class WorkflowArrayLiteralTests
     [InlineData("boolean", "[null]", false)]
     [InlineData("integer", "[1.5]", false)]
     [InlineData("number", "[1e999]", false)]
-    [InlineData("json", "[1]", false)]
+    [InlineData("json", "[1]", true)]
+    [InlineData("json", "[{\"x\":[null,true]},1.0]", true)]
     [InlineData("string", "[[\"nested\"]]", false)]
-    public void Literal_parser_accepts_only_bounded_non_null_homogeneous_primitive_arrays(string type, string json, bool expected)
+    public void Literal_parser_enforces_declared_array_element_type(string type, string json, bool expected)
     {
         Assert.Equal(expected, WorkflowArrayLiteral.TryParse(new(type, json), out _, out _));
     }
@@ -150,6 +151,37 @@ public sealed class WorkflowArrayLiteralTests
     }
 
     [Fact]
+    public void Json_array_values_preserve_nested_json_null_member_order_and_number_tokens()
+    {
+        const string authored = "[ {\"z\":1.00,\"a\":[null,true]}, -0 ]";
+
+        Assert.True(WorkflowArrayLiteral.TryNormalizeValue(WorkflowDataTypes.Json, authored,
+            out var normalized, out var error), error);
+        Assert.Equal("[{\"z\":1.00,\"a\":[null,true]},-0]", normalized);
+        Assert.Equal("[{\"z\":1.00,\"a\":[null,true]},-0]", normalized);
+        Assert.False(WorkflowArrayLiteral.TryParseValue(WorkflowDataTypes.Json,
+            "[{\"duplicate\":1,\"duplicate\":2}]", out _, out _));
+    }
+
+    [Fact]
+    public void Json_array_values_enforce_root_counted_depth_input_and_compact_result_bounds()
+    {
+        var depth32 = "[" + string.Concat(Enumerable.Repeat("[", WorkflowJsonArrayLimits.MaximumDepth - 1)) +
+            "0" + string.Concat(Enumerable.Repeat("]", WorkflowJsonArrayLimits.MaximumDepth - 1)) + "]";
+        var depth33 = "[" + string.Concat(Enumerable.Repeat("[", WorkflowJsonArrayLimits.MaximumDepth)) +
+            "0" + string.Concat(Enumerable.Repeat("]", WorkflowJsonArrayLimits.MaximumDepth)) + "]";
+        var tooLargeInput = "[\"" + new string('x', WorkflowArrayLiteral.MaximumPayloadBytes) + "\"]";
+        var expandsOnSerialization = "[\"" + new string('界', 5_000) + "\"]";
+
+        Assert.True(WorkflowArrayLiteral.TryParseValue(WorkflowDataTypes.Json, depth32, out _, out _));
+        Assert.False(WorkflowArrayLiteral.TryParseValue(WorkflowDataTypes.Json, depth33, out _, out _));
+        Assert.False(WorkflowArrayLiteral.TryParseValue(WorkflowDataTypes.Json, tooLargeInput, out _, out _));
+        Assert.False(WorkflowArrayLiteral.TryNormalizeValue(WorkflowDataTypes.Json, expandsOnSerialization,
+            out _, out var error));
+        Assert.Contains("result exceeds", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Typed_array_element_types_must_match_across_connections()
     {
         var graph = ArrayGraph();
@@ -240,6 +272,29 @@ public sealed class WorkflowArrayLiteralTests
         {
             WorkflowTypedArrayOperations.Append(WorkflowDataTypes.Integer, full.RootElement, 1L);
         });
+    }
+
+    [Fact]
+    public void Json_array_transformations_preserve_json_values_and_enforce_result_bounds()
+    {
+        using var source = JsonDocument.Parse("[{\"b\":1.0,\"a\":null},[true],null]");
+        using var item = JsonDocument.Parse("{\"new\":-0}");
+
+        var appended = WorkflowTypedArrayOperations.Append(WorkflowDataTypes.Json, source.RootElement, item.RootElement);
+        var inserted = WorkflowTypedArrayOperations.InsertAt(WorkflowDataTypes.Json, source.RootElement, 1, item.RootElement);
+        var replaced = WorkflowTypedArrayOperations.ReplaceAt(WorkflowDataTypes.Json, source.RootElement, 0, item.RootElement);
+        var removed = WorkflowTypedArrayOperations.RemoveAt(WorkflowDataTypes.Json, source.RootElement, 0);
+        var concatenated = WorkflowTypedArrayOperations.Concatenate(WorkflowDataTypes.Json, source.RootElement, source.RootElement);
+
+        Assert.Equal("[{\"b\":1.0,\"a\":null},[true],null,{\"new\":-0}]", appended.GetRawText());
+        Assert.Equal("[{\"b\":1.0,\"a\":null},{\"new\":-0},[true],null]", inserted.GetRawText());
+        Assert.Equal("[{\"new\":-0},[true],null]", replaced.GetRawText());
+        Assert.Equal("[[true],null]", removed.GetRawText());
+        Assert.Equal(6, concatenated.GetArrayLength());
+
+        using var full = JsonDocument.Parse("[\"" + new string('x', 8_200) + "\"]");
+        Assert.Throws<ArgumentException>(() =>
+            WorkflowTypedArrayOperations.Concatenate(WorkflowDataTypes.Json, full.RootElement, full.RootElement));
     }
 
     [Fact]

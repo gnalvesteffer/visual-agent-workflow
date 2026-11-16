@@ -1396,8 +1396,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private ExplicitGraphValue CreateArrayLiteral(string nodeId)
         {
             var configuration = definition.Nodes[nodeId].ArrayLiteral;
-            if (!WorkflowArrayLiteral.TryParse(configuration, out var values, out var error))
+            if (configuration is null)
+                throw new GraphDataEvaluationException(nodeId, "Array literal configuration is missing.",
+                    new InvalidOperationException("Array literal configuration is missing."));
+            if (!WorkflowArrayLiteral.TryNormalizeValue(configuration.ElementType,
+                    configuration.ValuesJson, out var normalized, out var error))
                 throw new GraphDataEvaluationException(nodeId, error, new InvalidOperationException(error));
+            using var document = JsonDocument.Parse(normalized, new JsonDocumentOptions { MaxDepth = WorkflowJsonArrayLimits.MaximumDepth });
+            var values = document.RootElement.Clone();
             return new ExplicitGraphValue(WorkflowDataTypes.ArrayOf(configuration!.ElementType), values);
         }
 

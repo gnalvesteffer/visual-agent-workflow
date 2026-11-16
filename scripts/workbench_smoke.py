@@ -58,6 +58,36 @@ def new_blank(designer):
     settings(designer, False)
 
 
+def json_array_node_authoring_check(page, designer, screenshots):
+    new_blank(designer)
+    show_library(designer)
+    library = workflow_node_library(designer)
+    library.locator('[data-node-key="core.array.literal"]').click()
+    node = designer.locator('li[data-node-type="core.array.literal"]')
+    expect(node).to_have_count(1)
+    node_id = node.get_attribute("data-node-id")
+    node.locator("[data-drag-node]").click()
+    element_type = designer.get_by_label(f"Array element type for {node_id}", exact=True)
+    element_type.select_option("json")
+    expect(node).to_contain_text("Array literal · array<json>")
+    values = '[{"z":1.00,"nested":[null,true]},-0]'
+    designer.get_by_label(f"Array literal values for {node_id}", exact=True).fill(values)
+    expect(designer.get_by_text("Immutable, ordered JSON values; limited to 64 items, depth 32, and 16 KiB.", exact=True)).to_be_visible()
+    if screenshots:
+        screenshots.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(screenshots / "json-array-literal.png"))
+    workflow_id = designer.locator("[data-vaw-workflow-selector]").input_value()
+    designer.get_by_role("button", name="Save", exact=True).click()
+    expect(designer.get_by_text("Draft saved.", exact=True)).to_be_visible()
+
+    page.goto(BASE + f"/projects/default?workflow={workflow_id}", wait_until="networkidle")
+    designer = page.get_by_role("region", name="Workflow designer", exact=True)
+    node = designer.locator(f'li[data-node-id="{node_id}"]')
+    node.locator("[data-drag-node]").click()
+    expect(designer.get_by_label(f"Array element type for {node_id}", exact=True)).to_have_value("json")
+    expect(designer.get_by_label(f"Array literal values for {node_id}", exact=True)).to_have_value(values)
+
+
 def prompt_template_check(page, designer):
     new_blank(designer)
     workflow_id = designer.locator("[data-vaw-workflow-selector]").input_value()
@@ -122,14 +152,14 @@ def text_template_node_check(page, designer):
     expect(canvas.locator("li[data-node-type='core.text.template']")).to_have_count(1)
     template_id = canvas.locator("li[data-node-type='core.text.template']").get_attribute("data-node-id")
     settings(designer, True)
-    parameters = designer.locator("details.vaw-parameter-editor > summary")
-    if parameters.evaluate("element => !element.parentElement.open"):
-        parameters.click()
-    designer.get_by_label("Parameter ID", exact=True).fill("customer")
-    designer.get_by_label("Display name", exact=True).fill("Customer")
-    designer.get_by_label("Default value", exact=True).fill("Ada")
-    designer.get_by_label("Description", exact=True).fill("Person whose question is being answered")
-    designer.get_by_role("button", name="Add parameter", exact=True).click()
+    parameters = designer.locator("details.vaw-parameter-editor").filter(has_text=re.compile("Workflow parameters"))
+    if not parameters.evaluate("element => element.open"):
+        parameters.locator(":scope > summary").click()
+    parameters.get_by_label("Parameter ID", exact=True).fill("customer")
+    parameters.get_by_label("Display name", exact=True).fill("Customer")
+    parameters.get_by_label("Default value", exact=True).fill("Ada")
+    parameters.get_by_label("Description", exact=True).fill("Person whose question is being answered")
+    parameters.get_by_role("button", name="Add parameter", exact=True).click()
     settings(designer, False)
     designer.get_by_label("Node to organize", exact=True).select_option(template_id)
     editor = designer.get_by_role("textbox", name="Template text", exact=True)
@@ -797,6 +827,8 @@ def check(browser, screenshots):
     print("Deterministic text-template execution passed.")
     typed_json_projection_check(page, designer)
     print("Recursive typed JSON projection authoring passed.")
+    json_array_node_authoring_check(page, designer, screenshots)
+    print("JSON-valued array literal configuration and save/reopen passed.")
     unified_graph_authoring_check(page, designer)
     print("Explicit pin authoring and execution passed.")
     graph_function_authoring_check(page, designer)

@@ -27,6 +27,54 @@ public sealed class WorkflowTypedArrayTests
         AssertDataEvidence(events, "get", type, evidenceValue);
     }
 
+    [Fact]
+    public async Task Json_array_literal_composes_with_get_and_preserves_nested_values_in_evidence()
+    {
+        const string literal = "[ {\"z\":1.00,\"a\":[null,true]}, -0 ]";
+        var graph = PrimitiveGetGraph(WorkflowDataTypes.Json, literal);
+        WorkflowValidator.ThrowIfInvalid(graph);
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(graph)), "json-array-literal"),
+            "ignored activation input", null, evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+        Assert.Equal("{\"z\":1.00,\"a\":[null,true]}", result.Output);
+        AssertDataEvidence(events, "literal", "array<json>", "[{\"z\":1.00,\"a\":[null,true]},-0]");
+        AssertDataEvidence(events, "get", "json", "{\"z\":1.00,\"a\":[null,true]}");
+    }
+
+    [Fact]
+    public async Task Json_array_append_accepts_input_values_and_preserves_nested_json()
+    {
+        var graph = JsonArrayAppendGraph();
+        WorkflowValidator.ThrowIfInvalid(graph);
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(graph, "json-array-append"), "{\"added\":null}", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+        Assert.Equal("{\"added\":null}", result.Output);
+        AssertDataEvidence(events, "append", "array<json>", "[{\"first\":[true]},{\"added\":null}]");
+    }
+
+    [Fact]
+    public async Task Json_array_append_oversized_result_fails_at_transform_node()
+    {
+        var item = "\"" + new string('x', 8_200) + "\"";
+        var graph = JsonArrayAppendGraph("[" + item + "]");
+        var events = new List<ExecutionEvent>();
+
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteWithOutcomeAsync(
+            Guid.NewGuid(), WorkflowRevision.Create(graph, "json-array-append"), item, null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "append");
+    }
+
     [Theory]
     [InlineData("string", "[\"alpha\",\"β\"]")]
     [InlineData("boolean", "[true,false]")]
@@ -194,6 +242,34 @@ public sealed class WorkflowTypedArrayTests
         var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
             .Add("input-output-execution", new(new("input", "then"), new("output", "execute"), "execution"));
         return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "typed-array-boundary", "input", nodes, data)
+        { ExecutionConnections = execution };
+    }
+
+    private static WorkflowDefinition JsonArrayAppendGraph(string literalValues = "[{\"first\":[true]}]")
+    {
+        var nodes = new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json },
+            ["literal"] = new(NodeTypes.ArrayLiteral, "1.0.0")
+                { ArrayLiteral = new(WorkflowDataTypes.Json, literalValues) },
+            ["append"] = new(NodeTypes.ArrayAppend, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json },
+            ["index"] = new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) },
+            ["get"] = new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json },
+            ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.Json }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var data = new Dictionary<string, ConnectionDefinition>
+        {
+            ["literal-append"] = new(new("literal", "out"), new("append", "array"), "data"),
+            ["input-append"] = new(new("input", "out"), new("append", "item"), "data"),
+            ["append-get"] = new(new("append", "out"), new("get", "array"), "data"),
+            ["index-get"] = new(new("index", "out"), new("get", "index"), "data"),
+            ["get-output"] = new(new("get", "item"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var execution = new Dictionary<string, ConnectionDefinition>
+        {
+            ["input-output"] = new(new("input", "then"), new("output", "execute"), "execution")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "json-array-append", "input", nodes, data)
         { ExecutionConnections = execution };
     }
 }

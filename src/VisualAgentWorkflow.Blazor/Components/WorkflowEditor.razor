@@ -669,7 +669,7 @@
                         {
                             <label>Array element type
                                 <select aria-label="Array element type for @id" value="@(node.ArrayElementType ?? WorkflowDataTypes.String)" @onchange="args => ChangeArrayElementType(id, args)" disabled="@Disabled">
-                                    @foreach (var type in ArrayElementTypes.Where(type => type != WorkflowDataTypes.Json)) { <option value="@type">@type</option> }
+                                    @foreach (var type in ArrayElementTypes) { <option value="@type">@type</option> }
                                 </select>
                             </label>
                         }
@@ -682,7 +682,7 @@
                         {
                             <label>Array element type
                                 <select aria-label="Array element type for @id" value="@literal.ElementType" @onchange="args => ChangeArrayLiteralType(id, args)" disabled="@Disabled">
-                                    @foreach (var type in ArrayElementTypes.Where(type => type != WorkflowDataTypes.Json)) { <option value="@type">@type</option> }
+                                    @foreach (var type in ArrayElementTypes) { <option value="@type">@type</option> }
                                 </select>
                             </label>
                             <label>Values (JSON array)
@@ -690,7 +690,7 @@
                             </label>
                         }
                         else { <pre>@literal.ValuesJson</pre> }
-                        <p>Immutable, ordered, homogeneous, non-null primitive values; limited to 64 items and 16 KiB.</p>
+                        <p>Immutable, ordered @ArrayElementTypeDescription(literal.ElementType) values; limited to 64 items, depth 32, and 16 KiB.</p>
                     }
                     else if (terminal || ReadOnly)
                     {
@@ -1583,12 +1583,15 @@
     private static string ArrayElementTypeLabel(string? arrayType) =>
         WorkflowDataTypes.TryGetArrayElementType(arrayType, out var elementType) ? elementType : "primitive";
 
+    private static string ArrayElementTypeDescription(string elementType) =>
+        elementType == WorkflowDataTypes.Json ? "JSON" : $"non-null {elementType}";
+
     private Task ChangeArrayLiteralType(string id, ChangeEventArgs args) => Edit(() =>
     {
         var current = Definition.Nodes[id].ArrayLiteral ?? new ArrayLiteralConfiguration(WorkflowDataTypes.String, "[]");
         var type = args.Value?.ToString() ?? WorkflowDataTypes.String;
-        if (type is not (WorkflowDataTypes.String or WorkflowDataTypes.Boolean or WorkflowDataTypes.Integer or WorkflowDataTypes.Number))
-            throw new ArgumentException("Choose string, boolean, integer, or number array elements.");
+        if (!WorkflowDataTypes.IsArrayElementType(type))
+            throw new ArgumentException("Choose a supported array element type.");
         return GraphEditing.ReplaceNode(Definition, id, Definition.Nodes[id] with
         { ArrayLiteral = current with { ElementType = type } });
     });

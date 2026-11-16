@@ -1,6 +1,6 @@
 # Decision 0066: Unified typed array values
 
-**Status:** Immutable typed-array composition, workflow input/output boundaries, and parameters implemented in schema 2.0; pure functions and other placements remain deferred
+**Status:** Primitive typed arrays compose across boundaries, parameters, graph functions, and variables in schema 2.0. JSON-valued array composition is implemented for bounded literal and array operations; typed parameters and graph-function ports remain separate increments.
 **Date:** 2026-11-02  
 **Scope:** Blueprint parity workstream; current authoring schema 2.0
 
@@ -27,13 +27,13 @@ feature-specific schema gates, promotion buttons, or preview modes. Historical
 1.x definitions, hashes, execution behavior, and recorded playback keep their
 existing contracts.
 
-The first contract is an immutable, ordered, homogeneous `array<T>` where `T`
-is one of `string`, `boolean`, `integer`, or finite `number`. Existing
-`array<json>` keeps its heterogeneous JSON and JSON-null semantics. The new
-primitive arrays are distinct types: they do not implicitly convert to or from
-`array<json>` or another element type. Null is not a member of a primitive
-array; nested arrays, maps, sets, records, and reference-like values are not
-part of this slice. Empty arrays are valid when their element type is declared.
+The primitive collection contract is an immutable, ordered, homogeneous
+`array<T>` where `T` is one of `string`, `boolean`, `integer`, or finite
+`number`. Those primitive arrays do not implicitly convert to `array<json>` or
+another element type. Empty arrays are valid when their element type is
+declared. A separate follow-up now composes the existing heterogeneous
+`array<json>` identity without changing its null semantics or inventing a
+competing type.
 
 The initial compositional graph vocabulary is:
 
@@ -49,13 +49,22 @@ The initial compositional graph vocabulary is:
   the existing `array<json>` behavior.
 
 These nodes compose in ordinary schema-2.0 explicit graphs with existing pure
-scalar nodes and compatible downstream data inputs. Decision 0067 separately
-extends the same bounded types across workflow input/output boundaries using
-JSON text on the existing string API. Typed parameters and graph-function
-ports, variables, workflow-interface fields, MCP arguments, Sequence paths,
-loop-carried state, parallel shared state, and checkpoint state remain
-unsupported. Each needs its own contract and verification. The existing
-`JsonToArray` path continues to produce `array<json>`.
+scalar nodes and compatible downstream data inputs. JSON-valued arrays now use
+the same literal, length, indexed-read, append, insert, replace, remove, and
+concatenate nodes, preserving heterogeneous JSON values, nested arrays, null,
+object member order, and number-token spelling. JSON values are copied with
+`JsonElement.WriteTo`; string escaping may normalize during compact
+serialization. JSON array literals accept at most 64 outer items, JSON nesting
+depth 32 (root counts as depth 1), and 16,384 UTF-8 bytes of authored JSON text.
+Each operation rejects a compact serialized result larger than 16,384 UTF-8
+bytes at the operation node. Duplicate object property names are rejected.
+There is no implicit conversion between `json`, `array<json>`, or primitive
+array types. These JSON array operations do not add object equality,
+membership, or canonical object ordering. Typed parameters and graph-function
+ports, workflow-interface fields, MCP arguments, Sequence paths, loop-carried
+state, parallel shared state, and checkpoint state remain separate contracts
+and verification increments. The existing `JsonToArray` path continues to
+produce `array<json>`.
 
 The implementation reuses the 64-item collection bound and adds one explicit
 encoded-value bound no larger than the current JSON graph payload limit. Type identity is exact: `array<T>` connects only to the same
@@ -77,6 +86,42 @@ Maps and sets remain a later design decision. They require demonstrated
 portable key/equality/order rules. Mutable collection variables and checkpoint
 recovery remain separate from immutable collection values and require state
 snapshot, mutation ordering, cancellation, and recovery proofs.
+
+## Follow-up: compose the existing JSON-array value
+
+The existing `array<json>` identity is the collection of arbitrary JSON values
+already produced by `JsonToArray`; it is distinct from one `json` value whose
+root happens to be an array. Preserve its current heterogeneous-element,
+ordered, JSON-null behavior. Do not add another type identity or normalize old
+graphs into one.
+
+The first composition increment applies to the current unified graph and
+covers `ArrayLiteral`, `ArrayLength`, `ArrayGet`, `ArrayAppend`, `ArrayInsert`,
+`ArrayReplace`, `ArrayRemove`, and `ArrayConcatenate`. JSON-valued items may be
+null, scalar, object, or nested array. Exact pin types remain required. The
+literal input is limited to 16,384 UTF-8 bytes before parsing, including
+whitespace. The outer array is limited to 64 items; the parsed document's root
+container counts as depth 1 toward the 32-level JSON depth limit. Every
+operation result is limited to 16,384 UTF-8 bytes after compact serialization;
+a transform that exceeds the result limit fails at that node before returning
+or recording the value.
+
+Array transforms copy `JsonElement` values through `Utf8JsonWriter.WriteTo`,
+preserving object member order and number-token spelling. String escape
+spelling may normalize while preserving the decoded string value. These bytes
+are deterministic preservation of the supplied JSON representation, not a
+canonical JSON form. Structural equality, membership, canonical object-key
+ordering, and value hashing are outside this increment. A `json` value and an
+`array<json>` value never connect implicitly.
+
+Workflow parameters and graph functions remain separate increments. Parameter
+support must prove default/override parsing, canonical run text, getter pins,
+child mappings, and playback before admitting `array<json>` to string-valued
+parameter maps. Function support must account the exact retained UTF-8
+representation against the existing 65,536-byte per-invocation evidence
+budget. JSON-valued items may be added to the private iterator candidate proof
+after composition works, but this does not close the integrated lifecycle,
+budget, playback, or nearest-frame `Break` gate in [Decision 0070](0070-bounded-array-iteration-contract.md).
 
 ## Compatibility
 

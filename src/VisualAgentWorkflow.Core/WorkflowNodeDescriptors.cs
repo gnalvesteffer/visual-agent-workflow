@@ -618,9 +618,8 @@ public static class WorkflowNodeDescriptorResolver
     {
         if ((node.Type is NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate) &&
             !WorkflowDataTypes.IsArrayElementType(node.ArrayElementType ?? WorkflowDataTypes.Json) ||
-            node.Type == NodeTypes.ArrayLiteral && node.ArrayLiteral is not null && (
-                !WorkflowDataTypes.IsArrayElementType(node.ArrayLiteral.ElementType) ||
-                node.ArrayLiteral.ElementType == WorkflowDataTypes.Json))
+            node.Type == NodeTypes.ArrayLiteral && node.ArrayLiteral is not null &&
+                !WorkflowDataTypes.IsArrayElementType(node.ArrayLiteral.ElementType))
         {
             descriptor = null!;
             return false;

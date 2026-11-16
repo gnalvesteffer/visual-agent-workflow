@@ -109,7 +109,7 @@ creation, wiring, save, and deterministic execution with no promotion controls.
 
 ### Next parity workstream: first-class collections
 
-**Status: Active; typed arrays compose through workflow boundaries, parameters, pure graph functions, and run-scoped variables.**
+**Status: Active; primitive typed arrays compose through workflow boundaries, parameters, pure graph functions, and run-scoped variables. JSON-valued arrays now compose through bounded literal and array-operation nodes. Parameters, graph functions, and iteration remain separate increments.**
 The capability audit and three-role adversarial review identify containers as a
 foundational Blueprint language gap. Existing `array<json>` support is useful
 but remains limited to exact graph shapes. [Decision 0066](decisions/0066-unified-typed-array-values.md)
@@ -152,6 +152,15 @@ will be introduced.
   committed write, concurrent root-run isolation, and sequential child-invocation
   isolation are now covered.
   See [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
+- [x] Compose the existing `array<json>` type with Array literal, length, get,
+  append, insert, replace, remove, and concatenate in unified schema 2.0. Keep
+  JSON null, nested values, item order, and exact `json` versus `array<json>`
+  typing; apply the 64-item, root-counted depth-32, and 16 KiB input/result
+  bounds. Core tests cover preservation and limit behavior; runtime tests cover
+  JSON literal/get and append/get execution, plus node-attributed oversized
+  result failure. Studio browser coverage verifies JSON literal authoring and
+  save/reopen. Parameters and graph functions are separate evidence increments;
+  iterator readiness remains governed by [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
   252/252 passed. The prior MCP suite result is 98 passed with 2 opt-in tests
