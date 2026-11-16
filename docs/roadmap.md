@@ -693,7 +693,9 @@ introduced.
       both activation scopes, and file/SQLite histories reopen identically
       (2 focused cases). Cancelling at the first nested child start records
       child/root cancellation and admits no later inner or outer activation in
-      either store (2 more focused cases). Nested child failure remains open.
+      either store (2 more focused cases). A typed conversion failure in the
+      first nested child is attributed at its call scope, fails the root, and
+      admits no later activation in file and SQLite (2 more focused cases).
   - [x] Exercise a pinned `WorkflowInterfaceCall` through the production body
     coordinator for each array item. Typed interface fields pack each item into
     the child JSON input and project it back to the output; exact child lifecycle

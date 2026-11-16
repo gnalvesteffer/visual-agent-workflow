@@ -4983,10 +4983,14 @@ public sealed class ArrayIterationVawBodyProofTests
             "nested-array-passthrough-child", "input",
             ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
                 .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("parse", new(NodeTypes.StringToInteger, "1.0.0"))
+                .Add("format", new(NodeTypes.IntegerToString, "1.0.0"))
                 .Add("output", new(NodeTypes.Output, "1.0.0")
                     { OutputDataType = WorkflowDataTypes.String }),
             ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
-                .Add("input-output", new(new("input", "out"), new("output", "in"), "data")))
+                .Add("input-parse", new(new("input", "out"), new("parse", "in"), "data"))
+                .Add("parse-format", new(new("parse", "out"), new("format", "in"), "data"))
+                .Add("format-output", new(new("format", "out"), new("output", "in"), "data")))
         {
             ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
                 .WithComparers(StringComparer.Ordinal)
@@ -5022,7 +5026,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var revision = WorkflowRevision.CreateProofOnly(definition,
             "nested-array-workflow-call-proof");
         const string outerItems = "[\"outer-a\",\"outer-b\"]";
-        const string innerItems = "[\"alpha\",\"beta\"]";
+        const string innerItems = "[\"1\",\"2\"]";
         using var runStore = new ProofRunStore(revision, outerItems, sqlite);
         var recorder = new ProofRecorder(runStore, startRoot: false);
 
@@ -5037,12 +5041,12 @@ public sealed class ArrayIterationVawBodyProofTests
         var events = recorder.Snapshot();
         Assert.False(result.Failed, string.Join("\n", events.Select(evt =>
             $"{evt.Sequence} {evt.Kind} {evt.NodeId} {evt.ScopeId} {evt.Data}")));
-        Assert.Equal("outer-a:alpha;beta;outer-b:alpha;beta", result.Output);
+        Assert.Equal("outer-a:1;2;outer-b:1;2", result.Output);
         Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.SubworkflowStarted));
 
         foreach (var (outerIndex, itemIndex, item) in new[]
         {
-            (0, 0, "alpha"), (0, 1, "beta"), (1, 0, "alpha"), (1, 1, "beta")
+            (0, 0, "1"), (0, 1, "2"), (1, 0, "1"), (1, 1, "2")
         })
         {
             var activationScope = $"outer-loop/{outerIndex}/inner-loop/{itemIndex}";
@@ -5096,6 +5100,37 @@ public sealed class ArrayIterationVawBodyProofTests
         var reopenedCancelled = cancelledStore.ReopenStore().Get(cancelledStore.RunId)!;
         Assert.Equal(cancelledEvents, reopenedCancelled.Events);
         Assert.Equal("cancelled", reopenedCancelled.Status);
+
+        using var failedStore = new ProofRunStore(revision, outerItems, sqlite);
+        var failedRecorder = new ProofRecorder(failedStore, startRoot: false);
+        const string failingInnerItems = "[\"invalid\",\"2\"]";
+        var failed = await new WorkflowRunner().ExecuteProductionNestedBodyBreakSequenceProofAsync(
+            failedStore.RunId, revision, outerItems, failingInnerItems, "outerIndex", "index", null,
+            evt =>
+            {
+                failedRecorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }, itemParameterId: "item", proofBreakNodeIds: new HashSet<string>(StringComparer.Ordinal));
+        var failedEvents = failedRecorder.Snapshot();
+        Assert.True(failed.Failed);
+        Assert.False(failed.Cancelled);
+        Assert.Single(failedEvents, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed &&
+            evt.ScopeId == "outer-loop/0/inner-loop/0/call");
+        Assert.Contains(failedEvents, evt => evt.Kind == ExecutionEventKinds.SubworkflowEvidence &&
+            evt.NodeId == "call" && evt.ScopeId == "outer-loop/0/inner-loop/0/call" &&
+            WorkflowCallLifecycleEvidence.TryRead(evt.Data, out var evidence) &&
+            evidence!.Lifecycle == ExecutionEventKinds.SubworkflowFailed);
+        Assert.Contains(failedEvents, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "parse" && evt.ScopeId == "outer-loop/0/inner-loop/0/call");
+        Assert.DoesNotContain(failedEvents, evt => evt.ScopeId is
+            "outer-loop/0/inner-loop/1" or "outer-loop/1" ||
+            evt.ScopeId?.StartsWith("outer-loop/1/", StringComparison.Ordinal) == true);
+        Assert.Single(failedEvents, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(failedStore, failedEvents, "failed");
+
+        var reopenedFailed = failedStore.ReopenStore().Get(failedStore.RunId)!;
+        Assert.Equal(failedEvents, reopenedFailed.Events);
+        Assert.Equal("failed", reopenedFailed.Status);
     }
 
     [Theory]

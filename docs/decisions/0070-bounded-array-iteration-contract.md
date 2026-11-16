@@ -2786,9 +2786,13 @@ histories reopen identically (2 focused cases). This extends successful
 WorkflowCall body composition to nested frames. The paired cancellation case
 cancels at the first nested child start, records exact-scope child lifecycle
 evidence and root cancellation, admits no later inner or outer activation, and
-reopens both file and SQLite histories (2 more focused cases). Nested child
-failure and the wider body matrix remain open. The proof is private and does
-not change architecture or user-guide behavior.
+reopens both file and SQLite histories (2 more focused cases). The typed
+conversion failure case records child node failure and failed-call lifecycle
+evidence at the nested call scope, fails the root, admits no later activation,
+and reopens both stores (2 more focused cases). This closes nested
+WorkflowCall success, failure, and cancellation for the tested linear body
+shape; parallel child settlement and the wider body matrix remain open. The
+proof is private and does not change architecture or user-guide behavior.
 
 The review explicitly keeps the end state unchanged: typed array iteration
 and nearest-loop Break must be authored in the current unified schema without
