@@ -231,6 +231,10 @@ introduced.
   - [x] Verify append/insert/replace/remove/concatenate ordering, empty-array
     insertion, legal index endpoints, invalid indexes and item types, exact
     array type matching, and maximum-item result rejection.
+  - [x] Prove Core validation independently rejects typed-array variables in
+    Sequence, nested workflow/interface calls, parallel fork/branch/join/
+    rendezvous regions, and graph functions. The focused placement matrix
+    passes 8/8 cases; these regions remain unsupported by contract.
   - [x] Verify runner-backed every-event-prefix reconstruction for bounded-loop
     typed-array variable state and after file/SQLite store reopen. Cancellation
     tests prove pre-write evidence stays empty and a post-write cancellation keeps

@@ -113,6 +113,13 @@ reader. The MutableVariableExecutionTests class passed 34/34; the full Agent
 Framework suite passed 644/644 immediately before these additions on 2026-11-16.
 Full historical compatibility proofs remain open.
 
+Core validation now has an explicit negative placement matrix for typed-array
+variables in Sequence, nested workflow and interface calls, parallel
+fork/branch/join/rendezvous regions, and graph functions. All eight cases
+produce the dedicated `variable.array.placement` diagnostic (8/8). This
+independently enforces the documented linear and bounded-loop placement rule;
+it does not authorize shared or concurrent array-variable state.
+
 ## Review record
 
 The proponent favored whole-value replacement using existing run-scoped

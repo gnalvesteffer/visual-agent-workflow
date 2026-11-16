@@ -55,6 +55,27 @@ public sealed class MutableVariableContractTests
         Assert.Contains(WorkflowValidator.Validate(wrongPin), issue => issue.Code == "variable.type");
     }
 
+    [Theory]
+    [InlineData(NodeTypes.Sequence)]
+    [InlineData(NodeTypes.WorkflowCall)]
+    [InlineData(NodeTypes.WorkflowInterfaceCall)]
+    [InlineData(NodeTypes.ParallelFork)]
+    [InlineData(NodeTypes.ParallelBranch)]
+    [InlineData(NodeTypes.ParallelJoin)]
+    [InlineData(NodeTypes.ParallelRendezvous)]
+    [InlineData(NodeTypes.FunctionCall)]
+    public void Typed_array_variables_are_rejected_in_unsupported_execution_regions(string nodeType)
+    {
+        var definition = ArrayDefinition();
+        var unsupported = definition with
+        {
+            Nodes = definition.Nodes.Add("unsupported", new(nodeType, "1.0.0"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(unsupported),
+            issue => issue.Code == "variable.array.placement");
+    }
+
     [Fact]
     public void Typed_array_variable_defaults_survive_package_round_trip_and_participate_in_definition_hash()
     {
