@@ -2114,6 +2114,15 @@ from file and SQLite (2/2 focused cases). This verifies one budget-exhaustion
 failure shape; it does not close other budget settlement paths or the broader
 body matrix.
 
+`ProductionBodyActivationCoordinator_EvaluatesGraphFunctionsInParallelPerItem`
+composes two pinned pure FunctionCall nodes with the separate Agent branches
+of a current-schema static fork. Across two typed string items, each function
+receives the correct item, records its evaluated output in the matching scope,
+and feeds the expected Agent result to the completed join. File and SQLite
+histories reopen identically (2/2 focused cases). This proves one parallel
+function-to-Agent composition; function failure races and broader fork/body
+coverage remain open.
+
 `ProductionBodyActivationCoordinator_BindsTypedIntegerItemAndIndex` exercises
 the Core parameter-binding seam through the same coordinator and production
 Agent dispatcher. It uses `long.MinValue`, zero, and `long.MaxValue`, verifies

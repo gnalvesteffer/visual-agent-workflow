@@ -331,6 +331,12 @@ will be introduced.
       attributed to the visible FunctionCall with the internal input boundary
       and safe limit reason; the consumer/root fail, later items do not start,
       and the failed prefix reopens from file and SQLite (2 focused cases).
+    - [x] Compose two pinned pure FunctionCall nodes into separate branches of
+      a parallel Agent fork for each item. Both transformed inputs, call
+      evidence, Agent outputs, and join completion retain the correct item
+      scope through file and SQLite reopen (2 focused cases). This qualifies
+      one parallel function/Agent composition; failure races and broader body
+      coverage remain open.
     - [x] Compose two typed JSON projections with JsonMerge and JsonSelectString
       in the production body seam. Reopened file/SQLite evidence contains each
       merged item value (2/2); duplicate-key failures identify JsonMerge and its

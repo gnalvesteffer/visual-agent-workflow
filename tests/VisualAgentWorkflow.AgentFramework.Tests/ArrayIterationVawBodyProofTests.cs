@@ -2347,6 +2347,96 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_EvaluatesGraphFunctionsInParallelPerItem(bool sqlite)
+    {
+        const string input = "[\"north\",\"south\"]";
+        var function = GraphFunctionValueBodyDefinition().Nodes["call"].GraphFunction!;
+        var body = ParallelBodyDefinition();
+        var nodes = body.Nodes
+            .Add("function-left", new NodeDefinition(NodeTypes.FunctionCall, "1.0.0")
+                { GraphFunction = function })
+            .Add("function-right", new NodeDefinition(NodeTypes.FunctionCall, "1.0.0")
+                { GraphFunction = function });
+        var connections = body.Connections.Remove("input-left").Remove("input-right")
+            .Add("input-function-left", new(new("input", "out"), new("function-left", "text"), "data"))
+            .Add("input-function-right", new(new("input", "out"), new("function-right", "text"), "data"))
+            .Add("function-left-agent", new(new("function-left", "result"), new("agent-left", "in"), "data"))
+            .Add("function-right-agent", new(new("function-right", "result"), new("agent-right", "in"), "data"));
+        var definition = body with
+        {
+            Nodes = nodes,
+            Connections = connections,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-parallel-graph-functions-per-item-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var agents = new EchoAgentExecutor();
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner(agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record);
+
+        Assert.False(outcome.Failed);
+        Assert.Equal(4, agents.Inputs.Length);
+        AssertPersistedSequence(runStore, events, "completed");
+        foreach (var (scope, item) in new[] { ("array-loop/0", "north"), ("array-loop/1", "south") })
+        {
+            foreach (var (functionNode, agentNode) in new[]
+            {
+                ("function-left", "agent-left"), ("function-right", "agent-right")
+            })
+            {
+                var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                    evt.NodeId == functionNode && evt.ScopeId == scope);
+                using var payload = JsonDocument.Parse(evaluated.Data!);
+                Assert.Equal("data:" + functionNode + "-agent", evaluated.ConnectionId);
+                Assert.Equal(item + "!", payload.RootElement.GetProperty("value").GetString());
+                Assert.Equal(item, payload.RootElement.GetProperty("function").GetProperty("inputs")
+                    .GetProperty("text").GetString());
+
+                var agentOutput = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                    evt.NodeId == agentNode && evt.ScopeId == scope);
+                using var output = JsonDocument.Parse(agentOutput.Data!);
+                Assert.Equal(item + "!-" + agentNode,
+                    output.RootElement.GetProperty("query").GetString());
+            }
+
+            var join = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "join" && evt.ScopeId == scope);
+            using var joined = JsonDocument.Parse(join.Data!);
+            foreach (var (port, agentNode) in new[]
+            {
+                ("left", "agent-left"), ("right", "agent-right")
+            })
+            {
+                using var branchOutput = JsonDocument.Parse(joined.RootElement.GetProperty(port).GetString()!);
+                Assert.Equal(item + "!-" + agentNode,
+                    branchOutput.RootElement.GetProperty("query").GetString());
+            }
+
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.ScopeId == scope);
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_JoinsParallelMcpPerItem(bool sqlite)
     {
         const string input = "[\"north\",\"south\"]";

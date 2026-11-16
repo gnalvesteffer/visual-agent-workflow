@@ -23,6 +23,16 @@ identically from file and SQLite (2/2 focused cases). This closes one budget
 failure shape only. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Parallel graph-function composition in array-iteration proof
+
+Two pinned pure FunctionCall nodes now feed separate Agent branches in the
+private production-body coordinator. Both functions receive each item's value,
+their `data.evaluated` records stay within the correct activation, and joined
+Agent outputs persist and reopen through file and SQLite stores (2/2 focused
+cases). This verifies one combined body path; it does not close function
+failure races or the broader iterator matrix. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Actionable loop playback for unresolved MCP outcomes
 
 Loop activation playback correlates authorized MCP call IDs with recorded
