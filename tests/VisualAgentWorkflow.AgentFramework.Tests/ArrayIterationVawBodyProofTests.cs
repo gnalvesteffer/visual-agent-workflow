@@ -2862,6 +2862,51 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_RejectsJsonArrayVariableOverflowPerItem(bool sqlite)
+    {
+        const string input = "[{\"kind\":\"append\"},{\"kind\":\"must-not-run\"}]";
+        var seedValue = JsonSerializer.Serialize(new[]
+        {
+            new string('x', WorkflowArrayLiteral.MaximumPayloadBytes - 8)
+        });
+        Assert.True(seedValue.Length < WorkflowArrayLiteral.MaximumPayloadBytes);
+        Assert.True(seedValue.Length + 1 + "{\"kind\":\"append\"}".Length >
+            WorkflowArrayLiteral.MaximumPayloadBytes);
+        var revision = WorkflowRevision.Create(JsonArrayVariableItemBodyDefinition(seedValue),
+            "production-body-json-array-variable-overflow-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner().ExecuteProductionBodyActivationSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, Record,
+            arrayElementType: WorkflowDataTypes.Json);
+
+        Assert.True(result.Failed);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "append" && evt.ScopeId == "array-loop/0" &&
+            evt.Data!.Contains($"Typed array result exceeds {WorkflowArrayLiteral.MaximumPayloadBytes} UTF-8 bytes",
+                StringComparison.Ordinal));
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+        Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/0");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ComposesEveryTypedArrayOperationPerItem(bool sqlite)
     {
         const string input = "[\"alpha\",\"beta\"]";
@@ -14483,7 +14528,7 @@ public sealed class ArrayIterationVawBodyProofTests
         return definition;
     }
 
-    private static WorkflowDefinition JsonArrayVariableItemBodyDefinition()
+    private static WorkflowDefinition JsonArrayVariableItemBodyDefinition(string initialValue = "[null,{\"seed\":1.00}]")
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
             .Add("input", new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json })
@@ -14514,7 +14559,7 @@ public sealed class ArrayIterationVawBodyProofTests
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                 .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
             Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
-                .Add("items", new("Items", "[null,{\"seed\":1.00}]")
+                .Add("items", new("Items", initialValue)
                     { Type = WorkflowDataTypes.JsonArray })
         };
         WorkflowValidator.ThrowIfInvalid(definition);

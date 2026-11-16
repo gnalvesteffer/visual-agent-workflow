@@ -199,8 +199,10 @@ introduced.
   The integrated `array<json>` body proof also verifies mutable JSON-array
   variables: each activation starts at the declared default, appends its own
   heterogeneous item, and reconstructs independent scoped state after file and
-  SQLite reopen. JSON-array variable failure/cancellation and the architecture
-  review remain open.
+  SQLite reopen. A 16 KiB Append overflow in the first activation is attributed
+  to Append, commits no variable write, suppresses completion and later items,
+  and preserves the same failed prefix after both store reopen paths. JSON-array
+  variable cancellation and the architecture review remain open.
   See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [ ] **Finish proof for typed arrays in run-scoped variables:** complete the
   accepted unified-schema 2.0 contract for typed array declarations, Get/Set,

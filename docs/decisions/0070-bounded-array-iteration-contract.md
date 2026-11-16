@@ -2644,10 +2644,16 @@ Variable-write evidence and playback reconstruction remain activation-scoped;
 the object and nested-array values preserve their JSON representation after
 file/SQLite reopen (2/2 focused cases).
 
-These prove successful JSON-array transformation and mutable-variable state
-across item activations. They do not establish a public iterator contract,
-JSON-array variable failure or cancellation behavior, or the architecture
-choice. Readiness remains **REVISE**.
+`ProductionBodyActivationCoordinator_RejectsJsonArrayVariableOverflowPerItem`
+uses a valid declared default near the 16 KiB typed-array bound. Appending the
+first heterogeneous item fails at Array Append, records no Variable Set, does
+not complete the activation or admit the second item, and reopens as the same
+failed file/SQLite prefix (2/2 focused cases).
+
+These prove successful JSON-array transformation and mutable-variable state,
+plus one bounded transform failure, across item activations. They do not
+establish a public iterator contract, cancellation behavior for this type, or
+the architecture choice. Readiness remains **REVISE**.
 
 `ProductionBodyActivationCoordinator_StopsAfterJsonArrayAppendExceedsPayloadLimit`
 complements the successful path with an oversized Append result in the same
