@@ -1010,6 +1010,59 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ToolFailureAppendFailurePreservesAuthorizedPrefix(bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        const string bindingId = "proof.production-recorded-failure";
+        var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
+        var nodes = definition.Nodes.SetItem("tool", definition.Nodes["tool"] with
+        {
+            Tool = new ToolBindingRequest(bindingId, new string('d', 64)),
+            McpArgumentsJson = "{}"
+        });
+        var revision = WorkflowRevision.Create(definition with { Nodes = nodes },
+            "production-body-tool-failure-append-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.ToolFailed]);
+        var events = new List<ExecutionEvent>();
+        var broker = new RecordingFailedToolBroker(bindingId);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(tools: broker, agents: new EchoAgentExecutor())
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+
+        Assert.True(result.Failed);
+        Assert.Equal(1, broker.DispatchAttempts);
+        Assert.True(broker.FailureEvidenceAttempted);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolRequested);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolFailed or
+            ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolUncertain);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
+        Assert.Contains("An MCP call was authorized, but no outcome event was recorded.", playback,
+            StringComparison.Ordinal);
+        Assert.Contains("Its external effect may be unknown.", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Tool failed:", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_AuthorizationAppendFailurePreventsToolDispatch(bool sqlite)
     {
         const string input = "[\"one\"]";
@@ -14986,6 +15039,60 @@ public sealed class ArrayIterationVawBodyProofTests
 
                 Interlocked.Increment(ref owner.dispatchAttempts);
                 throw new InvalidOperationException(owner.rawFailureMessage);
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingFailedToolBroker(string bindingId) : INodeToolBroker
+    {
+        private int dispatchAttempts;
+        private int failureEvidenceAttempted;
+
+        public int DispatchAttempts => Volatile.Read(ref dispatchAttempts);
+        public bool FailureEvidenceAttempted => Volatile.Read(ref failureEvidenceAttempted) != 0;
+
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(bindingId, invocation, this);
+
+        private sealed class Scope(string expectedBindingId, NodeInvocationContext invocation,
+            RecordingFailedToolBroker owner) : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string requestedBindingId, string input,
+                CancellationToken cancellationToken = default) =>
+                Task.FromException<string>(new NotSupportedException("The proof expects structured tool arguments."));
+
+            public async Task<string> InvokeJsonAsync(string requestedBindingId, JsonElement arguments,
+                CancellationToken cancellationToken = default)
+            {
+                if (requestedBindingId != expectedBindingId)
+                    throw new InvalidOperationException("The workflow requested an unexpected custom tool.");
+
+                var toolCallId = Guid.NewGuid();
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolRequested,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId = requestedBindingId }));
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolAuthorized,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId = requestedBindingId, input = arguments }));
+                Interlocked.Increment(ref owner.dispatchAttempts);
+                Volatile.Write(ref owner.failureEvidenceAttempted, 1);
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolFailed,
+                    JsonSerializer.Serialize(new
+                    {
+                        toolCallId,
+                        bindingId = requestedBindingId,
+                        failureCode = "tool.host_failure",
+                        disposition = ToolInvocationFailureDisposition.Fatal.ToString(),
+                        reason = "The controlled tool failed before completing its operation."
+                    }));
+                throw new ToolInvocationException("The controlled tool failed before completing its operation.");
             }
 
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;

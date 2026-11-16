@@ -416,8 +416,9 @@ will be introduced.
     - [x] Render an explicit `TextTemplate` from the current item and typed
       index parameter across three changing string items. Output and scoped
       evaluated values agree after file/SQLite reopen (2 focused cases). This
-      proves item/index template interpolation in the private seam; other
-      template part shapes and public iterator authoring remain open.
+      exercises all three supported template part kinds (`literal`, connected
+      `input`, and typed `parameter`) in the private seam. Public iterator
+      authoring and broader template/body composition remain open.
     - [x] Build an immutable `array<string>` with `ArrayLiteral` and use each
       typed integer item as the `ArrayGet` index. Returned values and evidence
       persist through both stores (2/2); an out-of-range third item fails at
@@ -499,6 +500,12 @@ will be introduced.
       outcome is fabricated, and the active iteration remains incomplete after
       reopen (2 focused cases). This qualifies the pre-dispatch authorization
       evidence boundary only; remaining append-failure positions stay open.
+    - [x] Reject `tool.failed` after a custom broker records request,
+      authorization, and definitive failure. The admitted operation is not
+      retried, the accepted prefix contains no fabricated tool outcome, later
+      items do not start, and reopened file/SQLite playback warns that the
+      external effect may be unknown (2 focused cases). This proves one
+      post-dispatch failure-evidence write boundary, not general recovery.
     - [x] Reject `tool.requested` from the production MCP broker in both run
       stores. The broker opens no MCP connection, the tool and root fail, and
       reopened playback retains the iteration as incomplete (2 focused

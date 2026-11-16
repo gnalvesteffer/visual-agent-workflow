@@ -2424,3 +2424,20 @@ records a cancelled call and root, stops later admission, and reopens from both
 stores (4 focused cases total). These tests cover ordinary child failure and
 host cancellation only; external uncertainty, append races, and the broader
 body/architecture gates remain open. Readiness remains **REVISE**.
+
+## Definitive tool-failure evidence append rejection (2026-11-16)
+
+`ProductionBodyActivationCoordinator_ToolFailureAppendFailurePreservesAuthorizedPrefix`
+uses a deterministic custom broker that records `tool.requested` and
+`tool.authorized`, then attempts to record a definitive `tool.failed` event.
+The file and SQLite stores reject that outcome append. The coordinator does
+not retry the dispatched call or admit the next array item; the accepted
+prefix ends with root failure and retains the authorization without claiming
+the tool outcome. Reopened playback reports that the external effect may be
+unknown and keeps the activation incomplete (2/2 focused cases).
+
+This qualifies one post-dispatch failure-evidence persistence boundary. It
+does not provide recovery or establish the iterator architecture; readiness
+remains **REVISE**. The existing TextTemplate case also exercises every
+supported part kind (`literal`, connected `input`, and typed `parameter`);
+only broader template/body composition remains open.
