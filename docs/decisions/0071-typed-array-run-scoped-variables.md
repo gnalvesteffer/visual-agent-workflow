@@ -149,4 +149,4 @@ contract tests (17/17) on 2026-11-16. The Release Studio build completed with
 zero warnings/errors. The folder-workflow Playwright smoke passed against an
 isolated Development Studio and verified JSON-array defaults, save/reopen,
 limits/help, and the existing run/inspection flow. The full Agent Framework
-suite has not yet been rerun for this increment.
+suite passed 691/691 on 2026-11-16.

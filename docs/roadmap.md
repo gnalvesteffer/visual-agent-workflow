@@ -242,7 +242,8 @@ introduced.
     retains the recorded evidence prefix. The folder-editor browser smoke
     verifies the JSON-array variable guidance, default persistence, and exposed
     transformation/evidence-budget limits. Broader historical compatibility
-    remains open.
+    remains open. The full Agent Framework suite passed 691/691 after this
+    increment; Core variable contracts passed 17/17.
   - [x] Carry a graph-dispatched typed Break result with source and target
     activation identity into the VAW coordinator; have the dispatcher report
     only source identity and derive/consume the target in the coordinator.
