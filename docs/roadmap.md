@@ -158,6 +158,16 @@ will be introduced.
   eventual Studio array editor uses one JSON text field validated by the
   declared type.
   See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+- [ ] **Typed arrays in run-scoped variables:** implement the accepted
+  unified-schema 2.0 contract for typed array declarations, Get/Set, and pure
+  append, insert-at, replace-at, remove-at, and concatenate operations. Set
+  explicitly commits whole transformed values. Keep current linear and bounded
+  loop ordering; reject parallel, Sequence, collaboration, asynchronous,
+  graph-function, shared child-state, and checkpoint placements. Define and
+  enforce canonical array encoding and an aggregate evidence budget before
+  runtime admission, then prove passive playback, compatibility, and Studio
+  authoring. This is accepted design, not shipped behavior. See
+  [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
   - [x] Carry a graph-dispatched typed Break result with source and target
     activation identity into the VAW coordinator; have the dispatcher report
     only source identity and derive/consume the target in the coordinator.
