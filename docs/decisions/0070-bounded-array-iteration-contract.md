@@ -2700,3 +2700,12 @@ the identical failed event sequence (2/2 focused cases). This establishes
 bounded JSON-transform failure attribution and persistence for this proof
 shape; it does not establish cancellation behavior or select a public iterator
 architecture. Readiness remains **REVISE**.
+
+`ProductionBodyActivationCoordinator_EmptyJsonArrayCompletesWithoutActivation`
+closes the corresponding zero-item path in the integrated production-body
+coordinator. For both file and SQLite, an empty `array<json>` records root
+start and completion with no iteration or body-node events, returns an empty
+result, and reopens with the same completed history (2/2 focused cases).
+Candidate-level empty typed arrays were already covered; this adds only the
+integrated lifecycle/playback boundary. It does not change the public iterator
+contract or architecture readiness, which remains **REVISE**.

@@ -422,6 +422,11 @@ introduced.
       The safe failure is attributed to Replace and its consuming Variable Set,
       no write or later item is recorded, and the failed file/SQLite prefixes
       reopen consistently (2/2 focused cases).
+    - [x] Pass an empty `array<json>` through the integrated production-body
+      coordinator. It records only root start/completion, returns the empty
+      result without dispatching a body activation, and reopens identically
+      through file and SQLite (2/2 focused cases). Candidate behavior was
+      already covered; this closes the matching integrated no-item boundary.
     - [x] Append each heterogeneous `array<json>` item to a typed JSON-array
       literal in the production body. Object, null, nested array, and `1.00`
       number tokens remain intact in each scoped output; both file and SQLite

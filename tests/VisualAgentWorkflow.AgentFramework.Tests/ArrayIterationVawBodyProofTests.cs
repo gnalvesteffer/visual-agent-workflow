@@ -1774,6 +1774,42 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_EmptyJsonArrayCompletesWithoutActivation(bool sqlite)
+    {
+        const string input = "[]";
+        var revision = WorkflowRevision.Create(JsonItemPassthroughBodyDefinition(),
+            "production-body-empty-json-array-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner().ExecuteProductionBodyActivationSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, Record,
+            arrayElementType: WorkflowDataTypes.Json);
+
+        Assert.False(result.Failed);
+        Assert.Equal(string.Empty, result.Output);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
+            ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.NodeStarted or
+            ExecutionEventKinds.NodeCompleted);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+        Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_RoutesConditionalItemsThroughExclusiveMerge(bool sqlite)
     {
         const string input = "[\"yes\",\"no\",\"yes\"]";
