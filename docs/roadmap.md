@@ -431,6 +431,12 @@ will be introduced.
       file and SQLite histories reopen successfully (2 focused cases). This
       uses a test gate and broker; host approval-request persistence and
       permission-policy behavior remain outside this proof.
+    - [x] Exercise typed mutable array variables inside each activation. Both
+      items begin from the declared default, append their own item, and persist
+      independent scoped state that reconstructs after file/SQLite reopen
+      (2 focused cases). This proves activation-scoped state in the private
+      body seam only; public iterator authoring and architecture selection
+      remain open.
     - [x] Build an immutable `array<string>` with `ArrayLiteral` and use each
       typed integer item as the `ArrayGet` index. Returned values and evidence
       persist through both stores (2/2); an out-of-range third item fails at

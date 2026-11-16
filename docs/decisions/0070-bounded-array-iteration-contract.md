@@ -2474,3 +2474,18 @@ through the production coordinator. The test gate and broker do not qualify
 host approval-request persistence, real user decisions, or permission-policy
 behavior. It does not alter the iterator architecture review; readiness
 remains **REVISE**.
+
+## Typed mutable-array state inside activations (2026-11-16)
+
+`ProductionBodyActivationCoordinator_IsolatesTypedArrayVariableStatePerItem`
+uses the existing typed `VariableGet`, `ArrayAppend`, and `VariableSet` nodes
+inside two production body activations. Both begin with the declared
+`["seed"]` default, append only their own current item, return the expected
+array, and persist a distinct scoped variable history. Reopened file and
+SQLite events reconstruct each activation independently (2/2 focused cases).
+
+This verifies typed mutable-array state composition and playback inside the
+private coordinator. It does not add public iterator authoring, shared state
+between iterations, or checkpoint recovery; the architecture readiness remains
+**REVISE**. Architecture and user-guide descriptions are unchanged because
+this proof introduces no user-visible runtime behavior.

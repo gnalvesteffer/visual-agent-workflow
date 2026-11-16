@@ -2516,6 +2516,60 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_IsolatesTypedArrayVariableStatePerItem(bool sqlite)
+    {
+        const string input = "[\"alpha\",\"beta\"]";
+        var revision = WorkflowRevision.Create(TypedArrayVariableItemBodyDefinition(),
+            "production-body-array-variable-isolation-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner().ExecuteProductionBodyActivationSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, Record,
+            itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.False(result.Failed);
+        Assert.Equal("[\"seed\",\"alpha\"];[\"seed\",\"beta\"]", result.Output);
+        var writes = events.Where(evt => evt.Kind == ExecutionEventKinds.VariableWritten).ToArray();
+        Assert.Equal(["array-loop/0", "array-loop/1"], writes.Select(evt => evt.ScopeId!).ToArray());
+        Assert.Equal(["[\"seed\",\"alpha\"]", "[\"seed\",\"beta\"]"], writes.Select(evt =>
+        {
+            using var data = JsonDocument.Parse(evt.Data!);
+            Assert.Equal("[\"seed\"]", data.RootElement.GetProperty("previousValue").GetRawText());
+            return data.RootElement.GetProperty("value").GetRawText();
+        }).ToArray());
+
+        AssertPersistedSequence(runStore, events, "completed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        foreach (var (scope, expectedValue) in new[]
+        {
+            ("array-loop/0", "[\"seed\",\"alpha\"]"),
+            ("array-loop/1", "[\"seed\",\"beta\"]")
+        })
+        {
+            var scopedEvents = reopened.Events.Where(evt => evt.ScopeId == scope).ToArray();
+            Assert.True(VariableEvidence.TryReconstructPlayback(scopedEvents, out var state));
+            Assert.Equal(scope, state!.ScopeId);
+            Assert.Equal(2, state.Values["items"].Version);
+            Assert.Equal(expectedValue, state.Values["items"].Value);
+        }
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: completed", playback, StringComparison.Ordinal);
+        Assert.Contains("array-loop/0", playback, StringComparison.Ordinal);
+        Assert.Contains("array-loop/1", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_IndexesTypedArrayLiteralWithEachIntegerItem(bool sqlite)
     {
         const string input = "[0,1]";
@@ -13490,6 +13544,47 @@ public sealed class ArrayIterationVawBodyProofTests
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                 .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
                 .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition TypedArrayVariableItemBodyDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "item", OutputDataType = WorkflowDataTypes.String })
+            .Add("read-before", new(NodeTypes.VariableGet, "1.0.0")
+                { VariableId = "items", OutputDataType = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String) })
+            .Add("append", new(NodeTypes.ArrayAppend, "1.0.0")
+                { ArrayElementType = WorkflowDataTypes.String })
+            .Add("set", new(NodeTypes.VariableSet, "1.0.0")
+                { VariableId = "items", InputDataType = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String) })
+            .Add("read-after", new(NodeTypes.VariableGet, "1.0.0")
+                { VariableId = "items", OutputDataType = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String) })
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String) });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("current-array", new(new("read-before", "out"), new("append", "array"), "data"))
+            .Add("current-item", new(new("item", "out"), new("append", "item"), "data"))
+            .Add("appended-array", new(new("append", "out"), new("set", "value"), "data"))
+            .Add("final-array", new(new("read-after", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-read", Edge("input", "then", "read-before", "execute"))
+            .Add("read-set", Edge("read-before", "then", "set", "execute"))
+            .Add("set-read", Edge("set", "then", "read-after", "execute"))
+            .Add("read-output", Edge("read-after", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-array-variable-body", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
+                .Add("items", new("Items", "[\"seed\"]")
+                    { Type = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String) })
         };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
