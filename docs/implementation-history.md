@@ -785,3 +785,12 @@ their item scopes, and file/SQLite histories reopen identically (2 focused
 cases). This proves the successful child-call body path only; failure,
 cancellation, the supported-body matrix, and Decision 0070's architecture gate
 remain open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: pinned WorkflowCall failure (2026-11-15)
+
+A pinned child's typed conversion now fails on the first production-body item
+in both file and SQLite cases. Child failure evidence stays in the activation
+scope, the root fails, no subsequent item is admitted, and playback reopens
+with the same event prefix (2 focused cases). Child cancellation and the
+broader proof/architecture gates remain open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

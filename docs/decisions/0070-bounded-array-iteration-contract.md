@@ -2385,3 +2385,10 @@ activation. File and SQLite run histories reopen identically (2 focused
 cases). This proves only the successful WorkflowCall body path. Child failure,
 cancellation, the remaining supported-body matrix, and the architecture
 decision remain open; readiness remains **REVISE**.
+
+`ProductionBodyActivationCoordinator_StopsAtFailedPinnedWorkflow` forces a
+child's typed string-to-integer conversion to fail during the first item. The
+child's exact-scope failure is recorded, the root fails, the next item is not
+admitted, and both file and SQLite histories reopen identically (2 focused
+cases). Child cancellation and the broader body/architecture gates remain
+open; readiness remains **REVISE**.

@@ -306,6 +306,88 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_StopsAtFailedPinnedWorkflow(bool sqlite)
+    {
+        var childDefinition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-failing-child", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("parse", new(NodeTypes.StringToInteger, "1.0.0"))
+                .Add("format", new(NodeTypes.IntegerToString, "1.0.0"))
+                .Add("output", new(NodeTypes.Output, "1.0.0")
+                    { OutputDataType = WorkflowDataTypes.String }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input-parse", new(new("input", "out"), new("parse", "in"), "data"))
+                .Add("parse-format", new(new("parse", "out"), new("format", "in"), "data"))
+                .Add("format-output", new(new("format", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .WithComparers(StringComparer.Ordinal)
+                .Add("input-output", Edge("input", "then", "output", "execute"))
+        };
+        var child = WorkflowRevision.Create(childDefinition, "array-iteration-failing-child-proof");
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("call", new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+            {
+                WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1,
+                    child.ContentHash, child.Definition)
+            })
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.String });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-call", new(new("input", "out"), new("call", "in"), "data"))
+            .Add("call-output", new(new("call", "out"), new("output", "in"), "data"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-failing-workflow-call-proof", "input", nodes, data)
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .WithComparers(StringComparer.Ordinal)
+                .Add("input-call", Edge("input", "then", "call", "execute"))
+                .Add("call-output", Edge("call", "out", "output", "execute")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .WithComparers(StringComparer.Ordinal)
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition, "array-iteration-failing-workflow-call-proof");
+        const string input = "[\"invalid\",\"13\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record);
+
+        Assert.True(result.Failed);
+        Assert.False(result.OutcomeUnknown);
+        AssertPersistedSequence(runStore, events, "failed");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowStarted &&
+            evt.ScopeId == "array-loop/0/call");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed &&
+            evt.ScopeId == "array-loop/0/call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "parse" && evt.ScopeId == "array-loop/0/call");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1" ||
+            evt.ScopeId?.StartsWith("array-loop/1/", StringComparison.Ordinal) == true);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_AttributesGraphFunctionFailureToCall(bool sqlite)
     {
         const string input = "[0,1]";
