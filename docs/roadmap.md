@@ -973,6 +973,14 @@ will be introduced.
       budget, adapter, file/SQLite, and playback matrix. The private frame
       binds typed parameter values, but does not establish authored pin
       contracts or production-owned lifecycle/budget semantics.
+      - [x] Pass `array<json>` object items through the private production-body
+        coordinator into the existing JSON-typed Input pin while binding the
+        integer index through the existing typed parameter contract. Nested
+        null, array, object, and numeric-token content plus scoped index
+        evaluation persist and reopen through file and SQLite (2/2 focused
+        cases). This proves JSON item transport only; JSON-typed workflow
+        parameters, public iterator pins, Break authoring, and architecture
+        selection remain open.
     - [x] Extend the matched structured, fresh-subworkflow, and hybrid proof
       from string arrays to a validated JSON integer array, including signed
       64-bit minimum, zero, and maximum values. Items flow through typed

@@ -2558,3 +2558,18 @@ each activation's numeric operand/result evidence and reopens both file and
 SQLite histories (2/2 focused cases). This establishes finite numeric item
 binding and arithmetic for this candidate body only; it does not cover numeric
 overflow or select a production architecture.
+
+## JSON-valued items in the integrated proof (2026-11-16)
+
+The production-body proof coordinator now preserves each `array<json>` item as
+its raw JSON representation while building per-item activation inputs. A
+file/SQLite regression passes object items with nested nulls, arrays, objects,
+and a `1.00` number token through the existing JSON-typed Input pin. The same
+body reads the zero-based index through the existing integer Workflow Value
+contract, combines both values for a production Agent invocation, and checks
+scoped `data.evaluated` evidence after reopening the journal (2/2 cases).
+
+This is private proof support for JSON item transport only. It does not add
+JSON-typed workflow parameters, authored iterator item/index pins, public Break
+behavior, or a selected production iterator architecture. Readiness remains
+**REVISE**.
