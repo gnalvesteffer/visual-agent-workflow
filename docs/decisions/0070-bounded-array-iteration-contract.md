@@ -2656,11 +2656,16 @@ Variable Written event. The committed JSON value remains reconstructable from
 that activation scope after file/SQLite reopen, the run reopens as cancelled,
 and the second item is never admitted (2/2 focused cases).
 
+`ProductionBodyActivationCoordinator_CancellationBeforeJsonArrayVariableWriteLeavesNoCommit`
+cancels at the first activation's Variable Set start event. No write or Set
+completion is recorded, the second item is not admitted, and both stores reopen
+with the same cancelled prefix (2/2 focused cases).
+
 These prove successful JSON-array transformation and mutable-variable state,
-plus bounded failure and post-write cancellation, across item activations. They
-do not establish a public iterator contract, cancellation-before-write or
-parallel cancellation races for this type, or the architecture choice.
-Readiness remains **REVISE**.
+plus bounded failure and cancellation on both sides of Variable Set, across item
+activations. They do not establish a public iterator contract, parallel
+cancellation races for this type, or the architecture choice. Readiness
+remains **REVISE**.
 
 `ProductionBodyActivationCoordinator_StopsAfterJsonArrayAppendExceedsPayloadLimit`
 complements the successful path with an oversized Append result in the same

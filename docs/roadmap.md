@@ -202,9 +202,10 @@ introduced.
   SQLite reopen. A 16 KiB Append overflow in the first activation is attributed
   to Append, commits no variable write, suppresses completion and later items,
   and preserves the same failed prefix after both store reopen paths. JSON-array
-  variable cancellation after a committed write preserves reconstructable state
-  and suppresses later items in both stores; cancellation-before-write and
-  parallel cancellation races remain open, as does the architecture review.
+  variable cancellation before the write records neither a write nor Set
+  completion; cancellation after a committed write preserves reconstructable
+  state. Both paths suppress later items in both stores. Parallel cancellation
+  races remain open, as does the architecture review.
   See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [ ] **Finish proof for typed arrays in run-scoped variables:** complete the
   accepted unified-schema 2.0 contract for typed array declarations, Get/Set,
