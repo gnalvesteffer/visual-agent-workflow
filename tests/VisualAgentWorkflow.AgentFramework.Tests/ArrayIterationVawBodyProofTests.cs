@@ -7168,6 +7168,107 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_ApplyJsonArrayOperationsWithMatchingScopedEvidence(bool sqlite)
+    {
+        const string input = "[{\"name\":\"alpha\",\"n\":1.00},[null,true]]";
+        var revision = WorkflowRevision.Create(JsonArrayOperationsItemBodyDefinition(),
+            "array-iteration-json-array-operation-candidates-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+
+        var structured = await new WorkflowRunner()
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, arrayElementType: WorkflowDataTypes.Json);
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, new EchoAgentExecutor(), new EchoToolBroker(),
+            arrayElementType: WorkflowDataTypes.Json);
+        var subworkflowExecutor = new WorkflowBuilder(subworkflowIterator)
+            .WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflowExecutor, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            new EchoAgentExecutor(), new EchoToolBroker(), "array-loop",
+            ParseProofArrayItems(input, WorkflowDataTypes.Json), null, "index", [],
+            async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(
+                    hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
+                if (result.Failed || result.Output is null)
+                    throw new InvalidOperationException("The hybrid JSON-array operation body did not return a result.");
+                return new ActivationLoopProofValue(result.Output);
+            });
+        hybridRecorder.CompleteRoot();
+
+        const string expected = "[{\"name\":\"alpha\",\"n\":1.00},{\"name\":\"alpha\",\"n\":1.00},{\"name\":\"alpha\",\"n\":1.00},{\"tail\":2.00},[true]];" +
+            "[[null,true],[null,true],[null,true],{\"tail\":2.00},[true]]";
+        Assert.False(structured.Failed);
+        Assert.Equal(expected, structured.Output);
+        Assert.Equal(structured.Output, subworkflowOutput);
+        Assert.Equal(structured.Output, hybridOutput);
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        foreach (var (store, events) in new[]
+        {
+            (structuredStore, structuredEvents), (subworkflowStore, subworkflowEvents),
+            (hybridStore, hybridEvents)
+        })
+        {
+            AssertPersistedSequence(store, events, "completed");
+            Assert.Equal(events, store.ReopenStore().Get(store.RunId)!.Events);
+        }
+
+        Assert.Equal(EventShape(structuredEvents), EventShape(subworkflowEvents));
+        Assert.Equal(EventShape(structuredEvents), EventShape(hybridEvents));
+        Assert.Equal(DataShape(structuredEvents), DataShape(subworkflowEvents));
+        Assert.Equal(DataShape(structuredEvents), DataShape(hybridEvents));
+        foreach (var events in new[] { structuredEvents, subworkflowEvents, hybridEvents })
+        {
+            foreach (var scopeId in new[] { "array-loop/0", "array-loop/1" })
+            {
+                var scopedEvents = events.Where(evt => evt.ScopeId == scopeId).ToArray();
+                Assert.Equal(19, scopedEvents.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated));
+                Assert.Single(scopedEvents, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
+            }
+        }
+
+        static (string Kind, string? NodeId, string? ScopeId)[] EventShape(IEnumerable<ExecutionEvent> events) =>
+            events.Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
+                ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.NodeStarted or
+                ExecutionEventKinds.NodeCompleted)
+                .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
+
+        static (string? NodeId, string? ScopeId, string? ConnectionId, string? Data)[] DataShape(
+            IEnumerable<ExecutionEvent> events) => events.Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated)
+            .Select(evt => (evt.NodeId, evt.ScopeId, evt.ConnectionId, evt.Data)).ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_RouteEachItemThroughUnifiedBooleanBranch(bool sqlite)
     {
         const string input = "[\"yes\",\"no\",\"yes\"]";

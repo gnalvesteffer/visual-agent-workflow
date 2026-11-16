@@ -854,6 +854,13 @@ introduced.
       persisted-prefix checks in file and SQLite stores (6 candidate/store
       executions). This proves typed parameter dataflow across candidates, not
       dedicated iterator pins or `Break` dispatch.
+    - [x] Compose all eight typed JSON-array operations across two item
+      activations in the structured, fresh-subworkflow, and hybrid candidates.
+      Each candidate returns identical transformed JSON, 19 per-item data
+      evaluations, and one scoped variable write; file and SQLite histories
+      reopen with matching lifecycle and evaluation evidence (6 candidate/store
+      runs). This proves successful operation parity only; failure races and
+      the authored iterator contract remain open.
     - [x] Bind actual `array<boolean>` items through the candidate-owned item
       parameter and into Boolean Branch + exclusive Merge. All three
       candidates select the same true/false routes, return matching values,

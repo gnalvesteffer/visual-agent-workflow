@@ -2709,3 +2709,14 @@ result, and reopens with the same completed history (2/2 focused cases).
 Candidate-level empty typed arrays were already covered; this adds only the
 integrated lifecycle/playback boundary. It does not change the public iterator
 contract or architecture readiness, which remains **REVISE**.
+
+`IteratorCandidates_ApplyJsonArrayOperationsWithMatchingScopedEvidence`
+compares Array Literal, Length, Get, Append, Insert, Replace, Remove, and
+Concatenate inside two item activations. The structured dispatcher, fresh
+subworkflow, and hybrid candidate return the same transformed JSON and record
+the same 19 data-evaluation edges plus one isolated variable write per item.
+File and SQLite histories reopen with matching lifecycle and evaluation
+evidence (6 candidate/store runs). This proves successful JSON-array operation
+parity across the three private candidates; it does not qualify operation
+failures across candidates, authored iterator pins, Break authoring, or select
+the runtime architecture. Readiness remains **REVISE**.
