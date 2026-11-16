@@ -33,7 +33,9 @@ Array length, and Array get. Direct function calls and assigned Agent
 graph-function tools validate inputs against the exact declared type. Each
 function call shares a 65,536-byte aggregate bound across array inputs, retained
 evaluation evidence, and outputs. Playback reads the recorded events without
-reevaluating functions or consulting the catalog. Arrays remain unavailable in
+reevaluating functions or consulting the catalog. When this budget is exceeded,
+the failure identifies the internal function node that crossed the bound and
+is recorded against the visible FunctionCall node. Arrays remain unavailable in
 variables, direct MCP arguments, Sequence or parallel regions, loop state, and
 checkpoints.
 Existing `JsonToArray` still produces heterogeneous `array<json>` values,

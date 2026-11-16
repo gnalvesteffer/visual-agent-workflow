@@ -304,6 +304,45 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_RejectsGraphFunctionArrayBudgetOverflow(bool sqlite)
+    {
+        const string input = "[\"alpha\",\"beta\"]";
+        var revision = WorkflowRevision.Create(GraphFunctionArrayBudgetBodyDefinition(outputCount: 5),
+            "production-body-graph-function-array-budget-overflow-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record);
+
+        Assert.True(outcome.Failed);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/0");
+        var failures = events.Where(evt => evt.Kind == ExecutionEventKinds.NodeFailed).ToArray();
+        var callFailure = Assert.Single(failures, evt => evt.NodeId == "call");
+        Assert.Contains("Graph function 'Array budget' failed at internal node 'values'",
+            callFailure.Data, StringComparison.Ordinal);
+        Assert.Contains("aggregate limit", callFailure.Data, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "output");
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_BindsTypedIntegerItemAndIndex(bool sqlite)
     {
         const string input = "[-9223372036854775808,0,9223372036854775807]";
@@ -12646,11 +12685,11 @@ public sealed class ArrayIterationVawBodyProofTests
         return definition;
     }
 
-    private static WorkflowDefinition GraphFunctionArrayBudgetBodyDefinition()
+    private static WorkflowDefinition GraphFunctionArrayBudgetBodyDefinition(int outputCount = 4)
     {
-        // Each of four outputs charges the same ~5 KB typed input while evaluating and retaining
-        // the result. One activation stays below 64 KiB; accidentally sharing the budget across
-        // the two activations would exceed it on the second item.
+        if (outputCount is < 1 or > 8) throw new ArgumentOutOfRangeException(nameof(outputCount));
+        // Each output charges the same ~5 KB typed input while evaluating and retaining the result.
+        // Four outputs stay below 64 KiB; a fifth exceeds it within one activation.
         var arrayJson = "[\"" + new string('x', 5_000) + "\"]";
         var inputs = ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
             .Add("values", new("Values", WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String)));
@@ -12659,7 +12698,8 @@ public sealed class ArrayIterationVawBodyProofTests
             .Add("values", new(NodeTypes.FunctionInput, "1.0.0")
                 { FunctionPortId = "values", OutputDataType = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String) });
         var functionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal);
-        foreach (var outputId in new[] { "first", "second", "third", "fourth" })
+        var outputIds = Enumerable.Range(1, outputCount).Select(index => $"result-{index}").ToArray();
+        foreach (var outputId in outputIds)
         {
             outputs = outputs.Add(outputId, new(outputId, WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String)));
             functionNodes = functionNodes.Add($"output-{outputId}",
@@ -12678,35 +12718,35 @@ public sealed class ArrayIterationVawBodyProofTests
                 { ArrayLiteral = new(WorkflowDataTypes.String, arrayJson) })
             .Add("call", new(NodeTypes.FunctionCall, "1.0.0")
                 { GraphFunction = new(function, GraphFunctionJson.ComputeHash(function)) })
-            .Add("length-1", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = WorkflowDataTypes.String })
-            .Add("length-2", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = WorkflowDataTypes.String })
-            .Add("length-3", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = WorkflowDataTypes.String })
-            .Add("length-4", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = WorkflowDataTypes.String })
-            .Add("length-text-1", new(NodeTypes.IntegerToString, "1.0.0"))
-            .Add("length-text-2", new(NodeTypes.IntegerToString, "1.0.0"))
-            .Add("length-text-3", new(NodeTypes.IntegerToString, "1.0.0"))
-            .Add("length-text-4", new(NodeTypes.IntegerToString, "1.0.0"))
-            .Add("pair-1", new(NodeTypes.TextConcat, "1.0.0"))
-            .Add("pair-2", new(NodeTypes.TextConcat, "1.0.0"))
-            .Add("result", new(NodeTypes.TextConcat, "1.0.0"))
             .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String });
         var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
-            .Add("call-values", new(new("source-array", "out"), new("call", "values"), "data"))
-            .Add("array-1", new(new("call", "first"), new("length-1", "in"), "data"))
-            .Add("array-2", new(new("call", "second"), new("length-2", "in"), "data"))
-            .Add("array-3", new(new("call", "third"), new("length-3", "in"), "data"))
-            .Add("array-4", new(new("call", "fourth"), new("length-4", "in"), "data"))
-            .Add("text-1", new(new("length-1", "out"), new("length-text-1", "in"), "data"))
-            .Add("text-2", new(new("length-2", "out"), new("length-text-2", "in"), "data"))
-            .Add("text-3", new(new("length-3", "out"), new("length-text-3", "in"), "data"))
-            .Add("text-4", new(new("length-4", "out"), new("length-text-4", "in"), "data"))
-            .Add("pair-1-left", new(new("length-text-1", "out"), new("pair-1", "left"), "data"))
-            .Add("pair-1-right", new(new("length-text-2", "out"), new("pair-1", "right"), "data"))
-            .Add("pair-2-left", new(new("length-text-3", "out"), new("pair-2", "left"), "data"))
-            .Add("pair-2-right", new(new("length-text-4", "out"), new("pair-2", "right"), "data"))
-            .Add("result-left", new(new("pair-1", "out"), new("result", "left"), "data"))
-            .Add("result-right", new(new("pair-2", "out"), new("result", "right"), "data"))
-            .Add("output-value", new(new("result", "out"), new("output", "in"), "data"));
+            .Add("call-values", new(new("source-array", "out"), new("call", "values"), "data"));
+        string? previousTextNode = null;
+        for (var index = 0; index < outputIds.Length; index++)
+        {
+            var suffix = index + 1;
+            var lengthId = $"length-{suffix}";
+            var textId = $"length-text-{suffix}";
+            nodes = nodes.Add(lengthId, new(NodeTypes.ArrayLength, "1.0.0")
+                    { ArrayElementType = WorkflowDataTypes.String })
+                .Add(textId, new(NodeTypes.IntegerToString, "1.0.0"));
+            data = data.Add($"array-{suffix}",
+                    new(new("call", outputIds[index]), new(lengthId, "in"), "data"))
+                .Add($"text-{suffix}", new(new(lengthId, "out"), new(textId, "in"), "data"));
+            if (previousTextNode is null)
+            {
+                previousTextNode = textId;
+                continue;
+            }
+
+            var concatId = $"join-{suffix}";
+            nodes = nodes.Add(concatId, new(NodeTypes.TextConcat, "1.0.0"));
+            data = data.Add($"join-{suffix}-left", new(new(previousTextNode, "out"), new(concatId, "left"), "data"))
+                .Add($"join-{suffix}-right", new(new(textId, "out"), new(concatId, "right"), "data"));
+            previousTextNode = concatId;
+        }
+
+        data = data.Add("output-value", new(new(previousTextNode!, "out"), new("output", "in"), "data"));
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
             "array-iteration-function-budget", "input", nodes, data)
         {

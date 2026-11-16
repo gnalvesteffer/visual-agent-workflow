@@ -327,6 +327,10 @@ will be introduced.
       and SQLite histories complete and reopen (2 focused cases), proving the
       evaluator budget is activation-scoped. Other shared-budget settlement
       paths remain open.
+    - [x] Exceed that aggregate budget inside one activation. The failure is
+      attributed to the visible FunctionCall with the internal input boundary
+      and safe limit reason; the consumer/root fail, later items do not start,
+      and the failed prefix reopens from file and SQLite (2 focused cases).
     - [x] Compose two typed JSON projections with JsonMerge and JsonSelectString
       in the production body seam. Reopened file/SQLite evidence contains each
       merged item value (2/2); duplicate-key failures identify JsonMerge and its

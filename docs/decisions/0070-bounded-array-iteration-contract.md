@@ -2104,6 +2104,16 @@ accumulated across the root run. It does not cover other budget settlement
 paths, the broader supported-body matrix, architecture selection, or public
 iterator authoring.
 
+`ProductionBodyActivationCoordinator_RejectsGraphFunctionArrayBudgetOverflow`
+returns five outputs backed by the same roughly 5 KB typed array in one
+activation. The 65,536-byte aggregate evidence budget rejects the fifth result;
+the internal `FunctionInput` boundary and safe limit reason are recorded on the
+visible FunctionCall failure, its Output consumer fails, and the second array
+item is not admitted. The failed event prefix persists and reopens identically
+from file and SQLite (2/2 focused cases). This verifies one budget-exhaustion
+failure shape; it does not close other budget settlement paths or the broader
+body matrix.
+
 `ProductionBodyActivationCoordinator_BindsTypedIntegerItemAndIndex` exercises
 the Core parameter-binding seam through the same coordinator and production
 Agent dispatcher. It uses `long.MinValue`, zero, and `long.MaxValue`, verifies

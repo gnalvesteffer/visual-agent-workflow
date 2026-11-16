@@ -63,7 +63,8 @@ public sealed class GraphFunctionEvaluationBudget
         if (total > MaximumAggregateArrayBytes)
         {
             Interlocked.Add(ref retainedArrayBytes, -byteCount);
-            throw new InvalidOperationException($"Graph function array values and evidence exceed the {MaximumAggregateArrayBytes}-byte aggregate limit.");
+            throw new GraphFunctionEvaluationBudgetExceededException(
+                $"Graph function array values and evidence exceed the {MaximumAggregateArrayBytes}-byte aggregate limit.");
         }
     }
 }
@@ -280,7 +281,9 @@ public static class GraphFunctionJson
                 throw new InvalidOperationException($"Graph function input '{inputId}' requires a value of type {inputContract.DataType}.");
             if (WorkflowDataTypes.TryGetArrayElementType(inputContract.DataType, out var elementType) && elementType != WorkflowDataTypes.Json)
             {
-                budget.Record(input.DataType, input.Value);
+                var inputNodeId = function.Nodes.Single(pair => pair.Value.Type == NodeTypes.FunctionInput &&
+                    pair.Value.FunctionPortId == inputId).Key;
+                RecordBudget(inputNodeId, input.DataType, input.Value);
                 if (input.Value is not JsonElement json || !TryNormalizeArray(elementType, json.GetRawText(), out var normalized))
                     throw new InvalidOperationException($"Graph function input '{inputId}' is not a valid {inputContract.DataType} value.");
                 input = input with { Value = normalized };
@@ -300,12 +303,25 @@ public static class GraphFunctionJson
             throw new InvalidOperationException("The function produced a value that does not match its output contract.");
         return result with { Values = values.ToImmutable() };
 
+        void RecordBudget(string nodeId, string dataType, object value)
+        {
+            try
+            {
+                budget.Record(dataType, value);
+            }
+            catch (GraphFunctionEvaluationBudgetExceededException exception)
+            {
+                throw new GraphFunctionEvaluationException(nodeId, exception.Message);
+            }
+        }
+
         GraphFunctionEvaluation Resolve(string nodeId, string portId)
         {
             var key = (nodeId, portId);
             if (cache.TryGetValue(key, out var cached))
             {
-                if (cached.DataType.StartsWith("array<", StringComparison.Ordinal)) budget.Record(cached.DataType, cached.Value);
+                if (cached.DataType.StartsWith("array<", StringComparison.Ordinal))
+                    RecordBudget(nodeId, cached.DataType, cached.Value);
                 values.Add(new(nodeId, portId, cached.DataType, cached.Value));
                 return cached;
             }
@@ -341,7 +357,8 @@ public static class GraphFunctionJson
                     throw new InvalidOperationException("Function string output exceeds 16,384 characters.");
                 if (result.DataType == "number" && (result.Value is not double finiteNumber || !double.IsFinite(finiteNumber)))
                     throw new InvalidOperationException("Function number values must be finite IEEE-754 doubles.");
-                if (result.DataType.StartsWith("array<", StringComparison.Ordinal)) budget.Record(result.DataType, result.Value);
+                if (result.DataType.StartsWith("array<", StringComparison.Ordinal))
+                    RecordBudget(nodeId, result.DataType, result.Value);
                 cache.Add(key, result);
                 values.Add(new(nodeId, portId, result.DataType, result.Value));
                 return result;
@@ -539,6 +556,8 @@ public static class GraphFunctionJson
         return true;
     }
 }
+
+internal sealed class GraphFunctionEvaluationBudgetExceededException(string message) : InvalidOperationException(message);
 
 public sealed class GraphFunctionEvaluationException(string nodeId, string message) : InvalidOperationException(message)
 {

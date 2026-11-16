@@ -1180,7 +1180,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 () => Interlocked.Increment(ref functionNodeVisits), budget);
             if (result.DataType != outputType)
                 throw new InvalidOperationException("The graph function returned a value with an incompatible output type.");
-            budget.RecordOutput(result.DataType, result.Value);
+            try
+            {
+                budget.RecordOutput(result.DataType, result.Value);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new GraphDataEvaluationException(nodeId,
+                    $"Graph function '{function.DisplayName}' could not retain output '{outputPort}': {exception.Message}",
+                    exception);
+            }
             functionAudits[(activeFrame.Value?.Id, nodeId, outputPort)] = new(function.FunctionId, function.Version, configuration.ContentHash,
                 outputPort, inputs.ToDictionary(pair => pair.Key, pair => pair.Value.Value, StringComparer.Ordinal), result.Values);
             return new(result.DataType, result.Value);

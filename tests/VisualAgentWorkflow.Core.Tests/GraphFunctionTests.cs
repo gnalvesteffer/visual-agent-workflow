@@ -252,7 +252,7 @@ public sealed class GraphFunctionTests
         var largeValue = ParseArray("[\"" + new string('x', 8_000) + "\"]");
         for (var index = 0; index < 8; index++) budget.RecordOutput("array<string>", largeValue);
         Assert.True(budget.RetainedArrayBytes > 0);
-        Assert.Throws<InvalidOperationException>(() => budget.RecordOutput("array<string>", largeValue));
+        Assert.ThrowsAny<InvalidOperationException>(() => budget.RecordOutput("array<string>", largeValue));
     }
 
     [Fact]

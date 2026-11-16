@@ -13,6 +13,16 @@ identically (2/2 focused cases). Other budget settlement paths and the broader
 body matrix remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Graph-function array budget exhaustion attribution
+
+An integrated production-body test exceeds the 65,536-byte graph-function
+array-evidence budget on its fifth output. The internal function input boundary
+and safe limit reason now appear on the visible FunctionCall failure; its
+consumer/root fail, the next item is not started, and the failed prefix reopens
+identically from file and SQLite (2/2 focused cases). This closes one budget
+failure shape only. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Actionable loop playback for unresolved MCP outcomes
 
 Loop activation playback correlates authorized MCP call IDs with recorded
