@@ -525,8 +525,16 @@ will be introduced.
     coordinator for each array item. Typed interface fields pack each item into
     the child JSON input and project it back to the output; exact child lifecycle
     evidence reconstructs as three completed calls after file/SQLite reopen
-    (2 focused cases). Interface-call failure and cancellation variants remain
-    part of the broader outcome matrix.
+    (2 focused cases). Interface-call child failure and host cancellation also
+    stop before later items, preserve scoped lifecycle evidence, and reopen from
+    file and SQLite (4 focused cases). Other failure/race shapes in the broader
+    outcome matrix remain open.
+    - [x] Fail a pinned interface child while projecting a missing JSON field.
+      Exact child failure is replayable and no later item starts; both stores
+      reopen the failed prefix (2 focused cases).
+    - [x] Cancel the host after a pinned interface child starts. Child and root
+      cancellation are replayable and no later item starts; both stores reopen
+      the cancelled prefix (2 focused cases).
   - [ ] Complete the non-public production-seam proof before selecting an
     iterator architecture: dispatch typed item/index values through Core's
     existing typed value contracts, consume a nearest-frame `Break`, and

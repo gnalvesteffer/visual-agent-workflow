@@ -2416,3 +2416,11 @@ completed calls after both file and SQLite histories reopen (2 focused cases).
 This proves only successful interface calls in the production body; interface
 failure/cancellation and the broader body/architecture gates remain open.
 Readiness remains **REVISE**.
+
+The production interface-call proof now also covers two terminal paths. A
+child JSON projection failure is recorded as a failed call, stops later item
+admission, and reopens from both stores. Host cancellation after child start
+records a cancelled call and root, stops later admission, and reopens from both
+stores (4 focused cases total). These tests cover ordinary child failure and
+host cancellation only; external uncertainty, append races, and the broader
+body/architecture gates remain open. Readiness remains **REVISE**.

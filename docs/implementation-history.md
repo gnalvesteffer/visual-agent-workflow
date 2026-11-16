@@ -37,6 +37,17 @@ call node ID as the final scope segment and still rejects unrelated segments.
 The complete supported-body matrix and architecture review remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Typed-array iteration proof: WorkflowInterfaceCall failure and cancellation (2026-11-15)
+
+Pinned interface calls now have production-body failure and host-cancellation
+coverage across file and SQLite stores. A missing-field JSON projection fails
+the child and suppresses later items. Cancellation immediately after child
+start records child/root cancellation and also suppresses later items; both
+histories reconstruct the correct call state after reopen (4 focused cases).
+External uncertainty, append races, and the wider body/architecture gates
+remain open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Typed-array iteration proof: pinned WorkflowInterfaceCall composition (2026-11-15)
 
 The production-body coordinator now invokes a pinned interface implementation

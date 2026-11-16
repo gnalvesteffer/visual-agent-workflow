@@ -429,58 +429,7 @@ public sealed class ArrayIterationVawBodyProofTests
     [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_CallsPinnedWorkflowInterfacePerItem(bool sqlite)
     {
-        var childDefinition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
-            "array-iteration-interface-child", "input",
-            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
-                .Add("input", new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json })
-                .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.Json }),
-            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
-                .Add("input-output", new(new("input", "out"), new("output", "in"), "data")))
-        {
-            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
-                .WithComparers(StringComparer.Ordinal)
-                .Add("input-output", Edge("input", "then", "output", "execute"))
-        };
-        var childRevision = WorkflowRevision.Create(childDefinition, "array-iteration-interface-child-proof");
-        var operation = new WorkflowInterfaceOperation("Echo", WorkflowDataTypes.Json, WorkflowDataTypes.Json)
-        {
-            Inputs = [new("value", "Value", WorkflowDataTypes.String)],
-            Outputs = [new("value", "Value", WorkflowDataTypes.String)]
-        };
-        var contract = WorkflowInterfaceRevision.Create(new WorkflowInterfaceDefinition(
-            "array-iteration.echo", "Array item echo", "Returns its input value.",
-            ImmutableSortedDictionary<string, WorkflowInterfaceOperation>.Empty.WithComparers(StringComparer.Ordinal)
-                .Add("echo", operation))
-        { SchemaVersion = WorkflowInterfaceJson.FieldContractSchemaVersion });
-        var pin = WorkflowInterfaceWorkflowPin.From(new PublishedWorkflowRevision(1, childRevision));
-        var implementation = WorkflowInterfaceImplementationRevision.Create(new WorkflowInterfaceImplementation(
-            "array-iteration.echo-implementation", contract,
-            ImmutableSortedDictionary<string, WorkflowInterfaceWorkflowPin>.Empty.WithComparers(StringComparer.Ordinal)
-                .Add("echo", pin)));
-        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
-            .Add("input", new(NodeTypes.Input, "1.0.0"))
-            .Add("call", new NodeDefinition(NodeTypes.WorkflowInterfaceCall, "1.0.0")
-            {
-                WorkflowInterfaceCall = new(implementation, "echo")
-            })
-            .Add("output", new(NodeTypes.Output, "1.0.0")
-                { OutputDataType = WorkflowDataTypes.String });
-        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
-            .Add("input-call", new(new("input", "out"), new("call", "value"), "data"))
-            .Add("call-output", new(new("call", "value"), new("output", "in"), "data"));
-        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
-            "array-iteration-interface-call-body-proof", "input", nodes, data)
-        {
-            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
-                .WithComparers(StringComparer.Ordinal)
-                .Add("input-call", Edge("input", "then", "call", "execute"))
-                .Add("call-output", Edge("call", "then", "output", "execute")),
-            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
-                .WithComparers(StringComparer.Ordinal)
-                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
-        };
-        WorkflowValidator.ThrowIfInvalid(definition);
-        var revision = WorkflowRevision.Create(definition, "array-iteration-interface-call-body-proof");
+        var revision = PinnedWorkflowInterfaceBodyRevision();
         const string input = "[\"alpha\",\"beta\",\"gamma\"]";
         using var runStore = new ProofRunStore(revision, input, sqlite);
         var events = new List<ExecutionEvent>();
@@ -525,6 +474,85 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.True(WorkflowCallEvidence.TryReconstructPlayback(reopened.Events, out var calls));
         Assert.Equal(3, calls!.Calls.Count);
         Assert.All(calls.Calls, call => Assert.Equal("completed", call.State));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_CancelsPinnedWorkflowInterfacePerItem(bool sqlite)
+    {
+        var revision = PinnedWorkflowInterfaceBodyRevision();
+        const string input = "[\"alpha\",\"beta\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        using var cancellation = new CancellationTokenSource();
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            if (evt.Kind == ExecutionEventKinds.SubworkflowStarted && evt.ScopeId == "array-loop/0/call")
+                cancellation.Cancel();
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, cancellation.Token);
+
+        Assert.True(result.Cancelled);
+        Assert.False(result.Failed);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCancelled &&
+            evt.ScopeId == "array-loop/0/call");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1" ||
+            evt.ScopeId?.StartsWith("array-loop/1/", StringComparison.Ordinal) == true);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "cancelled");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(reopened.Events, out var calls));
+        Assert.Equal("cancelled", calls!.Status);
+        Assert.Equal("cancelled", Assert.Single(calls.Calls).State);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_StopsAtFailedPinnedWorkflowInterface(bool sqlite)
+    {
+        var revision = PinnedWorkflowInterfaceBodyRevision(failChild: true);
+        const string input = "[\"alpha\",\"beta\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record);
+
+        Assert.True(result.Failed);
+        Assert.False(result.OutcomeUnknown);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed &&
+            evt.ScopeId == "array-loop/0/call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "project" && evt.ScopeId == "array-loop/0/call");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1" ||
+            evt.ScopeId?.StartsWith("array-loop/1/", StringComparison.Ordinal) == true);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(reopened.Events, out var calls));
+        Assert.Equal("failed", calls!.Status);
+        Assert.Equal("failed", Assert.Single(calls.Calls).State);
     }
 
     [Theory]
@@ -12701,6 +12729,84 @@ public sealed class ArrayIterationVawBodyProofTests
             var nearestLoop = activation.NearestLoop();
             return new LoopProofBreak("break", activation.Id, nearestLoop.Id, activation.ScopeId);
         }
+    }
+
+    private static WorkflowRevision PinnedWorkflowInterfaceBodyRevision(bool failChild = false)
+    {
+        var childNodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json });
+        var childData = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal);
+        if (failChild)
+        {
+            childNodes = childNodes
+                .Add("project", new(NodeTypes.JsonProject, "1.0.0")
+                {
+                    JsonProjection = new([new JsonProjectionField("value", "/missing")
+                        { ValueType = WorkflowDataTypes.String }])
+                })
+                .Add("output", new(NodeTypes.Output, "1.0.0")
+                    { OutputDataType = WorkflowDataTypes.Json });
+            childData = childData
+                .Add("input-project", new(new("input", "out"), new("project", "in"), "data"))
+                .Add("project-output", new(new("project", "out"), new("output", "in"), "data"));
+        }
+        else
+        {
+            childNodes = childNodes.Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.Json });
+            childData = childData.Add("input-output",
+                new(new("input", "out"), new("output", "in"), "data"));
+        }
+
+        var childExecution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .WithComparers(StringComparer.Ordinal)
+            .Add("input-output", Edge("input", "then", "output", "execute"));
+        var childDefinition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-interface-child", "input", childNodes, childData)
+        {
+            ExecutionConnections = childExecution
+        };
+        WorkflowValidator.ThrowIfInvalid(childDefinition);
+        var childRevision = WorkflowRevision.Create(childDefinition, "array-iteration-interface-child-proof");
+        var operation = new WorkflowInterfaceOperation("Echo", WorkflowDataTypes.Json, WorkflowDataTypes.Json)
+        {
+            Inputs = [new("value", "Value", WorkflowDataTypes.String)],
+            Outputs = [new("value", "Value", WorkflowDataTypes.String)]
+        };
+        var contract = WorkflowInterfaceRevision.Create(new WorkflowInterfaceDefinition(
+            "array-iteration.echo", "Array item echo", "Returns its input value.",
+            ImmutableSortedDictionary<string, WorkflowInterfaceOperation>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("echo", operation))
+        { SchemaVersion = WorkflowInterfaceJson.FieldContractSchemaVersion });
+        var pin = WorkflowInterfaceWorkflowPin.From(new PublishedWorkflowRevision(1, childRevision));
+        var implementation = WorkflowInterfaceImplementationRevision.Create(new WorkflowInterfaceImplementation(
+            "array-iteration.echo-implementation", contract,
+            ImmutableSortedDictionary<string, WorkflowInterfaceWorkflowPin>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("echo", pin)));
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("call", new NodeDefinition(NodeTypes.WorkflowInterfaceCall, "1.0.0")
+            {
+                WorkflowInterfaceCall = new(implementation, "echo")
+            })
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.String });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-call", new(new("input", "out"), new("call", "value"), "data"))
+            .Add("call-output", new(new("call", "value"), new("output", "in"), "data"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-interface-call-body-proof", "input", nodes, data)
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .WithComparers(StringComparer.Ordinal)
+                .Add("input-call", Edge("input", "then", "call", "execute"))
+                .Add("call-output", Edge("call", "then", "output", "execute")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .WithComparers(StringComparer.Ordinal)
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return WorkflowRevision.Create(definition, "array-iteration-interface-call-body-proof");
     }
 
     private static WorkflowDefinition ConditionalItemBodyDefinition()
