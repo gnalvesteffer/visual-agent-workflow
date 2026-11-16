@@ -1164,7 +1164,8 @@ public sealed partial class WorkflowRunner
             WorkflowDataTypes.Boolean => item.GetBoolean() ? "true" : "false",
             WorkflowDataTypes.Integer => item.GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture),
             WorkflowDataTypes.Number => item.GetDouble().ToString("R", System.Globalization.CultureInfo.InvariantCulture),
-            _ => throw new ArgumentException("Activation proof input requires a primitive array element type.", nameof(arrayElementType))
+            WorkflowDataTypes.Json => item.GetRawText(),
+            _ => throw new ArgumentException("Activation proof input requires a supported array element type.", nameof(arrayElementType))
         }).ToArray();
         var baseParameters = WorkflowParameters.Resolve(bodyRevision.Definition, parameters);
         var retainedDataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(bodyRevision.Definition)

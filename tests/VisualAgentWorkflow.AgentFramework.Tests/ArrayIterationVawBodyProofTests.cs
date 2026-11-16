@@ -6413,6 +6413,112 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_PreserveJsonItemsThroughTypedInputAndAgent(bool sqlite)
+    {
+        const string input = "[{\"name\":\"alpha\",\"payload\":[null,true,{\"n\":1.00}]},{\"name\":\"beta\",\"payload\":{\"items\":[2,false]}}]";
+        var revision = WorkflowRevision.Create(JsonTypedItemBodyDefinition(),
+            "array-iteration-json-item-candidate-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+        var structuredAgents = new EchoAgentExecutor();
+        var subworkflowAgents = new EchoAgentExecutor();
+        var hybridAgents = new EchoAgentExecutor();
+
+        var structured = await new WorkflowRunner(agents: structuredAgents)
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, arrayElementType: WorkflowDataTypes.Json);
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, subworkflowAgents, new EchoToolBroker(),
+            arrayElementType: WorkflowDataTypes.Json);
+        var subworkflowExecutor = new WorkflowBuilder(subworkflowIterator)
+            .WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflowExecutor, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            hybridAgents, new EchoToolBroker(), "array-loop",
+            ParseProofArrayItems(input, WorkflowDataTypes.Json), null, "index", [],
+            async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var result = await new WorkflowRunner(agents: hybridAgents).ExecuteWithOutcomeAsync(
+                    hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
+                if (result.Failed || result.Output is null)
+                    throw new InvalidOperationException("The hybrid JSON-item body did not return a result.");
+                return new ActivationLoopProofValue(result.Output);
+            });
+        hybridRecorder.CompleteRoot();
+
+        const string expected = "{\"query\":\"alpha:0\"};{\"query\":\"beta:1\"}";
+        Assert.False(structured.Failed);
+        Assert.Equal(expected, structured.Output);
+        Assert.Equal(expected, subworkflowOutput);
+        Assert.Equal(expected, hybridOutput);
+        Assert.Equal(["alpha:0", "beta:1"], structuredAgents.Inputs);
+        Assert.Equal(structuredAgents.Inputs, subworkflowAgents.Inputs);
+        Assert.Equal(structuredAgents.Inputs, hybridAgents.Inputs);
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        foreach (var (store, events) in new[]
+        {
+            (structuredStore, structuredEvents), (subworkflowStore, subworkflowEvents), (hybridStore, hybridEvents)
+        })
+        {
+            AssertPersistedSequence(store, events, "completed");
+            Assert.Equal(events, store.ReopenStore().Get(store.RunId)!.Events);
+        }
+        Assert.Equal(EventShape(structuredEvents), EventShape(subworkflowEvents));
+        Assert.Equal(EventShape(structuredEvents), EventShape(hybridEvents));
+        foreach (var events in new[] { structuredEvents, subworkflowEvents, hybridEvents })
+        {
+            var first = ReadItem("array-loop/0");
+            Assert.Equal("alpha", first.GetProperty("name").GetString());
+            Assert.Equal("[null,true,{\"n\":1.00}]", first.GetProperty("payload").GetRawText());
+            var second = ReadItem("array-loop/1");
+            Assert.Equal("beta", second.GetProperty("name").GetString());
+            Assert.Equal("{\"items\":[2,false]}", second.GetProperty("payload").GetRawText());
+
+            JsonElement ReadItem(string scopeId)
+            {
+                var evt = Assert.Single(events, item => item.Kind == ExecutionEventKinds.DataEvaluated &&
+                    item.ConnectionId == "data:item-name" && item.ScopeId == scopeId);
+                using var payload = JsonDocument.Parse(evt.Data!);
+                return payload.RootElement.GetProperty("value").Clone();
+            }
+        }
+
+        static (string Kind, string? NodeId, string? ScopeId)[] EventShape(IEnumerable<ExecutionEvent> events) =>
+            events.Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
+                ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.NodeStarted or
+                ExecutionEventKinds.NodeCompleted)
+                .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_RouteEachItemThroughUnifiedBooleanBranch(bool sqlite)
     {
         const string input = "[\"yes\",\"no\",\"yes\"]";
@@ -14695,7 +14801,8 @@ public sealed class ArrayIterationVawBodyProofTests
             WorkflowDataTypes.Boolean => item.GetBoolean() ? "true" : "false",
             WorkflowDataTypes.Integer => item.GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture),
             WorkflowDataTypes.Number => item.GetDouble().ToString("R", System.Globalization.CultureInfo.InvariantCulture),
-            _ => throw new InvalidOperationException("Proof input requires a primitive array element type.")
+            WorkflowDataTypes.Json => item.GetRawText(),
+            _ => throw new InvalidOperationException("Proof input requires a supported array element type.")
         }).ToArray();
     }
 

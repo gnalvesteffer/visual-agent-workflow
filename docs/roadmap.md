@@ -981,6 +981,14 @@ will be introduced.
         cases). This proves JSON item transport only; JSON-typed workflow
         parameters, public iterator pins, Break authoring, and architecture
         selection remain open.
+      - [x] Compare JSON object items across the structured,
+        fresh-subworkflow, and hybrid candidates using the existing
+        JSON-typed Input pin, field selection, typed integer index, and Agent
+        invocation. Nested null, array, object, and `1.00` number-token
+        content is preserved; outputs, Agent inputs, scoped evaluation
+        evidence, and reopened file/SQLite histories match (2/2 focused store
+        cases). JSON workflow parameters, authored iterator pins, and
+        production architecture remain separate.
     - [x] Extend the matched structured, fresh-subworkflow, and hybrid proof
       from string arrays to a validated JSON integer array, including signed
       64-bit minimum, zero, and maximum values. Items flow through typed

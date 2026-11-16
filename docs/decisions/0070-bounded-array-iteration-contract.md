@@ -2573,3 +2573,19 @@ This is private proof support for JSON item transport only. It does not add
 JSON-typed workflow parameters, authored iterator item/index pins, public Break
 behavior, or a selected production iterator architecture. Readiness remains
 **REVISE**.
+
+## JSON item parity across private candidates (2026-11-16)
+
+The structured dispatcher, fresh Agent Framework subworkflow, and hybrid
+candidate now all preserve JSON array items as raw JSON text when binding the
+per-item run input. A matching file/SQLite test sends nested JSON records
+through the existing JSON-typed Input pin, selects a string field, combines it
+with the typed integer index, and invokes the same Agent body. The candidates
+match output, Agent inputs, event shape, and scoped evaluated JSON values,
+including nested null/array/object values and the `1.00` number token (2/2
+focused store cases).
+
+This closes a candidate-comparison gap for current JSON item transport only.
+It does not define JSON workflow parameters, authored iterator pins or Break,
+production scheduler ownership, or architecture readiness. Readiness remains
+**REVISE**.
