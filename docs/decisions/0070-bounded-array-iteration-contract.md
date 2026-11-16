@@ -2640,3 +2640,13 @@ This proves one successful JSON-array transform across item activations. It
 does not establish a public iterator contract, JSON variable state, failure or
 cancellation behavior for this type, or the architecture choice. Readiness
 remains **REVISE**.
+
+`ProductionBodyActivationCoordinator_StopsAfterJsonArrayAppendExceedsPayloadLimit`
+complements the successful path with an oversized Append result in the same
+production-body activation flow. The first item fails at the Append node with
+the typed-array 16 KiB bound error; the second item is never admitted and the
+first item's Output does not complete. File and SQLite runs both reopen with
+the identical failed event sequence (2/2 focused cases). This establishes
+bounded JSON-transform failure attribution and persistence for this proof
+shape; it does not establish cancellation behavior or select a public iterator
+architecture. Readiness remains **REVISE**.

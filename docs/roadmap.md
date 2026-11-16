@@ -182,7 +182,10 @@ introduced.
   failure/race, shared-budget, persistence, and playback matrix, followed by a
   fresh three-role architecture review. Do not introduce public iterator/Break
   schema or Studio authoring until that seam passes and the review selects the
-  architecture.
+  architecture. The integrated `array<json>` body proof covers successful
+  transforms and an Append result exceeding the 16 KiB bound: the failure is
+  attributed to Append, later items and completion are suppressed, and file/
+  SQLite reopen preserves the same failed event prefix.
   The final runtime must compose with existing body capabilities, keep Agent
   Framework behind its adapter, preserve the separate predicate-based string
   Loop, and exclude checkpoint recovery until frame restoration is proven. The
