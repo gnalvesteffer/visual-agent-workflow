@@ -431,6 +431,10 @@ will be introduced.
       file and SQLite histories reopen successfully (2 focused cases). This
       uses a test gate and broker; host approval-request persistence and
       permission-policy behavior remain outside this proof.
+    - [x] Cancel while the first item's `Approval` node is waiting. The run
+      records cancellation, dispatches no MCP call, admits no later item, and
+      reopens as a cancelled activation in file/SQLite playback (2 focused
+      cases). The deterministic gate does not qualify host approval persistence.
     - [x] Exercise typed mutable array variables inside each activation. Both
       items begin from the declared default, append their own item, and persist
       independent scoped state that reconstructs after file/SQLite reopen

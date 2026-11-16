@@ -2475,6 +2475,15 @@ host approval-request persistence, real user decisions, or permission-policy
 behavior. It does not alter the iterator architecture review; readiness
 remains **REVISE**.
 
+`ProductionBodyActivationCoordinator_CancellationWhileAwaitingItemApprovalStopsRun`
+blocks on the explicit approval gate for the first array item, then cancels
+the host token. The production body coordinator records the node and run
+cancellation, does not dispatch the MCP target or admit the next item, and
+reopens through file and SQLite with a rendered `Cancelled` iteration (2/2
+focused cases). The gate is deterministic and does not exercise
+`ControlledRun`, persisted approval requests/decisions, or real user approval.
+The iterator architecture status remains **REVISE**.
+
 ## Typed mutable-array state inside activations (2026-11-16)
 
 `ProductionBodyActivationCoordinator_IsolatesTypedArrayVariableStatePerItem`

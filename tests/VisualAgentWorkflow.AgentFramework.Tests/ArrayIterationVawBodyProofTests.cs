@@ -2516,6 +2516,55 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_CancellationWhileAwaitingItemApprovalStopsRun(bool sqlite)
+    {
+        const string input = "[\"search-alpha\",\"must-not-run\"]";
+        var revision = WorkflowRevision.Create(ApprovedMcpItemBodyDefinition("proof.array-approved-search"),
+            "production-body-array-approval-cancellation-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+        var gate = new BlockingIterationApprovalGate();
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+        using var cancellation = new CancellationTokenSource();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var run = new WorkflowRunner(tools: tools)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, cancellation.Token, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String,
+                gate: gate);
+        var requestedAction = await gate.Requested.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        var result = await run.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(result.Cancelled);
+        Assert.Equal("search-alpha", JsonDocument.Parse(requestedAction.Input).RootElement
+            .GetProperty("query").GetString());
+        Assert.Empty(tools.Queries);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "approval" &&
+            evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "cancelled");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("cancelled", reopened.Status);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: cancelled", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 1 · Cancelled", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_IsolatesTypedArrayVariableStatePerItem(bool sqlite)
     {
         const string input = "[\"alpha\",\"beta\"]";
@@ -15387,6 +15436,27 @@ public sealed class ArrayIterationVawBodyProofTests
             var permit = new WorkflowApprovalPermit(Guid.NewGuid(), action.ComputeHash(), action.TargetInvocationId);
             permits.Enqueue(permit);
             return ValueTask.FromResult(permit);
+        }
+    }
+
+    private sealed class BlockingIterationApprovalGate : IWorkflowExecutionGate, IWorkflowApprovalGate
+    {
+        public TaskCompletionSource<WorkflowApprovalAction> Requested { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.CompletedTask;
+        }
+
+        public async ValueTask<WorkflowApprovalPermit> WaitForApprovalAsync(WorkflowApprovalAction action,
+            string prompt, CancellationToken cancellationToken)
+        {
+            Assert.Equal("Approve this exact search.", prompt);
+            Requested.TrySetResult(action);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new OperationCanceledException(cancellationToken);
         }
     }
 
