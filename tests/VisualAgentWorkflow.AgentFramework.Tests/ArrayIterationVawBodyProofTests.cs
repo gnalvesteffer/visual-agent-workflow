@@ -2453,6 +2453,69 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ApprovesExactMcpActionPerArrayItem(bool sqlite)
+    {
+        const string input = "[\"search-alpha\",\"search-beta\"]";
+        const string bindingId = "proof.array-approved-search";
+        var revision = WorkflowRevision.Create(ApprovedMcpItemBodyDefinition(bindingId),
+            "production-body-array-approval-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+        var gate = new CapturingIterationApprovalGate();
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(tools: tools)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String, gate: gate);
+
+        Assert.False(result.Failed);
+        Assert.Equal(["search-alpha", "search-beta"], tools.Queries);
+        var actions = gate.Actions;
+        Assert.Equal(2, actions.Length);
+        Assert.Equal(new[] { "array-loop/0", "array-loop/1" }, actions.Select(action =>
+            events.Single(evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == action.ApprovalNodeId && evt.InvocationId == action.ApprovalInvocationId).ScopeId)
+            .ToArray());
+        Assert.Equal(new[] { "search-alpha", "search-beta" }, actions.Select(action =>
+        {
+            using var arguments = JsonDocument.Parse(action.Input);
+            return arguments.RootElement.GetProperty("query").GetString();
+        }));
+        Assert.Equal(2, actions.Select(action => action.TargetInvocationId).Distinct().Count());
+        Assert.All(actions.Select((action, index) => (action, index)), entry =>
+        {
+            var (action, index) = entry;
+            Assert.Equal(runStore.RunId, action.RunId);
+            Assert.Equal(revision.RevisionId, action.RevisionId);
+            Assert.Equal("approval", action.ApprovalNodeId);
+            Assert.Equal("tool", action.TargetNodeId);
+            var permit = gate.Permits[index];
+            Assert.NotEqual(Guid.Empty, permit.RequestId);
+            Assert.Equal(action.ComputeHash(), permit.ActionHash);
+            Assert.Equal(action.TargetInvocationId, permit.TargetInvocationId);
+            var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+                evt.NodeId == action.TargetNodeId && evt.InvocationId == action.TargetInvocationId);
+            Assert.Equal($"array-loop/{index}", authorized.ScopeId);
+        });
+        AssertPersistedSequence(runStore, events, "completed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: completed", playback, StringComparison.Ordinal);
+        Assert.Contains("search-alpha", playback, StringComparison.Ordinal);
+        Assert.Contains("search-beta", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_IndexesTypedArrayLiteralWithEachIntegerItem(bool sqlite)
     {
         const string input = "[0,1]";
@@ -13396,6 +13459,42 @@ public sealed class ArrayIterationVawBodyProofTests
         return definition;
     }
 
+    private static WorkflowDefinition ApprovedMcpItemBodyDefinition(string bindingId)
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "item", OutputDataType = WorkflowDataTypes.String })
+            .Add("approval", new(NodeTypes.Approval, "1.0.0")
+                { Approval = new("Approve this exact search.") })
+            .Add("tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest(bindingId, new string('e', 64)))
+            {
+                McpInputPorts = [new("arg.query", "query", WorkflowDataTypes.String, true)],
+                McpArgumentsJson = "{}"
+            })
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.String });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("item-approval", new(new("item", "out"), new("approval", "in"), "data"))
+            .Add("item-tool-query", new(new("item", "out"), new("tool", "arg.query"), "data"))
+            .Add("tool-output", new(new("tool", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-approval", Edge("input", "then", "approval", "execute"))
+            .Add("approval-tool", Edge("approval", "then", "tool", "execute"))
+            .Add("tool-output", Edge("tool", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-approved-mcp", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
     private static WorkflowDefinition TypedIntegerItemArrayLiteralGetBodyDefinition()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
@@ -15129,6 +15228,32 @@ public sealed class ArrayIterationVawBodyProofTests
             }
 
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class CapturingIterationApprovalGate : IWorkflowExecutionGate, IWorkflowApprovalGate
+    {
+        private readonly ConcurrentQueue<WorkflowApprovalAction> actions = new();
+        private readonly ConcurrentQueue<WorkflowApprovalPermit> permits = new();
+
+        public WorkflowApprovalAction[] Actions => [.. actions];
+        public WorkflowApprovalPermit[] Permits => [.. permits];
+
+        public ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask<WorkflowApprovalPermit> WaitForApprovalAsync(WorkflowApprovalAction action,
+            string prompt, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Assert.Equal("Approve this exact search.", prompt);
+            actions.Enqueue(action);
+            var permit = new WorkflowApprovalPermit(Guid.NewGuid(), action.ComputeHash(), action.TargetInvocationId);
+            permits.Enqueue(permit);
+            return ValueTask.FromResult(permit);
         }
     }
 

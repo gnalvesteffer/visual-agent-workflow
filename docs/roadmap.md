@@ -425,6 +425,12 @@ will be introduced.
       and reopen with matching loop history in file and SQLite (2 focused
       cases). This verifies composition only; it does not add nested-loop
       authoring or change the existing Loop contract.
+    - [x] Exercise the explicit `Approval` node and direct MCP target inside
+      each typed array activation. Each item produces its own exact action,
+      matching permit hash and target invocation, and scoped tool evidence;
+      file and SQLite histories reopen successfully (2 focused cases). This
+      uses a test gate and broker; host approval-request persistence and
+      permission-policy behavior remain outside this proof.
     - [x] Build an immutable `array<string>` with `ArrayLiteral` and use each
       typed integer item as the `ArrayGet` index. Returned values and evidence
       persist through both stores (2/2); an out-of-range third item fails at

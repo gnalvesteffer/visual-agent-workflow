@@ -2457,3 +2457,20 @@ This demonstrates composition with the existing predicate loop while keeping
 its contract separate from array iteration. It does not add nested-loop
 authoring or alter the architecture review outcome; readiness remains
 **REVISE**.
+
+## Approval-gated MCP dispatch inside typed-array activations (2026-11-16)
+
+`ProductionBodyActivationCoordinator_ApprovesExactMcpActionPerArrayItem`
+places an explicit `Approval` node before a direct MCP node in the private
+typed-array body. A deterministic test gate captures each exact action and
+matching permit. For two array items, the proof checks distinct approval
+request IDs, action hashes, target invocation IDs, MCP inputs, and matching
+`tool.authorized` evidence under the corresponding item scope. Both file and
+SQLite histories reopen and passive playback retains the expected result
+(2/2 focused cases).
+
+This proves approval-node dispatch composition and scoped persisted evidence
+through the production coordinator. The test gate and broker do not qualify
+host approval-request persistence, real user decisions, or permission-policy
+behavior. It does not alter the iterator architecture review; readiness
+remains **REVISE**.

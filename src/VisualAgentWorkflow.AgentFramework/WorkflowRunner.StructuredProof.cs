@@ -315,7 +315,7 @@ public sealed partial class WorkflowRunner
         CancellationToken cancellationToken = default, StructuredActivationFrame? parentFrame = null,
         string activationLoopNodeId = "array-loop", string? itemParameterId = null,
         string arrayElementType = WorkflowDataTypes.String, StructuredActivationRunBudget? runBudget = null,
-        IReadOnlySet<string>? proofBreakNodeIds = null)
+        IReadOnlySet<string>? proofBreakNodeIds = null, IWorkflowExecutionGate? gate = null)
     {
         ArgumentNullException.ThrowIfNull(bodyRevision);
         ArgumentNullException.ThrowIfNull(jsonItems);
@@ -386,7 +386,7 @@ public sealed partial class WorkflowRunner
                 var bodyOutcome = await ExecuteBodyForActivationProofAsync(runId, bodyRevision, items[index],
                     frame.Parameters, evt => Emit(evt.Kind, evt.NodeId, evt.InvocationId,
                         evt.ScopeId ?? scopeId, evt.Data, evt.ConnectionId), cancellationToken,
-                    activationFrame: frame, proofBreakNodeIds: proofBreakNodeIds);
+                    gate: gate, activationFrame: frame, proofBreakNodeIds: proofBreakNodeIds);
 
                 var breakLoop = false;
                 switch (bodyOutcome.Disposition)
