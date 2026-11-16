@@ -776,3 +776,12 @@ values and selected paths persist and reopen from file and SQLite stores (2
 focused cases). This closes one deterministic-node composition only; Decision
 0070's broader body matrix and architecture gate remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: pinned WorkflowCall composition (2026-11-15)
+
+The production-body coordinator now invokes an immutable pinned child workflow
+for each of three array items. Child values and lifecycle evidence stay within
+their item scopes, and file/SQLite histories reopen identically (2 focused
+cases). This proves the successful child-call body path only; failure,
+cancellation, the supported-body matrix, and Decision 0070's architecture gate
+remain open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

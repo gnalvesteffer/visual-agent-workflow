@@ -2374,3 +2374,14 @@ and evaluated value is scoped to its activation, and file/SQLite histories
 reopen identically (2 focused cases). This closes one deterministic-node
 composition in the private body matrix only; the supported-body matrix remains
 incomplete and the architecture decision remains **REVISE**.
+
+## Production WorkflowCall body composition (2026-11-15)
+
+`ProductionBodyActivationCoordinator_CallsPinnedWorkflowPerItem` runs an
+immutable pinned child workflow once for each of three array items through the
+production body coordinator. Each child receives and returns its item's value;
+start/completion and child lifecycle evidence are scoped beneath the matching
+activation. File and SQLite run histories reopen identically (2 focused
+cases). This proves only the successful WorkflowCall body path. Child failure,
+cancellation, the remaining supported-body matrix, and the architecture
+decision remain open; readiness remains **REVISE**.
