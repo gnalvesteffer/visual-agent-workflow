@@ -5061,6 +5061,41 @@ public sealed class ArrayIterationVawBodyProofTests
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(events, reopened.Events);
         Assert.Equal("completed", reopened.Status);
+
+        using var cancelledStore = new ProofRunStore(revision, outerItems, sqlite);
+        var cancelledRecorder = new ProofRecorder(cancelledStore, startRoot: false);
+        using var cancellation = new CancellationTokenSource();
+        ValueTask RecordCancelled(ExecutionEvent evt)
+        {
+            cancelledRecorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.SubworkflowStarted &&
+                evt.ScopeId == "outer-loop/0/inner-loop/0/call")
+                cancellation.Cancel();
+            return ValueTask.CompletedTask;
+        }
+
+        var cancelled = await new WorkflowRunner().ExecuteProductionNestedBodyBreakSequenceProofAsync(
+            cancelledStore.RunId, revision, outerItems, innerItems, "outerIndex", "index", null,
+            RecordCancelled, cancellation.Token, itemParameterId: "item",
+            proofBreakNodeIds: new HashSet<string>(StringComparer.Ordinal));
+        var cancelledEvents = cancelledRecorder.Snapshot();
+        Assert.True(cancelled.Cancelled);
+        Assert.False(cancelled.Failed);
+        Assert.Single(cancelledEvents, evt => evt.Kind == ExecutionEventKinds.SubworkflowCancelled &&
+            evt.ScopeId == "outer-loop/0/inner-loop/0/call");
+        Assert.Contains(cancelledEvents, evt => evt.Kind == ExecutionEventKinds.SubworkflowEvidence &&
+            evt.NodeId == "call" && evt.ScopeId == "outer-loop/0/inner-loop/0/call" &&
+            WorkflowCallLifecycleEvidence.TryRead(evt.Data, out var evidence) &&
+            evidence!.Lifecycle == ExecutionEventKinds.SubworkflowCancelled);
+        Assert.DoesNotContain(cancelledEvents, evt => evt.ScopeId is
+            "outer-loop/0/inner-loop/1" or "outer-loop/1" ||
+            evt.ScopeId?.StartsWith("outer-loop/1/", StringComparison.Ordinal) == true);
+        Assert.Single(cancelledEvents, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        AssertPersistedSequence(cancelledStore, cancelledEvents, "cancelled");
+
+        var reopenedCancelled = cancelledStore.ReopenStore().Get(cancelledStore.RunId)!;
+        Assert.Equal(cancelledEvents, reopenedCancelled.Events);
+        Assert.Equal("cancelled", reopenedCancelled.Status);
     }
 
     [Theory]

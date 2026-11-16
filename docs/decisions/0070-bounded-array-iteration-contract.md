@@ -2783,9 +2783,12 @@ executes the exact pinned child revision once for each of four nested items.
 Each child receives and returns the matching item, and lifecycle/evidence
 scopes include both the outer and inner activation IDs. File and SQLite
 histories reopen identically (2 focused cases). This extends successful
-WorkflowCall body composition to nested frames; failure/cancellation inside a
-nested child and the wider body matrix remain open. The proof is private and
-does not change architecture or user-guide behavior.
+WorkflowCall body composition to nested frames. The paired cancellation case
+cancels at the first nested child start, records exact-scope child lifecycle
+evidence and root cancellation, admits no later inner or outer activation, and
+reopens both file and SQLite histories (2 more focused cases). Nested child
+failure and the wider body matrix remain open. The proof is private and does
+not change architecture or user-guide behavior.
 
 The review explicitly keeps the end state unchanged: typed array iteration
 and nearest-loop Break must be authored in the current unified schema without
