@@ -32,6 +32,9 @@ public sealed class MutableVariableExecutionTests
         Assert.Equal(0, JsonDocument.Parse(read.Data!).RootElement.GetProperty("loopIteration").GetInt32());
         Assert.Equal(JsonDocument.Parse(written.Data!).RootElement.GetProperty("version").GetInt64(),
             JsonDocument.Parse(read.Data!).RootElement.GetProperty("version").GetInt64());
+        Assert.True(VariableEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("from input", playback!.Values["message"].Value);
+        Assert.Equal(2, playback.Values["message"].Version);
     }
 
     [Fact]

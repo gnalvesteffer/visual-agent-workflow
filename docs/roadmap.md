@@ -185,7 +185,9 @@ will be introduced.
   drafts. Runner and reopened-store event prefixes reconstruct typed-array state
   without execution. Cancellation before and after writes, a post-commit failure,
   concurrent run isolation, and sequential child-invocation isolation are covered.
-  Full historical compatibility remains before marking this increment shipped. See
+  Schema 1.44 and unified scalar Set/Get runs also reconstruct through the
+  passive playback reader; broader historical compatibility remains before
+  marking this increment shipped. See
   [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
   - [x] Verify append/insert/replace/remove/concatenate ordering, empty-array
     insertion, legal index endpoints, invalid indexes and item types, exact

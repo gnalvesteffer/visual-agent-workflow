@@ -107,9 +107,11 @@ event prefix without execution. Focused cancellation tests prove that canceling
 before an array write emits no variable state and canceling after it preserves the
 committed array for playback. A fault after a committed write also preserves the
 recorded prefix. Concurrent root runs and sequential invocations of the same
-pinned child each start from an independent array-variable store. The MutableVariableExecutionTests class passed 34/34; the full Agent Framework
-suite passed 644/644 immediately before these additions on 2026-11-16. Full historical compatibility proofs remain
-open.
+pinned child each start from an independent array-variable store. Schema 1.44
+and unified scalar Set/Get traces also reconstruct through the passive playback
+reader. The MutableVariableExecutionTests class passed 34/34; the full Agent
+Framework suite passed 644/644 immediately before these additions on 2026-11-16.
+Full historical compatibility proofs remain open.
 
 ## Review record
 
