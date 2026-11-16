@@ -858,9 +858,11 @@ public static class WorkflowValidator
                 .Where(edge => edge.Target.NodeId == id && edge.Target.PortId == "value")
                 .Select(edge => definition.Nodes.GetValueOrDefault(edge.Source.NodeId))
                 .FirstOrDefault();
-            if (source?.Type is not (NodeTypes.ArrayLiteral or NodeTypes.WorkflowValue or NodeTypes.VariableGet))
+            if (source?.Type is not (NodeTypes.ArrayLiteral or NodeTypes.WorkflowValue or NodeTypes.VariableGet or
+                    NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or
+                    NodeTypes.ArrayConcatenate))
                 error("variable.jsonArray.transform", $"nodes.{id}.value",
-                    "Mutable JSON array variables currently accept whole values from literals, parameters, or other variables. JSON-array transformations into Set are a separate roadmap increment.");
+                    "Mutable JSON array variables accept bounded values from literals, parameters, variables, and immutable array transformations.");
         }
         // Current graphs share typed-pin validation. Specialized control regions
         // retain their bounded contracts, selected from the authored topology.

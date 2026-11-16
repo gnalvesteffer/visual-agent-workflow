@@ -131,6 +131,22 @@ preserving object member order and number-token spelling; it is not canonical
 JSON. Reads and writes charge the same aggregate evidence budget atomically, and
 file/SQLite reopen playback reconstructs the retained state. JSON-array variable
 state remains excluded from checkpoint snapshots. Immutable JSON-array
-transformations feeding Set are deliberately not admitted in this slice; they
-remain a follow-up proof because they add retained intermediate state and budget
-amplification paths.
+transformations may feed Set. The shared 65,536-byte per-invocation budget
+charges each exact compact array JSON value by UTF-8 byte count when its
+`data.evaluated` event is retained, and charges each array state occurrence in
+variable read/write evidence, including both prior and new values on a write.
+Repeated values and loop occurrences count repeatedly; values are not deduplicated.
+Evaluation evidence can precede a failed Set and is informational: playback
+updates mutable state only from variable read/write events. If evaluation
+evidence exhausts the budget, the offending value is not emitted and failure is
+attributed to its source node. If a Set state reservation fails, its value and
+version remain unchanged and no write event is emitted. JSON variable state
+remains excluded from checkpoint snapshots.
+
+The transform-to-Set increment passed the mutable-variable Agent Framework
+class (40/40), focused JSON-array file/SQLite tests (11/11), and Core variable
+contract tests (17/17) on 2026-11-16. The Release Studio build completed with
+zero warnings/errors. The folder-workflow Playwright smoke passed against an
+isolated Development Studio and verified JSON-array defaults, save/reopen,
+limits/help, and the existing run/inspection flow. The full Agent Framework
+suite has not yet been rerun for this increment.

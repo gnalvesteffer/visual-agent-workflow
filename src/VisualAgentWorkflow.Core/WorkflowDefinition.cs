@@ -366,7 +366,7 @@ public sealed partial class WorkflowVariableStore
                 throw new InvalidOperationException($"Variable '{variableId}' requires {previous.DataType}, not {dataType}.");
             var normalized = Normalize(dataType, value);
             if (WorkflowDataTypes.IsArrayType(dataType))
-                ArrayEvidenceBudget.ConsumeVariableState(dataType, previous.Value, normalized);
+                ArrayEvidenceBudget.Consume(dataType, previous.Value, normalized);
             var written = new WorkflowVariableValue(dataType, normalized, ++nextVersion);
             values[variableId] = written;
             return written;
@@ -374,7 +374,7 @@ public sealed partial class WorkflowVariableStore
     }
 
     public void RecordReadEvidence(WorkflowVariableValue value) =>
-        ArrayEvidenceBudget.ConsumeVariableState(value.DataType, value.Value);
+        ArrayEvidenceBudget.Consume(value.DataType, value.Value);
 
     public static object Parse(string dataType, string value)
     {

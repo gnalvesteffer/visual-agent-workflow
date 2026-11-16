@@ -1,6 +1,6 @@
 # Decision 0066: Unified typed array values
 
-**Status:** Primitive and JSON-valued arrays compose through bounded operations, workflow boundaries, parameters, and pure graph functions in schema 2.0. Direct MCP arguments, JSON-valued mutable variables, iteration, and checkpoint state remain separate.
+**Status:** Primitive and JSON-valued arrays compose through bounded operations, workflow boundaries, parameters, and pure graph functions in schema 2.0. Direct MCP arguments, JSON-valued mutable-variable semantics, iteration, and checkpoint state use separate contracts; bounded JSON-array variable Get/Set and transforms are specified in [Decision 0071](0071-typed-array-run-scoped-variables.md).
 **Date:** 2026-11-02  
 **Scope:** Blueprint parity workstream; current authoring schema 2.0
 
@@ -10,8 +10,9 @@ Blueprint arrays are ordinary typed graph values. VAW has bounded primitive
 array types and a heterogeneous `array<json>` value. Primitive arrays compose
 through graph values, parameters, graph functions, and variables; JSON arrays
 compose through bounded array operations, workflow parameters, and graph
-functions. Other placements retain separate contracts and verification
-requirements.
+functions. Bounded JSON-array mutable-variable behavior is separately specified
+and tracked in [Decision 0071](0071-typed-array-run-scoped-variables.md). Other
+placements retain separate contracts and verification requirements.
 
 The Blueprint parity capability matrix identifies containers as a major
 language gap. Mutable variables, events, async work, reuse, and debugging also

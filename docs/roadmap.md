@@ -234,8 +234,15 @@ introduced.
   - [x] Prove `array<json>` variable Get/Set evidence through file and SQLite
     reopen, event-prefix playback reconstruction, compact JSON preservation,
     atomic aggregate-budget rejection, and continued checkpoint exclusion.
-  - [ ] Prove immutable JSON-array transformations into Set under the same
-    aggregate evidence budget before enabling those sources in Studio.
+  - [x] Enable immutable JSON-array transformations into Set with per-value
+    compact UTF-8 accounting shared by data-evaluation and variable-state
+    evidence. Repeated values are charged for each retained occurrence. File and
+    SQLite regressions verify budget exhaustion stops before the uncommitted
+    write, preserves the previous committed value in reopened playback, and
+    retains the recorded evidence prefix. The folder-editor browser smoke
+    verifies the JSON-array variable guidance, default persistence, and exposed
+    transformation/evidence-budget limits. Broader historical compatibility
+    remains open.
   - [x] Carry a graph-dispatched typed Break result with source and target
     activation identity into the VAW coordinator; have the dispatcher report
     only source identity and derive/consume the target in the coordinator.

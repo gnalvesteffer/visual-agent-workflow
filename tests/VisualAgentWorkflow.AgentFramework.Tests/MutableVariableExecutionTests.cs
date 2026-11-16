@@ -130,12 +130,13 @@ public sealed class MutableVariableExecutionTests
                 : new FileRunJournal(Path.Combine(directory, "runs"));
             var snapshot = reopened.Get(created.Header.RunId)!;
 
-            Assert.Equal("[null,{\"name\":\"alpha\",\"n\":1.00},[true]]", output);
+            Assert.Equal("[null,{\"name\":\"alpha\",\"n\":1.00},[true],null]", output);
             Assert.Equal("completed", snapshot.Status);
             var written = Assert.Single(snapshot.Events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
             using var writePayload = JsonDocument.Parse(written.Data!);
             Assert.Equal("[{\"seed\":1.00}]", writePayload.RootElement.GetProperty("previousValue").GetRawText());
             Assert.Equal(output, writePayload.RootElement.GetProperty("value").GetRawText());
+            Assert.Contains(snapshot.Events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "append");
             Assert.True(VariableEvidence.TryReconstructPlayback(snapshot.Events, out var playback));
             Assert.Equal(output, playback!.Values["items"].Value);
             AssertEveryArrayVariableEvidencePrefixReconstructs(snapshot.Events);
@@ -170,6 +171,49 @@ public sealed class MutableVariableExecutionTests
             WorkflowVariableStore.FormatValue(arrayType, afterFailure.Value));
         Assert.Equal(WorkflowVariableStore.FormatValue(arrayType, first.Value),
             WorkflowVariableStore.FormatValue(arrayType, beforeFailure.Value));
+    }
+
+    [Theory]
+    [InlineData("file")]
+    [InlineData("sqlite")]
+    public async Task Json_array_transform_evidence_budget_failure_preserves_last_committed_value(string storeKind)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-json-array-transform-budget-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var revision = WorkflowRevision.Create(JsonArrayTransformBudgetDefinition(), "json-array-transform-budget");
+            IWorkflowRunStore store = storeKind == "sqlite"
+                ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
+                : new FileRunJournal(Path.Combine(directory, "runs"));
+            var created = store.Create(revision, "unused");
+            await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteAsync(
+                created.Header.RunId, revision, "unused", evt =>
+                {
+                    store.Append(evt);
+                    return ValueTask.CompletedTask;
+                }));
+
+            IWorkflowRunStore reopened = storeKind == "sqlite"
+                ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
+                : new FileRunJournal(Path.Combine(directory, "runs"));
+            var snapshot = reopened.Get(created.Header.RunId)!;
+            var writes = snapshot.Events.Where(evt => evt.Kind == ExecutionEventKinds.VariableWritten).ToArray();
+            Assert.Single(writes);
+            using var committed = JsonDocument.Parse(writes[0].Data!);
+            Assert.Equal("[null]", committed.RootElement.GetProperty("value").GetRawText());
+            Assert.Contains(snapshot.Events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "append-1");
+            var budgetFailure = Assert.Single(snapshot.Events.Where(evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+                evt.NodeId?.StartsWith("append-", StringComparison.Ordinal) == true));
+            Assert.Contains("65,536-byte aggregate limit", budgetFailure.Data);
+            Assert.True(VariableEvidence.TryReconstructPlayback(snapshot.Events, out var playback));
+            Assert.Equal("[null]", playback!.Values["items"].Value);
+            AssertEveryArrayVariableEvidencePrefixReconstructs(snapshot.Events);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
     }
 
     [Fact]
@@ -1061,11 +1105,19 @@ public sealed class MutableVariableExecutionTests
             .Add("input", new(NodeTypes.Input, "1.0.0"))
             .Add("array", new(NodeTypes.ArrayLiteral, "1.0.0")
                 { ArrayLiteral = new(WorkflowDataTypes.Json, "[null,{\"name\":\"alpha\",\"n\":1.00},[true]]") })
+            .Add("index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(0) })
+            .Add("get-item", new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("append", new(NodeTypes.ArrayAppend, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
             .Add("set", new(NodeTypes.VariableSet, "1.0.0") { VariableId = "items", InputDataType = arrayType })
             .Add("get", new(NodeTypes.VariableGet, "1.0.0") { VariableId = "items", OutputDataType = arrayType })
             .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = arrayType });
         var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
             .Add("array-set", new(new("array", "out"), new("set", "value"), "data"))
+            .Add("array-get-item", new(new("array", "out"), new("get-item", "array"), "data"))
+            .Add("index-get-item", new(new("index", "out"), new("get-item", "index"), "data"))
+            .Add("array-append", new(new("array", "out"), new("append", "array"), "data"))
+            .Add("item-append", new(new("get-item", "item"), new("append", "item"), "data"))
+            .SetItem("array-set", new(new("append", "out"), new("set", "value"), "data"))
             .Add("get-output", new(new("get", "out"), new("output", "in"), "data"));
         var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
             .Add("input-set", new(new("input", "then"), new("set", "execute"), "execution"))
@@ -1076,6 +1128,51 @@ public sealed class MutableVariableExecutionTests
         {
             Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
                 .Add("items", new("Items", " [ { \"seed\" : 1.00 } ] ") { Type = arrayType }),
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition JsonArrayTransformBudgetDefinition()
+    {
+        const string arrayType = WorkflowDataTypes.JsonArray;
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("initial-set", new(NodeTypes.VariableSet, "1.0.0") { VariableId = "items", InputDataType = arrayType })
+            .Add("large", new(NodeTypes.ArrayLiteral, "1.0.0")
+            {
+                ArrayLiteral = new(WorkflowDataTypes.Json, "[{\"seed\":\"" + new string('x', 12_000) + "\"}]")
+            })
+            .Add("small", new(NodeTypes.ArrayLiteral, "1.0.0")
+                { ArrayLiteral = new(WorkflowDataTypes.Json, "[null]") })
+            .Add("index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(0) })
+            .Add("item", new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = arrayType })
+            .Add("get", new(NodeTypes.VariableGet, "1.0.0") { VariableId = "items", OutputDataType = arrayType });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("initial-value", new(new("small", "out"), new("initial-set", "value"), "data"))
+            .Add("small-item-array", new(new("small", "out"), new("item", "array"), "data"))
+            .Add("item-index", new(new("index", "out"), new("item", "index"), "data"))
+            .Add("get-output", new(new("get", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("initialize", new(new("input", "then"), new("initial-set", "execute"), "execution"))
+            .Add("grow", new(new("initial-set", "then"), new("large-set", "execute"), "execution"))
+            .Add("read-output", new(new("get", "then"), new("output", "execute"), "execution"));
+        var previousNode = "large";
+        for (var index = 1; index <= 7; index++)
+        {
+            var appendId = $"append-{index}";
+            nodes = nodes.Add(appendId, new(NodeTypes.ArrayAppend, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json });
+            data = data.Add($"{previousNode}-{appendId}", new(new(previousNode, "out"), new(appendId, "array"), "data"));
+            data = data.Add($"item-{appendId}", new(new("item", "item"), new(appendId, "item"), "data"));
+            previousNode = appendId;
+        }
+        nodes = nodes.Add("large-set", new(NodeTypes.VariableSet, "1.0.0") { VariableId = "items", InputDataType = arrayType });
+        data = data.Add("large-set-value", new(new(previousNode, "out"), new("large-set", "value"), "data"));
+        execution = execution.Add("large-set-read", new(new("large-set", "then"), new("get", "execute"), "execution"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "json-array-budget", "input", nodes, data)
+        {
+            Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("items", new("Items", "[]") { Type = arrayType }),
             ExecutionConnections = execution
         };
     }

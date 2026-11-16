@@ -20,7 +20,7 @@
                 <option value="string">Text</option><option value="boolean">True / false</option><option value="integer">Integer</option><option value="number">Number</option>
                 @if (IsUnifiedSchema) { <option value="array<string>">String array</option><option value="array<boolean>">Boolean array</option><option value="array<integer>">Integer array</option><option value="array<number>">Number array</option><option value="array<json>">JSON array</option> }
             </select></label>
-            @if (IsJsonArrayType(variable.Type)) { <p class="vaw-help">Enter a JSON array of up to 64 items, depth 32, and 16,384 UTF-8 bytes. Values may be mixed, nested, or null. Get and Set support whole-value access; transforms into a JSON array variable are not available yet.</p> }
+            @if (IsJsonArrayType(variable.Type)) { <p class="vaw-help">Enter a JSON array of up to 64 items, depth 32, and 16,384 UTF-8 bytes. Values may be mixed, nested, or null. Get and Set use exact JSON-array pins; immutable array transformations can feed Set. Each recorded array value counts toward the 65,536-byte run evidence budget.</p> }
             else if (IsArrayType(variable.Type)) { <p class="vaw-help">Enter a JSON array of up to 64 items and 16,384 UTF-8 bytes. Examples: <code>["alpha","beta"]</code>, <code>[1,2,3]</code>. Append, insert, replace, remove, and concatenate are explicit immutable operations.</p> }
             <button type="button" @onclick="() => Edit(() => WorkflowVariableEditing.Remove(Definition, variableId))" disabled="@Disabled">Remove variable</button>
         </fieldset>

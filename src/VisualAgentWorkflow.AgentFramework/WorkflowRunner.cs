@@ -994,6 +994,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             StructuredActivationFrame? frame = null) =>
             runtimeValues[((frame ?? activeFrame.Value)?.Id, nodeId, portId)] = new(dataType, value);
 
+        public void RecordEvidenceBudget(EvaluatedDataValue value)
+        {
+            if (!WorkflowDataTypes.IsArrayType(value.DataType)) return;
+            try { evidenceBudget.Consume(value.DataType, value.Value); }
+            catch (WorkflowArrayEvidenceBudgetExceededException exception)
+            {
+                throw new GraphDataEvaluationException(value.NodeId, exception.Message, exception);
+            }
+        }
+
         public IDisposable EnterActivation(StructuredActivationFrame? frame)
         {
             var previousFrame = activeFrame.Value;
@@ -1176,14 +1186,6 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
         private void AddEvaluation(ImmutableArray<EvaluatedDataValue>.Builder evaluated, EvaluatedDataValue value)
         {
-            if (WorkflowDataTypes.IsPrimitiveArrayType(value.DataType))
-            {
-                try { evidenceBudget.Consume(value.DataType, value.Value); }
-                catch (WorkflowArrayEvidenceBudgetExceededException exception)
-                {
-                    throw new GraphDataEvaluationException(value.NodeId, exception.Message, exception);
-                }
-            }
             evaluated.Add(value);
         }
 
@@ -1897,8 +1899,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         throw new InvalidOperationException("A data-carried loop requires a string value.");
                 }
                 foreach (var value in (outputEvaluation?.Evaluations ?? []).Concat(branchEvaluation?.Evaluations ?? []).Concat(variableSetEvaluation?.Evaluations ?? []))
+                {
+                    dataEvaluator!.RecordEvidenceBudget(value);
                     await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
                         value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
+                }
                 if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
                     node.Type is NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Agent or NodeTypes.WorkflowCall or
                         NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.TextTemplate or NodeTypes.McpTool &&
@@ -1915,8 +1920,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         _ => throw new InvalidOperationException("The execution input requires string or JSON data.")
                     };
                     foreach (var value in evaluation.Evaluations)
+                    {
+                        dataEvaluator!.RecordEvidenceBudget(value);
                         await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
                             value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
+                    }
                 }
                 var isInterfaceCall = node.Type == NodeTypes.WorkflowInterfaceCall;
                 WorkflowInterfaceResolvedOperation? interfaceOperation = null;
@@ -1931,8 +1939,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         interfaceInputValues.Add(field.FieldId,
                             WorkflowInterfaceFields.ToJsonElement(field.DataType, evaluation.Result.Value));
                         foreach (var value in evaluation.Evaluations)
+                        {
+                            dataEvaluator!.RecordEvidenceBudget(value);
                             await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
                                 value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
+                        }
                     }
                     message = WorkflowInterfaceFields.PackInputs(interfaceOperation.Signature, interfaceInputValues);
                 }
@@ -2089,8 +2100,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     _ => throw new InvalidOperationException("Unsupported executor type.")
                 };
                 foreach (var evaluation in toolArgumentEvaluations.SelectMany(item => item.Evaluations))
+                {
+                    dataEvaluator!.RecordEvidenceBudget(evaluation);
                     await Emit(ExecutionEventKinds.DataEvaluated, evaluation.NodeId, invocation,
                         evaluation.ConnectionId is null ? null : $"data:{evaluation.ConnectionId}", SerializeDataEvidence(Id, evaluation));
+                }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Agent)
                 {
                     var structuredResult = node.Agent?.RequireStructuredResult == true;
@@ -2136,8 +2150,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     {
                         message = ResolveDirectMcpArguments(target, targetId, message, toolArgumentEvaluations).GetRawText();
                         foreach (var evaluation in toolArgumentEvaluations.SelectMany(item => item.Evaluations))
+                        {
+                            dataEvaluator!.RecordEvidenceBudget(evaluation);
                             await Emit(ExecutionEventKinds.DataEvaluated, evaluation.NodeId, invocation,
                                 evaluation.ConnectionId is null ? null : $"data:{evaluation.ConnectionId}", SerializeDataEvidence(Id, evaluation));
+                        }
                     }
                     var action = new WorkflowApprovalAction(runId, rootRevision.RevisionId, rootRevision.ContentHash, Id, invocation,
                         targetId, Guid.NewGuid(), target.Tool!, message, WorkflowApprovalAction.HashInput(message))
