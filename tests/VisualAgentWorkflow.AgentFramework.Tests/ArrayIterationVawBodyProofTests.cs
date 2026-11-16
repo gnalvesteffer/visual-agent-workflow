@@ -265,6 +265,45 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ScopesGraphFunctionArrayBudgetPerActivation(bool sqlite)
+    {
+        const string input = "[\"alpha\",\"beta\"]";
+        var revision = WorkflowRevision.Create(GraphFunctionArrayBudgetBodyDefinition(),
+            "production-body-graph-function-array-budget-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner()
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record);
+
+        Assert.False(outcome.Failed);
+        Assert.Equal("1111;1111", outcome.Output);
+        AssertPersistedSequence(runStore, events, "completed");
+        for (var index = 0; index < 2; index++)
+        {
+            var scope = $"array-loop/{index}";
+            Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.NodeId == "call" && evt.ScopeId == scope));
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.ScopeId == scope);
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_BindsTypedIntegerItemAndIndex(bool sqlite)
     {
         const string input = "[-9223372036854775808,0,9223372036854775807]";
@@ -12599,6 +12638,79 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.WithComparers(StringComparer.Ordinal)
                 .Add("item", new("Array item", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input-output", Edge("input", "then", "output", "execute"))
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    }
+
+    private static WorkflowDefinition GraphFunctionArrayBudgetBodyDefinition()
+    {
+        // Each of four outputs charges the same ~5 KB typed input while evaluating and retaining
+        // the result. One activation stays below 64 KiB; accidentally sharing the budget across
+        // the two activations would exceed it on the second item.
+        var arrayJson = "[\"" + new string('x', 5_000) + "\"]";
+        var inputs = ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("values", new("Values", WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String)));
+        var outputs = ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal);
+        var functionNodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("values", new(NodeTypes.FunctionInput, "1.0.0")
+                { FunctionPortId = "values", OutputDataType = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String) });
+        var functionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal);
+        foreach (var outputId in new[] { "first", "second", "third", "fourth" })
+        {
+            outputs = outputs.Add(outputId, new(outputId, WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String)));
+            functionNodes = functionNodes.Add($"output-{outputId}",
+                new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = outputId });
+            functionConnections = functionConnections.Add(outputId,
+                new(new("values", "out"), new($"output-{outputId}", "in"), "data"));
+        }
+
+        var function = new GraphFunctionDefinition("proof.array-budget", 1, "Array budget",
+            "Returns four bounded arrays to exercise the per-activation aggregate evidence budget.",
+            inputs,
+            outputs, functionNodes, functionConnections);
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("source-array", new(NodeTypes.ArrayLiteral, "1.0.0")
+                { ArrayLiteral = new(WorkflowDataTypes.String, arrayJson) })
+            .Add("call", new(NodeTypes.FunctionCall, "1.0.0")
+                { GraphFunction = new(function, GraphFunctionJson.ComputeHash(function)) })
+            .Add("length-1", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = WorkflowDataTypes.String })
+            .Add("length-2", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = WorkflowDataTypes.String })
+            .Add("length-3", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = WorkflowDataTypes.String })
+            .Add("length-4", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = WorkflowDataTypes.String })
+            .Add("length-text-1", new(NodeTypes.IntegerToString, "1.0.0"))
+            .Add("length-text-2", new(NodeTypes.IntegerToString, "1.0.0"))
+            .Add("length-text-3", new(NodeTypes.IntegerToString, "1.0.0"))
+            .Add("length-text-4", new(NodeTypes.IntegerToString, "1.0.0"))
+            .Add("pair-1", new(NodeTypes.TextConcat, "1.0.0"))
+            .Add("pair-2", new(NodeTypes.TextConcat, "1.0.0"))
+            .Add("result", new(NodeTypes.TextConcat, "1.0.0"))
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("call-values", new(new("source-array", "out"), new("call", "values"), "data"))
+            .Add("array-1", new(new("call", "first"), new("length-1", "in"), "data"))
+            .Add("array-2", new(new("call", "second"), new("length-2", "in"), "data"))
+            .Add("array-3", new(new("call", "third"), new("length-3", "in"), "data"))
+            .Add("array-4", new(new("call", "fourth"), new("length-4", "in"), "data"))
+            .Add("text-1", new(new("length-1", "out"), new("length-text-1", "in"), "data"))
+            .Add("text-2", new(new("length-2", "out"), new("length-text-2", "in"), "data"))
+            .Add("text-3", new(new("length-3", "out"), new("length-text-3", "in"), "data"))
+            .Add("text-4", new(new("length-4", "out"), new("length-text-4", "in"), "data"))
+            .Add("pair-1-left", new(new("length-text-1", "out"), new("pair-1", "left"), "data"))
+            .Add("pair-1-right", new(new("length-text-2", "out"), new("pair-1", "right"), "data"))
+            .Add("pair-2-left", new(new("length-text-3", "out"), new("pair-2", "left"), "data"))
+            .Add("pair-2-right", new(new("length-text-4", "out"), new("pair-2", "right"), "data"))
+            .Add("result-left", new(new("pair-1", "out"), new("result", "left"), "data"))
+            .Add("result-right", new(new("pair-2", "out"), new("result", "right"), "data"))
+            .Add("output-value", new(new("result", "out"), new("output", "in"), "data"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-function-budget", "input", nodes, data)
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.WithComparers(StringComparer.Ordinal)
                 .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
             ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
                 .Add("input-output", Edge("input", "then", "output", "execute"))

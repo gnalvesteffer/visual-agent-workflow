@@ -2,6 +2,17 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Per-activation graph-function array budget proof
+
+The private production-body proof evaluates four outputs backed by a roughly
+5 KB typed array in each of two activation scopes. Each scope stays below the
+graph-function evidence budget while the combined evidence exceeds it, proving
+the limit resets with the activation frame. Both file and SQLite histories
+complete, retain four function-output evaluations per item, and reopen
+identically (2/2 focused cases). Other budget settlement paths and the broader
+body matrix remain open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Actionable loop playback for unresolved MCP outcomes
 
 Loop activation playback correlates authorized MCP call IDs with recorded

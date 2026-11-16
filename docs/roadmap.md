@@ -321,6 +321,12 @@ will be introduced.
       Function failures identify the visible FunctionCall node and retain the
       inner function node ID plus safe reason; the next item is suppressed and
       file/SQLite histories reopen identically (2 focused cases).
+    - [x] Exercise the graph-function aggregate array-evidence budget across
+      four outputs in each of two production-body activations. Each activation
+      stays below 64 KiB while their combined evidence exceeds it; both file
+      and SQLite histories complete and reopen (2 focused cases), proving the
+      evaluator budget is activation-scoped. Other shared-budget settlement
+      paths remain open.
     - [x] Compose two typed JSON projections with JsonMerge and JsonSelectString
       in the production body seam. Reopened file/SQLite evidence contains each
       merged item value (2/2); duplicate-key failures identify JsonMerge and its

@@ -2093,6 +2093,17 @@ file/SQLite histories reopen identically (2/2 focused cases). This qualifies
 one function failure shape only; broader function failure and budget coverage
 remain open.
 
+`ProductionBodyActivationCoordinator_ScopesGraphFunctionArrayBudgetPerActivation`
+evaluates four outputs backed by a roughly 5 KB typed array in each of two
+production-body activations. The retained evidence stays below the 64 KiB
+aggregate limit within each activation, while the combined history exceeds that
+limit; both file and SQLite runs complete, persist four call-output evaluations
+per scope, and reopen identically (2/2 focused cases). This verifies that the
+graph-function evidence budget is keyed to the activation frame rather than
+accumulated across the root run. It does not cover other budget settlement
+paths, the broader supported-body matrix, architecture selection, or public
+iterator authoring.
+
 `ProductionBodyActivationCoordinator_BindsTypedIntegerItemAndIndex` exercises
 the Core parameter-binding seam through the same coordinator and production
 Agent dispatcher. It uses `long.MinValue`, zero, and `long.MaxValue`, verifies
