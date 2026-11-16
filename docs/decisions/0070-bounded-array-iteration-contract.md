@@ -2589,3 +2589,11 @@ This closes a candidate-comparison gap for current JSON item transport only.
 It does not define JSON workflow parameters, authored iterator pins or Break,
 production scheduler ownership, or architecture readiness. Readiness remains
 **REVISE**.
+
+The same candidates also pass every valid JSON root kind through a direct
+JSON-typed Input-to-Output body: null, both Boolean values, signed 64-bit
+minimum, a `1.00` number token, a string, an array, and an object. The output
+and scoped evaluation preserve the original JSON token text, and file/SQLite
+histories reopen identically (2/2 focused cases). This adds primitive and
+compound JSON value transport evidence; it does not add JSON parameters or
+close the production body/lifecycle/budget matrix.

@@ -989,6 +989,12 @@ will be introduced.
         evidence, and reopened file/SQLite histories match (2/2 focused store
         cases). JSON workflow parameters, authored iterator pins, and
         production architecture remain separate.
+      - [x] Compare all valid JSON root kinds—null, booleans, an integer
+        boundary, a number retaining `1.00`, a string, an array, and an
+        object—through a JSON-typed Input/Output body across the three
+        candidates. Outputs, exact-scope evaluations, lifecycle evidence, and
+        file/SQLite reopen match (2/2 focused store cases). This proves value
+        transport only, not JSON parameters or public iterator behavior.
     - [x] Extend the matched structured, fresh-subworkflow, and hybrid proof
       from string arrays to a validated JSON integer array, including signed
       64-bit minimum, zero, and maximum values. Items flow through typed
