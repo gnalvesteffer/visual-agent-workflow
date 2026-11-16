@@ -206,7 +206,9 @@ introduced.
   Append overflow in the first activation is attributed
   to Append, commits no variable write, suppresses completion and later items,
   and preserves the same failed prefix after both store reopen paths. JSON-array
-  variable cancellation before the write records neither a write nor Set
+  Get, Insert, Replace, and Remove index failures are also attributed to their
+  source nodes and suppress writes, completion, and later items in both stores.
+  JSON-array variable cancellation before the write records neither a write nor Set
   completion; cancellation after a committed write preserves reconstructable
   state. Both paths suppress later items in both stores. Parallel cancellation
   races remain open. A recorder exception after a committed JSON-array write

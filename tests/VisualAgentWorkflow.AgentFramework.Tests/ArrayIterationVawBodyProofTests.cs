@@ -2926,6 +2926,52 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
+    [InlineData("get", false)]
+    [InlineData("get", true)]
+    [InlineData("insert", false)]
+    [InlineData("insert", true)]
+    [InlineData("replace", false)]
+    [InlineData("replace", true)]
+    [InlineData("remove", false)]
+    [InlineData("remove", true)]
+    public async Task ProductionBodyActivationCoordinator_AttributesJsonArrayOperationFailureAndStopsLaterItems(
+        string failingNode, bool sqlite)
+    {
+        const string input = "[{\"kind\":\"first\"},{\"kind\":\"must-not-run\"}]";
+        var revision = WorkflowRevision.Create(JsonArrayOperationsItemBodyDefinition(failingNode),
+            $"production-body-json-array-{failingNode}-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner().ExecuteProductionBodyActivationSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, Record,
+            arrayElementType: WorkflowDataTypes.Json);
+
+        Assert.True(result.Failed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == failingNode && evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "set");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1" ||
+            evt.ScopeId?.StartsWith("array-loop/1/", StringComparison.Ordinal) == true);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/0");
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+        Assert.Contains("Latest run status: failed", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_RejectsJsonArrayVariableOverflowPerItem(bool sqlite)
@@ -14757,7 +14803,7 @@ public sealed class ArrayIterationVawBodyProofTests
         return definition;
     }
 
-    private static WorkflowDefinition JsonArrayOperationsItemBodyDefinition()
+    private static WorkflowDefinition JsonArrayOperationsItemBodyDefinition(string failingNode = "")
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
             .Add("input", new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json })
@@ -14765,12 +14811,18 @@ public sealed class ArrayIterationVawBodyProofTests
                 { VariableId = "items", OutputDataType = WorkflowDataTypes.JsonArray })
             .Add("append", new(NodeTypes.ArrayAppend, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
             .Add("length", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
-            .Add("get-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(2) })
+            .Add("get-index", new(NodeTypes.IntegerConstant, "1.0.0")
+                { IntegerConstant = new(failingNode == "get" ? 99 : 2) })
             .Add("get", new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("insert-offset", new(NodeTypes.IntegerConstant, "1.0.0")
+                { IntegerConstant = new(failingNode == "insert" ? 1 : 0) })
+            .Add("insert-index", new(NodeTypes.IntegerAdd, "1.0.0"))
             .Add("insert", new(NodeTypes.ArrayInsert, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
-            .Add("replace-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(0) })
+            .Add("replace-index", new(NodeTypes.IntegerConstant, "1.0.0")
+                { IntegerConstant = new(failingNode == "replace" ? 99 : 0) })
             .Add("replace", new(NodeTypes.ArrayReplace, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
-            .Add("remove-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
+            .Add("remove-index", new(NodeTypes.IntegerConstant, "1.0.0")
+                { IntegerConstant = new(failingNode == "remove" ? 99 : 1) })
             .Add("remove", new(NodeTypes.ArrayRemove, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
             .Add("tail", new(NodeTypes.ArrayLiteral, "1.0.0")
                 { ArrayLiteral = new(WorkflowDataTypes.Json, "[{\"tail\":2.00},[true]]") })
@@ -14788,7 +14840,9 @@ public sealed class ArrayIterationVawBodyProofTests
             .Add("get-array", new(new("append", "out"), new("get", "array"), "data"))
             .Add("get-index", new(new("get-index", "out"), new("get", "index"), "data"))
             .Add("insert-array", new(new("append", "out"), new("insert", "array"), "data"))
-            .Add("insert-index", new(new("length", "out"), new("insert", "index"), "data"))
+            .Add("insert-length", new(new("length", "out"), new("insert-index", "left"), "data"))
+            .Add("insert-offset", new(new("insert-offset", "out"), new("insert-index", "right"), "data"))
+            .Add("insert-index", new(new("insert-index", "out"), new("insert", "index"), "data"))
             .Add("insert-item", new(new("get", "item"), new("insert", "item"), "data"))
             .Add("replace-array", new(new("insert", "out"), new("replace", "array"), "data"))
             .Add("replace-index", new(new("replace-index", "out"), new("replace", "index"), "data"))

@@ -2652,6 +2652,12 @@ dataflow, while each activation starts at the declared default. Scoped data
 and write evidence preserve the resulting order and exact JSON representation
 after file/SQLite reopen (2/2 focused cases).
 
+`ProductionBodyActivationCoordinator_AttributesJsonArrayOperationFailureAndStopsLaterItems`
+injects invalid indices at Get, Insert, Replace, and Remove in that same body.
+Each failure is attributed to its originating node, prevents Variable Set and
+iteration completion, suppresses the later item, and reopens with the same
+failed file/SQLite playback history (8/8 focused cases).
+
 `ProductionBodyActivationCoordinator_RejectsJsonArrayVariableOverflowPerItem`
 uses a valid declared default near the 16 KiB typed-array bound. Appending the
 first heterogeneous item fails at Array Append, records no Variable Set, does
