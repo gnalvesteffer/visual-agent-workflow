@@ -773,6 +773,13 @@ will be introduced.
       persisted-prefix checks in file and SQLite stores (6 candidate/store
       executions). This proves typed parameter dataflow across candidates, not
       dedicated iterator pins or `Break` dispatch.
+    - [x] Bind actual `array<boolean>` items through the candidate-owned item
+      parameter and into Boolean Branch + exclusive Merge. All three
+      candidates select the same true/false routes, return matching values,
+      and preserve item-scoped branch and data-evaluation evidence after file
+      and SQLite reopen (2/2 focused store cases). This extends typed item
+      comparison beyond integer parameters; it remains proof-only and does not
+      add authored iterator pins or select the production architecture.
     - [x] Exercise the nested typed Break control result against the structured
       production node dispatcher, in addition to the hybrid and fresh
       subworkflow harnesses. Each candidate-specific body dispatch stops at

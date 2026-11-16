@@ -2538,3 +2538,15 @@ first activation. `ArrayAppend` failure is attributed at the data evaluator;
 the variable write and second activation are absent, and the file/SQLite
 failure prefixes reopen identically (2/2 focused cases). This adds one bounded
 mutation-failure case without changing the proof's architecture status.
+
+## Matched typed Boolean item binding (2026-11-16)
+
+`IteratorCandidates_BindTypedBooleanItemsAcrossExclusiveRoutes` sends
+`[true,false,true]` through the structured, fresh-subworkflow, and hybrid
+candidates. Each binds the current Boolean as the declared `item` parameter,
+selects the same exclusive branch, and returns the same branch-specific value.
+The test compares lifecycle/branch event shapes and Boolean data-evaluation
+evidence, then reopens both file and SQLite histories (2/2 focused cases).
+This adds matched typed-item evidence beyond the existing integer comparison;
+it remains a private candidate proof and selects no architecture or public
+iterator contract.
