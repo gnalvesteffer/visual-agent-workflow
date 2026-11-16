@@ -21,16 +21,21 @@ nodes. Unsupported control-flow
 translations return diagnostics. Saving remains an authored edit.
 
 Legacy conditional schemas 1.4–1.22 normalize when there is exactly one
-Condition and one Merge, with one linear path of pure uppercase/reverse nodes
-before the Condition, two disjoint linear pure-text arms that both reach the
-Merge, and one linear pure-text path from Merge to Output. The conversion keeps
-node IDs and all data connections, adds explicit activation edges for Input,
-the two selected Condition outputs, Merge, and Output, and records the normal
-source/target provenance. Direct-to-Output arms, extra control nodes, shared
-arm nodes, bypasses, and ambiguous paths remain unchanged with diagnostics.
-The current Merge data pin accepts 1–16 alternative incoming values; runtime
-selects the value belonging to the active execution route without evaluating
-the unchosen arm.
+Condition, at most one Merge, one linear path of pure uppercase/reverse nodes
+before the Condition, and disjoint linear pure-text arms. If the arms already
+reconverge at one Merge, the conversion also requires one linear pure-text path
+from that Merge to Output. If both arms instead terminate directly at Output,
+normalization inserts one deterministic Merge, retargets the two terminal data
+edges to it, and connects its output to Output. It adds explicit activation
+edges for Input, the two selected Condition outputs, Merge, and Output. This
+preserves legacy output behavior while using the current runtime's active-route
+data selection; direct Condition-to-Output execution edges alone would not
+select between multiple data inputs. Original revisions remain unchanged, and
+the source and synthesized target are recorded in normal conversion
+provenance. Extra control nodes, shared arm nodes, bypasses, and ambiguous
+paths remain unchanged with diagnostics. The current Merge data pin accepts
+1–16 alternative incoming values; runtime selects the value belonging to the
+active execution route without evaluating the unchosen arm.
 
 The schema-1.45 explicitly wired bounded loop-variable graph is additionally
 qualified through the unified schema: normalization preserves node, data, and

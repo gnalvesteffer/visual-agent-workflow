@@ -74,17 +74,19 @@ the historical promotion chain.
   definition. Legacy schema-1.17–1.22 data-carried loops with linear pure
   uppercase/reverse bodies now normalize to 2.0 with their data feedback wires
   preserved and explicit activation wires added; runtime tests verify output,
-  per-pass values, and both stop conditions. Other historical control-flow
-  migrations, effectful loop-body translation, and persisted normalization
-  provenance remain future compatibility work.
+  per-pass values, and both stop conditions. Conversion provenance is persisted
+  with SQLite drafts; broader historical control-flow migrations and effectful
+  loop-body translation remain future compatibility work.
   - [x] Normalize legacy conditional schemas 1.4–1.22 when there is exactly
-    one Condition and Merge, disjoint linear pure-uppercase/reverse arms that
-    reconverge at that Merge, and unambiguous linear pure-text paths before and
-    after the conditional region. Stable IDs and data wires are preserved;
-    explicit activation edges are derived, and the merge evaluates only the
-    selected route. Runtime output and route evidence match both legacy
-    outcomes. Direct-to-Output arms and other ambiguous control-flow topologies
-    remain diagnostic-only.
+    one Condition, at most one Merge, disjoint linear pure-uppercase/reverse
+    arms, and unambiguous pure-text paths around the region. Existing-Merge
+    conversions preserve node and data-edge identities. When both arms end at
+    Output, normalization inserts a deterministic Merge and retargets the two
+    terminal data edges so the unified runtime can select the active route;
+    the historical source remains unchanged and provenance captures both
+    definitions. Runtime output, selected route, and lazy arm evidence match
+    legacy behavior for transformed and empty arms. Other ambiguous control-
+    flow topologies remain diagnostic-only.
 - [x] Preserve 2.0 through package, reuse, graph-function, clipboard, and
   nested-workflow editing paths while preserving pinned dependency snapshots.
 - [x] Extend bounded `array<json>` in current schema 2.0 with an exact

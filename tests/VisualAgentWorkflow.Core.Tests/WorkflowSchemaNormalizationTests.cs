@@ -303,7 +303,7 @@ public class WorkflowSchemaNormalizationTests
     }
 
     [Fact]
-    public void LegacyConditionalArmsThatBypassTheirMergeAreRejectedWithoutPartialTarget()
+    public void LegacyConditionalArmsThatConnectDirectlyToOutputNormalizeSuccessfully()
     {
         var source = GraphEditing.InsertConditionalAfter(Blank(), "input", "out");
         var condition = source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Condition).Key;
@@ -314,6 +314,70 @@ public class WorkflowSchemaNormalizationTests
             .Add("true-output", new(new(condition, "true"), new("output", "in"), "data"))
             .Add("false-output", new(new(condition, "false"), new("output", "in"), "data"));
         source = source with { Nodes = source.Nodes.Remove(merge), Connections = connections };
+        var original = WorkflowJson.Serialize(source);
+
+        var result = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(source);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.Diagnostics.IsDefaultOrEmpty);
+        result.Provenance!.Validate();
+        Assert.Equal("2.0", result.Definition!.SchemaVersion);
+        Assert.Empty(WorkflowValidator.Validate(result.Definition));
+        Assert.Equal(original, WorkflowJson.Serialize(source));
+    }
+
+    [Fact]
+    public void LegacyConditionalArmsThatEndAtOutputNormalizeThroughDeterministicMerge()
+    {
+        var source = GraphEditing.InsertConditionalAfter(Blank(), "input", "out");
+        var conditionId = source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Condition).Key;
+        var mergeId = source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Merge).Key;
+        source = GraphEditing.RemoveNode(source, mergeId);
+        source = source with
+        {
+            Nodes = source.Nodes.Add("upper", new(NodeTypes.Uppercase, "1.0.0"))
+                .Add("reverse", new(NodeTypes.Reverse, "1.0.0")),
+            Connections = source.Connections
+                .Add("true-transform", new(new(conditionId, "true"), new("upper", "in"), "data"))
+                .Add("true-output", new(new("upper", "out"), new("output", "in"), "data"))
+                .Add("false-transform", new(new(conditionId, "false"), new("reverse", "in"), "data"))
+                .Add("false-output", new(new("reverse", "out"), new("output", "in"), "data"))
+        };
+        var original = WorkflowJson.Serialize(source);
+
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(source);
+
+        Assert.Equal("2.0", normalized.SchemaVersion);
+        Assert.Equal(source.Nodes.Count + 1, normalized.Nodes.Count);
+        Assert.All(source.Nodes.Keys, id => Assert.Contains(id, normalized.Nodes.Keys));
+        Assert.Equal(original, WorkflowJson.Serialize(source));
+        Assert.Equal(WorkflowJson.Serialize(normalized),
+            WorkflowJson.Serialize(WorkflowSchemaNormalization.NormalizeForEditing(source)));
+        var normalizedMergeId = normalized.Nodes.Single(pair => pair.Value.Type == NodeTypes.Merge).Key;
+        Assert.Equal(2, normalized.Connections.Values.Count(edge => edge.Target == new PortReference(normalizedMergeId, "in")));
+        Assert.Equal(1, normalized.Connections.Values.Count(edge => edge.Target == new PortReference("output", "in")));
+        Assert.Contains(normalized.Connections.Values, edge => edge.Source == new PortReference(normalizedMergeId, "out") &&
+            edge.Target == new PortReference("output", "in"));
+        Assert.Equal(4, normalized.ExecutionConnections!.Count);
+        Assert.Contains(normalized.ExecutionConnections.Values, edge => edge.Source.NodeId == conditionId &&
+            edge.Source.PortId == "true" && edge.Target == new PortReference(normalizedMergeId, "execute"));
+        Assert.Contains(normalized.ExecutionConnections.Values, edge => edge.Source.NodeId == conditionId &&
+            edge.Source.PortId == "false" && edge.Target == new PortReference(normalizedMergeId, "execute"));
+        Assert.Empty(WorkflowValidator.Validate(normalized));
+    }
+
+    [Fact]
+    public void LegacyConditionalWithOnlyOneArmEndingAtOutputRemainsDiagnosticOnly()
+    {
+        var source = GraphEditing.InsertConditionalAfter(Blank(), "input", "out");
+        var conditionId = source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Condition).Key;
+        var falseEdge = source.Connections.Single(pair => pair.Value.Source == new PortReference(conditionId, "false"));
+        source = source with
+        {
+            Connections = source.Connections.SetItem(falseEdge.Key,
+                falseEdge.Value with { Target = new("output", "in") })
+        };
+        Assert.Empty(WorkflowValidator.Validate(source));
         var original = WorkflowJson.Serialize(source);
 
         var result = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(source);

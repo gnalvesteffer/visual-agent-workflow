@@ -2,6 +2,19 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Normalize legacy conditionals whose arms end at Output
+
+Schema 1.4–1.22 conditionals with two unambiguous pure-text arms that end
+directly at Output now normalize into schema 2.0. Normalization inserts a
+deterministically named Merge, retargets the two terminal data edges, and adds
+explicit execution wires so the unified runtime can select the active value.
+The source definition stays unchanged and both snapshots remain in conversion
+provenance. Legacy-versus-normalized runtime tests cover both branch outcomes,
+empty arms, transformed arms, selected route evidence, and one output
+completion. Other ambiguous or effectful legacy conditionals remain
+unsupported. See [Decision 0060](decisions/0060-unified-authoring-schema.md)
+and [conditional graphs](conditional-graphs.md).
+
 ## Per-activation graph-function array budget proof
 
 The private production-body proof evaluates four outputs backed by a roughly

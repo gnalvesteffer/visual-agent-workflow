@@ -26,6 +26,35 @@ public sealed class ConditionalExecutionTests
         return GraphEditing.InsertConditionalAfter(baseline, "input", "out");
     }
 
+    private static WorkflowDefinition DirectOutputConditionalTextGraph(bool addArmTransforms)
+    {
+        var graph = EmptyArmsGraph();
+        var conditionId = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Condition).Key;
+        var mergeId = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Merge).Key;
+        graph = GraphEditing.InsertNodeAfter(graph, "input", "out", new(NodeTypes.Uppercase, "1.0.0"));
+        graph = GraphEditing.ReplaceNode(graph, conditionId, graph.Nodes[conditionId] with { Condition = new("contains", "YES") });
+        graph = GraphEditing.RemoveNode(graph, mergeId);
+        var connections = graph.Connections;
+        var nodes = graph.Nodes;
+        if (addArmTransforms)
+        {
+            nodes = nodes.Add("upper", new(NodeTypes.Uppercase, "1.0.0"))
+                .Add("reverse", new(NodeTypes.Reverse, "1.0.0"));
+            connections = connections
+                .Add("true-transform", new(new(conditionId, "true"), new("upper", "in"), "data"))
+                .Add("true-output", new(new("upper", "out"), new("output", "in"), "data"))
+                .Add("false-transform", new(new(conditionId, "false"), new("reverse", "in"), "data"))
+                .Add("false-output", new(new("reverse", "out"), new("output", "in"), "data"));
+        }
+        else
+        {
+            connections = connections
+                .Add("true-output", new(new(conditionId, "true"), new("output", "in"), "data"))
+                .Add("false-output", new(new(conditionId, "false"), new("output", "in"), "data"));
+        }
+        return graph with { Nodes = nodes, Connections = connections };
+    }
+
     [Theory]
     [InlineData("say yes", "true", "SAY YES")]
     [InlineData("abc", "false", "cba")]
@@ -70,6 +99,52 @@ public sealed class ConditionalExecutionTests
         Assert.Equal(SelectedPort(legacyEvents), SelectedPort(normalizedEvents));
         Assert.Equal(expectedPort, SelectedPort(normalizedEvents));
         Assert.Single(normalizedEvents, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Theory]
+    [InlineData("say yes", "true", "SAY YES", "upper", "true-output")]
+    [InlineData("abc", "false", "CBA", "reverse", "false-output")]
+    public async Task DirectOutputConditionalNormalizationPreservesSelectedArmAndOutput(string input, string selectedPort,
+        string expectedOutput, string selectedNodeId, string selectedDataConnection)
+    {
+        var legacy = DirectOutputConditionalTextGraph(addArmTransforms: true);
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(legacy);
+        var legacyEvents = new List<ExecutionEvent>();
+        var normalizedEvents = new List<ExecutionEvent>();
+
+        var legacyOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(legacy, "legacy-direct"), input,
+            evt => { legacyEvents.Add(evt); return ValueTask.CompletedTask; });
+        var normalizedOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(normalized, "normalized-direct"), input,
+            evt => { normalizedEvents.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal(expectedOutput, legacyOutput);
+        Assert.Equal(legacyOutput, normalizedOutput);
+        Assert.Equal(SelectedPort(legacyEvents), SelectedPort(normalizedEvents));
+        Assert.Equal(selectedPort, SelectedPort(normalizedEvents));
+        var mergeId = normalized.Nodes.Single(node => node.Value.Type == NodeTypes.Merge).Key;
+        Assert.Single(normalizedEvents, evt => evt.NodeId == mergeId && evt.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.Contains(normalizedEvents, evt => evt.NodeId == selectedNodeId &&
+            evt.Kind == ExecutionEventKinds.DataEvaluated && evt.ConnectionId == $"data:{selectedDataConnection}");
+        Assert.Single(normalizedEvents, evt => evt.NodeId == "output" && evt.Kind == ExecutionEventKinds.NodeStarted);
+        Assert.Single(normalizedEvents, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Theory]
+    [InlineData("say yes", "SAY YES")]
+    [InlineData("abc", "ABC")]
+    public async Task DirectOutputConditionalNormalizationPreservesEmptyArms(string input, string expectedOutput)
+    {
+        var legacy = DirectOutputConditionalTextGraph(addArmTransforms: false);
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(legacy);
+
+        var legacyOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(legacy, "legacy-empty"), input,
+            _ => ValueTask.CompletedTask);
+        var normalizedOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(normalized, "normalized-empty"), input,
+            _ => ValueTask.CompletedTask);
+
+        Assert.Equal(expectedOutput, legacyOutput);
+        Assert.Equal(legacyOutput, normalizedOutput);
+        Assert.Single(normalized.Nodes, node => node.Value.Type == NodeTypes.Merge);
     }
 
     [Theory]

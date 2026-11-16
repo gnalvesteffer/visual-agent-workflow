@@ -19,12 +19,14 @@ Runtime input selection is iteration-aware; effectful historical loop bodies
 are not silently converted.
 
 Legacy conditional schemas 1.4–1.22 also normalize when they contain one
-Condition, one Merge, disjoint pure-text arms, and unambiguous pure-text paths
-around the region. The conversion preserves node identities and data wires,
-derives execution edges, and keeps the source revision unchanged. At runtime,
-the current-schema merge resolves the incoming data path from its active
-execution source and selected route; it does not evaluate the unchosen arm.
-Other legacy control-flow shapes remain diagnostic-only.
+Condition, at most one Merge, disjoint pure-text arms, and unambiguous
+pure-text paths before the condition. When the arms terminate directly at
+Output, normalization inserts one deterministic Merge and retargets their
+terminal data edges to it, because current runtime data selection is
+route-aware at Merge. Existing Merge graphs retain their data edges. In both
+forms, normalization derives explicit execution edges and leaves the source
+revision unchanged; runtime evaluates only the selected arm. Other legacy
+control-flow shapes remain diagnostic-only.
 
 Historical 1.x validators and execution paths remain for stored revisions.
 Editor normalization creates a separate current draft and preserves the

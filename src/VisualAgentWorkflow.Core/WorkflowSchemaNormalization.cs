@@ -5,7 +5,7 @@ namespace VisualAgentWorkflow.Core;
 /// <summary>Explicit, source-preserving conversion to the current editor contract.</summary>
 public static class WorkflowSchemaNormalization
 {
-    public const string NormalizerVersion = "unified-graph-2.0.2";
+    public const string NormalizerVersion = "unified-graph-2.0.3";
 
     /// <summary>Performs normalization and returns stable provenance or structured diagnostics.</summary>
     public static WorkflowNormalizationResult NormalizeForEditingWithProvenance(
@@ -100,8 +100,11 @@ public static class WorkflowSchemaNormalization
             throw new ArgumentException("normalization.conditional-unsafe: Only a legacy conditional graph with pure uppercase/reverse text paths has a verified translation.", nameof(definition));
 
         if (definition.Nodes.Values.Count(node => node.Type == NodeTypes.Condition) != 1 ||
-            definition.Nodes.Values.Count(node => node.Type == NodeTypes.Merge) != 1)
-            throw new ArgumentException("normalization.conditional-topology: Conversion requires exactly one condition and one matching merge.", nameof(definition));
+            definition.Nodes.Values.Count(node => node.Type == NodeTypes.Merge) > 1)
+            throw new ArgumentException("normalization.conditional-topology: Conversion requires exactly one condition and at most one matching merge.", nameof(definition));
+
+        if (!definition.Nodes.Values.Any(node => node.Type == NodeTypes.Merge))
+            return NormalizeLegacyConditionalOutputTextGraph(definition);
 
         var conditionId = definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.Condition).Key;
         var mergeId = definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.Merge).Key;
@@ -141,6 +144,68 @@ public static class WorkflowSchemaNormalization
             SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
             ExecutionConnections = execution
         };
+    }
+
+    private static WorkflowDefinition NormalizeLegacyConditionalOutputTextGraph(WorkflowDefinition definition)
+    {
+        var conditionId = definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.Condition).Key;
+        var inputId = definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.Input).Key;
+        var outputId = definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.Output).Key;
+        var outgoing = definition.Connections.Values.GroupBy(edge => edge.Source.NodeId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        var incoming = definition.Connections.Values.GroupBy(edge => edge.Target.NodeId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        var conditionEdges = outgoing.GetValueOrDefault(conditionId, []);
+        var trueEdge = conditionEdges.SingleOrDefault(edge => edge.Source.PortId == "true");
+        var falseEdge = conditionEdges.SingleOrDefault(edge => edge.Source.PortId == "false");
+        if (trueEdge is null || falseEdge is null || conditionEdges.Length != 2 ||
+            !TryWalkConditionalPath(trueEdge.Target.NodeId, outputId, outgoing, definition.Nodes, out var truePath) ||
+            !TryWalkConditionalPath(falseEdge.Target.NodeId, outputId, outgoing, definition.Nodes, out var falsePath) ||
+            truePath.Overlaps(falsePath))
+            throw new ArgumentException("normalization.conditional-topology: Both condition outputs must follow disjoint linear pure-text paths directly into Output.", nameof(definition));
+
+        if (!TryWalkConditionalPrefix(incoming.GetValueOrDefault(conditionId, []), inputId, incoming, definition.Nodes, out var prefix))
+            throw new ArgumentException("normalization.conditional-topology: The graph must have one linear pure-text path from Input to the condition.", nameof(definition));
+
+        var covered = prefix.Concat(truePath).Concat(falsePath).Append(inputId).Append(conditionId).Append(outputId)
+            .ToHashSet(StringComparer.Ordinal);
+        var expectedConnectionCount = prefix.Count + 3 + truePath.Count + falsePath.Count;
+        if (covered.Count != definition.Nodes.Count || incoming.GetValueOrDefault(outputId, []).Length != 2 ||
+            incoming.GetValueOrDefault(conditionId, []).Length != 1 || outgoing.GetValueOrDefault(inputId, []).Length != 1 ||
+            definition.Connections.Count != expectedConnectionCount)
+            throw new ArgumentException("normalization.conditional-topology: The graph contains bypasses, shared nodes, extra inputs, or paths outside the direct-output conditional.", nameof(definition));
+
+        var mergeId = UniqueGeneratedId("normalize-conditional-merge", definition.Nodes.Keys);
+        var mergeOutputConnectionId = UniqueGeneratedId("normalize-conditional-merge-output", definition.Connections.Keys);
+        var connections = definition.Connections.ToBuilder();
+        foreach (var (connectionId, edge) in definition.Connections.Where(pair => pair.Value.Target.NodeId == outputId))
+            connections[connectionId] = edge with { Target = new(mergeId, "in") };
+        connections.Add(mergeOutputConnectionId, new(new(mergeId, "out"), new(outputId, "in"), "data"));
+
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("normalize-conditional-start", new(new(inputId, "then"), new(conditionId, "execute"), "execution"))
+            .Add("normalize-conditional-true", new(new(conditionId, "true"), new(mergeId, "execute"), "execution"))
+            .Add("normalize-conditional-false", new(new(conditionId, "false"), new(mergeId, "execute"), "execution"))
+            .Add("normalize-conditional-finish", new(new(mergeId, "then"), new(outputId, "execute"), "execution"));
+
+        return definition with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Nodes = definition.Nodes.Add(mergeId, new(NodeTypes.Merge, "1.0.0")),
+            Connections = connections.ToImmutable(),
+            ExecutionConnections = execution
+        };
+    }
+
+    private static string UniqueGeneratedId(string preferred, IEnumerable<string> existingIds)
+    {
+        var existing = existingIds.ToHashSet(StringComparer.Ordinal);
+        if (!existing.Contains(preferred)) return preferred;
+        for (var suffix = 2; ; suffix++)
+        {
+            var candidate = $"{preferred}-{suffix}";
+            if (!existing.Contains(candidate)) return candidate;
+        }
     }
 
     private static bool TryWalkConditionalPath(string startId, string endId,
