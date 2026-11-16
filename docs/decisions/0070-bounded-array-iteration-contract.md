@@ -2356,3 +2356,11 @@ recorded, and file/SQLite playback reopens with an incomplete iteration (2
 focused cases). This covers the pre-provider boundary only; model response,
 MCP authorization, and terminal append failures remain distinct boundaries.
 The architecture decision remains **REVISE**.
+
+`ProductionBodyActivationCoordinator_ToolRequestAppendFailurePreventsMcpConnection`
+uses the production stdio `McpToolBroker` and rejects `tool.requested` at the
+run-store append boundary. In both file and SQLite cases no MCP connection is
+opened; the tool and root fail and the reopened iteration remains incomplete
+(2 focused cases). This establishes the earliest MCP dispatch-evidence
+boundary for the integrated proof, but does not change the architecture
+decision or qualify recovery after a persisted request.

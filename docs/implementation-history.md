@@ -758,3 +758,12 @@ The Agent and root fail, later tool work is suppressed, and reopened playback
 shows an incomplete iteration (2 focused cases). This is a proof-only evidence
 boundary; no iterator schema or Studio authoring was added. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: MCP request append failure (2026-11-15)
+
+The integrated production-body proof now rejects the production stdio MCP
+broker's `tool.requested` append in file and SQLite stores. No MCP connection is
+opened, the tool and root fail, and passive playback retains an incomplete
+iteration (2 focused cases). This qualifies the pre-connection boundary only;
+the broader failure, recovery, and architecture gates remain open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

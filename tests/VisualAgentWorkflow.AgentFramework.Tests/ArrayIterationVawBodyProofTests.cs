@@ -722,6 +722,84 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ToolRequestAppendFailurePreventsMcpConnection(bool sqlite)
+    {
+        const string input = "[\"north\"]";
+        var sourceRegistration = Assert.Single(CreateDemoMcpRegistrations("demo.reverse"));
+        var discoveryBroker = new McpToolBroker([sourceRegistration], new DemoToolPolicy());
+        var binding = Assert.Single(await discoveryBroker.ListBindingsAsync());
+        var connectionAttempts = 0;
+        var registration = sourceRegistration with
+        {
+            Connect = async cancellationToken =>
+            {
+                Interlocked.Increment(ref connectionAttempts);
+                return await sourceRegistration.Connect(cancellationToken);
+            }
+        };
+        var tools = new McpToolBroker([registration], new DemoToolPolicy());
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("tool", new NodeDefinition(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest(binding.BindingId, binding.ContractHash)
+                {
+                    DescriptionHash = binding.DescriptionHash
+                })
+            {
+                McpInputPorts = [new("arg.text", "text", WorkflowDataTypes.String, true)]
+            })
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-tool-argument", new(new("input", "out"), new("tool", "arg.text"), "data"))
+            .Add("tool-output", new(new("tool", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-tool", Edge("input", "then", "tool", "execute"))
+            .Add("tool-output", Edge("tool", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-mcp-request-append-failure-proof", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-mcp-request-append-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.ToolRequested]);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(tools)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+
+        Assert.True(result.Failed);
+        Assert.Equal(0, Volatile.Read(ref connectionAttempts));
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolRequested or
+            ExecutionEventKinds.ToolAuthorized or ExecutionEventKinds.ToolCompleted or
+            ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ToolUncertain);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "tool");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ModelOutcomeAppendFailureStopsLaterActivations(bool sqlite)
     {
         const string input = "[\"first\",\"must-not-run\"]";

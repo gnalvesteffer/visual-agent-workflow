@@ -445,6 +445,11 @@ will be introduced.
       outcome is fabricated, and the active iteration remains incomplete after
       reopen (2 focused cases). This qualifies the pre-dispatch authorization
       evidence boundary only; remaining append-failure positions stay open.
+    - [x] Reject `tool.requested` from the production MCP broker in both run
+      stores. The broker opens no MCP connection, the tool and root fail, and
+      reopened playback retains the iteration as incomplete (2 focused
+      cases). This proves the request-evidence boundary, not general MCP
+      recovery or the remaining append-failure positions.
     - [x] Reject the `model.requested` append in both run stores. The provider
       receives no request, the Agent and root fail, later tool work is not
       dispatched, and reopened playback keeps the iteration incomplete (2
