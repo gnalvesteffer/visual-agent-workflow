@@ -1128,6 +1128,13 @@ introduced.
       file and SQLite stores (2 focused cases). This does not yet prove the
       production budget/lifecycle owner or full race matrix. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Verify the nested production-body coordinator shares its model
+      dispatch cap across outer activations. With a one-dispatch limit, the
+      first body's Agent/MCP work completes and the second activation is
+      rejected before another model dispatch; both stores preserve the same
+      failed terminal history (2 focused cases). This demonstrates shared
+      proof-context accounting, not production scheduler ownership. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Compare synchronized parallel Agent failure across all three
       candidates. Both branches enter, the left branch fails, the right
       sibling records cancellation with its matching invocation, the join is

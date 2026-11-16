@@ -2760,6 +2760,15 @@ both file and SQLite stores (2 focused cases). This strengthens the settlement
 matrix but remains proof-only; it does not establish production ownership,
 general cancellation/budget races, the public node contract, or recovery.
 
+`ProductionBodyNestedCoordinator_SharesModelBudgetAcrossOuterActivations`
+adds a separate nested budget case using the real Agent Framework model adapter.
+A single run-wide model-dispatch allowance lets the first outer activation's
+Agent/MCP body complete, then rejects the second model request before provider
+dispatch. File and SQLite stores reopen with the same failed history (2
+focused cases). The existing private run context already accounts for both
+frames; this test verifies cross-activation cap behavior, not a production
+scheduler entry point or all reservation settlement paths.
+
 The review explicitly keeps the end state unchanged: typed array iteration
 and nearest-loop Break must be authored in the current unified schema without
 feature-specific schema gates. Checkpoint recovery stays excluded until the

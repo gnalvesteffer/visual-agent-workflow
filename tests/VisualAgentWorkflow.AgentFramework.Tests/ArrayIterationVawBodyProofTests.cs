@@ -4885,6 +4885,56 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyNestedCoordinator_SharesModelBudgetAcrossOuterActivations(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(NestedBodyDefinition(),
+            "production-body-nested-shared-model-budget-proof");
+        const string outerItems = "[\"outer-a\",\"outer-b\"]";
+        const string innerItems = "[\"inner\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var model = new SharedBudgetProofModel();
+        var provider = new AgentProviderDescriptor("proof.echo-agent", "Proof model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SharedBudgetProofChatClient(model))],
+            new EchoToolBroker());
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+
+        var result = await new WorkflowRunner(tools, agents)
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                outerItems, innerItems, "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, runBudget: StructuredRunBudget(maximumToolDispatches: 2) with
+                {
+                    MaximumModelDispatches = 1
+                }, itemParameterId: null);
+
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.Equal(1, model.Calls);
+        Assert.Equal(["bounded"], tools.Queries);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "outer-loop/1");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "outer-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+
+        AssertPersistedSequence(runStore, events, "failed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_BreakSettlesForkSiblingBeforeStoppingLaterItems(bool sqlite)
     {
         var body = ParallelBodyDefinition();
