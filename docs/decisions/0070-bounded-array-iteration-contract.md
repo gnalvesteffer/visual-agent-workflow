@@ -2650,10 +2650,17 @@ first heterogeneous item fails at Array Append, records no Variable Set, does
 not complete the activation or admit the second item, and reopens as the same
 failed file/SQLite prefix (2/2 focused cases).
 
+`ProductionBodyActivationCoordinator_CancellationAfterJsonArrayVariableWritePreservesState`
+cancels from the recorder immediately after the first activation's durable
+Variable Written event. The committed JSON value remains reconstructable from
+that activation scope after file/SQLite reopen, the run reopens as cancelled,
+and the second item is never admitted (2/2 focused cases).
+
 These prove successful JSON-array transformation and mutable-variable state,
-plus one bounded transform failure, across item activations. They do not
-establish a public iterator contract, cancellation behavior for this type, or
-the architecture choice. Readiness remains **REVISE**.
+plus bounded failure and post-write cancellation, across item activations. They
+do not establish a public iterator contract, cancellation-before-write or
+parallel cancellation races for this type, or the architecture choice.
+Readiness remains **REVISE**.
 
 `ProductionBodyActivationCoordinator_StopsAfterJsonArrayAppendExceedsPayloadLimit`
 complements the successful path with an oversized Append result in the same

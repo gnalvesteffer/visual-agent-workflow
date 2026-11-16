@@ -2907,6 +2907,48 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_CancellationAfterJsonArrayVariableWritePreservesState(bool sqlite)
+    {
+        const string input = "[{\"kind\":\"committed\"},{\"kind\":\"must-not-run\"}]";
+        var revision = WorkflowRevision.Create(JsonArrayVariableItemBodyDefinition(),
+            "production-body-json-array-variable-cancellation-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        using var cancellation = new CancellationTokenSource();
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            if (evt.Kind == ExecutionEventKinds.VariableWritten && evt.ScopeId == "array-loop/0")
+                cancellation.Cancel();
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner().ExecuteProductionBodyActivationSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, Record, cancellation.Token,
+            arrayElementType: WorkflowDataTypes.Json);
+
+        Assert.True(result.Cancelled);
+        Assert.False(result.Failed);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.VariableWritten &&
+            evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1" ||
+            evt.ScopeId?.StartsWith("array-loop/1/", StringComparison.Ordinal) == true);
+        AssertPersistedSequence(runStore, events, "cancelled");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("cancelled", reopened.Status);
+        var itemEvents = reopened.Events.Where(evt => evt.ScopeId == "array-loop/0").ToArray();
+        Assert.True(VariableEvidence.TryReconstructPlayback(itemEvents, out var state));
+        Assert.Equal("[null,{\"seed\":1.00},{\"kind\":\"committed\"}]", state!.Values["items"].Value);
+        Assert.Contains("Latest run status: cancelled", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ComposesEveryTypedArrayOperationPerItem(bool sqlite)
     {
         const string input = "[\"alpha\",\"beta\"]";
