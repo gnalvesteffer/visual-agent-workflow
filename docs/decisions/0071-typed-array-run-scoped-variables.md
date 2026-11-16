@@ -103,9 +103,11 @@ valid and invalid default save/reopen, Problems diagnostics, and run blocking.
 Invalid folder drafts are excluded from callable interface workflow choices;
 strict package and run validation still reject them. Runner-backed bounded-loop
 and file/SQLite reopen tests reconstruct typed-array state at every captured
-event prefix without execution. The full Agent Framework suite passed 644/644
-on 2026-11-16. Failure/cancellation-prefix and full historical compatibility
-proofs remain open.
+event prefix without execution. Focused cancellation tests prove that canceling
+before an array write emits no variable state and canceling after it preserves the
+committed array for playback. The full Agent Framework suite passed 644/644 on
+2026-11-16; both cancellation cases also pass. Failure-prefix and full historical
+compatibility proofs remain open.
 
 ## Review record
 

@@ -145,6 +145,46 @@ public sealed class MutableVariableExecutionTests
     }
 
     [Fact]
+    public async Task Typed_array_cancellation_before_write_leaves_no_variable_state_evidence()
+    {
+        var revision = WorkflowRevision.Create(ArrayVariableDefinition(), "typed-array-cancel-before-write");
+        using var cancellation = new CancellationTokenSource();
+        var events = new List<ExecutionEvent>();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new WorkflowRunner().ExecuteAsync(
+            Guid.NewGuid(), revision, "unused", evt =>
+            {
+                events.Add(evt);
+                if (evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "set") cancellation.Cancel();
+                return ValueTask.CompletedTask;
+            }, cancellation.Token));
+
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.VariableRead or ExecutionEventKinds.VariableWritten);
+        Assert.False(VariableEvidence.TryReconstructPlayback(events, out _));
+    }
+
+    [Fact]
+    public async Task Typed_array_cancellation_after_write_preserves_reconstructable_variable_state()
+    {
+        var revision = WorkflowRevision.Create(ArrayVariableDefinition(), "typed-array-cancel-after-write");
+        using var cancellation = new CancellationTokenSource();
+        var events = new List<ExecutionEvent>();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new WorkflowRunner().ExecuteAsync(
+            Guid.NewGuid(), revision, "unused", evt =>
+            {
+                events.Add(evt);
+                if (evt.Kind == ExecutionEventKinds.VariableWritten) cancellation.Cancel();
+                return ValueTask.CompletedTask;
+            }, cancellation.Token));
+
+        var written = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
+        using var payload = JsonDocument.Parse(written.Data!);
+        Assert.Equal("[\"seed\",\"next\"]", payload.RootElement.GetProperty("value").GetRawText());
+        AssertEveryArrayVariableEvidencePrefixReconstructs(events);
+    }
+
+    [Fact]
     public async Task Failure_after_a_committed_write_preserves_the_recorded_variable_prefix()
     {
         var revision = WorkflowRevision.Create(Definition(), "variable-failure-prefix");

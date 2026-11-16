@@ -182,15 +182,18 @@ will be introduced.
   covers declaration creation/editing, valid and invalid default save/reopen,
   diagnostics, and execution blocking; callable interface choices omit invalid
   drafts. Representative runner and reopened-store event prefixes now reconstruct
-  typed-array state without execution; failure/cancellation prefixes and full
-  historical compatibility remain before marking this increment shipped. See
+  typed-array state without execution; failure-prefix and full historical
+  compatibility proofs remain before marking this increment shipped. Cancellation
+  before and after a committed typed-array write is now covered. See
   [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
   - [x] Verify append/insert/replace/remove/concatenate ordering, empty-array
     insertion, legal index endpoints, invalid indexes and item types, exact
     array type matching, and maximum-item result rejection.
   - [x] Verify runner-backed every-event-prefix reconstruction for bounded-loop
-    typed-array variable state and after file/SQLite store reopen. The
-    complete Agent Framework suite passed 644/644 on 2026-11-16.
+    typed-array variable state and after file/SQLite store reopen. Cancellation
+    tests prove pre-write evidence stays empty and a post-write cancellation keeps
+    the committed state reconstructable. The complete Agent Framework suite
+    passed 644/644 on 2026-11-16; the two focused cancellation cases also pass.
   - [x] Verify folder-backed Studio variable authoring in Playwright: add and
     reopen a typed array declaration, save an invalid typed default as a
     repairable draft, confirm Problems reports it, and confirm execution
