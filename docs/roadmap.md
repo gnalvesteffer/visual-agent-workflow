@@ -199,9 +199,10 @@ introduced.
   The integrated `array<json>` body proof also verifies mutable JSON-array
   variables: each activation starts at the declared default, appends its own
   heterogeneous item, and reconstructs independent scoped state after file and
-  SQLite reopen. Append, Insert, Replace, Remove, and Concatenate now compose
-  over `array<json>` values inside each activation, preserving nested values and
-  numeric token spelling in scoped state after both stores reopen. A 16 KiB
+  SQLite reopen. Array Literal, Length, Get, Append, Insert, Replace, Remove,
+  and Concatenate now compose over `array<json>` values inside each activation,
+  preserving nested values and numeric token spelling in scoped state after
+  both stores reopen. A 16 KiB
   Append overflow in the first activation is attributed
   to Append, commits no variable write, suppresses completion and later items,
   and preserves the same failed prefix after both store reopen paths. JSON-array

@@ -2895,8 +2895,9 @@ public sealed class ArrayIterationVawBodyProofTests
             var scopedEvents = events.Where(evt => evt.ScopeId == scope).ToArray();
             foreach (var connectionId in new[]
             {
-                "data:append-array", "data:append-item", "data:insert-array", "data:insert-index",
-                "data:insert-item", "data:replace-array", "data:replace-index", "data:replace-item",
+                "data:append-array", "data:append-item", "data:length-array", "data:get-array",
+                "data:get-index", "data:insert-array", "data:insert-index", "data:insert-item",
+                "data:replace-array", "data:replace-index", "data:replace-item",
                 "data:remove-array", "data:remove-index", "data:concat-left", "data:concat-right",
                 "data:set-value", "data:output-value"
             })
@@ -14763,11 +14764,13 @@ public sealed class ArrayIterationVawBodyProofTests
             .Add("read-before", new(NodeTypes.VariableGet, "1.0.0")
                 { VariableId = "items", OutputDataType = WorkflowDataTypes.JsonArray })
             .Add("append", new(NodeTypes.ArrayAppend, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
-            .Add("insert-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
+            .Add("length", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("get-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(2) })
+            .Add("get", new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
             .Add("insert", new(NodeTypes.ArrayInsert, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
             .Add("replace-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(0) })
             .Add("replace", new(NodeTypes.ArrayReplace, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
-            .Add("remove-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(2) })
+            .Add("remove-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
             .Add("remove", new(NodeTypes.ArrayRemove, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
             .Add("tail", new(NodeTypes.ArrayLiteral, "1.0.0")
                 { ArrayLiteral = new(WorkflowDataTypes.Json, "[{\"tail\":2.00},[true]]") })
@@ -14781,12 +14784,15 @@ public sealed class ArrayIterationVawBodyProofTests
         var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
             .Add("append-array", new(new("read-before", "out"), new("append", "array"), "data"))
             .Add("append-item", new(new("input", "out"), new("append", "item"), "data"))
+            .Add("length-array", new(new("append", "out"), new("length", "in"), "data"))
+            .Add("get-array", new(new("append", "out"), new("get", "array"), "data"))
+            .Add("get-index", new(new("get-index", "out"), new("get", "index"), "data"))
             .Add("insert-array", new(new("append", "out"), new("insert", "array"), "data"))
-            .Add("insert-index", new(new("insert-index", "out"), new("insert", "index"), "data"))
-            .Add("insert-item", new(new("input", "out"), new("insert", "item"), "data"))
+            .Add("insert-index", new(new("length", "out"), new("insert", "index"), "data"))
+            .Add("insert-item", new(new("get", "item"), new("insert", "item"), "data"))
             .Add("replace-array", new(new("insert", "out"), new("replace", "array"), "data"))
             .Add("replace-index", new(new("replace-index", "out"), new("replace", "index"), "data"))
-            .Add("replace-item", new(new("input", "out"), new("replace", "item"), "data"))
+            .Add("replace-item", new(new("get", "item"), new("replace", "item"), "data"))
             .Add("remove-array", new(new("replace", "out"), new("remove", "array"), "data"))
             .Add("remove-index", new(new("remove-index", "out"), new("remove", "index"), "data"))
             .Add("concat-left", new(new("remove", "out"), new("concatenate", "left"), "data"))
