@@ -144,6 +144,11 @@ public static class NodeTypes
     public const string ArrayLength = "core.array.length";
     public const string ArrayGet = "core.array.get";
     public const string ArrayLiteral = "core.array.literal";
+    public const string ArrayAppend = "core.array.append";
+    public const string ArrayInsert = "core.array.insert";
+    public const string ArrayReplace = "core.array.replace";
+    public const string ArrayRemove = "core.array.remove";
+    public const string ArrayConcatenate = "core.array.concatenate";
     public const string TextTemplate = "core.text.template";
     public const string ParallelFork = "core.parallel.fork";
     public const string ParallelBranch = "core.parallel.branch";

@@ -153,7 +153,7 @@ public partial class WorkflowGraphCanvas
     internal static string FriendlyName(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => "Input", NodeTypes.Output => "Output", NodeTypes.Uppercase => "Uppercase", NodeTypes.Reverse => "Reverse", NodeTypes.TextTemplate => "Text template",
-        NodeTypes.JsonProject => "JSON projection", NodeTypes.JsonSelectString => "JSON selector", NodeTypes.JsonMerge => "JSON merge", NodeTypes.JsonToArray => "JSON to array", NodeTypes.ArrayLiteral => "Array literal", NodeTypes.ArrayLength => "Array length", NodeTypes.ArrayGet => "Array get",
+        NodeTypes.JsonProject => "JSON projection", NodeTypes.JsonSelectString => "JSON selector", NodeTypes.JsonMerge => "JSON merge", NodeTypes.JsonToArray => "JSON to array", NodeTypes.ArrayLiteral => "Array literal", NodeTypes.ArrayLength => "Array length", NodeTypes.ArrayGet => "Array get", NodeTypes.ArrayAppend => "Array append", NodeTypes.ArrayInsert => "Array insert", NodeTypes.ArrayReplace => "Array replace", NodeTypes.ArrayRemove => "Array remove", NodeTypes.ArrayConcatenate => "Array concatenate",
         NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval",
         NodeTypes.ParallelFork => "Parallel fork", NodeTypes.ParallelBranch => "Parallel branch", NodeTypes.ParallelJoin => "Parallel join", NodeTypes.ParallelRendezvous => "Parallel rendezvous",
         NodeTypes.Sequence => "Sequence",
@@ -193,7 +193,7 @@ public partial class WorkflowGraphCanvas
         node.Type == NodeTypes.Loop ? "Bounded loop" : node.Type == NodeTypes.LoopBody ? "Loop body" : node.Type == NodeTypes.Terminate ? "Successful exit · no result" :
         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall ? "Pinned workflow call" : node.Type == NodeTypes.FunctionCall ? "Pure function" :
         node.Type is NodeTypes.FunctionInput or NodeTypes.FunctionOutput ? "Function boundary" :
-        node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet ? "Pure value" :
+        node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate ? "Pure value" :
         node.Type == NodeTypes.BooleanBranch ? "Boolean routing" : node.Type is NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.WorkflowValue ? "Pure value" :
         node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet ? "Run-scoped state" :
         node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";

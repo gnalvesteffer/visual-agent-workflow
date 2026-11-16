@@ -616,7 +616,7 @@ public static class WorkflowNodeDescriptorResolver
         IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions,
         out WorkflowNodeDescriptor descriptor)
     {
-        if ((node.Type is NodeTypes.ArrayLength or NodeTypes.ArrayGet) &&
+        if ((node.Type is NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate) &&
             !WorkflowDataTypes.IsArrayElementType(node.ArrayElementType ?? WorkflowDataTypes.Json) ||
             node.Type == NodeTypes.ArrayLiteral && node.ArrayLiteral is not null && (
                 !WorkflowDataTypes.IsArrayElementType(node.ArrayLiteral.ElementType) ||
@@ -723,7 +723,7 @@ public static class WorkflowNodeDescriptorResolver
         NodeTypes.Agent => "agent",
         NodeTypes.VariableGet => "variable-get",
         NodeTypes.VariableSet => "variable-set",
-        NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet => "array",
+        NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate => "array",
         NodeTypes.FunctionCall => "graph-function-call",
         NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous => "parallel",
         NodeTypes.Sequence => "sequence",

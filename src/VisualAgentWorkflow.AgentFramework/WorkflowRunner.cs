@@ -1136,6 +1136,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.ArrayLength when outputPort == "out" => new ExplicitGraphValue(WorkflowDataTypes.Integer,
                         (long)ResolveArrayInput(nodeId, "in", node.ArrayElementType ?? WorkflowDataTypes.Json, evaluated, cache, active).GetArrayLength()),
                     NodeTypes.ArrayGet when outputPort == "item" => GetArrayItem(nodeId, node.ArrayElementType ?? WorkflowDataTypes.Json, evaluated, cache, active),
+                    NodeTypes.ArrayAppend when outputPort == "out" => TransformArrayAppend(nodeId, node.ArrayElementType!, evaluated, cache, active),
+                    NodeTypes.ArrayInsert when outputPort == "out" => TransformArrayIndexed(nodeId, node.ArrayElementType!, true, true, evaluated, cache, active),
+                    NodeTypes.ArrayReplace when outputPort == "out" => TransformArrayIndexed(nodeId, node.ArrayElementType!, false, true, evaluated, cache, active),
+                    NodeTypes.ArrayRemove when outputPort == "out" => TransformArrayIndexed(nodeId, node.ArrayElementType!, false, false, evaluated, cache, active),
+                    NodeTypes.ArrayConcatenate when outputPort == "out" => TransformArrayConcatenate(nodeId, node.ArrayElementType!, evaluated, cache, active),
                     NodeTypes.FunctionCall when node.GraphFunction is { } function && function.Definition.Outputs.TryGetValue(outputPort, out var output) =>
                         EvaluateFunction(nodeId, outputPort, output.DataType, function, evaluated, cache, active),
                         _ => throw new InvalidOperationException("The data source is not a supported pure value node.")
@@ -1413,6 +1418,85 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 _ => item.Clone()
             };
             return new ExplicitGraphValue(elementType, value);
+        }
+
+        private ExplicitGraphValue TransformArrayAppend(string nodeId, string elementType,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            try
+            {
+                return TransformArray(nodeId, elementType,
+                    WorkflowTypedArrayOperations.Append(elementType,
+                        ResolveArrayInput(nodeId, "array", elementType, evaluated, cache, active),
+                        ResolveTypedArrayItem(nodeId, "item", elementType, evaluated, cache, active)));
+            }
+            catch (ArgumentException exception)
+            {
+                throw new GraphDataEvaluationException(nodeId, exception.Message, exception);
+            }
+        }
+
+        private ExplicitGraphValue TransformArrayIndexed(string nodeId, string elementType, bool insert, bool hasItem,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var array = ResolveArrayInput(nodeId, "array", elementType, evaluated, cache, active);
+            var index = ResolveIntegerInput(nodeId, "index", evaluated, cache, active);
+            try
+            {
+                var result = hasItem
+                    ? insert
+                        ? WorkflowTypedArrayOperations.InsertAt(elementType, array, index,
+                            ResolveTypedArrayItem(nodeId, "item", elementType, evaluated, cache, active))
+                        : WorkflowTypedArrayOperations.ReplaceAt(elementType, array, index,
+                            ResolveTypedArrayItem(nodeId, "item", elementType, evaluated, cache, active))
+                    : WorkflowTypedArrayOperations.RemoveAt(elementType, array, index);
+                return TransformArray(nodeId, elementType, result);
+            }
+            catch (ArgumentException exception)
+            {
+                throw new GraphDataEvaluationException(nodeId, exception.Message, exception);
+            }
+        }
+
+        private ExplicitGraphValue TransformArrayConcatenate(string nodeId, string elementType,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            try
+            {
+                return TransformArray(nodeId, elementType, WorkflowTypedArrayOperations.Concatenate(elementType,
+                    ResolveArrayInput(nodeId, "left", elementType, evaluated, cache, active),
+                    ResolveArrayInput(nodeId, "right", elementType, evaluated, cache, active)));
+            }
+            catch (ArgumentException exception)
+            {
+                throw new GraphDataEvaluationException(nodeId, exception.Message, exception);
+            }
+        }
+
+        private object ResolveTypedArrayItem(string nodeId, string inputPort, string elementType,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
+            var value = ResolveOutput(edge.Value.Source.NodeId, edge.Value.Source.PortId, edge.Key, evaluated, cache, active);
+            if (!string.Equals(value.DataType, elementType, StringComparison.Ordinal))
+                throw new InvalidOperationException($"The array item input requires a {elementType} value.");
+            return value.Value;
+        }
+
+        private static ExplicitGraphValue TransformArray(string nodeId, string elementType, JsonElement result)
+        {
+            if (!WorkflowArrayLiteral.TryNormalizeValue(elementType, result.GetRawText(), out var normalized, out var error))
+                throw new GraphDataEvaluationException(nodeId, error, new InvalidOperationException(error));
+            using var document = JsonDocument.Parse(normalized);
+            return new ExplicitGraphValue(WorkflowDataTypes.ArrayOf(elementType), document.RootElement.Clone());
         }
 
         private static JsonElement ParseJson(string value)

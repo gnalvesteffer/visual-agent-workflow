@@ -53,6 +53,10 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.FunctionCall => FunctionCallDataInputs(node),
         NodeTypes.ArrayLength => [new("in", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.Json))],
         NodeTypes.ArrayGet => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.Json)), new("index", WorkflowDataTypes.Integer)],
+        NodeTypes.ArrayAppend => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String)), new("item", node.ArrayElementType ?? WorkflowDataTypes.String)],
+        NodeTypes.ArrayInsert or NodeTypes.ArrayReplace => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String)), new("index", WorkflowDataTypes.Integer), new("item", node.ArrayElementType ?? WorkflowDataTypes.String)],
+        NodeTypes.ArrayRemove => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String)), new("index", WorkflowDataTypes.Integer)],
+        NodeTypes.ArrayConcatenate => [new("left", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String)), new("right", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String))],
         _ => []
     };
 
@@ -71,6 +75,7 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.ArrayLiteral => [new("out", WorkflowDataTypes.ArrayOf(node.ArrayLiteral?.ElementType ?? WorkflowDataTypes.String))],
         NodeTypes.ArrayLength => [new("out", WorkflowDataTypes.Integer)],
         NodeTypes.ArrayGet => [new("item", node.ArrayElementType ?? WorkflowDataTypes.Json)],
+        NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate => [new("out", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String))],
         _ => []
     };
 
@@ -327,7 +332,7 @@ public static class WorkflowGraph
     public static bool HasControlNodes(WorkflowDefinition definition) => HasRouting(definition) || definition.Nodes.Values.Any(n => n?.Type == NodeTypes.Approval);
 
     public static bool HasTypedJson(WorkflowDefinition definition) => definition.Nodes.Values.Any(node =>
-        node?.Type is NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.JsonMerge or NodeTypes.JsonToArray or NodeTypes.ArrayLength or NodeTypes.ArrayGet || node?.InputDataType == WorkflowDataTypes.Json || node?.OutputDataType == WorkflowDataTypes.Json || node?.InputDataType == WorkflowDataTypes.JsonArray || node?.OutputDataType == WorkflowDataTypes.JsonArray);
+        node?.Type is NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.JsonMerge or NodeTypes.JsonToArray or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate || node?.InputDataType == WorkflowDataTypes.Json || node?.OutputDataType == WorkflowDataTypes.Json || node?.InputDataType == WorkflowDataTypes.JsonArray || node?.OutputDataType == WorkflowDataTypes.JsonArray);
 
     /// <summary>Deterministic presentation/analysis order, never a runtime scheduler.</summary>
     public static ImmutableArray<string> OrderedNodes(WorkflowDefinition definition)

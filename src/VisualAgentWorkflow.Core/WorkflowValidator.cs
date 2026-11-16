@@ -437,6 +437,8 @@ public static class WorkflowValidator
                 Error("json.projection.unexpected", $"nodes.{id}.jsonProjection", "Only JSON projection nodes may declare JSON field mappings.");
             if (node.Type == NodeTypes.JsonMerge && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph))
                 Error("node.schema", $"nodes.{id}", "JSON merge nodes require schema 1.55 or later.");
+            if (node.Type is NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate && definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                Error("node.schema", $"nodes.{id}", "Typed array transformation nodes require unified schema 2.0.");
             if (node.Type is NodeTypes.JsonToArray or NodeTypes.ArrayLength && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph))
                 Error("node.schema", $"nodes.{id}", "Typed JSON-array nodes require schema 1.56 or later.");
             if (node.Type == NodeTypes.ArrayGet && definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
@@ -563,11 +565,11 @@ public static class WorkflowValidator
             else if (node.ArrayLiteral is not null)
                 Error("array.literal.unexpected", $"nodes.{id}.arrayLiteral", "Only Array literal nodes may declare literal values.");
             if (node.ArrayElementType is not null &&
-                (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet) ||
+                (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate) ||
                  definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph ||
-                 !WorkflowDataTypes.IsArrayElementType(node.ArrayElementType)))
+                 !WorkflowDataTypes.IsPrimitiveArrayType(node.ArrayElementType is null ? null : $"array<{node.ArrayElementType}>")))
                 Error("array.element-type", $"nodes.{id}.arrayElementType", "Typed array operations require a supported element type in unified schema 2.0; legacy JSON array nodes omit this field.");
-            if (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet) && node.ArrayElementType is not null)
+            if (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate) && node.ArrayElementType is not null)
                 Error("array.element-type.unexpected", $"nodes.{id}.arrayElementType", "Only array operations may declare an array element type.");
             if (node.Type is NodeTypes.IntegerAdd or NodeTypes.IntegerEquals && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.IntegerStringConversionGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph))
                 Error("node.schema", $"nodes.{id}", "Integer arithmetic nodes require schema 1.31.");

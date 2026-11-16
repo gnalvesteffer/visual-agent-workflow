@@ -162,7 +162,7 @@ public static class GraphFunctionJson
             var supportedNode = currentNode.Type is (NodeTypes.FunctionInput or NodeTypes.FunctionOutput or NodeTypes.StringConstant or
                 NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals);
             supportedNode |= allowNumber && (currentNode.Type == NodeTypes.NumberConstant || allowNumberAdd && currentNode.Type == NodeTypes.NumberAdd);
-            supportedNode |= allowPrimitiveArrays && currentNode.Type is (NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet);
+            supportedNode |= allowPrimitiveArrays && currentNode.Type is (NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate);
             if (!supportedNode)
             {
                 Error("function.node.unsupported", $"graphFunction.definition.nodes.{id}", "Function bodies support only function boundaries and deterministic string, Boolean, integer, finite number, and enabled bounded-array value nodes.");
@@ -204,7 +204,7 @@ public static class GraphFunctionJson
                          !WorkflowArrayLiteral.TryParse(arrayLiteral, out _, out var arrayError))
                     Error("function.array.literal", $"graphFunction.definition.nodes.{id}.arrayLiteral", "Array literals require a supported bounded primitive element type and valid values.");
             }
-            if (currentNode.Type is NodeTypes.ArrayLength or NodeTypes.ArrayGet &&
+            if (currentNode.Type is NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate &&
                 (!allowPrimitiveArrays || !WorkflowDataTypes.IsPrimitiveArrayType(WorkflowDataTypes.ArrayOf(currentNode.ArrayElementType ?? ""))))
                 Error("function.array.type", $"graphFunction.definition.nodes.{id}.arrayElementType", "Function array operations require a supported primitive array element type in schema 2.0.");
         }
@@ -351,6 +351,11 @@ public static class GraphFunctionJson
                     NodeTypes.ArrayLength when portId == "out" => new GraphFunctionEvaluation("integer",
                         (long)ResolveArrayInput(nodeId, "in", node.ArrayElementType!).GetArrayLength(), []),
                     NodeTypes.ArrayGet when portId == "item" => EvaluateArrayGet(nodeId, node.ArrayElementType!),
+                    NodeTypes.ArrayAppend when portId == "out" => EvaluateArrayAppend(nodeId, node),
+                    NodeTypes.ArrayInsert when portId == "out" => EvaluateArrayTransform(nodeId, node, WorkflowTypedArrayOperations.InsertAt),
+                    NodeTypes.ArrayReplace when portId == "out" => EvaluateArrayTransform(nodeId, node, WorkflowTypedArrayOperations.ReplaceAt),
+                    NodeTypes.ArrayRemove when portId == "out" => EvaluateArrayRemoval(nodeId, node),
+                    NodeTypes.ArrayConcatenate when portId == "out" => EvaluateArrayConcatenation(nodeId, node),
                     _ => throw new InvalidOperationException("The function data source is not a supported pure value node.")
                 };
                 if (result.DataType == "string" && result.Value is string text && text.Length > GraphFunctionLimits.MaximumStringLength)
@@ -414,6 +419,44 @@ public static class GraphFunctionJson
                 _ => throw new InvalidOperationException("Array Get requires a supported primitive element type.")
             };
             return new(elementType, value, []);
+        }
+
+        GraphFunctionEvaluation EvaluateArrayTransform(string nodeId, NodeDefinition node,
+            Func<string, JsonElement, long, object, JsonElement> indexedOperation)
+        {
+            var elementType = node.ArrayElementType!;
+            var input = ResolveArrayInput(nodeId, "array", elementType);
+            var index = ResolveInput(nodeId, "index", WorkflowDataTypes.Integer).Value;
+            var item = ResolveInput(nodeId, "item", elementType).Value;
+            if (index is not long arrayIndex) throw new InvalidOperationException("Array index must be a signed 64-bit integer.");
+            var output = indexedOperation(elementType, input, arrayIndex, item!);
+            return new(WorkflowDataTypes.ArrayOf(elementType), output, []);
+        }
+
+        GraphFunctionEvaluation EvaluateArrayAppend(string nodeId, NodeDefinition node)
+        {
+            var elementType = node.ArrayElementType!;
+            var output = WorkflowTypedArrayOperations.Append(elementType,
+                ResolveArrayInput(nodeId, "array", elementType), ResolveInput(nodeId, "item", elementType).Value!);
+            return new(WorkflowDataTypes.ArrayOf(elementType), output, []);
+        }
+
+        GraphFunctionEvaluation EvaluateArrayRemoval(string nodeId, NodeDefinition node)
+        {
+            var elementType = node.ArrayElementType!;
+            var index = ResolveInput(nodeId, "index", WorkflowDataTypes.Integer).Value;
+            if (index is not long arrayIndex) throw new InvalidOperationException("Array index must be a signed 64-bit integer.");
+            var output = WorkflowTypedArrayOperations.RemoveAt(elementType,
+                ResolveArrayInput(nodeId, "array", elementType), arrayIndex);
+            return new(WorkflowDataTypes.ArrayOf(elementType), output, []);
+        }
+
+        GraphFunctionEvaluation EvaluateArrayConcatenation(string nodeId, NodeDefinition node)
+        {
+            var elementType = node.ArrayElementType!;
+            var output = WorkflowTypedArrayOperations.Concatenate(elementType,
+                ResolveArrayInput(nodeId, "left", elementType), ResolveArrayInput(nodeId, "right", elementType));
+            return new(WorkflowDataTypes.ArrayOf(elementType), output, []);
         }
 
         string Concatenate(string nodeId)
@@ -490,6 +533,10 @@ public static class GraphFunctionJson
         NodeTypes.NumberAdd => [new("left", "number"), new("right", "number")],
         NodeTypes.ArrayLength => [new("in", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.Json))],
         NodeTypes.ArrayGet => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.Json)), new("index", WorkflowDataTypes.Integer)],
+        NodeTypes.ArrayAppend => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType!)), new("item", node.ArrayElementType!)],
+        NodeTypes.ArrayInsert or NodeTypes.ArrayReplace => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType!)), new("index", WorkflowDataTypes.Integer), new("item", node.ArrayElementType!)],
+        NodeTypes.ArrayRemove => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType!)), new("index", WorkflowDataTypes.Integer)],
+        NodeTypes.ArrayConcatenate => [new("left", WorkflowDataTypes.ArrayOf(node.ArrayElementType!)), new("right", WorkflowDataTypes.ArrayOf(node.ArrayElementType!))],
         NodeTypes.ArrayLiteral => [],
         NodeTypes.NumberConstant => [],
         NodeTypes.BooleanNot => [new("value", "boolean")],
@@ -505,6 +552,7 @@ public static class GraphFunctionJson
         NodeTypes.ArrayLiteral when node.ArrayLiteral is { } literal => [new("out", WorkflowDataTypes.ArrayOf(literal.ElementType))],
         NodeTypes.ArrayLength => [new("out", WorkflowDataTypes.Integer)],
         NodeTypes.ArrayGet => [new("item", node.ArrayElementType ?? WorkflowDataTypes.Json)],
+        NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate => [new("out", WorkflowDataTypes.ArrayOf(node.ArrayElementType!))],
         NodeTypes.StringEquals or NodeTypes.IntegerEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
         _ => []
     };
@@ -525,7 +573,7 @@ public static class GraphFunctionJson
             NodeTypes.IntegerConstant => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.NumberConstant is not null || node.InputDataType is not null || node.OutputDataType is not null,
             NodeTypes.NumberConstant => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.InputDataType is not null || node.OutputDataType is not null,
             NodeTypes.ArrayLiteral => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.NumberConstant is not null || node.InputDataType is not null || node.OutputDataType is not null || node.ArrayElementType is not null,
-            NodeTypes.ArrayLength or NodeTypes.ArrayGet => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.NumberConstant is not null || node.InputDataType is not null || node.OutputDataType is not null || node.ArrayLiteral is not null,
+            NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.NumberConstant is not null || node.InputDataType is not null || node.OutputDataType is not null || node.ArrayLiteral is not null,
             _ => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.NumberConstant is not null || node.InputDataType is not null || node.OutputDataType is not null
         };
     }
