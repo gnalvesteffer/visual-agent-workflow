@@ -2771,6 +2771,44 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_AttributesTypedArrayReplaceFailureAndStopsLaterItems(bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        var revision = WorkflowRevision.Create(TypedArrayOperationsItemBodyDefinition(replaceIndex: 99),
+            "production-body-array-replace-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner().ExecuteProductionBodyActivationSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, Record,
+            itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
+
+        Assert.True(result.Failed);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
+        var failure = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "replace");
+        Assert.Contains("Replace index must identify an existing array item", failure.Data, StringComparison.Ordinal);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "set" &&
+            evt.ScopeId == "array-loop/0");
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+        Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/0");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ArrayVariableOverflowStopsLaterItems(bool sqlite)
     {
         var maximumArray = "[" + string.Join(',', Enumerable.Range(0, WorkflowJsonArrayLimits.MaximumItems)
@@ -14314,7 +14352,7 @@ public sealed class ArrayIterationVawBodyProofTests
         return definition;
     }
 
-    private static WorkflowDefinition TypedArrayOperationsItemBodyDefinition()
+    private static WorkflowDefinition TypedArrayOperationsItemBodyDefinition(int replaceIndex = 0)
     {
         var type = WorkflowDataTypes.String;
         var arrayType = WorkflowDataTypes.ArrayOf(type);
@@ -14331,7 +14369,7 @@ public sealed class ArrayIterationVawBodyProofTests
             .Add("get", new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = type })
             .Add("insert-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
             .Add("insert", new(NodeTypes.ArrayInsert, "1.0.0") { ArrayElementType = type })
-            .Add("replace-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(0) })
+            .Add("replace-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(replaceIndex) })
             .Add("replace", new(NodeTypes.ArrayReplace, "1.0.0") { ArrayElementType = type })
             .Add("remove-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
             .Add("remove", new(NodeTypes.ArrayRemove, "1.0.0") { ArrayElementType = type })

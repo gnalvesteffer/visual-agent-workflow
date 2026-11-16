@@ -2612,3 +2612,16 @@ This qualifies one successful deterministic collection composition only. It
 does not qualify operation failures, cross-activation state, checkpoint
 recovery, authored iterator semantics, or the runtime architecture. Readiness
 remains **REVISE**.
+
+## Array-operation failure attribution inside item activations (2026-11-16)
+
+`ProductionBodyActivationCoordinator_AttributesTypedArrayReplaceFailureAndStopsLaterItems`
+supplies an out-of-range index to Array Replace during the first item. The
+production body records the operation's bounded safe reason at the Replace
+node and propagates failure to the consuming Variable Set. No variable write,
+iteration completion, or later item is admitted. Both file and SQLite prefixes
+reopen with the same failed status and evidence (2/2 focused cases).
+
+This proves one deterministic data failure and stop-admission boundary. It
+does not cover cancellation races, sibling settlement, or select the iterator
+architecture; readiness remains **REVISE**.

@@ -373,6 +373,10 @@ introduced.
       is scoped correctly, and both file/SQLite playback histories reopen
       identically (2/2 focused cases). Other body families and failure races
       remain open.
+    - [x] Reject an out-of-range Array Replace during the first activation.
+      The safe failure is attributed to Replace and its consuming Variable Set,
+      no write or later item is recorded, and the failed file/SQLite prefixes
+      reopen consistently (2/2 focused cases).
     - [x] Execute a pinned pure graph function inside the production body for
       two items. Each call receives the current item, emits the expected
       suffixed result and evaluated-value evidence under its own activation
