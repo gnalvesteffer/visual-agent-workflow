@@ -2348,3 +2348,11 @@ join or iteration completion.
 This qualifies one pre-dispatch evidence-write failure only. It does not
 establish a general append-failure policy, crash recovery, or select the
 iterator architecture; the Decision 0070 readiness gate remains **REVISE**.
+
+`ProductionBodyActivationCoordinator_ModelRequestAppendFailurePreventsProviderDispatch`
+rejects `model.requested` before the configured provider receives a request.
+The Agent node and root fail, no later tool call or iteration completion is
+recorded, and file/SQLite playback reopens with an incomplete iteration (2
+focused cases). This covers the pre-provider boundary only; model response,
+MCP authorization, and terminal append failures remain distinct boundaries.
+The architecture decision remains **REVISE**.

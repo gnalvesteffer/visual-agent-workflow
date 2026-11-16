@@ -445,6 +445,10 @@ will be introduced.
       outcome is fabricated, and the active iteration remains incomplete after
       reopen (2 focused cases). This qualifies the pre-dispatch authorization
       evidence boundary only; remaining append-failure positions stay open.
+    - [x] Reject the `model.requested` append in both run stores. The provider
+      receives no request, the Agent and root fail, later tool work is not
+      dispatched, and reopened playback keeps the iteration incomplete (2
+      focused cases). Other model/tool evidence-write positions remain open.
     - [x] Add passive Loop activations playback for recorded iteration starts
       and completions, scoped body events, and join-event presence at the
       selected cursor. Production-dispatched nested Break continuation and a

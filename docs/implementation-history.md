@@ -749,3 +749,12 @@ iteration without fabricating a tool outcome (2 focused cases). This closes
 one pre-dispatch evidence boundary only; Decision 0070 remains **REVISE** and
 public typed-array iterator authoring remains gated. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: model request append failure (2026-11-15)
+
+The private production-body coordinator proof now rejects `model.requested`
+appends in both file and SQLite stores before calling the configured provider.
+The Agent and root fail, later tool work is suppressed, and reopened playback
+shows an incomplete iteration (2 focused cases). This is a proof-only evidence
+boundary; no iterator schema or Studio authoring was added. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
