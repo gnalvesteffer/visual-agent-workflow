@@ -281,6 +281,140 @@ public sealed class GraphFunctionTests
         Assert.Equal("[]", ((System.Text.Json.JsonElement)emptyArray.Value).GetRawText());
     }
 
+    [Fact]
+    public void Unified_function_ports_and_array_nodes_support_json_values_end_to_end()
+    {
+        var identity = ArrayIdentityFunction(WorkflowDataTypes.JsonArray);
+        Assert.Contains(GraphFunctionJson.Validate(identity, allowNumber: true, allowNumberAdd: true, allowPrimitiveArrays: true),
+            issue => issue.Code == "function.port.type");
+        Assert.Empty(GraphFunctionJson.Validate(identity, allowNumber: true, allowNumberAdd: true,
+            allowPrimitiveArrays: true, allowJsonArrays: true));
+
+        var function = JsonArrayOperationsFunction();
+        Assert.Empty(GraphFunctionJson.Validate(function, allowNumber: true, allowNumberAdd: true,
+            allowPrimitiveArrays: true, allowJsonArrays: true));
+
+        var inputs = new Dictionary<string, GraphFunctionEvaluation>
+        {
+            ["items"] = new(WorkflowDataTypes.JsonArray, ParseArray("[null,{\"order\":\"b\",\"n\":1.00},[true]]"), [])
+        };
+        var result = GraphFunctionJson.Evaluate(function, inputs, "result", () => 1);
+        var count = GraphFunctionJson.Evaluate(function, inputs, "count", () => 1);
+
+        Assert.Equal(WorkflowDataTypes.JsonArray, result.DataType);
+        Assert.Equal("[{\"order\":\"b\",\"n\":1.00},{\"order\":\"b\",\"n\":1.00},[true],{\"order\":\"b\",\"n\":1.00},false,null]",
+            ((System.Text.Json.JsonElement)result.Value).GetRawText());
+        Assert.Equal(3L, count.Value);
+        Assert.Contains(result.Values, value => value.NodeId == "get" && value.DataType == WorkflowDataTypes.Json);
+    }
+
+    [Fact]
+    public void Json_array_function_input_is_normalized_validated_and_charged_to_the_invocation_budget()
+    {
+        var function = ArrayIdentityFunction(WorkflowDataTypes.JsonArray);
+        var result = GraphFunctionJson.Evaluate(function,
+            new Dictionary<string, GraphFunctionEvaluation>
+            {
+                ["items"] = new(WorkflowDataTypes.JsonArray, ParseArray(" [ { \"b\" : 1.00, \"a\" : null } ] "), [])
+            }, "result", () => 1, new GraphFunctionEvaluationBudget());
+
+        Assert.Equal("[{\"b\":1.00,\"a\":null}]", ((System.Text.Json.JsonElement)result.Value).GetRawText());
+        Assert.Throws<InvalidOperationException>(() => GraphFunctionJson.Evaluate(function,
+            new Dictionary<string, GraphFunctionEvaluation>
+            {
+                ["items"] = new(WorkflowDataTypes.JsonArray, ParseArray("[{\"a\":1,\"a\":2}]"), [])
+            }, "result", () => 1));
+    }
+
+    [Fact]
+    public void Unified_workflow_pins_and_packages_json_array_function_snapshots()
+    {
+        var function = ArrayIdentityFunction(WorkflowDataTypes.JsonArray);
+        var definition = UnifiedCaller(function);
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var package = WorkflowPackageJson.Create(definition, WorkflowLayout.Create(definition));
+        var imported = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(definition, package.Layout));
+        Assert.Equal(GraphFunctionJson.ComputeHash(function), GraphFunctionJson.ComputeHash(
+            imported.Definition.Nodes["call"].GraphFunction!.Definition));
+        Assert.Empty(WorkflowValidator.Validate(imported.Definition));
+    }
+
+    private static GraphFunctionDefinition JsonArrayOperationsFunction()
+    {
+        var type = WorkflowDataTypes.JsonArray;
+        var inputs = ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("items", new("Items", type));
+        var outputs = ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("result", new("Result", type)).Add("count", new("Count", "integer"));
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("items", new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "items", OutputDataType = type })
+            .Add("right", new(NodeTypes.ArrayLiteral, "1.0.0") { ArrayLiteral = new(WorkflowDataTypes.Json, "[false,null]") })
+            .Add("length", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("get-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
+            .Add("insert-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
+            .Add("replace-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(0) })
+            .Add("remove-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
+            .Add("get", new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("append", new(NodeTypes.ArrayAppend, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("insert", new(NodeTypes.ArrayInsert, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("replace", new(NodeTypes.ArrayReplace, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("remove", new(NodeTypes.ArrayRemove, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("concatenate", new(NodeTypes.ArrayConcatenate, "1.0.0") { ArrayElementType = WorkflowDataTypes.Json })
+            .Add("output", new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "result", InputDataType = type })
+            .Add("count-output", new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "count", InputDataType = "integer" });
+        var edges = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("length-array", new(new("items", "out"), new("length", "in"), "data"))
+            .Add("length-result", new(new("length", "out"), new("count-output", "in"), "data"))
+            .Add("get-array", new(new("items", "out"), new("get", "array"), "data"))
+            .Add("get-index", new(new("get-index", "out"), new("get", "index"), "data"))
+            .Add("append-array", new(new("items", "out"), new("append", "array"), "data"))
+            .Add("append-item", new(new("get", "item"), new("append", "item"), "data"))
+            .Add("insert-array", new(new("append", "out"), new("insert", "array"), "data"))
+            .Add("insert-index", new(new("insert-index", "out"), new("insert", "index"), "data"))
+            .Add("insert-item", new(new("get", "item"), new("insert", "item"), "data"))
+            .Add("replace-array", new(new("insert", "out"), new("replace", "array"), "data"))
+            .Add("replace-index", new(new("replace-index", "out"), new("replace", "index"), "data"))
+            .Add("replace-item", new(new("get", "item"), new("replace", "item"), "data"))
+            .Add("remove-array", new(new("replace", "out"), new("remove", "array"), "data"))
+            .Add("remove-index", new(new("remove-index", "out"), new("remove", "index"), "data"))
+            .Add("concat-left", new(new("remove", "out"), new("concatenate", "left"), "data"))
+            .Add("concat-right", new(new("right", "out"), new("concatenate", "right"), "data"))
+            .Add("result", new(new("concatenate", "out"), new("output", "in"), "data"));
+        return new("array.json-operations", 1, "JSON array operations", "Exercises bounded JSON array operations.",
+            inputs, outputs, nodes, edges);
+    }
+
+    private static WorkflowDefinition UnifiedCaller(GraphFunctionDefinition function)
+    {
+        var call = new NodeDefinition(NodeTypes.FunctionCall, "1.0.0")
+        {
+            GraphFunction = new(function, GraphFunctionJson.ComputeHash(function))
+        };
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "array-json-function", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("value", new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = "items", OutputDataType = WorkflowDataTypes.JsonArray })
+                .Add("condition", new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = new(true) })
+                .Add("branch", new(NodeTypes.BooleanBranch, "1.0.0"))
+                .Add("call", call)
+                .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.JsonArray })
+                .Add("failure", new(NodeTypes.Terminate, "1.0.0") { Termination = new(WorkflowTerminationOutcomes.Failure) }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("condition", new(new("condition", "out"), new("branch", "condition"), "data"))
+                .Add("value", new(new("value", "out"), new("call", "items"), "data"))
+                .Add("result", new(new("call", "result"), new("output", "in"), "data")))
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("items", new("Items", "[null,{\"id\":1.00}]") { Type = WorkflowDataTypes.JsonArray }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("activate", new(new("input", "then"), new("branch", "execute"), "execution"))
+                .Add("success", new(new("branch", "true"), new("output", "execute"), "execution"))
+                .Add("failure", new(new("branch", "false"), new("failure", "execute"), "execution"))
+        };
+        return definition;
+    }
+
     private static GraphFunctionDefinition ArrayGetFunction() => new(
         "array.get-second", 1, "Array get", "Returns a selected array item.",
         ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)

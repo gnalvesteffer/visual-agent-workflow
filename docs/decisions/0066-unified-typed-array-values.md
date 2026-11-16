@@ -1,6 +1,6 @@
 # Decision 0066: Unified typed array values
 
-**Status:** Primitive typed arrays compose across boundaries, parameters, graph functions, and variables in schema 2.0. JSON-valued arrays compose through bounded array operations and typed workflow parameters; JSON-valued graph-function ports remain separate.
+**Status:** Primitive and JSON-valued arrays compose through bounded operations, workflow boundaries, parameters, and pure graph functions in schema 2.0. Direct MCP arguments, JSON-valued mutable variables, iteration, and checkpoint state remain separate.
 **Date:** 2026-11-02  
 **Scope:** Blueprint parity workstream; current authoring schema 2.0
 
@@ -9,8 +9,9 @@
 Blueprint arrays are ordinary typed graph values. VAW has bounded primitive
 array types and a heterogeneous `array<json>` value. Primitive arrays compose
 through graph values, parameters, graph functions, and variables; JSON arrays
-compose through bounded array operations and workflow parameters. Other
-placements retain separate contracts and verification requirements.
+compose through bounded array operations, workflow parameters, and graph
+functions. Other placements retain separate contracts and verification
+requirements.
 
 The Blueprint parity capability matrix identifies containers as a major
 language gap. Mutable variables, events, async work, reuse, and debugging also
@@ -60,8 +61,8 @@ Each operation rejects a compact serialized result larger than 16,384 UTF-8
 bytes at the operation node. Duplicate object property names are rejected.
 There is no implicit conversion between `json`, `array<json>`, or primitive
 array types. These JSON array operations do not add object equality,
-membership, or canonical object ordering. JSON-valued graph-function ports,
-workflow-interface fields, MCP arguments, Sequence paths, loop-carried state,
+membership, or canonical object ordering. Workflow-interface fields, MCP
+arguments, Sequence paths, loop-carried state,
 parallel shared state, and checkpoint state remain separate contracts and
 verification increments. The existing `JsonToArray` path continues to
 produce `array<json>`.

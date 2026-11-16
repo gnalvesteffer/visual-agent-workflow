@@ -31,9 +31,13 @@ and receives the workflow result as JSON text. The workflow validates the
 declared element type and the same 64-item/16 KiB bounds as array literals;
 empty arrays are valid. The typed input/output evaluations are recorded for
 passive playback, and package round trips preserve the types. Schema 2.0 pure
-graph functions accept these four array port types and may use Array literal,
-Array length, and Array get. Direct function calls and assigned Agent
-graph-function tools validate inputs against the exact declared type. Each
+graph functions accept these four primitive array types and `array<json>` as
+exact input/output pins. Their bodies support Array literal, Array length,
+Array get, append, insert, replace, remove, and concatenate. JSON-valued arrays
+retain heterogeneous values, null, nesting, object member order, and
+number-token spelling under the existing 64-item, depth-32, and 16 KiB
+per-value bounds. Direct function calls and assigned Agent graph-function
+tools validate inputs against the exact declared type. Each
 function call shares a 65,536-byte aggregate bound across array inputs, retained
 evaluation evidence, and outputs. Playback reads the recorded events without
 reevaluating functions or consulting the catalog. When this budget is exceeded,

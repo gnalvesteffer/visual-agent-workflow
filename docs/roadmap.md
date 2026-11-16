@@ -109,16 +109,16 @@ creation, wiring, save, and deterministic execution with no promotion controls.
 
 ### Next parity workstream: first-class collections
 
-**Status: Active; primitive typed arrays compose through workflow boundaries, parameters, pure graph functions, and run-scoped variables. JSON-valued arrays compose through bounded literal and array operations and now support typed workflow parameters. JSON-valued graph-function ports and iteration remain separate increments.**
+**Status: Active; primitive and JSON-valued arrays compose through workflow boundaries, parameters, pure graph functions, and bounded operations. Iteration remains a separate increment.**
 The capability audit and three-role adversarial review identify containers as a
 foundational Blueprint language gap. Existing `array<json>` support is useful
-but remains limited to bounded graph shapes and typed workflow parameters.
+but remains subject to bounded graph shapes and explicit placement contracts.
 [Decision 0066](decisions/0066-unified-typed-array-values.md)
 sets the staged contract: current schema 2.0, homogeneous bounded primitive
 arrays in ordinary pure-data composition and typed workflow input/output
-boundaries, then separately proven placements. Maps/sets, JSON-valued
-graph-function ports, workflow interfaces, direct MCP arguments, JSON-valued
-mutable variables, iteration, and checkpoint state remain future work. No
+boundaries, then separately proven placements. Maps/sets, workflow interfaces,
+direct MCP arguments, JSON-valued mutable variables, iteration, and checkpoint
+state remain future work. No
 feature-specific schema gates, promotion controls, or preview modes will be
 introduced.
 
@@ -162,8 +162,13 @@ introduced.
   bounds. Core tests cover preservation and limit behavior; runtime tests cover
   JSON literal/get and append/get execution, plus node-attributed oversized
   result failure. Studio browser coverage verifies JSON literal authoring and
-  save/reopen. `array<json>` graph-function ports remain a separate evidence
-  increment; iterator readiness remains governed by [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  save/reopen. Pure graph functions also accept exact `array<json>` pins and
+  expose all eight existing operations in both function editors. Core coverage
+  checks mixed/null/nested values, Get-to-transform composition, member-order
+  and number-token preservation, historical validation gates, and invocation
+  budgeting. Folder-editor browser coverage checks JSON pin and literal
+  controls. Iterator readiness remains governed by [Decision
+  0070](decisions/0070-bounded-array-iteration-contract.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
   252/252 passed. The prior MCP suite result is 98 passed with 2 opt-in tests

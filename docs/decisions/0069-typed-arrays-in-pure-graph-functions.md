@@ -2,7 +2,7 @@
 
 **Status:** Implemented in schema 2.0
 **Date:** 2026-11-02
-**Scope:** Typed primitive-array ports, values, evaluation, and evidence in pure graph-function snapshots
+**Scope:** Typed-array ports, values, evaluation, and evidence in pure graph-function snapshots
 
 ## Context
 
@@ -22,25 +22,32 @@ alone do not constrain repeated input/output/evaluation evidence.
 ## Decision
 
 Schema 2.0 pure graph functions accept exactly `array<string>`,
-`array<boolean>`, `array<integer>`, and `array<number>` ports. Port and data-edge
-identity is exact. `array<json>`, nested arrays, null elements, effectful or
-nested functions, iteration, mutation, variables, workflow parameters, and
-implicit conversions remain unsupported inside function bodies.
+`array<boolean>`, `array<integer>`, `array<number>`, and `array<json>` ports.
+Port and data-edge identity is exact. JSON arrays preserve heterogeneous
+values, null items, nesting, object member order, and number-token spelling;
+string escape spelling may normalize during compact serialization. Nested
+array types, effectful or nested functions, iteration, mutation, variables,
+workflow parameters, and implicit conversions remain unsupported inside
+function bodies.
 
-Function bodies may use the existing Array Literal, Array Length, and Array Get
-nodes. Their element-type configuration must agree with the connected
-`array<T>` value. Values use a cloned `JsonElement` containing canonical JSON,
-which is immutable and independent of caller-owned document lifetimes. Every
-input is checked against its declared port and the shared array parser before
-evaluation. The existing per-array bounds remain 64 items and 16,384 UTF-8
-bytes; numbers must be finite and integers must fit signed 64-bit range. Array
-Get remains zero-based and out-of-range errors identify the inner function node
-as well as the enclosing function call.
+Function bodies may use Array Literal, Array Length, Array Get, Array Append,
+Array Insert, Array Replace, Array Remove, and Array Concatenate. Their
+element-type configuration must agree with the connected `array<T>` value.
+Values use cloned `JsonElement` instances independent of caller-owned document
+lifetimes. Every input is checked against its declared port and the shared
+array parser before evaluation. The existing per-array bounds remain 64 outer
+items and 16,384 UTF-8 bytes; JSON nesting is limited to depth 32, numbers must
+be finite in primitive number arrays, and integers must fit signed 64-bit range.
+Array Get remains zero-based and out-of-range errors identify the inner
+function node as well as the enclosing function call.
 
 One logical function invocation has a **65,536-byte aggregate array-value
-budget**. It counts canonical UTF-8 JSON bytes for array inputs retained in
-call evidence, every array value retained in evaluated-value evidence (including
-repeated cached-value entries), and array results retained in outputs. Direct
+budget**. It counts UTF-8 bytes in the compact normalized JSON representation
+for array inputs retained in call evidence, every array value retained in
+evaluated-value evidence (including repeated cached-value entries), and array
+results retained in outputs. For JSON arrays, this preserves member order and
+number-token spelling; it is a retention bound, not a canonicalization claim
+or an event-serialization byte estimate. Direct
 workflow calls share the budget across all output pins evaluated for one call
 node; one Agent graph-function tool call shares it across all declared outputs.
 The evaluator charges values before adding them to retained evidence or
@@ -69,7 +76,7 @@ gate is added.
 - Core tests validate each port type, exact type edges, supported array
   operators, malformed or over-bound inputs, function hashes, package round
   trips, and unchanged scalar-function hashes.
-- Evaluator tests cover all four array types, empty arrays, literal/length/get,
+- Evaluator tests cover all four primitive array types and `array<json>`, empty arrays, all eight operations,
   exact input shape, array and aggregate bounds, canonical values, cache/evidence
   retention, and inner-node failure attribution.
 - Runtime tests execute embedded snapshots through direct workflow calls and
@@ -78,7 +85,6 @@ gate is added.
   those recorded events without re-invoking the evaluator or catalog.
 - Historical callers reject typed-array functions while retaining their
   existing scalar behavior; unsupported effects, nested functions, mutation,
-  iteration, and `array<json>` remain rejected.
-- Studio's catalog and folder function editors expose the four array port types
-  and the existing pure array nodes, with the normal function validation/save
-  feedback.
+  and iteration remain rejected.
+- Studio's catalog and folder function editors expose all five array port
+  types and all eight pure array nodes, with normal validation/save feedback.

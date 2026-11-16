@@ -361,7 +361,8 @@ public static class WorkflowValidator
                 foreach (var issue in GraphFunctionJson.Validate(function?.Definition,
                     definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph,
                     definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberArithmeticGraph,
-                    definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph))
+                    definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph,
+                    allowJsonArrays: definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph))
                     Error(issue.Code, $"nodes.{id}.{issue.Path}", issue.Message);
             }
             else if (node.GraphFunction is not null)
