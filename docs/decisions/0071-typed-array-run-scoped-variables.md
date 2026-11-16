@@ -98,9 +98,11 @@ snapshot rejection, and a 65,536-byte per-invocation budget over canonical array
 values recorded by data evaluation and variable read/write evidence. Focused
 Core and Agent Framework checks cover validation, atomic write rejection,
 canonical evidence, transform-to-Set execution, loop order, and file/SQLite store
-reopen. The capability remains incomplete until the broader compatibility,
-bounds/operation, package/hash, user-interface browser, and full event-prefix
-proof matrix is complete.
+reopen. Studio browser verification covers declaration creation and editing,
+valid and invalid default save/reopen, Problems diagnostics, and run blocking.
+Invalid folder drafts are excluded from callable interface workflow choices;
+strict package and run validation still reject them. Full historical
+compatibility and event-prefix proof remain open.
 
 ## Review record
 

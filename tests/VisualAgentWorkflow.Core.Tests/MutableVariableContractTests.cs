@@ -152,6 +152,27 @@ public sealed class MutableVariableContractTests
         Assert.Throws<ArgumentException>(() => WorkflowPackageJson.Create(saved, WorkflowLayout.Create(saved)));
     }
 
+    [Fact]
+    public void Invalid_typed_array_variable_default_round_trips_as_a_draft_but_strict_export_rejects_it()
+    {
+        var validDefinition = ArrayDefinition();
+        var definition = validDefinition with
+        {
+            Variables = validDefinition.Variables!.SetItem("items",
+                validDefinition.Variables["items"] with { DefaultValue = "[\"alpha\", 1]" })
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue =>
+            issue.Code == "variable.definition" && issue.Path == "variables.items");
+
+        var serializedDraft = WorkflowJson.SerializeDraft(definition);
+        var savedDraft = WorkflowJson.DeserializeDraft(serializedDraft);
+
+        Assert.Equal(serializedDraft, WorkflowJson.SerializeDraft(savedDraft));
+        Assert.Throws<ArgumentException>(() => WorkflowJson.Serialize(definition));
+        Assert.Throws<ArgumentException>(() => WorkflowPackageJson.Create(definition, WorkflowLayout.Create(definition)));
+    }
+
     [Theory]
     [InlineData(NodeTypes.Loop)]
     [InlineData(NodeTypes.ParallelFork)]

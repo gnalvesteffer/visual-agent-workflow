@@ -144,8 +144,10 @@ will be introduced.
   Linear and bounded-loop runtime paths have focused execution/playback coverage,
   file/SQLite persistence and reopen tests, and checkpoint snapshot rejection.
   Operation index/type/item bounds and array-variable package/hash round trips
-  now have focused Core tests. Browser authoring verification, complete
-  historical compatibility, and full event-prefix proof remain open.
+  now have focused Core tests. Browser verification covers declaration creation,
+  editing, save/reopen, invalid-default draft persistence, Problems diagnostics,
+  and run blocking. Complete historical compatibility and full event-prefix proof
+  remain open.
   See [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
@@ -174,13 +176,20 @@ will be introduced.
   bounded-loop ordering; reject parallel, Sequence, collaboration, asynchronous,
   graph-function state, shared child-state, and checkpoint placements. Canonical
   values and the aggregate evidence budget are implemented. Focused file/SQLite
-  persistence/reopen and package/hash proofs now pass; full historical
-  compatibility, passive playback prefixes, and Studio authoring remain before
-  marking this increment shipped. See
+  persistence/reopen and package/hash proofs now pass. Browser verification now
+  covers declaration creation/editing, valid and invalid default save/reopen,
+  diagnostics, and execution blocking; callable interface choices omit invalid
+  drafts. Full historical compatibility and passive playback prefixes remain
+  before marking this increment shipped. See
   [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
   - [x] Verify append/insert/replace/remove/concatenate ordering, empty-array
     insertion, legal index endpoints, invalid indexes and item types, exact
     array type matching, and maximum-item result rejection.
+  - [x] Verify folder-backed Studio variable authoring in Playwright: add and
+    reopen a typed array declaration, save an invalid typed default as a
+    repairable draft, confirm Problems reports it, and confirm execution
+    stays blocked. Invalid drafts are excluded from callable interface
+    workflow choices; strict package/run validation remains enforced.
   - [x] Verify typed-array variable package round-trip identity and that changing
     the declared default changes the immutable definition hash.
   - [x] Carry a graph-dispatched typed Break result with source and target

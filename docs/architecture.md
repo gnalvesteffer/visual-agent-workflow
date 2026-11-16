@@ -487,7 +487,10 @@ inspector reconstruct a recorded prefix without invoking the workflow again.
 The Studio workflow settings drawer exposes declarations for the supported
 variable schemas in both catalog-backed and folder-backed editors; unified
 schema 2.0 additionally exposes the four primitive typed-array declarations
-with JSON-text defaults.
+with JSON-text defaults. Folder-backed draft persistence preserves invalid typed
+array defaults so they can be repaired in Studio; strict package export and run
+validation continue to reject them. Invalid drafts are excluded from callable
+workflow choices used for interface implementations.
 
 ## Reconciliation assessment and operator assertions
 

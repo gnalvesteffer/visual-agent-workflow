@@ -554,6 +554,62 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     }
 
     [Fact]
+    public void FolderWorkflowSource_PersistsInvalidTypedArrayDefaultsForDraftRepair()
+    {
+        var folder = Path.Combine(directory, "invalid-array-draft");
+        StudioProjectSourceDirectory.Write(folder,
+            new StudioProjectManifest("1.0", "invalid-array-project", "Invalid array project", []),
+            new Dictionary<string, byte[]>());
+        var source = new StudioFolderWorkflowSource(folder);
+        var valid = WorkflowTemplates.CreateExplicit("uppercase-reverse") with
+        {
+            WorkflowId = "invalid-array-draft",
+            Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
+                .Add("items", new("Items", "[\"alpha\"]") { Type = "array<string>" })
+        };
+        var invalid = valid with
+        {
+            Variables = valid.Variables!.SetItem("items",
+                valid.Variables["items"] with { DefaultValue = "[\"alpha\", 1]" })
+        };
+
+        var saved = source.Save(invalid, WorkflowLayout.Create(invalid), expectedContentHash: null);
+        var reopened = Assert.Single(source.List());
+
+        Assert.Equal(saved.ContentHash, reopened.ContentHash);
+        Assert.Equal("[\"alpha\", 1]", reopened.Definition.Variables!["items"].DefaultValue);
+        Assert.Contains(WorkflowValidator.Validate(reopened.Definition), issue =>
+            issue.Code == "variable.definition" && issue.Path == "variables.items");
+    }
+
+    [Fact]
+    public void FolderInterfaceAuthoring_ExcludesInvalidDraftsFromCallableWorkflowChoices()
+    {
+        var folder = Path.Combine(directory, "interface-authoring-invalid-draft");
+        StudioProjectSourceDirectory.Write(folder,
+            new StudioProjectManifest("1.0", "interface-project", "Interface project", []),
+            new Dictionary<string, byte[]>());
+        var validDefinition = WorkflowTemplates.Create("uppercase-reverse") with { WorkflowId = "valid-child" };
+        var invalidDefinition = validDefinition with
+        {
+            WorkflowId = "invalid-child",
+            Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
+                .Add("items", new("Items", "[\"alpha\", 1]") { Type = "array<string>" })
+        };
+        var valid = new StudioFolderWorkflow(validDefinition.WorkflowId, "Valid child", "hash", "workflows/valid.workflow",
+            validDefinition, WorkflowLayout.Create(validDefinition));
+        var invalid = new StudioFolderWorkflow(invalidDefinition.WorkflowId, "Invalid draft", "hash", "workflows/invalid.workflow",
+            invalidDefinition, WorkflowLayout.Create(invalidDefinition));
+
+        var source = new StudioFolderWorkflowInterfaceAuthoringSource(folder,
+            StudioProjectSourceArchive.ComputeManifestHash(StudioProjectSourceDirectory.Read(folder).Manifest),
+            [], [], [valid, invalid]);
+
+        Assert.Equal("valid-child", Assert.Single(source.Workflows).SelectionId);
+        Assert.Equal(2, source.AuditWorkflows.Count);
+    }
+
+    [Fact]
     public void StableWorkflowFileCanBeEditedOutsideStudioAndItsManifestHashIsRefreshed()
     {
         var folder = Path.Combine(directory, "manual-workflow");

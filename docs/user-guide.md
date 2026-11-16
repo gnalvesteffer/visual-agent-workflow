@@ -133,7 +133,9 @@ Open **Workflow settings** (or **Settings** for a folder-backed workflow) and us
 Boolean, integer, finite-number, and (in unified schema 2.0) `array<T>` values.
 For an array, choose its element type and enter a JSON default such as
 `["alpha","beta"]`; arrays are limited to 64 non-null primitive values and
-16,384 UTF-8 bytes. Add **Get variable** or **Set variable** from the Variables
+16,384 UTF-8 bytes. Drafts can be saved while a default is invalid; the Problems
+pane reports the type mismatch, and the run remains blocked until it is corrected.
+Add **Get variable** or **Set variable** from the Variables
 section of the node picker, bind each node to a declaration, and connect both
 execution and typed value pins. Get reads the value at its activation point;
 Set replaces the entire value. Use **Append**, **Insert**, **Replace**,

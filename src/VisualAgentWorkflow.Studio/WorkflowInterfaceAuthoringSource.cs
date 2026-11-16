@@ -41,7 +41,8 @@ public sealed class StudioFolderWorkflowInterfaceAuthoringSource : IWorkflowInte
         RefreshAssets(interfaces, implementations);
         AuditWorkflows = workflows.Select(item => new WorkflowInterfaceAuditWorkflow(item.WorkflowId,
             item.DisplayName, item.Definition)).ToArray();
-        Workflows = workflows.Select(item => new WorkflowInterfaceWorkflowChoice(item.WorkflowId, item.DisplayName,
+        Workflows = workflows.Where(item => WorkflowValidator.Validate(item.Definition).IsEmpty)
+            .Select(item => new WorkflowInterfaceWorkflowChoice(item.WorkflowId, item.DisplayName,
             item.RelativePath, WorkflowInterfaceWorkflowPin.From(item.Definition))).ToArray();
     }
 
