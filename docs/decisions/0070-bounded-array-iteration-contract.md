@@ -2404,3 +2404,15 @@ accepts the call node ID as the final scope segment, while retaining exact
 event/payload identity checks and rejecting unrelated final segments. The
 broader body matrix and architecture decision remain open; readiness remains
 **REVISE**.
+
+## Production WorkflowInterfaceCall body composition (2026-11-15)
+
+`ProductionBodyActivationCoordinator_CallsPinnedWorkflowInterfacePerItem`
+invokes a pinned interface implementation for three array items. Each item is
+packed through a typed interface field into the child's JSON input, projected
+through the typed output field, and returned in activation order. Child
+lifecycle evidence uses the activation-prefixed scope and reconstructs as three
+completed calls after both file and SQLite histories reopen (2 focused cases).
+This proves only successful interface calls in the production body; interface
+failure/cancellation and the broader body/architecture gates remain open.
+Readiness remains **REVISE**.

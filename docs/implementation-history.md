@@ -37,6 +37,16 @@ call node ID as the final scope segment and still rejects unrelated segments.
 The complete supported-body matrix and architecture review remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+## Typed-array iteration proof: pinned WorkflowInterfaceCall composition (2026-11-15)
+
+The production-body coordinator now invokes a pinned interface implementation
+for each of three array items. Typed field packing supplies each item's value
+to the child JSON input, and typed field projection returns it to the parent.
+Scoped child lifecycle evidence reconstructs as three completed calls after
+file and SQLite histories reopen (2 focused cases). Interface-call failure and
+cancellation variants and the broader body/architecture gates remain open.
+See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Graph-function array budget exhaustion attribution
 
 An integrated production-body test exceeds the 65,536-byte graph-function

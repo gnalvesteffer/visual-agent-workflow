@@ -521,6 +521,12 @@ will be introduced.
       root cancellation are recorded, the current activation is marked
       cancelled, and no later item starts; both stores reopen the same prefix
       (2 focused cases).
+  - [x] Exercise a pinned `WorkflowInterfaceCall` through the production body
+    coordinator for each array item. Typed interface fields pack each item into
+    the child JSON input and project it back to the output; exact child lifecycle
+    evidence reconstructs as three completed calls after file/SQLite reopen
+    (2 focused cases). Interface-call failure and cancellation variants remain
+    part of the broader outcome matrix.
   - [ ] Complete the non-public production-seam proof before selecting an
     iterator architecture: dispatch typed item/index values through Core's
     existing typed value contracts, consume a nearest-frame `Break`, and
