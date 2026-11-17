@@ -349,13 +349,9 @@ public sealed partial class WorkflowRunner
             if (isRootStart) rootStarted = true;
         }
 
-        async Task<WorkflowExecutionResult> FailRunAsync(int? index = null, Guid? activationId = null,
-            string? scopeId = null, string? reason = null)
+        async Task<WorkflowExecutionResult> FailRunAsync(string? reason = null)
         {
-            if (index is { } failedIndex)
-                await Emit(ExecutionEventKinds.NodeFailed, activationLoopNodeId, activationId, scopeId,
-                    reason ?? $"Activation failed at index {failedIndex}.");
-            await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
+            await Emit(ExecutionEventKinds.Failed, data: reason ?? "Workflow execution failed.");
             return new(null, true, true, HasOutput: false);
         }
 
@@ -430,8 +426,7 @@ public sealed partial class WorkflowRunner
                     case WorkflowBodyProofDisposition.TimedOut:
                     case WorkflowBodyProofDisposition.EvidenceWriteFailed:
                     default:
-                        return await FailRunAsync(index, frame.Id, scopeId,
-                            $"Activation ended with {bodyOutcome.Disposition} at index {index}.");
+                        return await FailRunAsync($"Activation ended with {bodyOutcome.Disposition} at index {index}.");
                 }
                 if (breakLoop) break;
             }

@@ -245,13 +245,14 @@ introduced.
   unchanged run status, including after terminal events. Do not add a duplicate
   aggregate API. The mixed failure/unknown projection is now asserted across
   both stores, settlement orders, terminal-append rejection, cancellation, and
-  Sequence Break after reopen (12 focused cases). Failure-first rejected
-  terminal evidence also exposes `HasIncompleteCorrelation` because its private
-  loop frame emits `node.failed` without `node.started`; both MCP calls remain
-  individually correlated and unresolved. This projection reports recorded
-  evidence; it is not a detector of unrecorded side effects. The private production guard,
+  Sequence Break after reopen (12 focused cases). That matrix caught and fixed
+  a private proof event that attributed `node.failed` to a virtual loop frame
+  absent from the captured definition; the safe failure reason is now carried
+  by the root event and all mixed call projections remain fully correlated.
+  This projection reports recorded evidence; it is not a detector of
+  unrecorded side effects. The private production guard,
   public schema, and Studio authoring remain unchanged. The full Agent
-  Framework suite passes at 822/822 after this increment.
+  Framework suite passes 822/822 after the event correction.
   The integrated `array<json>` body proof covers successful
   transforms and an Append result exceeding the 16 KiB bound: the failure is
   attributed to Append, later items and completion are suppressed, and file/

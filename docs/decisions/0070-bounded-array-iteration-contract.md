@@ -3347,15 +3347,18 @@ including after terminal-append rejection and host cancellation, and after
 Sequence Break. This projection describes recorded calls only; it cannot detect
 external effects for which no event was persisted.
 
-The tests also preserve a private-harness lifecycle difference: on failure-first
-terminal-append rejection, the coordinator emits `node.failed` for the
-array-loop frame without a matching `node.started`, so
-`HasIncompleteCorrelation` is true; on unknown-first rejection that failure
-event is absent and the flag is false. Tool-call identities remain complete in
-both orders. Do not generalize this test-only loop event shape to the public
-iterator contract. The projection cross-check is complete for these cases, but
-closes no iterator architecture gate and selects no new API. Keep the
-architecture and public authoring gate **REVISE**.
+The first cross-layer run exposed an invalid private-harness event: on
+failure-first terminal-append rejection, it emitted `node.failed` for the
+virtual array-loop frame even though that frame is not a node in the captured
+workflow definition. Reconciliation correctly flagged that event as
+incompletely correlated. The proof now records the safe activation failure
+reason on the root failure event instead of attributing it to a nonexistent
+node. All four rejected-terminal combinations then report two unresolved,
+correlated tool calls with no incomplete correlation, and the complete focused
+matrix passes 12/12. The full Agent Framework suite passes 822/822 after the
+correction. This repairs only the private proof evidence; it does not close an
+iterator architecture gate or select a public API. Keep the architecture and
+public authoring gate **REVISE**.
 Until that proof and a subsequent review are complete, the integrated
 Sequence/Break proof remains private; the production guard, public schema, and
 Studio authoring do not change.

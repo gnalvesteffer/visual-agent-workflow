@@ -5278,10 +5278,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal("running", reopened.Status);
         Assert.Equal(events, reopened.Events);
-        // The failure-first private proof emits NodeFailed for the loop frame
-        // without a matching NodeStarted; reconciliation must surface that
-        // generic lifecycle gap as incomplete correlation.
-        AssertMixedToolReconciliation(reopened, !unknownFirst, "tool-research", "tool-review");
+        AssertMixedToolReconciliation(reopened, "tool-research", "tool-review");
         var playback = await RenderPlayback(reopened);
         Assert.Contains("Latest run status: running", playback, StringComparison.Ordinal);
         Assert.Contains(ExecutionEventKinds.ToolFailed, playback, StringComparison.Ordinal);
@@ -5352,7 +5349,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(snapshot.Status, reopened.Status);
         Assert.Equal(events, reopened.Events);
-        AssertMixedToolReconciliation(reopened, false, "tool-research", "tool-review");
+        AssertMixedToolReconciliation(reopened, "tool-research", "tool-review");
         var playback = await RenderPlayback(reopened);
         Assert.Contains($"Latest run status: {snapshot.Status}", playback, StringComparison.Ordinal);
         Assert.Contains(ExecutionEventKinds.ToolFailed, playback, StringComparison.Ordinal);
@@ -5448,7 +5445,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(snapshot.Status, reopened.Status);
         Assert.Equal(events, reopened.Events);
-        AssertMixedToolReconciliation(reopened, false, "inventory-tool", "architecture-tool");
+        AssertMixedToolReconciliation(reopened, "inventory-tool", "architecture-tool");
         var playback = await RenderPlayback(reopened);
         Assert.Contains(ExecutionEventKinds.ToolFailed, playback, StringComparison.Ordinal);
         Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
@@ -5456,14 +5453,14 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private static RunReconciliation AssertMixedToolReconciliation(RunSnapshot snapshot,
-        bool hasIncompleteCorrelation, params string[] expectedNodeIds)
+        params string[] expectedNodeIds)
     {
         var report = WorkflowRunReconciliation.Assess(snapshot, null);
         Assert.Equal(snapshot.Status, report.Status);
         Assert.Equal(RunRecoveryDisposition.UnresolvedWork, report.Disposition);
         Assert.Equal(expectedNodeIds.Length, report.TotalUnresolvedWork);
         Assert.Equal(expectedNodeIds.Length, report.UnresolvedWork.Length);
-        Assert.Equal(hasIncompleteCorrelation, report.HasIncompleteCorrelation);
+        Assert.False(report.HasIncompleteCorrelation);
         Assert.Equal(expectedNodeIds.Order(StringComparer.Ordinal),
             report.UnresolvedWork.Select(item => item.NodeId).Order(StringComparer.Ordinal));
         Assert.All(report.UnresolvedWork, item =>
@@ -5897,8 +5894,10 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.ToolUncertain);
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
             evt.ScopeId == "array-loop/0");
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
-            evt.NodeId == "array-loop" && evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "array-loop");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            revision.Definition.Nodes.ContainsKey(evt.NodeId!));
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
             evt.ScopeId == "array-loop/0");
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
