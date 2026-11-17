@@ -2946,6 +2946,18 @@ success/failure/cancellation for the tested linear body; parallel child
 settlement and other supported-body compositions remain open. The proof is
 private and leaves architecture readiness at **REVISE**.
 
+`IteratorCandidates_CancelPinnedWorkflowCallChildAcrossCandidates` compares
+host cancellation while an Agent inside an exact pinned `WorkflowCall` child
+is blocked. The structured, fresh-subworkflow, and hybrid candidates each
+record one cancelled child call at `array-loop/0/call`, suppress item
+completion and the next activation, and preserve the same scoped lifecycle
+shape after reopening the file and SQLite stores (2 focused theory cases; six
+candidate/store executions). Passive playback reconstructs the child as
+cancelled in every case. This fills the exact-pinned-child cancellation point
+beside the existing interface-child comparison; it does not cover parallel
+child settlement or select a production iterator architecture. Readiness
+remains **REVISE**.
+
 The review explicitly keeps the end state unchanged: typed array iteration
 and nearest-loop Break must be authored in the current unified schema without
 feature-specific schema gates. Checkpoint recovery stays excluded until the

@@ -833,6 +833,14 @@ introduced.
       reconstruct three completed child calls from passive playback. This also
       corrected the fresh-subworkflow and hybrid proof adapters to prefix child
       scopes and keep embedded lifecycle evidence aligned.
+    - [x] Compare host cancellation inside an exact pinned `WorkflowCall`
+      child across the structured, fresh-subworkflow, and hybrid candidates.
+      Each cancels the blocked child Agent at `array-loop/0/call`, suppresses
+      that item's completion and the next activation, and reopens a history
+      whose passive playback shows one cancelled call. File and SQLite cases
+      pass (6 candidate/store executions; 2/2 focused theory cases). This
+      closes only the pinned-child linear cancellation point; parallel child
+      settlement and other cancellation races remain open.
     - [x] Compare a bounded predicate `Loop` inside each array activation
       across the structured dispatcher, fresh Agent Framework subworkflow, and
       hybrid candidates. All three execute two Agent body passes per item,
@@ -881,7 +889,7 @@ introduced.
       recorder/store failures remain distinct.
     - [x] Re-run the full Agent Framework suite after the graph-function,
       typed-operation, Append-overflow, and interface/WorkflowCall child
-      failure/cancellation comparisons: 765/765 passed, 0 failed or skipped
+      failure/cancellation comparisons: 767/767 passed, 0 failed or skipped
       (6m17s). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or
