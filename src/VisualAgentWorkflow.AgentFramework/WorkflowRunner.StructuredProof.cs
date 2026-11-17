@@ -465,6 +465,247 @@ public sealed partial class WorkflowRunner
     }
 
     /// <summary>
+    /// Proof-only concurrent item coordinator. It admits at most two production
+    /// body invocations at once and shares one root event/budget ledger. This is
+    /// an experiment for production dispatch, not an authorable iterator.
+    /// </summary>
+    internal async Task<WorkflowExecutionResult> ExecuteProductionConcurrentBodyBreakSequenceProofAsync(
+        Guid runId, WorkflowRevision bodyRevision, string jsonItems, string indexParameterId,
+        IReadOnlyDictionary<string, string>? parameters, Func<ExecutionEvent, ValueTask> record,
+        CancellationToken cancellationToken = default, StructuredActivationFrame? parentFrame = null,
+        string activationLoopNodeId = "array-loop", string? itemParameterId = null,
+        string arrayElementType = WorkflowDataTypes.String, StructuredActivationRunBudget? runBudget = null,
+        IReadOnlySet<string>? proofBreakNodeIds = null,
+        Func<int, CancellationToken, ValueTask>? afterItemAdmitted = null,
+        Action<int>? onBreakAdmissionStopped = null,
+        IWorkflowExecutionGate? gate = null)
+    {
+        ArgumentNullException.ThrowIfNull(bodyRevision);
+        ArgumentNullException.ThrowIfNull(jsonItems);
+        ArgumentException.ThrowIfNullOrWhiteSpace(indexParameterId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(activationLoopNodeId);
+        ArgumentNullException.ThrowIfNull(record);
+        if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
+        if (jsonItems.Length > 16_384)
+            throw new ArgumentException("Activation proof input exceeds 16,384 characters.", nameof(jsonItems));
+        proofBreakNodeIds ??= bodyRevision.Definition.Nodes
+            .Where(entry => entry.Value.Type == StructuredProofBreakNodeType).Select(entry => entry.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        if (!WorkflowArrayLiteral.TryParseValue(arrayElementType, jsonItems, out var typedItems, out var arrayError))
+            throw new ArgumentException($"Activation proof input is not a valid {WorkflowDataTypes.ArrayOf(arrayElementType)}: {arrayError}",
+                nameof(jsonItems));
+
+        var items = ParseProductionActivationItems(typedItems, arrayElementType);
+        var baseParameters = WorkflowParameters.Resolve(bodyRevision.Definition, parameters);
+        using var runContext = new StructuredActivationRunContext(runId, bodyRevision.RevisionId, record, runBudget);
+        var admissionGate = new object();
+        var admissionStopped = false;
+        var nextIndex = 0;
+        var results = new SortedDictionary<int, string>();
+        var failureReason = (string?)null;
+        var outcomeUnknown = false;
+        var terminated = false;
+        var cancelled = false;
+        var rootStarted = false;
+        var rootTerminalAppendAttempted = false;
+        using var bodyCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var active = new Dictionary<int, Task<(int Index, StructuredActivationFrame Frame,
+            WorkflowBodyProofOutcome Outcome)>>();
+
+        async ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
+            string? scopeId = null, string? data = null, string? connectionId = null)
+        {
+            if (nodeId is null && kind is (ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
+                ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown))
+                rootTerminalAppendAttempted = true;
+            await runContext.EmitAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
+            if (nodeId is null && kind == ExecutionEventKinds.Started) rootStarted = true;
+        }
+
+        void StopAdmission() { lock (admissionGate) admissionStopped = true; }
+
+        async Task<(int Index, StructuredActivationFrame Frame, WorkflowBodyProofOutcome Outcome)> RunBodyAsync(
+            int index, StructuredActivationFrame frame)
+        {
+            var scopeId = frame.ScopeId;
+            var outcome = await ExecuteBodyForActivationProofAsync(runId, bodyRevision, items[index],
+                frame.Parameters, evt => Emit(evt.Kind, evt.NodeId, evt.InvocationId,
+                    evt.ScopeId ?? scopeId, evt.Data, evt.ConnectionId), bodyCancellation.Token,
+                gate: gate, activationFrame: frame, proofBreakNodeIds: proofBreakNodeIds,
+                onBreakRequested: request =>
+                {
+                    _ = ConsumeProductionBodyBreakRequestProof(frame, request, proofBreakNodeIds);
+                    int? stoppedAt = null;
+                    lock (admissionGate)
+                    {
+                        if (!admissionStopped)
+                        {
+                            admissionStopped = true;
+                            stoppedAt = nextIndex;
+                        }
+                    }
+                    if (stoppedAt is { } boundary) onBreakAdmissionStopped?.Invoke(boundary);
+                });
+            return (index, frame, outcome);
+        }
+
+        try
+        {
+            await Emit(ExecutionEventKinds.Started);
+            const int maximumActiveBodies = 2;
+
+            while (nextIndex < items.Length || active.Count > 0)
+            {
+                while (active.Count < maximumActiveBodies)
+                {
+                    lock (admissionGate)
+                        if (admissionStopped || nextIndex >= items.Length) break;
+
+                    if (gate is not null)
+                        await gate.WaitForBoundaryAsync(activationLoopNodeId, cancellationToken);
+
+                    int index;
+                    lock (admissionGate)
+                    {
+                        if (admissionStopped || nextIndex >= items.Length) break;
+                        index = nextIndex++;
+                    }
+
+                    if (afterItemAdmitted is not null)
+                        await afterItemAdmitted(index, cancellationToken);
+
+                    var inheritedParameters = baseParameters ??
+                        ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+                    if (parentFrame is not null)
+                        inheritedParameters = inheritedParameters.SetItems(parentFrame.Parameters);
+                    var unboundFrame = parentFrame?.Enter(activationLoopNodeId, index, items[index], inheritedParameters,
+                        arrayElementType) ?? new StructuredActivationFrame(Guid.NewGuid(), null,
+                        activationLoopNodeId, index, items[index], inheritedParameters)
+                        { ItemDataType = arrayElementType };
+                    var frame = unboundFrame with
+                    {
+                        Parameters = unboundFrame.BindIteratorValues(bodyRevision.Definition, itemParameterId,
+                            indexParameterId)
+                    };
+                    if (parentFrame is not null && frame.NearestLoop().Id != frame.Id)
+                        throw new InvalidOperationException("A nested activation did not resolve its nearest loop frame.");
+
+                    await Emit(ExecutionEventKinds.LoopIterationStarted, activationLoopNodeId, frame.Id,
+                        frame.ScopeId);
+                    active.Add(index, RunBodyAsync(index, frame));
+                }
+
+                if (active.Count == 0) break;
+                var completed = await Task.WhenAny(active.Values);
+                var completedIndex = active.First(pair => ReferenceEquals(pair.Value, completed)).Key;
+                active.Remove(completedIndex);
+                var itemResult = await completed;
+                var (settledIndex, settledFrame, bodyOutcome) = itemResult;
+                switch (bodyOutcome.Disposition)
+                {
+                    case WorkflowBodyProofDisposition.Succeeded when bodyOutcome.Output is { } output:
+                        results[settledIndex] = output;
+                        await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId,
+                            settledFrame.Id, settledFrame.ScopeId);
+                        break;
+                    case WorkflowBodyProofDisposition.BreakRequested when bodyOutcome.BreakRequest is { } request:
+                        var signal = ConsumeProductionBodyBreakRequestProof(settledFrame, request, proofBreakNodeIds);
+                        await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId,
+                            settledFrame.Id, settledFrame.ScopeId, JsonSerializer.Serialize(new { outcome = "break",
+                                signal.SourceNodeId, signal.TargetFrameId }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                        break;
+                    case WorkflowBodyProofDisposition.Terminated:
+                        terminated = true;
+                        StopAdmission();
+                        await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId,
+                            settledFrame.Id, settledFrame.ScopeId, JsonSerializer.Serialize(new { outcome = "terminated" },
+                                new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                        break;
+                    case WorkflowBodyProofDisposition.Cancelled:
+                        cancelled = true;
+                        StopAdmission();
+                        await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId,
+                            settledFrame.Id, settledFrame.ScopeId, JsonSerializer.Serialize(new { outcome = "cancelled" },
+                                new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                        break;
+                    case WorkflowBodyProofDisposition.OutcomeUnknown:
+                        outcomeUnknown = true;
+                        StopAdmission();
+                        await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId,
+                            settledFrame.Id, settledFrame.ScopeId, JsonSerializer.Serialize(new { outcome = "outcome-unknown" },
+                                new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                        break;
+                    default:
+                        failureReason ??= $"Activation ended with {bodyOutcome.Disposition} at index {settledIndex}.";
+                        StopAdmission();
+                        await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId,
+                            settledFrame.Id, settledFrame.ScopeId, JsonSerializer.Serialize(new { outcome = "failed" },
+                                new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                        break;
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (gate is not null)
+                await gate.WaitForBoundaryAsync(null, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (cancelled)
+            {
+                await Emit(ExecutionEventKinds.Cancelled);
+                return new(null, false, Cancelled: true, HasOutput: false);
+            }
+            if (failureReason is not null)
+            {
+                await Emit(ExecutionEventKinds.Failed, data: failureReason);
+                return new(null, true, true, HasOutput: false);
+            }
+            if (outcomeUnknown)
+            {
+                await Emit(ExecutionEventKinds.OutcomeUnknown,
+                    data: "Workflow execution ended with an unresolved external outcome.");
+                return new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false);
+            }
+            if (terminated)
+            {
+                await Emit(ExecutionEventKinds.Terminated);
+                return new(null, true, HasOutput: false);
+            }
+
+            var outputText = string.Join(';', results.OrderBy(pair => pair.Key).Select(pair => pair.Value));
+            await Emit(ExecutionEventKinds.Completed, data: outputText);
+            return new(outputText, false, HasOutput: true);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            StopAdmission();
+            bodyCancellation.Cancel();
+            try { await Task.WhenAll(active.Values); }
+            catch (Exception) { }
+            await Emit(ExecutionEventKinds.Cancelled);
+            return new(null, false, Cancelled: true, HasOutput: false);
+        }
+        catch (StructuredActivationBudgetExceededException)
+        {
+            StopAdmission();
+            bodyCancellation.Cancel();
+            try { await Task.WhenAll(active.Values); }
+            catch (Exception) { }
+            await Emit(ExecutionEventKinds.Failed, data: "Workflow execution budget was exhausted.");
+            return new(null, true, true, HasOutput: false);
+        }
+        catch (Exception) when (rootStarted && !rootTerminalAppendAttempted)
+        {
+            StopAdmission();
+            bodyCancellation.Cancel();
+            try { await Task.WhenAll(active.Values); }
+            catch (Exception) { }
+            try { await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed."); }
+            catch (Exception) { }
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Proof-only nested coordinator. The Agent Framework still dispatches one
     /// body activation at a time; this VAW-owned boundary controls both loop
     /// levels and the single root event lifecycle.

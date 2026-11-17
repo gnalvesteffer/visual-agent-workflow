@@ -224,8 +224,61 @@ introduced.
   also confirms the current Sequence source does not start the first descendant
   until it advances past the later-output dispatch boundary. These tests pass
   as characterization, while the required A-active/B-admitted gate still fails
-  for the current mechanism. A fresh triad returned REVISE: test any new
-  mechanism through production dispatch before selecting architecture. The
+  for the current production Sequence mechanism. A fresh triad returned
+  REVISE: test any new mechanism through production dispatch before selecting
+  architecture. A
+  follow-up proponent/opponent/adjudicator review on 2026-11-17 reaffirmed a
+  private VAW-owned item-coordinator experiment: retain each admitted body
+  through branch settlement, serialize Break against later admission, and
+  prove typed bindings, nearest-frame targeting, shared budgets, failure and
+  external-outcome precedence, cancellation, and file/SQLite playback. This
+  selects no production architecture and makes no public schema or Studio
+  change; passing the proof only enables another architecture review. See
+  [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). The
+  proof-only production-body coordinator now admits two typed item activations
+  through independent Agent Framework body dispatches: a held Agent in item A
+  remains active while item B reaches graph-dispatched Break, and item C is
+  never admitted. It drains A before one root completion and produces identical
+  persisted/playback evidence after file and SQLite reopen (2/2 focused cases).
+  A second proof holds A through B's Break, then fails A; the run waits for A,
+  fails instead of completing, skips C, and reopens with the same passive
+  playback through both stores (2/2 focused cases). This proves admitted-Agent
+  failure precedence for this production-dispatch seam only. A third proof
+  drains A's authorized MCP call after B requests Break; the correlated
+  unknown outcome wins, the root settles `outcome-unknown`, C remains skipped,
+  and both stores reopen the same playback history (2/2 focused cases).
+  A fourth proof cancels the host after B's Break while A's Agent is still
+  blocked. The admitted Agent records cancellation, the root ends cancelled,
+  and C remains suppressed with matching file/SQLite playback (2/2 focused
+  cases). The admission winner is now also forced at the reservation boundary:
+  if C is reserved before B's Break, C drains and appears in the result while
+  only item D is suppressed (2/2); the existing Break-first case suppresses C.
+  These ordered cases prove both serialized outcomes, not uncontrolled
+  scheduler races. A run-level shared model-dispatch budget is now also tested
+  with two concurrently admitted production bodies: the one-request cap admits
+  exactly one provider call, fails the other activation before dispatch, and
+  reopens with identical failed playback through file and SQLite stores (2/2).
+  A nested-frame production-body case now confirms that graph-dispatched Break
+  targets the inner frame ID rather than its supplied outer frame, suppresses
+  the remaining inner suffix, and reopens with matching Break playback through
+  both stores (2/2). This proves nearest-frame identity within this body seam;
+  an enclosing concurrent production coordinator resuming after nested
+  settlement remains unproven. Byte/event contention, tool/outcome reservation
+  races, host-control pause-event integration, cancellation while paused,
+  uncontrolled production races, and the full body compatibility matrix remain
+  open. The proof coordinator now also honors `IWorkflowExecutionGate`: after
+  two items are admitted and one settles, pause prevents item 3 admission and
+  keeps the root nonterminal; resume completes all three exactly once with
+  matching file/SQLite playback (2/2). This does not wire host
+  `PauseRequested`/`Paused`/`Resumed` evidence into the private coordinator. A
+  48-schedule seeded scheduler-yield stress
+  test checks the admission lock's recorded stop boundary: each reserved item
+  starts and settles, no unreserved suffix starts, output matches the
+  successful prefix. The paired deterministic tests force both Break-first
+  and pre-reserved-item boundaries; the stress schedules are not required to
+  realize both outcomes under suite load. This does not replace an uncontrolled
+  production workload race test.
+  The
   production Break guard remains in place. A separate three-role review of
   mixed known-failure and unresolved-MCP outcomes returned REVISE because the
   private candidate paths did not establish stable root semantics. The two

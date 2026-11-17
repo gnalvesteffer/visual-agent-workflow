@@ -3362,3 +3362,120 @@ public authoring gate **REVISE**.
 Until that proof and a subsequent review are complete, the integrated
 Sequence/Break proof remains private; the production guard, public schema, and
 Studio authoring do not change.
+
+### Production-dispatch coordinator re-review (2026-11-17)
+
+A fresh proponent/opponent/adjudicator review returned **REVISE**. It supports
+one bounded private experiment, but selects neither the current Sequence
+production source nor a production iterator architecture. The current
+`SequenceRuntimeCoordinator` proves atomic admission/closure only for a fixed
+set of outputs; `SequenceProductionSource` still queues all configured
+outputs through the framework message path. The prior one-output-per-source
+reintegration failed 40/55 Sequence production cases. The structured proof
+consumes Break after a body dispatcher returns and does not establish active
+sibling settlement. These are confirmed limits, not proof that the requested
+Blueprint behavior should be weakened.
+
+The next experiment is a VAW-owned item coordinator that binds typed
+item/index values and nearest-frame Break, owns the one root lifecycle and
+shared budgets, and invokes each admitted body through the existing production
+Agent Framework dispatcher. It must retain admitted body scopes through
+settlement, atomically stop only future admission on Break, and skip the
+undispatched suffix. It must not depend on `SequenceProductionSource`
+recursive continuation. First prove a held A body while a later admitted B
+requests Break and C is skipped, with root completion only after A drains;
+then extend through the atomic admission/Break race, nested frames, admitted
+failure, unresolved MCP outcome, host cancellation, budget contention, and
+file/SQLite reopen plus passive playback. Reconcile invocation identity,
+evidence correlation, and body scope settlement before considering any
+architecture selection. If production dispatch cannot preserve those, reopen
+the alternatives comparison.
+
+No public iterator/Break contract, schema change, production guard change, or
+Studio authoring follows from this review. Passing the proof only earns another
+three-role architecture review; it does not establish feature parity. Typed
+array iteration remains gated in the roadmap, and checkpoint recovery remains
+excluded until activation frames and coordinator state can be captured and
+restored.
+
+### Production body overlap proof (2026-11-17)
+
+The first bounded experiment now passes through independent invocations of
+`ExecuteBodyForActivationProofAsync`, which uses the production Agent Framework
+workflow dispatcher. The private VAW coordinator admits at most two item
+activations concurrently and serializes Break notification against later item
+admission. In the deterministic case, item A's Agent remains held while item B
+reaches a graph-dispatched Break; item C is not admitted. The coordinator drains
+A, emits one root completion, and file and SQLite stores reopen with identical
+events and passive playback (2/2 focused cases). The test is
+`ConcurrentProductionBodyCoordinator_AdmitsBreakWhileEarlierAgentIsActive`.
+
+This is stronger than the structured-scheduler proof for the A-active/B-Break
+gate, but it remains a proof harness with a fixed concurrency of two. It does
+not establish policy for general admission races or prove the complete body
+capability matrix. A second deterministic case holds A through B's Break, then
+fails A. The coordinator drains A, fails the root instead of completing it,
+suppresses C, and reopens identical file/SQLite histories with passive failure
+playback (2/2). This confirms admitted-Agent failure precedence in this proof
+seam. A third deterministic case drains A's authorized MCP call after B's
+Break; the correlated unknown result settles the root `outcome-unknown`,
+suppresses C, and reopens identically with passive playback through both
+stores (2/2). A fourth case cancels the host after B's Break while A's Agent
+is held. A records `node.cancelled`, the root settles cancelled, C remains
+suppressed, and passive playback matches after either store reopens (2/2).
+This proves host cancellation through one admitted Agent drain, not pause/stop
+or cancellation races during MCP dispatch. A fifth deterministic test pauses
+after item C has atomically reserved an admission slot, then lets B request
+Break. C is still dispatched and included in the ordered result; D is
+suppressed, and both stores reopen the same completed playback (2/2). Together
+with the Break-first test, this proves both outcomes at the serialized
+admission boundary. It does not exercise uncontrolled scheduler races. The
+remaining gates are enclosing concurrent production coordination after nested
+Break, host-control pause-event integration, cancellation while paused,
+remaining shared-budget contention, uncontrolled production races, and
+compatibility with the full existing Sequence/loop/collaboration suite. Keep
+production Sequence/Break guarded and public iterator/Break authoring withheld
+until that matrix passes and a new three-role review resolves the architecture.
+
+The concurrent production-body proof now also checks the shared model
+dispatch ceiling. Two body activations are admitted, but a run-level limit of
+one permits exactly one `model.requested` and one provider call; the other
+activation fails before dispatch. Both file and SQLite stores reopen the same
+failed event history and passive playback (2/2). This extends shared-budget
+evidence to concurrent body dispatch only; byte/event contention, tool and
+outcome reservation races, and a production iterator budget owner remain
+unproven.
+
+A nested-frame case now exercises the same concurrent production-body
+coordinator with an explicit outer frame. The graph-dispatched Break records
+the inner activation frame as its `targetFrameId`, not the outer frame; the
+remaining inner suffix is not admitted, and file/SQLite reopen with matching
+Break playback (2/2). This proves nearest-frame identity and local suffix
+suppression in the concurrent body seam. It does not prove an enclosing
+production coordinator resuming after a nested concurrent iterator settles.
+
+The admission/Break boundary now also has a 48-schedule stress test. Seeded
+task yields vary the order in which admitted body events and Break completion
+resume; an internal proof callback records the exact `nextIndex` while the
+admission lock closes. Across every schedule, the started iterations equal
+the reserved prefix, each admitted iteration settles, output matches the
+successful prefix, no run-level failure occurs, and the root completes once.
+The separate deterministic tests force both a Break-first boundary and a
+pre-reserved later-item boundary; the stress schedules themselves are not
+required to realize both outcomes under varying suite load. This is
+scheduler-yield stress evidence, not an uncontrolled production workload
+race test or production iterator integration.
+
+Pause/resume is now exercised through `IWorkflowExecutionGate` on the
+concurrent production-body coordinator. The test requests pause after the
+first admitted iteration settles, confirms the third item is not admitted and
+the root remains nonterminal, then resumes and verifies all three items finish
+exactly once. Both file and SQLite histories reopen with the same completed
+result (2/2). This proves cooperative gate behavior at iterator admission and
+root completion in the private seam. It does not integrate host-owned
+`PauseRequested`/`Paused`/`Resumed` control events with this coordinator or
+cover cancellation arriving while the gate is paused.
+
+This proof-only test change does not alter shipped workflow behavior, so the
+architecture and user-guide descriptions remain accurate; the roadmap and this
+decision record the new evidence and remaining limits.

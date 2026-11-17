@@ -7197,6 +7197,581 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_AdmitsBreakWhileEarlierAgentIsActive(bool sqlite)
+    {
+        var definition = StructuredBreakProofDefinition();
+        var body = definition with
+        {
+            Nodes = definition.Nodes.Add("agent", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.settlement", null, "Hold the first item", []))),
+            Connections = definition.Connections.Add("input-agent",
+                new ConnectionDefinition(new("input", "out"), new("agent", "in"), "data")),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("condition-output")
+                .Add("condition-agent", Edge("condition", "true", "agent", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(body, "concurrent-production-array-break-proof");
+        using var runStore = new ProofRunStore(revision, "[\"continue\",\"break\",\"must-not-run\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new ControlledSettlementAgentExecutor("agent");
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break" &&
+                evt.ScopeId == "array-loop/1")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(agents: agents)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                "[\"continue\",\"break\",\"must-not-run\"]", "index", null, Record,
+                itemParameterId: "item");
+        try
+        {
+            await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "The root must remain active until the already-admitted first body settles.");
+        }
+        finally
+        {
+            agents.Release.TrySetResult();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.False(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent" &&
+            evt.ScopeId == "array-loop/0");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break" &&
+            evt.ScopeId == "array-loop/1");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent" &&
+            evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains("proof-break · node.completed", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_BreakDrainsItemAdmittedBeforeBreak(bool sqlite)
+    {
+        var definition = StructuredBreakProofDefinition();
+        var body = definition with
+        {
+            Nodes = definition.Nodes.Add("gate-agent", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.settlement", null, "Hold the break item until the next item is admitted", []))),
+            Connections = definition.Connections.Add("input-gate-agent",
+                new ConnectionDefinition(new("input", "out"), new("gate-agent", "in"), "data")),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("condition-break")
+                .Add("condition-gate-agent", Edge("condition", "false", "gate-agent", "execute"))
+                .Add("gate-agent-break", Edge("gate-agent", "out", "proof-break", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(body, "concurrent-production-array-admission-break-proof");
+        using var runStore = new ProofRunStore(revision,
+            "[\"continue\",\"break\",\"continue\",\"must-not-run\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agent = new ControlledSettlementAgentExecutor("gate-agent");
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break" &&
+                evt.ScopeId == "array-loop/1")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask AfterItemAdmitted(int index, CancellationToken _)
+        {
+            if (index != 2) return ValueTask.CompletedTask;
+
+            agent.Release.TrySetResult();
+            return new ValueTask(breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+
+        var execution = new WorkflowRunner(agents: agent)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                "[\"continue\",\"break\",\"continue\",\"must-not-run\"]", "index", null, Record,
+                itemParameterId: "item", afterItemAdmitted: AfterItemAdmitted);
+
+        await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.False(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.Equal("continue:0;continue:2", result.Output);
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break" &&
+            evt.ScopeId == "array-loop/1");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "array-loop" && evt.ScopeId == "array-loop/2");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/3");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("proof-break · node.completed", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 3 · Completed", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iteration 4", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_SharesModelDispatchBudget(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "concurrent-production-array-shared-model-budget-proof");
+        const string input = "[\"first\",\"second\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var model = new SharedBudgetProofModel();
+        var provider = new AgentProviderDescriptor("proof.echo-agent", "Proof model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SharedBudgetProofChatClient(model))],
+            new EchoToolBroker());
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+
+        var result = await new WorkflowRunner(tools, agents)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision, input,
+                "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, runBudget: StructuredRunBudget(maximumToolDispatches: 2) with
+                {
+                    MaximumModelDispatches = 1
+                });
+
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Equal(1, model.Calls);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+        Assert.Contains("index", await RenderPlayback(reopened), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_NestedBreakTargetsNearestFrame(bool sqlite)
+    {
+        var revision = WorkflowRevision.CreateProofOnly(StructuredBreakProofDefinition(),
+            "concurrent-production-nested-array-break-proof");
+        const string input = "[\"continue\",\"stop\",\"must-not-run\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var outerFrameId = Guid.NewGuid();
+        var parentFrame = new WorkflowRunner.StructuredActivationFrame(outerFrameId, null,
+            "outer-loop", 7, "outer-item",
+            ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal));
+
+        var result = await new WorkflowRunner().ExecuteProductionConcurrentBodyBreakSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }, parentFrame: parentFrame, activationLoopNodeId: "inner-loop",
+            itemParameterId: "item");
+
+        var events = recorder.Snapshot();
+        Assert.False(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.Equal("continue:0", result.Output);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "outer-loop/7/inner-loop/2");
+        var innerBreak = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "inner-loop" && evt.ScopeId == "outer-loop/7/inner-loop/1");
+        Assert.Equal("outer-loop/7/inner-loop/1", Assert.Single(events, evt =>
+            evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break").ScopeId);
+        using var breakData = JsonDocument.Parse(innerBreak.Data!);
+        Assert.Equal(innerBreak.InvocationId,
+            breakData.RootElement.GetProperty("targetFrameId").GetGuid());
+        Assert.NotEqual(outerFrameId, breakData.RootElement.GetProperty("targetFrameId").GetGuid());
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderLoopActivations(reopened.Events, reopened.Status);
+        Assert.Contains("inner-loop · Iteration 2 · Break", playback, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ConcurrentProductionBodyCoordinator_SchedulerYieldsPreserveAdmissionBreakInvariants()
+    {
+        var revision = WorkflowRevision.CreateProofOnly(StructuredBreakProofDefinition(),
+            "concurrent-production-array-break-scheduler-stress-proof");
+        const string input = "[\"continue\",\"stop\",\"continue\",\"must-not-run\"]";
+        string[] items = ["continue", "stop", "continue", "must-not-run"];
+
+        for (var schedule = 0; schedule < 48; schedule++)
+        {
+            var events = new ConcurrentQueue<ExecutionEvent>();
+            var admissionStops = new ConcurrentQueue<int>();
+
+            async ValueTask Record(ExecutionEvent evt)
+            {
+                events.Enqueue(evt);
+                if ((evt.Sequence + schedule) % 3 == 0)
+                    await Task.Yield();
+            }
+
+            async ValueTask YieldAfterAdmission(int index, CancellationToken cancellationToken)
+            {
+                var delay = (index + schedule) % 3;
+                if (delay == 0) await Task.Yield();
+                else await Task.Delay(delay, cancellationToken);
+            }
+
+            var result = await new WorkflowRunner()
+                .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(Guid.NewGuid(), revision, input,
+                    "index", null, Record, itemParameterId: "item",
+                    afterItemAdmitted: YieldAfterAdmission,
+                    onBreakAdmissionStopped: admissionStops.Enqueue);
+
+            var recorded = events.OrderBy(evt => evt.Sequence).ToArray();
+            var admissionStop = Assert.Single(admissionStops);
+            var startedIndices = recorded.Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted)
+                .Select(evt => int.Parse(evt.ScopeId![(evt.ScopeId!.LastIndexOf('/') + 1)..],
+                    System.Globalization.CultureInfo.InvariantCulture)).Order().ToArray();
+            Assert.InRange(admissionStop, 1, items.Length);
+            var expectedIndices = Enumerable.Range(0, admissionStop).ToArray();
+            var expectedOutput = string.Join(';', expectedIndices.Where(index => items[index] == "continue")
+                .Select(index => $"continue:{index}"));
+            Assert.False(result.Failed);
+            Assert.False(result.Cancelled);
+            Assert.Equal(expectedOutput, result.Output);
+            Assert.Equal(expectedIndices, startedIndices);
+            Assert.Equal(Enumerable.Range(1, recorded.Length).Select(sequence => (long)sequence),
+                recorded.Select(evt => evt.Sequence));
+            Assert.Equal(startedIndices.Length, recorded.Count(evt =>
+                evt.Kind == ExecutionEventKinds.LoopIterationCompleted && evt.NodeId == "array-loop"));
+            Assert.Equal(expectedIndices.Count(index => items[index] != "continue"), recorded.Count(evt =>
+                evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break"));
+            Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+            Assert.DoesNotContain(recorded, evt => evt.NodeId is null &&
+                (evt.Kind is ExecutionEventKinds.Failed or ExecutionEventKinds.OutcomeUnknown or
+                    ExecutionEventKinds.Cancelled));
+        }
+
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_PauseBlocksNextAdmissionUntilResume(bool sqlite)
+    {
+        var revision = WorkflowRevision.CreateProofOnly(StructuredBreakProofDefinition(),
+            "concurrent-production-array-pause-resume-proof");
+        const string input = "[\"continue\",\"continue\",\"continue\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var gate = new PausableProofExecutionGate();
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var pauseRequested = 0;
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.LoopIterationCompleted && evt.NodeId == "array-loop" &&
+                Interlocked.Exchange(ref pauseRequested, 1) == 0)
+                gate.RequestPause();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner().ExecuteProductionConcurrentBodyBreakSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, Record,
+            itemParameterId: "item", gate: gate);
+
+        await gate.WaitUntilPausedAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(execution.IsCompleted, "The root must not complete while its boundary is paused.");
+        var pausedEvents = recorder.Snapshot();
+        Assert.Equal(2, pausedEvents.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.DoesNotContain(pausedEvents, evt => evt.ScopeId == "array-loop/2");
+        Assert.Contains(pausedEvents, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "array-loop");
+        Assert.DoesNotContain(pausedEvents, evt => evt.NodeId is null && evt.Kind is
+            ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
+
+        gate.Resume();
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.False(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.Equal("continue:0;continue:1;continue:2", result.Output);
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "array-loop"));
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null));
+        Assert.Equal(Enumerable.Range(1, events.Length).Select(index => (long)index),
+            events.Select(evt => evt.Sequence));
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains("Iteration 3 · Completed", await RenderLoopActivations(reopened.Events, reopened.Status),
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_FailureDuringBreakDrainFailsRun(bool sqlite)
+    {
+        var definition = StructuredBreakProofDefinition();
+        var body = definition with
+        {
+            Nodes = definition.Nodes.Add("agent", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.settlement", null, "Hold then fail the first item", []))),
+            Connections = definition.Connections.Add("input-agent",
+                new ConnectionDefinition(new("input", "out"), new("agent", "in"), "data")),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("condition-output")
+                .Add("condition-agent", Edge("condition", "true", "agent", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(body, "concurrent-production-array-break-failure-proof");
+        using var runStore = new ProofRunStore(revision, "[\"continue\",\"break\",\"must-not-run\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agent = new ControlledSettlementAgentExecutor("agent", failAfterRelease: true);
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break" &&
+                evt.ScopeId == "array-loop/1")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(agents: agent)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                "[\"continue\",\"break\",\"must-not-run\"]", "index", null, Record,
+                itemParameterId: "item");
+        try
+        {
+            await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "Break must drain the admitted Agent body before settling the root run.");
+        }
+        finally
+        {
+            agent.Release.TrySetResult();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent" &&
+            evt.ScopeId == "array-loop/0");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break" &&
+            evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains("agent · node.failed", await RenderPlayback(reopened), StringComparison.Ordinal);
+        Assert.DoesNotContain("Latest run status: completed", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_UnknownMcpOutcomeDuringBreakDrainFailsRun(bool sqlite)
+    {
+        var definition = StructuredBreakProofDefinition();
+        var body = definition with
+        {
+            Nodes = definition.Nodes
+                .Add("agent", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                    Agent: new("proof.settlement", null, "Hold before the MCP call", [])))
+                .Add("tool", new NodeDefinition(NodeTypes.McpTool, "1.0.0",
+                    new ToolBindingRequest("proof.parallel-tool", new string('d', 64)))
+                {
+                    McpInputPorts = [new("arg.query", "query", WorkflowDataTypes.String, true)],
+                    McpArgumentsJson = "{}"
+                }),
+            Connections = definition.Connections
+                .Add("input-agent", new ConnectionDefinition(new("input", "out"), new("agent", "in"), "data"))
+                .Add("agent-tool-query", new ConnectionDefinition(new("agent", "out"),
+                    new("tool", "arg.query"), "data")),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("condition-output")
+                .Add("condition-agent", Edge("condition", "true", "agent", "execute"))
+                .Add("agent-tool", Edge("agent", "out", "tool", "execute"))
+                .Add("tool-output", Edge("tool", "then", "output", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(body, "concurrent-production-array-break-unknown-proof");
+        using var runStore = new ProofRunStore(revision, "[\"continue\",\"break\",\"must-not-run\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agent = new ControlledSettlementAgentExecutor("agent");
+        var tools = new ControlledUnknownOutcomeToolBroker("proof.parallel-tool");
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break" &&
+                evt.ScopeId == "array-loop/1")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(agents: agent, tools: tools)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                "[\"continue\",\"break\",\"must-not-run\"]", "index", null, Record,
+                itemParameterId: "item");
+        try
+        {
+            await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "Break must leave the admitted first body active until its Agent and MCP call settle.");
+            agent.Release.TrySetResult();
+            await tools.DispatchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "The root must remain active while an authorized MCP outcome is unresolved.");
+        }
+        finally
+        {
+            agent.Release.TrySetResult();
+            tools.ReleaseOutcome.TrySetResult();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.True(result.OutcomeUnknown);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break" &&
+            evt.ScopeId == "array-loop/1");
+        var authorization = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+            evt.NodeId == "tool" && evt.ScopeId == "array-loop/0");
+        var uncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            evt.NodeId == "tool" && evt.ScopeId == "array-loop/0");
+        using var authorizationData = JsonDocument.Parse(authorization.Data!);
+        using var uncertainData = JsonDocument.Parse(uncertain.Data!);
+        Assert.Equal(authorizationData.RootElement.GetProperty("toolCallId").GetGuid(),
+            uncertainData.RootElement.GetProperty("toolCallId").GetGuid());
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "outcome-unknown");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Latest run status: completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_HostCancellationAfterBreakCancelsAdmittedBody(bool sqlite)
+    {
+        var definition = StructuredBreakProofDefinition();
+        var body = definition with
+        {
+            Nodes = definition.Nodes.Add("agent", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.settlement", null, "Hold the first item", []))),
+            Connections = definition.Connections.Add("input-agent",
+                new ConnectionDefinition(new("input", "out"), new("agent", "in"), "data")),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("condition-output")
+                .Add("condition-agent", Edge("condition", "true", "agent", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(body, "concurrent-production-array-break-cancel-proof");
+        using var runStore = new ProofRunStore(revision, "[\"continue\",\"break\",\"must-not-run\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        using var cancellation = new CancellationTokenSource();
+        var agent = new ControlledSettlementAgentExecutor("agent");
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break" &&
+                evt.ScopeId == "array-loop/1")
+            {
+                breakCompleted.TrySetResult();
+                cancellation.Cancel();
+            }
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(agents: agent)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                "[\"continue\",\"break\",\"must-not-run\"]", "index", null, Record,
+                cancellation.Token, itemParameterId: "item");
+        try
+        {
+            await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            cancellation.Cancel();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.True(result.Cancelled);
+        Assert.False(result.Failed);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break" &&
+            evt.ScopeId == "array-loop/1");
+        Assert.True(events.Any(evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "agent" &&
+            evt.ScopeId == "array-loop/0"), string.Join(" | ", events.Select(evt =>
+                $"{evt.Sequence}:{evt.ScopeId ?? "root"}:{evt.NodeId ?? "root"}:{evt.Kind}")));
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "cancelled");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("agent · node.cancelled", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Latest run status: completed", playback, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task ProductionBodyBreakProof_RejectsUnsettledControlRegions()
     {
@@ -19526,6 +20101,51 @@ public sealed class ArrayIterationVawBodyProofTests
                 }));
             return component.ToHtmlString();
         });
+    }
+
+    private sealed class PausableProofExecutionGate : IWorkflowExecutionGate
+    {
+        private readonly object sync = new();
+        private TaskCompletionSource resumed = NewSignal();
+        private readonly TaskCompletionSource pauseRequested = NewSignal();
+        private bool paused;
+
+        public void RequestPause()
+        {
+            lock (sync) paused = true;
+            pauseRequested.TrySetResult();
+        }
+
+        public Task WaitUntilPausedAsync() => pauseRequested.Task;
+
+        public void Resume()
+        {
+            TaskCompletionSource signal;
+            lock (sync)
+            {
+                paused = false;
+                signal = resumed;
+                resumed = NewSignal();
+            }
+            signal.TrySetResult();
+        }
+
+        public async ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken)
+        {
+            while (true)
+            {
+                Task wait;
+                lock (sync)
+                {
+                    if (!paused) return;
+                    wait = resumed.Task;
+                }
+                await wait.WaitAsync(cancellationToken);
+            }
+        }
+
+        private static TaskCompletionSource NewSignal() =>
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private sealed class ProofRunStore : IDisposable

@@ -90,7 +90,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         WorkflowRevision revision, string input, IReadOnlyDictionary<string, string>? parameters,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default,
         IWorkflowExecutionGate? gate = null, StructuredActivationFrame? activationFrame = null,
-        IReadOnlySet<string>? proofBreakNodeIds = null)
+        IReadOnlySet<string>? proofBreakNodeIds = null,
+        Action<StructuredActivationBreakRequest>? onBreakRequested = null,
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
     {
         ArgumentNullException.ThrowIfNull(record);
         string? terminalNodeId = null;
@@ -147,8 +149,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var result = await ExecuteCoreAsync(runId, revision, input, parameters, RecordBodyEvent, gate,
                 cancellationToken, allowOutcomeUnknown: true,
                 skipValidationForInternalProof: proofBreakNodeIds.Count > 0, emitRunLifecycle: false,
+                afterNodeStarted: afterNodeStarted,
                 activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds,
-                captureActivationBreak: request => breakRequest = request);
+                captureActivationBreak: request =>
+                {
+                    breakRequest = request;
+                    onBreakRequested?.Invoke(request);
+                });
             if (breakRequest is not null)
                 return new(WorkflowBodyProofDisposition.BreakRequested, BreakRequest: breakRequest);
             if (result.OutcomeUnknown) return new(WorkflowBodyProofDisposition.OutcomeUnknown);
