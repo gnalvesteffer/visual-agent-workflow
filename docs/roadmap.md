@@ -204,8 +204,10 @@ introduced.
   `sequence.break_completed` terminal with a versioned reason and validates the
   completed-prefix/skipped-suffix shape. Focused Core and integration checks
   also prove that a failure from an admitted Agent overrides Break and remains
-  failed through file/SQLite reopen and passive playback (2/2). This remains a
-  private proof path: the
+  failed through file/SQLite reopen and passive playback (2/2). An admitted
+  direct MCP call with an unresolved external outcome also overrides Break and
+  retains root `outcome-unknown` through both stores and passive playback (2/2).
+  This remains a private proof path: the
   production guard, public schema, and Studio authoring remain unchanged. Prove
   one VAW owner for frames,
   root lifecycle, and shared budgets, including failure/unknown/cancellation/

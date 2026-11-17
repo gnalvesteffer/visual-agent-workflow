@@ -3253,5 +3253,12 @@ stores. After B requests Break, A is released to fail. The run remains open
 until A settles, then records A failed, C skipped, no `sequence.break_completed`,
 and a failed root. Reopened passive playback reports `failed` (2/2 stores).
 This closes the admitted-Agent-failure-over-Break case for this private
-structured proof; unknown MCP outcomes, cancellation, pause/stop, and the
-broader production scheduler remain open.
+structured proof; the focused file/SQLite regression passes 2/2.
+
+A companion regression admits an MCP tool call before Break. The controlled
+broker records request and authorization, then reports an unresolved outcome
+after Break; the admitted call is drained, the unadmitted suffix is skipped,
+and the root remains `outcome-unknown` after both store reopens and passive
+playback (2/2). This qualifies direct-MCP uncertainty in the private
+Sequence/Break path only. Cancellation, pause/stop, concurrent/racing admission,
+and the broader production scheduler remain open.

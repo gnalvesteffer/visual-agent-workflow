@@ -792,6 +792,15 @@ public sealed partial class WorkflowRunner
             if (emitRunLifecycle) await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
             throw new TimeoutException("The collaboration region timeout elapsed.");
         }
+        catch (Exception exception) when (IsOutcomeUnknownException(exception))
+        {
+            if (collaborationRuntime is not null)
+                await collaborationRuntime.AbortAsync("A workflow node ended with an unresolved external outcome.");
+            if (emitRunLifecycle)
+                await Emit(ExecutionEventKinds.OutcomeUnknown,
+                    data: "Workflow execution ended with an unresolved external outcome.");
+            return new(new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false));
+        }
         catch
         {
             if (collaborationRuntime is not null)
@@ -1239,6 +1248,15 @@ public sealed partial class WorkflowRunner
                 }
 
                 var result = dispatchResult.Execution;
+                if (result.OutcomeUnknown)
+                {
+                    await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId, iterationId,
+                        scopeId, JsonSerializer.Serialize(new { outcome = "outcome-unknown" },
+                            new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                    await Emit(ExecutionEventKinds.OutcomeUnknown,
+                        data: "Workflow execution ended with an unresolved external outcome.");
+                    return new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false);
+                }
                 if (result.Failed || result.Output is null)
                 {
                     await Emit(ExecutionEventKinds.Failed, activationLoopNodeId, iterationId, scopeId,

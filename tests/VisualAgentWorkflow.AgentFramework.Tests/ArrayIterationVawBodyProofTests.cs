@@ -7257,6 +7257,78 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal("failed", playback!.Status);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredActivationSequenceProof_UnknownMcpOutcomeOverridesBreak(bool sqlite)
+    {
+        const string bindingId = "proof.sequence-tool";
+        var body = SequenceBodyDefinition();
+        var nodes = body.Nodes
+            .SetItem("sequence", body.Nodes["sequence"] with
+            {
+                Sequence = new([new("inventory", "Inventory"), new("architecture", "Architecture"),
+                    new("quality", "Quality")])
+            })
+            .SetItem("inventory-tool", new NodeDefinition(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest(bindingId, new string('d', 64)))
+            { McpArgumentsJson = "{\"query\":\"sequence\"}" })
+            .SetItem("architecture-tool", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"))
+            .Add("quality-tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("proof.skipped-tool", new string('e', 64)))
+            { McpArgumentsJson = "{\"query\":\"must-not-run\"}" });
+        var revision = WorkflowRevision.CreateProofOnly(body with
+        {
+            Nodes = nodes,
+            ExecutionConnections = body.ExecutionConnections!
+                .SetItem("inventory-output", Edge("inventory-tool", "then", "output", "execute"))
+                .Add("sequence-quality", Edge("sequence", "then.quality", "quality-tool", "execute"))
+                .Add("quality-output", Edge("quality-tool", "then", "output", "execute")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        }, "array-iteration-sequence-unknown-tool-outcome-wins-break");
+        using var runStore = new ProofRunStore(revision, "[\"stop\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var tools = new ControlledSettlementToolBroker(bindingId, ControlledToolOutcome.Unknown);
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "architecture-tool")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(tools: tools).ExecuteStructuredActivationSequenceProofAsync(
+            runStore.RunId, revision, "[\"stop\"]", "index", null, Record);
+        try
+        {
+            await Task.WhenAll(tools.DispatchStarted.Task, breakCompleted.Task).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted, "Break must wait for the authorized tool call's outcome.");
+            tools.ReleaseOutcome.TrySetResult();
+            var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(result.Failed);
+            Assert.True(result.OutcomeUnknown);
+        }
+        finally
+        {
+            tools.ReleaseOutcome.TrySetResult();
+            if (!execution.IsCompleted) await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        var recorded = recorder.Snapshot();
+        AssertPersistedSequence(runStore, recorded, "outcome-unknown");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.ToolUncertain && evt.NodeId == "inventory-tool");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed && evt.NodeId == "sequence");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.NodeId == "sequence");
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(recorded, reopened.Events);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("failed", playback!.Status);
+    }
+
     [Fact]
     public async Task StructuredActivationSequenceProof_BreakAbortsForkAndSettlesAdmittedSibling()
     {
@@ -7419,7 +7491,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var recorder = new ProofRecorder(runStore, startRoot: false);
         var tools = new CancelAfterDispatchToolBroker("proof.parallel-tool", classifyCancelledInvocationAsUnknown: true);
 
-        await Assert.ThrowsAsync<ToolInvocationException>(() => new WorkflowRunner(tools: tools)
+        var result = await new WorkflowRunner(tools: tools)
             .ExecuteStructuredActivationSequenceProofAsync(runStore.RunId, revision,
                 "[\"first\",\"must-not-run\"]", "index", null, evt =>
                 {
@@ -7428,10 +7500,12 @@ public sealed class ArrayIterationVawBodyProofTests
                 }, afterNodeStarted: (nodeId, token) => nodeId == "tool-research"
                     ? new(tools.DispatchStarted.WaitAsync(token))
                     : ValueTask.CompletedTask,
-                proofBreakNodeIds: new HashSet<string>(StringComparer.Ordinal) { "tool-research" }));
+                proofBreakNodeIds: new HashSet<string>(StringComparer.Ordinal) { "tool-research" });
 
         var recorded = recorder.Snapshot();
-        AssertPersistedSequence(runStore, recorded, "failed");
+        Assert.True(result.Failed);
+        Assert.True(result.OutcomeUnknown);
+        AssertPersistedSequence(runStore, recorded, "outcome-unknown");
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(recorded, reopened.Events);
         var authorization = Assert.Single(reopened.Events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
@@ -7445,7 +7519,7 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
             evt.ScopeId == "array-loop/1");
         Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
-        Assert.Single(reopened.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.Single(reopened.Events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
         Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
     }
 
