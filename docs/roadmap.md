@@ -201,7 +201,11 @@ introduced.
   the Break-enabled Sequence body remain open. Prove one VAW owner for frames,
   root lifecycle, and shared budgets, including failure/unknown/cancellation/
   pause/stop races and file/SQLite playback. See the latest review entry in
-  [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). A
+  2026-11-17 one-output-per-source-invocation integration attempt was reverted
+  after 40/55 existing Sequence production tests failed; the detailed failure
+  evidence and next constraint are recorded in Decision 0070. The production
+  Break guard remains in place.
   The integrated `array<json>` body proof covers successful
   transforms and an Append result exceeding the 16 KiB bound: the failure is
   attributed to Append, later items and completion are suppressed, and file/

@@ -3170,3 +3170,15 @@ synchronized admission-versus-close race; the full Agent Framework suite passes
 798/798. This is a tested primitive only: the production Sequence source still
 queues all outputs, the Break-enabled body guard remains, and no integrated
 Sequence/Break runtime behavior is established.
+
+An attempted production integration on 2026-11-17 changed the source to admit
+one output per source invocation and recursively schedule the next invocation.
+The final focused run failed 40 of 55 existing Sequence production tests,
+including missing workflow outputs, child-boundary timeouts, and incorrect
+sibling settlement. That implementation was reverted. This is evidence that a
+naive reentrant source dispatcher does not preserve the existing scheduler and
+settlement contract; it is not evidence against the ordered-admission
+requirement, nor a verified diagnosis of the framework's internal scheduling.
+Keep the production Break guard. The next design must preserve concurrent
+descendant progress while making admission and Break closure atomic, and must
+pass the full existing Sequence production suite before adding Break behavior.
