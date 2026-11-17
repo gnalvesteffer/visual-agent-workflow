@@ -228,10 +228,13 @@ introduced.
   mechanism through production dispatch before selecting architecture. The
   production Break guard remains in place. A separate three-role review of
   mixed known-failure and unresolved-MCP outcomes also returned REVISE: the
-  private candidate paths do not yet establish a stable root policy. Prove both
-  branch settlement orders, preserve both execution-failure and external-effect
-  uncertainty through file/SQLite playback, then decide whether root status
-  needs a richer projection.
+  private candidate paths do not yet establish a stable root policy. The two
+  settlement orders are now covered: failure-first with a cancelled sibling,
+  and unresolved outcome first followed by a definitive sibling failure. Both
+  preserve correlated tool evidence through file/SQLite reopen and passive
+  playback (4/4 focused cases). Root status precedence remains unselected;
+  cancellation, Break, and terminal-append-failure controls remain before the
+  next adjudication of whether root status needs a richer projection.
   The integrated `array<json>` body proof covers successful
   transforms and an Append result exceeding the 16 KiB bound: the failure is
   attributed to Append, later items and completion are suppressed, and file/
