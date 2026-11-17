@@ -5885,6 +5885,100 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyNestedBreak_ComposesRealMcpCompletionWithBreak(bool sqlite)
+    {
+        const string outerItems = "[\"outer-a\"]";
+        const string innerItems = "[\"break\",\"must-not-run\"]";
+        var toolAuthorized = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sourceRegistration = Assert.Single(CreateDemoMcpRegistrations("demo.slow"));
+        var discovery = new McpToolBroker([sourceRegistration], new DemoToolPolicy());
+        var binding = Assert.Single(await discovery.ListBindingsAsync(), item => item.BindingId == "demo.slow");
+        var definition = ParallelBodyDefinition() with
+        {
+            Nodes = ParallelBodyDefinition().Nodes
+                .SetItem("agent-left", new(NodeTypes.Agent, "1.0.0",
+                    Agent: new("proof.authorization-barrier", null, "Wait for tool authorization", [])))
+                .SetItem("agent-right", new(NodeTypes.McpTool, "1.0.0",
+                    new ToolBindingRequest(binding.BindingId, binding.ContractHash)
+                    {
+                        DescriptionHash = binding.DescriptionHash
+                    })
+                {
+                    McpArgumentsJson = "{}"
+                })
+                .Add("proof-break", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only")),
+            Connections = ParallelBodyDefinition().Connections
+                .Remove("input-right")
+                .Add("left-break", new(new("agent-left", "out"), new("proof-break", "in"), "data")),
+            ExecutionConnections = ParallelBodyDefinition().ExecutionConnections!
+                .Remove("left-join")
+                .Remove("right-agent")
+                .Remove("right-join")
+                .Add("left-break", Edge("agent-left", "out", "proof-break", "execute"))
+                .Add("break-join", Edge("proof-break", "out", "join", "branch.left"))
+                .Add("right-tool", Edge("anchor-right", "then", "agent-right", "execute"))
+                .Add("tool-join", Edge("agent-right", "then", "join", "branch.right")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "production-body-nested-break-production-mcp-drain-proof");
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new AuthorizationBarrierAgentExecutor(toolAuthorized.Task);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.ToolAuthorized && evt.NodeId == "agent-right")
+                toolAuthorized.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var tools = new ProofRevisionProjectionToolBroker(
+            new McpToolBroker([sourceRegistration], new DemoToolPolicy(), TimeSpan.FromSeconds(20)), revision);
+        var result = await new WorkflowRunner(tools, agents)
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision, outerItems, innerItems,
+                "outerIndex", "index", null, Record,
+                runBudget: StructuredRunBudget(maximumToolDispatches: 2), itemParameterId: "item")
+            .WaitAsync(TimeSpan.FromSeconds(20));
+
+        Assert.False(result.Failed, string.Join("\n", recorder.Snapshot().Select(evt =>
+            $"{evt.Sequence}:{evt.NodeId ?? "root"}:{evt.Kind}:{evt.Data ?? ""}")));
+        Assert.False(result.Cancelled);
+        Assert.False(result.OutcomeUnknown);
+        Assert.True(result.HasOutput);
+        var authorization = Assert.Single(recorder.Snapshot(), evt =>
+            evt.Kind == ExecutionEventKinds.ToolAuthorized && evt.NodeId == "agent-right");
+        var completedTool = Assert.Single(recorder.Snapshot(), evt =>
+            evt.Kind == ExecutionEventKinds.ToolCompleted && evt.NodeId == "agent-right");
+        var breakCompleted = Assert.Single(recorder.Snapshot(), evt =>
+            evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break");
+        Assert.True(authorization.Sequence < completedTool.Sequence);
+        Assert.True(completedTool.Sequence < breakCompleted.Sequence,
+            "Agent Framework settles this direct MCP node before advancing the fork to Break.");
+        Assert.DoesNotContain(recorder.Snapshot(), evt => evt.Kind == ExecutionEventKinds.ToolUncertain);
+        Assert.DoesNotContain(recorder.Snapshot(), evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "join");
+        Assert.DoesNotContain(recorder.Snapshot(), evt => evt.ScopeId == "outer-loop/0/inner-loop/1");
+        Assert.Contains(recorder.Snapshot(), evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "inner-loop" && evt.ScopeId == "outer-loop/0/inner-loop/0" &&
+            evt.Data?.Contains("\"outcome\":\"break\"", StringComparison.Ordinal) == true);
+        AssertPersistedSequence(runStore, recorder.Snapshot(), "completed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(recorder.Snapshot(), reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: completed", playback, StringComparison.Ordinal);
+        Assert.Contains(ExecutionEventKinds.ToolCompleted, playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyNestedCoordinator_SharesModelBudgetAcrossOuterActivations(bool sqlite)
     {
         var revision = WorkflowRevision.Create(NestedBodyDefinition(),
@@ -19313,6 +19407,41 @@ public sealed class ArrayIterationVawBodyProofTests
             await dispatchStarted.WaitAsync(cancellationToken);
             throw new InvalidOperationException("Deterministic Agent branch failure after MCP dispatch.");
         }
+    }
+
+    private sealed class AuthorizationBarrierAgentExecutor(Task toolAuthorized) : IAgentNodeExecutor
+    {
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.authorization-barrier", "Authorization barrier", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId != "agent-left")
+                throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
+
+            await toolAuthorized.WaitAsync(cancellationToken);
+            return JsonSerializer.Serialize(new { query = input });
+        }
+    }
+
+    private sealed class ProofRevisionProjectionToolBroker(INodeToolBroker inner, WorkflowRevision proofRevision)
+        : INodeToolBroker
+    {
+        private readonly WorkflowRevision scopeRevision = WorkflowRevision.Create(
+            proofRevision.Definition with
+            {
+                Nodes = proofRevision.Definition.Nodes.SetItem("proof-break",
+                    new NodeDefinition(NodeTypes.Agent, "1.0.0", Agent:
+                        new("proof.authorization-barrier", null, "Validation projection only", [])))
+            }, "private iterator proof broker validation projection");
+
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(
+            CancellationToken cancellationToken = default) => inner.ListBindingsAsync(cancellationToken);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) =>
+            inner.OpenScope(invocation with { Revision = scopeRevision });
     }
 
     private sealed class ControlledForkPathAgentExecutor : IAgentNodeExecutor

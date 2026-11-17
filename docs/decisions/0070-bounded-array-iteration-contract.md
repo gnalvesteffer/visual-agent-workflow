@@ -2981,6 +2981,18 @@ both file and SQLite stores (2 focused cases). This strengthens the settlement
 matrix but remains proof-only; it does not establish production ownership,
 general cancellation/budget races, the public node contract, or recovery.
 
+`ProductionBodyNestedBreak_ComposesRealMcpCompletionWithBreak` adds a direct
+MCP node backed by the local stdio fixture to the nested Break graph. The real
+broker authorizes and completes the slow MCP operation, then the Agent
+Framework fork advances to the Break node; file and SQLite histories reopen
+with identical completed evidence (2 focused cases). The proof harness uses a
+valid broker-only revision projection because the private Break node is not a
+publishable workflow node. This composition does **not** prove a real MCP call
+settles after Break is requested: Agent Framework settles that direct MCP node
+before scheduling the downstream Break in this topology. The controlled-broker
+unknown-outcome case above remains the drain-order evidence; public iterator
+behavior remains unproven.
+
 `ProductionBodyNestedCoordinator_SharesModelBudgetAcrossOuterActivations`
 adds a separate nested budget case using the real Agent Framework model adapter.
 A single run-wide model-dispatch allowance lets the first outer activation's

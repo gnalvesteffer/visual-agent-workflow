@@ -717,6 +717,15 @@ introduced.
       append-failure positions and public iterator authoring remain open. The
       real stdio MCP timeout projection is also rendered for the production
       body and both stores.
+    - [x] Compose a real local stdio MCP node with nested production-body
+      Break. The broker authorizes and completes the call, then the Agent
+      Framework fork advances to Break; file and SQLite playback reopen with
+      matching completed evidence (2/2 focused cases). This is composition
+      coverage, not MCP drain-after-Break proof: that topology settles the
+      direct MCP node before scheduling its downstream Break. Keep drain order
+      claims grounded in the controlled-broker unknown-outcome proof; public
+      iterator authoring and production ownership remain open. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core
@@ -956,9 +965,10 @@ introduced.
       typed-operation, Append-overflow, interface/WorkflowCall child
       output-routing/failure/cancellation, and production parallel-Agent
       failure/cancellation, mixed Agent/MCP success/failure/cancellation and
-      failure-with-unknown-outcome/store-append proofs:
-      789/789 passed, 0 failed or skipped
-      (6m41s). This validates
+      failure-with-unknown-outcome/store-append and real-stdio MCP/nested-Break
+      composition proofs:
+      791/791 passed, 0 failed or skipped
+      (6m40s, 2026-11-17). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or
       architecture-review gates.
