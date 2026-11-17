@@ -2548,7 +2548,10 @@ body. The three candidates preserve the same scoped failure reason, suppress
 the write and item completion, stop before the next item, and reopen identical
 file/SQLite histories (6 candidate/store runs; 2 focused theory cases). This
 extends one failure contract beyond `array<json>`; other typed operation and
-element-type failures remain open.
+element-type failures remain open. The complete Agent Framework test project
+passes 747/747 with the current candidate comparisons included. This is broad
+regression evidence, not completion of the supported-body, lifecycle/budget,
+playback, or architecture-review gates.
 
 ## Three-candidate WorkflowInterfaceCall output comparison (2026-11-16)
 

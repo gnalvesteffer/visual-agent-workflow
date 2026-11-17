@@ -847,7 +847,8 @@ introduced.
       same node-attributed error, suppresses the write, iteration completion,
       and following item, and reopens identically (2/2 focused theory cases).
       This extends failure parity across a non-JSON typed array; other typed
-      operation and element-type failures remain open.
+      operation and element-type failures remain open. The owning Agent
+      Framework suite passes 747/747 with the current candidate proofs.
   - [x] Compare a pinned graph-function result and nested evaluation evidence
     over three changing items. All candidates agree on output, function inputs,
     evaluated values, and per-item scopes; file and SQLite persistence passes
