@@ -7583,6 +7583,134 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_CancelWorkflowInterfaceChildAcrossCandidates(bool sqlite)
+    {
+        const string input = "[\"alpha\",\"must-not-run\"]";
+        var revision = PinnedWorkflowInterfaceBodyRevision(blockChildAgent: true);
+        var structured = await RunCandidateAsync("structured");
+        var subworkflow = await RunCandidateAsync("fresh-subworkflow");
+        var hybrid = await RunCandidateAsync("hybrid");
+        using var structuredStore = structured.Store;
+        using var subworkflowStore = subworkflow.Store;
+        using var hybridStore = hybrid.Store;
+
+        foreach (var (candidate, store, events) in new[]
+        {
+            ("structured", structuredStore, structured.Events),
+            ("fresh-subworkflow", subworkflowStore, subworkflow.Events),
+            ("hybrid", hybridStore, hybrid.Events)
+        })
+        {
+            AssertPersistedSequence(store, events, "cancelled");
+            Assert.Equal(events, store.ReopenStore().Get(store.RunId)!.Events);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowStarted &&
+                evt.ScopeId == "array-loop/0/call");
+            Assert.True(events.Count(evt => evt.Kind == ExecutionEventKinds.SubworkflowCancelled &&
+                    evt.ScopeId == "array-loop/0/call") == 1,
+                $"{candidate} did not record child cancellation: " +
+                string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.ScopeId}")));
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.ScopeId == "array-loop/0");
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1" ||
+                evt.ScopeId?.StartsWith("array-loop/1/", StringComparison.Ordinal) == true);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+            Assert.DoesNotContain(events, evt => evt.NodeId is null && evt.Kind is
+                (ExecutionEventKinds.Failed or ExecutionEventKinds.Completed));
+            Assert.True(WorkflowCallEvidence.TryReconstructPlayback(events, out var playback),
+                $"WorkflowCall playback did not reconstruct the {candidate} cancellation.");
+            Assert.Equal("cancelled", playback!.Status);
+            Assert.Equal("cancelled", Assert.Single(playback.Calls).State);
+        }
+
+        Assert.Equal(CancellationEvidence(structured.Events), CancellationEvidence(subworkflow.Events));
+        Assert.Equal(CancellationEvidence(structured.Events), CancellationEvidence(hybrid.Events));
+
+        async Task<(ExecutionEvent[] Events, ProofRunStore Store)> RunCandidateAsync(string candidate)
+        {
+            var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ProofRecorder(store, startRoot: candidate != "structured");
+            using var cancellation = new CancellationTokenSource();
+            var agents = new BlockingAgentExecutor("alpha");
+
+            if (candidate == "structured")
+            {
+                var task = new WorkflowRunner(agents: agents).ExecuteStructuredActivationSequenceProofAsync(
+                    store.RunId, revision, input, "index", null, evt =>
+                    {
+                        recorder.Append(evt);
+                        return ValueTask.CompletedTask;
+                    }, cancellation.Token);
+                await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder,
+                    agents, new EchoToolBroker());
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input))
+                {
+                    var watch = Task.Run(async () =>
+                    {
+                        await foreach (var _ in run.WatchStreamAsync()) { }
+                    });
+                    await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    await run.CancelRunAsync();
+                    await watch.WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                recorder.CancelRoot();
+            }
+            else
+            {
+                var hybridTask = RunActivationLoopProofAsync(
+                    store.RunId, revision, recorder, agents, new EchoToolBroker(), "array-loop",
+                    ParseProofArrayItems(input, WorkflowDataTypes.String), null, "index", [], async frame =>
+                    {
+                        ValueTask Record(ExecutionEvent evt)
+                        {
+                            if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+                                ExecutionEventKinds.Terminated)
+                                return ValueTask.CompletedTask;
+                            var eventScope = evt.ScopeId is null ? frame.ScopeId : $"{frame.ScopeId}/{evt.ScopeId}";
+                            var data = evt.Data;
+                            if (evt.Kind == ExecutionEventKinds.SubworkflowEvidence &&
+                                WorkflowCallLifecycleEvidence.TryRead(data, out var evidence))
+                                data = (evidence! with { ChildScopeId = eventScope }).Serialize();
+                            recorder.Append(evt with { ScopeId = eventScope, Data = data });
+                            return ValueTask.CompletedTask;
+                        }
+
+                        var result = await new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(
+                            store.RunId, revision, frame.Item, frame.Parameters, Record, cancellation.Token);
+                        if (result.Cancelled) throw new OperationCanceledException(cancellation.Token);
+                        if (result.Failed || result.Output is null)
+                            throw new InvalidOperationException("The interface-call child failed in the hybrid body.");
+                        return new ActivationLoopProofValue(result.Output);
+                    });
+                await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                cancellation.Cancel();
+                var hybridError = await Record.ExceptionAsync(async () => await hybridTask);
+                Assert.IsType<OperationCanceledException>(hybridError);
+                recorder.CancelRoot();
+            }
+
+            var events = recorder.Snapshot();
+            return (events, store);
+        }
+
+        static (string Kind, string? NodeId, string? ScopeId)[] CancellationEvidence(
+            IEnumerable<ExecutionEvent> events) => events.Where(evt => evt.Kind is
+                ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or
+                ExecutionEventKinds.SubworkflowStarted or ExecutionEventKinds.SubworkflowCancelled or
+                ExecutionEventKinds.NodeCancelled)
+            .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_ExecutePredicateLoopBodyPerActivation(bool sqlite)
     {
         const string input = "[\"continue-alpha\",\"continue-beta\"]";
@@ -15815,7 +15943,8 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
-    private static WorkflowRevision PinnedWorkflowInterfaceBodyRevision(bool failChild = false)
+    private static WorkflowRevision PinnedWorkflowInterfaceBodyRevision(bool failChild = false,
+        bool blockChildAgent = false)
     {
         var childNodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
             .Add("input", new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json });
@@ -15834,6 +15963,20 @@ public sealed class ArrayIterationVawBodyProofTests
                 .Add("input-project", new(new("input", "out"), new("project", "in"), "data"))
                 .Add("project-output", new(new("project", "out"), new("output", "in"), "data"));
         }
+        else if (blockChildAgent)
+        {
+            childNodes = childNodes
+                .Add("select", new(NodeTypes.JsonSelectString, "1.0.0")
+                    { JsonPropertySelection = new("/value") })
+                .Add("agent", new(NodeTypes.Agent, "1.0.0",
+                    Agent: new("proof.blocking-agent", null, "Block inside the interface child.", [])))
+                .Add("output", new(NodeTypes.Output, "1.0.0")
+                    { OutputDataType = WorkflowDataTypes.Json });
+            childData = childData
+                .Add("input-select", new(new("input", "out"), new("select", "in"), "data"))
+                .Add("select-agent", new(new("select", "out"), new("agent", "in"), "data"))
+                .Add("input-output", new(new("input", "out"), new("output", "in"), "data"));
+        }
         else
         {
             childNodes = childNodes.Add("output", new(NodeTypes.Output, "1.0.0")
@@ -15842,9 +15985,12 @@ public sealed class ArrayIterationVawBodyProofTests
                 new(new("input", "out"), new("output", "in"), "data"));
         }
 
-        var childExecution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
-            .WithComparers(StringComparer.Ordinal)
-            .Add("input-output", Edge("input", "then", "output", "execute"));
+        var childExecution = blockChildAgent
+            ? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input-agent", Edge("input", "then", "agent", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute"))
+            : ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input-output", Edge("input", "then", "output", "execute"));
         var childDefinition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
             "array-iteration-interface-child", "input", childNodes, childData)
         {

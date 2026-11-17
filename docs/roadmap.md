@@ -725,6 +725,12 @@ introduced.
       suppress the next activation, and reopen identical failed histories with
       failed WorkflowCall playback through both stores (6 candidate/store
       executions; 2/2 focused theory cases).
+    - [x] Compare host cancellation inside a pinned interface child across
+      the three candidates and both stores. Cancellation is triggered while
+      the child Agent is blocked; each records the matching cancelled child
+      call, suppresses item completion and the next activation, and reopens a
+      history whose playback shows one cancelled call (6 candidate/store
+      executions; 2/2 focused theory cases).
   - [ ] Complete the non-public production-seam proof before selecting an
     iterator architecture: dispatch typed item/index values through Core's
     existing typed value contracts, consume a nearest-frame `Break`, and
@@ -868,8 +874,8 @@ introduced.
       proof to a non-JSON element type; shared-budget exhaustion and
       recorder/store failures remain distinct.
     - [x] Re-run the full Agent Framework suite after the graph-function,
-      typed-operation, Append-overflow, and interface-child failure
-      comparisons: 761/761 passed, 0 failed or skipped (6m17s). This validates
+      typed-operation, Append-overflow, and interface-child failure/cancellation
+      comparisons: 763/763 passed, 0 failed or skipped (6m17s). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or
       architecture-review gates.
