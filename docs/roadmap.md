@@ -699,6 +699,12 @@ introduced.
       either store (2 more focused cases). A typed conversion failure in the
       first nested child is attributed at its call scope, fails the root, and
       admits no later activation in file and SQLite (2 more focused cases).
+    - [x] Compare a pinned WorkflowCall child conversion failure across the
+      structured, fresh-subworkflow, and hybrid candidates. All attribute the
+      invalid integer input to the child parse node, suppress item completion
+      and the next activation, and reopen failed histories whose playback
+      reconstructs one failed child call (6 candidate/store executions; 2/2
+      focused theory cases).
   - [x] Exercise a pinned `WorkflowInterfaceCall` through the production body
     coordinator for each array item. Typed interface fields pack each item into
     the child JSON input and project it back to the output; exact child lifecycle
@@ -874,8 +880,9 @@ introduced.
       proof to a non-JSON element type; shared-budget exhaustion and
       recorder/store failures remain distinct.
     - [x] Re-run the full Agent Framework suite after the graph-function,
-      typed-operation, Append-overflow, and interface-child failure/cancellation
-      comparisons: 763/763 passed, 0 failed or skipped (6m17s). This validates
+      typed-operation, Append-overflow, and interface/WorkflowCall child
+      failure/cancellation comparisons: 765/765 passed, 0 failed or skipped
+      (6m17s). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or
       architecture-review gates.

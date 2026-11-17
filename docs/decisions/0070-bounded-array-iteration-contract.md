@@ -2569,11 +2569,11 @@ extends the payload-bound result beyond JSON while leaving other typed element
 types and shared-budget/store-failure behavior open.
 
 After the graph-function failure, expanded typed-operation, JSON and typed
-string Append-overflow, and WorkflowInterfaceCall child-failure/cancellation
-comparisons were added, the complete Agent Framework suite passed 763/763 (0
-failed or skipped; 6m17s). This is broad regression evidence for that suite
-snapshot, not completion of the supported-body, lifecycle/budget, playback, or
-architecture-review gates.
+string Append-overflow, WorkflowInterfaceCall child-failure/cancellation, and
+WorkflowCall child-failure comparisons were added, the complete Agent Framework
+suite passed 765/765 (0 failed or skipped; 6m17s). This is broad regression
+evidence for that suite snapshot, not completion of the supported-body,
+lifecycle/budget, playback, or architecture-review gates.
 
 `IteratorCandidates_AttributeGraphFunctionFailureAcrossCandidates` runs the
 same pinned `Lookup` function that fails on the second integer item because its
@@ -2610,6 +2610,16 @@ activation. Each candidate's file and SQLite history reopens identically and
 reconstructs one failed call through passive playback (6 candidate/store runs;
 2 focused theory cases). This adds one persisted child-failure boundary; other
 interface-call race shapes and the architecture gate remain open.
+
+`IteratorCandidates_AttributeWorkflowCallChildFailureAcrossCandidates`
+compares a pinned child whose string-to-integer conversion fails on the first
+item. All three candidates retain the child `parse` failure under
+`array-loop/0/call`, suppress iteration completion and the next item, and
+reopen identical file/SQLite histories. Passive playback reconstructs one
+failed child call in each candidate/store run (6 candidate/store runs; 2
+focused theory cases). This adds one regular WorkflowCall failure boundary;
+other child-call races, shared-budget parity, and the architecture gate remain
+open.
 
 `IteratorCandidates_CancelWorkflowInterfaceChildAcrossCandidates` blocks an
 Agent inside the pinned child and cancels the host while that child is active.
