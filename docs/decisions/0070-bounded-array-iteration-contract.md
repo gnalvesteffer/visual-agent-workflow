@@ -2553,6 +2553,16 @@ passes 747/747 with the current candidate comparisons included. This is broad
 regression evidence, not completion of the supported-body, lifecycle/budget,
 playback, or architecture-review gates.
 
+`IteratorCandidates_AttributeGraphFunctionFailureAcrossCandidates` runs the
+same pinned `Lookup` function that fails on the second integer item because its
+internal Array Get index is out of range. Structured dispatch, fresh
+subworkflow, and hybrid all attribute failure to the outer FunctionCall while
+retaining the internal node and bounded reason, keep the first item completed,
+and suppress the third item. Their file/SQLite histories reopen identically
+(6 candidate/store runs; 2 focused theory cases). This covers one pure
+graph-function failure only; other function failures and budget interactions
+remain open.
+
 ## Three-candidate WorkflowInterfaceCall output comparison (2026-11-16)
 
 `IteratorCandidates_ScopeWorkflowInterfaceCallOutputsAcrossAllCandidates`

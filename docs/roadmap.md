@@ -854,6 +854,12 @@ introduced.
     evaluated values, and per-item scopes; file and SQLite persistence passes
     (2/2 focused theory cases). Broader runtime-output cache identity remains
     open.
+    - [x] Compare failure inside a pinned graph function across all three
+      candidates. The invalid Array Get is attributed to the outer FunctionCall
+      and internal `get`, prior iteration completion is retained, and later
+      items are suppressed; file/SQLite histories reopen identically (2/2
+      focused theory cases). Other graph-function failures and budget
+      interactions remain open.
     - [x] Exercise parallel Agent graph-function tool calls in a two-branch
       fork for two changing array items across all three candidates. A test
       barrier proves overlapping Agent requests, and matching function input/

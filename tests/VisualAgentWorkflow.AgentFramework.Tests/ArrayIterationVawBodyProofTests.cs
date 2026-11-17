@@ -6588,6 +6588,116 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_AttributeGraphFunctionFailureAcrossCandidates(bool sqlite)
+    {
+        const string input = "[0,1,2]";
+        var revision = WorkflowRevision.Create(GraphFunctionArrayGetBodyDefinition(),
+            "array-iteration-graph-function-failure-candidates-proof");
+        var structured = await RunCandidateAsync("structured");
+        var subworkflow = await RunCandidateAsync("fresh-subworkflow");
+        var hybrid = await RunCandidateAsync("hybrid");
+        using var structuredStore = structured.Store;
+        using var subworkflowStore = subworkflow.Store;
+        using var hybridStore = hybrid.Store;
+
+        foreach (var candidate in new[] { structured, subworkflow, hybrid })
+        {
+            var events = candidate.Events;
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.ScopeId == "array-loop/0");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.ScopeId == "array-loop/1");
+            var callFailure = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+                evt.NodeId == "call" && evt.ScopeId == "array-loop/1");
+            Assert.Contains("Graph function 'Lookup' failed at internal node 'get'", callFailure.Data,
+                StringComparison.Ordinal);
+            Assert.Contains("outside an array containing 1 items", callFailure.Data, StringComparison.Ordinal);
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+                evt.NodeId == "output" && evt.ScopeId == "array-loop/1");
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+            AssertPersistedSequence(candidate.Store, events, "failed");
+            Assert.Equal(events, candidate.Store.ReopenStore().Get(candidate.Store.RunId)!.Events);
+        }
+        Assert.Equal(FailureShape(structured.Events), FailureShape(subworkflow.Events));
+        Assert.Equal(FailureShape(structured.Events), FailureShape(hybrid.Events));
+
+        async Task<(ExecutionEvent[] Events, ProofRunStore Store)> RunCandidateAsync(string candidate)
+        {
+            var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ProofRecorder(store, startRoot: candidate != "structured");
+
+            if (candidate == "structured")
+            {
+                try
+                {
+                    var result = await new WorkflowRunner()
+                        .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                            evt => { recorder.Append(evt); return ValueTask.CompletedTask; },
+                            itemParameterId: "item", arrayElementType: WorkflowDataTypes.Integer);
+                    Assert.True(result.Failed);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Structured function evaluation can surface a body failure as an exception.
+                }
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder,
+                    new EchoAgentExecutor(), new EchoToolBroker(),
+                    arrayElementType: WorkflowDataTypes.Integer);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var sawWorkflowError = false;
+                await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input))
+                    await foreach (var evt in run.WatchStreamAsync())
+                        sawWorkflowError |= evt is WorkflowErrorEvent;
+                Assert.True(sawWorkflowError);
+                recorder.FailRoot();
+            }
+            else
+            {
+                var error = await Record.ExceptionAsync(async () =>
+                    await RunActivationLoopProofAsync(store.RunId, revision, recorder, new EchoAgentExecutor(),
+                        new EchoToolBroker(), "array-loop",
+                        ParseProofArrayItems(input, WorkflowDataTypes.Integer), null, "index", [], async frame =>
+                        {
+                            ValueTask Record(ExecutionEvent evt)
+                            {
+                                if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                                    ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+                                    ExecutionEventKinds.Terminated)
+                                    return ValueTask.CompletedTask;
+                                recorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                                return ValueTask.CompletedTask;
+                            }
+
+                            var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(store.RunId, revision,
+                                frame.Item, frame.Parameters, Record);
+                            if (result.Failed || result.Output is null)
+                                throw new InvalidOperationException("Hybrid graph-function body failed.");
+                            return new ActivationLoopProofValue(result.Output);
+                        }));
+                Assert.NotNull(error);
+                recorder.FailRoot();
+            }
+
+            var events = recorder.Snapshot();
+            AssertPersistedSequence(store, events, "failed");
+            return (events, store);
+        }
+
+        static (string Kind, string? NodeId, string? ScopeId, string? Data)[] FailureShape(
+            IEnumerable<ExecutionEvent> events) => events.Where(evt => evt.Kind is
+                ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or
+                ExecutionEventKinds.NodeFailed)
+            .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId, evt.Data)).ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_ExecuteParallelAgentGraphFunctionToolsPerActivation(bool sqlite)
     {
         const string input = "[\"north\",\"south\"]";
