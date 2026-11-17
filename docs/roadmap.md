@@ -823,6 +823,13 @@ introduced.
       reopen identically (6 candidate/store executions). This qualifies the
       tested Loop composition only; public typed iterator authoring and
       production scheduler selection remain open.
+    - [x] Compare Agent failure on the second predicate-Loop pass across all
+      three candidates and both stores. Each records the first completed pass,
+      the same second-pass inputs and scoped `node.failed` event, and a failed
+      root without starting the next array item or emitting LoopStopped; all
+      six histories reopen identically (2/2 focused theory cases). This
+      qualifies this failure boundary only; broader failure and cancellation
+      parity remain open.
   - [x] Compare a pinned graph-function result and nested evaluation evidence
     over three changing items. All candidates agree on output, function inputs,
     evaluated values, and per-item scopes; file and SQLite persistence passes

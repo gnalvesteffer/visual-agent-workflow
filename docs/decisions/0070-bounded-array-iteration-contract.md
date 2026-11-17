@@ -2513,6 +2513,15 @@ SQLite (2 focused theory cases). This closes the tested Loop-composition
 comparison only; it neither authors a typed iterator nor selects a production
 scheduler. Architecture readiness remains **REVISE**.
 
+`IteratorCandidates_StopPredicateLoopAfterAgentFailureAcrossCandidates` adds
+the second-pass failure case for the same three candidates. Every candidate
+records one completed Loop pass, the same second-pass Agent input and scoped
+`node.failed` event, fails the root without starting the next array item or
+recording `LoopStopped`, and reopens identically for file and SQLite stores (6
+candidate/store runs; 2 focused theory cases). This closes only this tested
+failure boundary; it does not establish general failure/cancellation
+equivalence or alter the architecture decision.
+
 ## Three-candidate WorkflowInterfaceCall output comparison (2026-11-16)
 
 `IteratorCandidates_ScopeWorkflowInterfaceCallOutputsAcrossAllCandidates`
