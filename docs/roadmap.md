@@ -390,6 +390,13 @@ introduced.
       (4/4 focused cases). This qualifies one local protocol-failure fixture
       and classification policy, not arbitrary server failures or the wider
       race/recovery matrix.
+    - [x] Cancel a mixed production-body fork after the real stdio MCP call is
+      authorized while its Agent sibling is blocked. Both matching
+      invocations settle as cancelled, MCP authorization retains correlated
+      unknown-outcome evidence, and the join and next item are suppressed;
+      file/SQLite reopen and passive playback preserve the cancelled prefix
+      (2/2 focused cases). This qualifies one local fixture cancellation point,
+      not general remote side-effect or race behavior.
     - [x] Cancel the production-body host after both parallel Agent branches
       enter. Both matching Agent invocations settle as cancelled; the join and
       later item are suppressed, the iteration records a cancelled settlement,
@@ -944,8 +951,8 @@ introduced.
       output-routing/failure/cancellation, and production parallel-Agent
       failure/cancellation, mixed Agent/MCP success/failure/cancellation and
       failure-with-unknown-outcome/store-append proofs:
-      785/785 passed, 0 failed or skipped
-      (6m22s). This validates
+      787/787 passed, 0 failed or skipped
+      (6m29s). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or
       architecture-review gates.

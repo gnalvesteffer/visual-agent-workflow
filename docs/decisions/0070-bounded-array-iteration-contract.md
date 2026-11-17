@@ -2410,6 +2410,17 @@ whether a remote server applied a request before reporting a protocol error,
 select the iterator architecture, or close the general race, recovery, and
 append-failure matrices.
 
+`ProductionBodyActivationCoordinator_ProductionMcpHostCancellationSettlesMixedAgentFork`
+adds the adjacent host-cancellation case. Its `demo.slow` stdio connection is
+held until the Agent sibling has entered; cancellation is then requested after
+the MCP authorization event is accepted. Both the real broker invocation and
+the Agent settle as cancelled, the dispatched MCP retains call-correlated
+`tool.uncertain` evidence, and the join and following item are suppressed.
+File and SQLite histories reopen with the same cancelled status and playback
+projection (2/2 focused cases). This proves one deterministic local fixture
+boundary; it does not prove whether arbitrary remote tools applied side
+effects before cancellation or resolve the broader cancellation/race matrix.
+
 The same production-broker test now rejects the sibling's `tool.uncertain`
 append in both stores under both root-outcome policies (8/8 focused matrix
 cases). The append attempt is correlated to the accepted authorization, but
