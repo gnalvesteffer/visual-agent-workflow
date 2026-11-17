@@ -836,12 +836,12 @@ introduced.
       cancellation, one cancelled root, and no later array item; all six
       histories reopen identically (2/2 focused theory cases). This closes
       only this cancellation point; cancellation races elsewhere remain open.
-    - [x] Compare a deterministic Array Replace index failure through the
-      typed JSON-array transform body across all three candidates and both
-      stores. All record the same scoped failure, suppress Variable Set,
-      iteration completion, and the following item, and reopen identically
-      (2/2 focused theory cases). Other deterministic-node failure shapes
-      remain open.
+    - [x] Compare invalid-index failures from Array Get, Insert, Replace, and
+      Remove through the typed JSON-array transform body across all three
+      candidates and both stores. All record the same scoped failure for each
+      operation, suppress Variable Set, iteration completion, and the next
+      item, and reopen identically (8/8 focused theory cases). Other
+      deterministic-node failure shapes remain open.
   - [x] Compare a pinned graph-function result and nested evaluation evidence
     over three changing items. All candidates agree on output, function inputs,
     evaluated values, and per-item scopes; file and SQLite persistence passes

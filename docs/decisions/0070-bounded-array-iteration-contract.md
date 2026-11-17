@@ -2532,14 +2532,15 @@ establish cancellation-race parity elsewhere or change the architecture
 decision.
 
 `IteratorCandidates_AttributeJsonArrayOperationFailureAcrossCandidates`
-injects an invalid index into Array Replace in the existing typed JSON-array
-transform body. Structured dispatch, fresh subworkflow, and hybrid all record
-the same `node.failed` event under the first item scope, suppress the Variable
-Set/write, iteration completion, and next item, and reopen identical failed
-histories through both stores (6 candidate/store runs; 2 focused theory
-cases). This qualifies one deterministic data-operation failure only; it does
-not establish the full deterministic-node failure matrix or alter the
-architecture decision.
+injects an invalid index into Array Get, Insert, Replace, and Remove in the
+existing typed JSON-array transform body. Structured dispatch, fresh
+subworkflow, and hybrid record the same `node.failed` event under the first
+item scope for each operation, suppress the Variable Set/write, iteration
+completion, and next item, and reopen identical failed histories through both
+stores (24 candidate/store executions; 8 focused theory cases). This qualifies
+these four deterministic data-operation failures only; it does not establish
+the full deterministic-node failure matrix or alter the architecture
+decision.
 
 ## Three-candidate WorkflowInterfaceCall output comparison (2026-11-16)
 

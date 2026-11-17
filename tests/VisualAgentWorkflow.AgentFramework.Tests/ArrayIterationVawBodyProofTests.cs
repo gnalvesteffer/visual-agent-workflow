@@ -7695,13 +7695,20 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task IteratorCandidates_AttributeJsonArrayOperationFailureAcrossCandidates(bool sqlite)
+    [InlineData("get", false)]
+    [InlineData("get", true)]
+    [InlineData("insert", false)]
+    [InlineData("insert", true)]
+    [InlineData("replace", false)]
+    [InlineData("replace", true)]
+    [InlineData("remove", false)]
+    [InlineData("remove", true)]
+    public async Task IteratorCandidates_AttributeJsonArrayOperationFailureAcrossCandidates(
+        string failingNode, bool sqlite)
     {
         const string input = "[{\"kind\":\"first\"},{\"kind\":\"must-not-run\"}]";
-        var revision = WorkflowRevision.Create(JsonArrayOperationsItemBodyDefinition("replace"),
-            "array-iteration-json-array-operation-failure-candidates-proof");
+        var revision = WorkflowRevision.Create(JsonArrayOperationsItemBodyDefinition(failingNode),
+            $"array-iteration-json-array-{failingNode}-failure-candidates-proof");
         var structured = await RunCandidateAsync("structured");
         var subworkflow = await RunCandidateAsync("fresh-subworkflow");
         var hybrid = await RunCandidateAsync("hybrid");
@@ -7715,7 +7722,7 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
             Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
-                evt.NodeId == "replace" && evt.ScopeId == "array-loop/0");
+                evt.NodeId == failingNode && evt.ScopeId == "array-loop/0");
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
             Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
