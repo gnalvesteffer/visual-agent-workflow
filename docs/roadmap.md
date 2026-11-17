@@ -204,8 +204,16 @@ introduced.
   [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). A
   2026-11-17 one-output-per-source-invocation integration attempt was reverted
   after 40/55 existing Sequence production tests failed; the detailed failure
-  evidence and next constraint are recorded in Decision 0070. The production
-  Break guard remains in place.
+  evidence and next constraint are recorded in Decision 0070. A private
+  Agent Framework self-continuation proof also confirms that a continuation
+  handler can run while an earlier descendant is active, but its next body
+  message waits until that superstep drains. A production-path characterization
+  also confirms the current Sequence source does not start the first descendant
+  until it advances past the later-output dispatch boundary. These tests pass
+  as characterization, while the required A-active/B-admitted gate still fails
+  for the current mechanism. A fresh triad returned REVISE: test any new
+  mechanism through production dispatch before selecting architecture. The
+  production Break guard remains in place.
   The integrated `array<json>` body proof covers successful
   transforms and an Append result exceeding the 16 KiB bound: the failure is
   attributed to Append, later items and completion are suppressed, and file/

@@ -141,6 +141,43 @@ public sealed class SequenceDispatchProofTests
         Assert.DoesNotContain("second", fixture.StartOrder);
     }
 
+    [Fact]
+    public async Task Superstep_continuation_runs_but_queues_next_body_until_active_superstep_drains()
+    {
+        var fixture = new ContinuationDispatchFixture();
+        await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(fixture.Build(),
+            new DispatchMessage("start"));
+        var watch = Task.Run(async () =>
+        {
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowErrorEvent error)
+                    throw new InvalidOperationException("Continuation proof workflow failed.", error.Exception);
+        });
+
+        try
+        {
+            await fixture.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await fixture.ContinuationHandled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(["first", "second"], fixture.DispatchOrder.ToArray());
+            Assert.False(fixture.FirstCompleted.Task.IsCompleted,
+                "The continuation should run while the first descendant is still active.");
+            Assert.False(fixture.SecondStarted.Task.IsCompleted,
+                "The framework should defer the continuation's next body message until the active superstep settles.");
+
+            fixture.ReleaseFirst.TrySetResult();
+            await fixture.FirstCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await fixture.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await fixture.AllCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await watch.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            fixture.ReleaseFirst.TrySetResult();
+            if (!watch.IsCompleted) await run.CancelRunAsync();
+        }
+    }
+
     private sealed class DispatchFixture(bool holdBeforeSecondDispatch = false)
     {
         private readonly TaskCompletionSource firstStarted = NewSignal();
@@ -259,6 +296,94 @@ public sealed class SequenceDispatchProofTests
 
     private sealed record DispatchMessage(string Output);
     private sealed record ProbeResult(string Output);
+
+    private sealed class ContinuationDispatchFixture
+    {
+        private readonly TaskCompletionSource firstStarted = NewSignal();
+        private readonly TaskCompletionSource secondStarted = NewSignal();
+        private readonly TaskCompletionSource firstCompleted = NewSignal();
+        private readonly TaskCompletionSource continuationHandled = NewSignal();
+        private readonly TaskCompletionSource allCompleted = NewSignal();
+        private readonly TaskCompletionSource releaseFirst = NewSignal();
+        private readonly ConcurrentQueue<string> dispatchOrder = new();
+        private int completedCount;
+
+        public TaskCompletionSource FirstStarted => firstStarted;
+        public TaskCompletionSource SecondStarted => secondStarted;
+        public TaskCompletionSource FirstCompleted => firstCompleted;
+        public TaskCompletionSource ContinuationHandled => continuationHandled;
+        public TaskCompletionSource AllCompleted => allCompleted;
+        public TaskCompletionSource ReleaseFirst => releaseFirst;
+        public ConcurrentQueue<string> DispatchOrder => dispatchOrder;
+
+        public Workflow Build()
+        {
+            var dispatcher = new ContinuationDispatcher(this);
+            var worker = new ContinuationWorker(this);
+            var sink = new ContinuationSink();
+            var builder = new WorkflowBuilder(dispatcher);
+            builder.AddEdge<DispatchMessage>((ExecutorBinding)dispatcher, (ExecutorBinding)worker,
+                message => message?.Output is "first" or "second");
+            builder.AddEdge<DispatchMessage>((ExecutorBinding)dispatcher, (ExecutorBinding)dispatcher,
+                message => message?.Output == "continue");
+            builder.AddEdge<ProbeResult>((ExecutorBinding)worker, (ExecutorBinding)sink, _ => true);
+            builder.WithOutputFrom(sink);
+            return builder.Build();
+        }
+
+        private bool RecordCompletion() => Interlocked.Increment(ref completedCount) == 2;
+        private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private sealed class ContinuationDispatcher(ContinuationDispatchFixture fixture)
+            : Executor<DispatchMessage, DispatchMessage>("continuation-dispatch", declareCrossRunShareable: true)
+        {
+            public override async ValueTask<DispatchMessage> HandleAsync(DispatchMessage message,
+                IWorkflowContext context, CancellationToken cancellationToken = default)
+            {
+                if (message.Output == "start")
+                {
+                    fixture.dispatchOrder.Enqueue("first");
+                    await context.SendMessageAsync(new DispatchMessage("first"), "continuation-worker", cancellationToken);
+                    await context.SendMessageAsync(new DispatchMessage("continue"), Id, cancellationToken);
+                }
+                else if (message.Output == "continue")
+                {
+                    fixture.continuationHandled.TrySetResult();
+                    fixture.dispatchOrder.Enqueue("second");
+                    await context.SendMessageAsync(new DispatchMessage("second"), "continuation-worker", cancellationToken);
+                }
+
+                return new DispatchMessage("done");
+            }
+        }
+
+        private sealed class ContinuationWorker(ContinuationDispatchFixture fixture)
+            : Executor<DispatchMessage, ProbeResult>("continuation-worker", declareCrossRunShareable: true)
+        {
+            public override async ValueTask<ProbeResult> HandleAsync(DispatchMessage message,
+                IWorkflowContext context, CancellationToken cancellationToken = default)
+            {
+                if (message.Output == "first")
+                {
+                    fixture.firstStarted.TrySetResult();
+                    await fixture.releaseFirst.Task.WaitAsync(cancellationToken);
+                    fixture.firstCompleted.TrySetResult();
+                }
+                else fixture.secondStarted.TrySetResult();
+
+                if (fixture.RecordCompletion()) fixture.allCompleted.TrySetResult();
+                return new ProbeResult(message.Output);
+            }
+        }
+
+        private sealed class ContinuationSink : Executor<DispatchMessage, string>
+        {
+            public ContinuationSink() : base("continuation-sink", declareCrossRunShareable: true) { }
+
+            public override ValueTask<string> HandleAsync(DispatchMessage message, IWorkflowContext context,
+                CancellationToken cancellationToken = default) => ValueTask.FromResult("complete");
+        }
+    }
 
     private sealed class BoundaryGate(int blockedBoundary) : IWorkflowExecutionGate
     {

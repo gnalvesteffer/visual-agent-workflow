@@ -3182,3 +3182,42 @@ requirement, nor a verified diagnosis of the framework's internal scheduling.
 Keep the production Break guard. The next design must preserve concurrent
 descendant progress while making admission and Break closure atomic, and must
 pass the full existing Sequence production suite before adding Break behavior.
+
+### Self-continuation scheduling proof (2026-11-17)
+
+`SequenceDispatchProofTests.Superstep_continuation_runs_but_queues_next_body_until_active_superstep_drains`
+uses the pinned Agent Framework 1.26.0 concurrent runner. The dispatcher emits
+body A and a continuation message to its own connected executor edge. While A
+is blocked, the continuation handler runs and records that B is next, but the
+message for B does not start until A is released and its active superstep
+settles. The focused test passes and distinguishes continuation execution
+from downstream admission; it is not an integrated Sequence/Break proof.
+
+This rules out a self-continuation token as the mechanism for the required
+ordered admission with overlapping latent descendants. The previous production
+integration and this isolated framework proof both expose a superstep boundary
+that cannot be used to admit B while A remains active. Keep the existing
+production Break guard and return to scheduler selection. Any candidate must
+be tested against the same synchronized A-active/B-admitted condition before
+production Sequence changes resume; architecture remains unselected.
+
+A fresh proponent/opponent/adjudicator review returned **REVISE**. The
+adjudicator requires the next proof to exercise production dispatch, allowing
+a private scheduler only as part of that experiment. A standalone scheduler
+fixture could pass without establishing compatibility with the production
+body or lifecycle seams. The proof must directly show B admitted in declared
+order while A's latent descendant remains blocked, then cover the atomic Break
+race, draining, failure/unknown outcome precedence, cancellation, shared
+ownership, persistence/playback, and existing runtime regressions. Passing
+would justify a new three-role architecture comparison, not select production
+architecture or authorize public iterator/Break contracts.
+
+`SequenceProductionRunnerTests.Production_sequence_source_holds_first_descendant_until_later_dispatch_boundary_releases`
+characterizes the current production path. At the synchronized `sequence:second`
+boundary, output `first` is recorded as dispatched but its first descendant has
+not started. Releasing the boundary lets the source finish admission and the
+first descendant then starts. The test passes; it demonstrates why the current
+source cannot receive a descendant Break between its output admissions. This
+is a failing result for the required A-active/B-admitted gate, not evidence that
+the desired contract should change. Keep Break withheld and continue scheduler
+mechanism work; no architecture is selected.

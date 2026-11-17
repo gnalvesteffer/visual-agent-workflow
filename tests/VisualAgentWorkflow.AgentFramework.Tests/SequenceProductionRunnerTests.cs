@@ -797,6 +797,27 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Production_sequence_source_holds_first_descendant_until_later_dispatch_boundary_releases()
+    {
+        var events = new List<ExecutionEvent>();
+        var gate = new ReleaseGate("sequence:second");
+        var execution = new WorkflowRunner().ExecuteSequenceProductionProofAsync(Guid.NewGuid(), "hello",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }, gate: gate);
+
+        await gate.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched &&
+            ReadEvidence(evt).OutputId == "first");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "first");
+
+        gate.Release.TrySetResult();
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result.Failed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "first");
+    }
+
+    [Fact]
     public async Task Unified_sequence_evaluates_pure_integer_addition_for_each_typed_mcp_argument()
     {
         var source = SequencePathDefinition();
