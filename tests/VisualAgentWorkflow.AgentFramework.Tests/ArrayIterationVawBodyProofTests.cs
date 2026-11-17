@@ -4568,9 +4568,12 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ProductionBodyActivationCoordinator_MixedAgentFailurePreservesMcpUnknownOutcome(bool sqlite)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task ProductionBodyActivationCoordinator_MixedAgentFailurePreservesMcpUnknownOutcome(
+        bool sqlite, bool rejectUnknownOutcomeAppend)
     {
         const string input = "[\"first\",\"must-not-run\"]";
         var definition = ParallelMcpDefinition() with
@@ -4596,14 +4599,18 @@ public sealed class ArrayIterationVawBodyProofTests
         WorkflowValidator.ThrowIfInvalid(definition);
         var revision = WorkflowRevision.Create(definition,
             "production-body-mixed-agent-failure-unknown-outcome-proof");
-        using var runStore = new ProofRunStore(revision, input, sqlite);
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendPredicate: evt => rejectUnknownOutcomeAppend &&
+                evt.Kind == ExecutionEventKinds.ToolUncertain && evt.NodeId == "tool-research");
         var broker = new ParallelMcpBroker(holdUntilCancelled: true, recordReservationIds: true,
             expectedCallCount: 1);
         var agents = new FailingAfterDispatchAgentExecutor(broker.DispatchStarted);
         var events = new List<ExecutionEvent>();
+        var appendAttempts = new ConcurrentQueue<ExecutionEvent>();
 
         ValueTask Record(ExecutionEvent evt)
         {
+            appendAttempts.Enqueue(evt);
             runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
             events.Add(evt);
             return ValueTask.CompletedTask;
@@ -4626,15 +4633,20 @@ public sealed class ArrayIterationVawBodyProofTests
             evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
         var toolAuthorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
             evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
-        var toolUncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
-            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
         var toolFailed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
             evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        var uncertaintyAttempt = Assert.Single(appendAttempts, evt =>
+            evt.Kind == ExecutionEventKinds.ToolUncertain && evt.NodeId == "tool-research" &&
+            evt.ScopeId == "array-loop/0");
         Assert.Equal(toolStarted.InvocationId, toolAuthorized.InvocationId);
-        Assert.Equal(toolStarted.InvocationId, toolUncertain.InvocationId);
         Assert.Equal(toolStarted.InvocationId, toolFailed.InvocationId);
+        if (rejectUnknownOutcomeAppend)
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+                evt.NodeId == "tool-research");
+        else
+            Assert.Contains(uncertaintyAttempt, events);
         using (var authorization = JsonDocument.Parse(toolAuthorized.Data!))
-        using (var uncertainty = JsonDocument.Parse(toolUncertain.Data!))
+        using (var uncertainty = JsonDocument.Parse(uncertaintyAttempt.Data!))
             Assert.Equal(authorization.RootElement.GetProperty("toolCallId").GetString(),
                 uncertainty.RootElement.GetProperty("toolCallId").GetString());
 
@@ -4652,7 +4664,17 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(events, reopened.Events);
         var playback = await RenderPlayback(reopened);
         Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
-        Assert.Contains("MCP outcome is unknown:", playback, StringComparison.Ordinal);
+        if (rejectUnknownOutcomeAppend)
+        {
+            Assert.Contains("An MCP call was authorized, but no outcome event was recorded.", playback,
+                StringComparison.Ordinal);
+            Assert.Contains("Its external effect may be unknown.", playback, StringComparison.Ordinal);
+            Assert.DoesNotContain("MCP outcome is unknown:", playback, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Contains("MCP outcome is unknown:", playback, StringComparison.Ordinal);
+        }
         Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
         Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
     }

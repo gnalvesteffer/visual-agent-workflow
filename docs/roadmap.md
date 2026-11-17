@@ -378,7 +378,10 @@ introduced.
       evidence; the iteration and join remain incomplete, and the next item is
       suppressed. File/SQLite reopen and playback preserve both facts (2/2
       focused cases). This controlled broker case does not qualify real-server
-      failure races.
+      failure races. Rejecting the `tool.uncertain` append also preserves only
+      the accepted event prefix; playback warns that the authorized MCP effect
+      may be unknown without claiming an uncertainty event was saved (4/4
+      file/SQLite and accepted/rejected matrix cases).
     - [x] Cancel the production-body host after both parallel Agent branches
       enter. Both matching Agent invocations settle as cancelled; the join and
       later item are suppressed, the iteration records a cancelled settlement,
@@ -932,7 +935,8 @@ introduced.
       typed-operation, Append-overflow, interface/WorkflowCall child
       output-routing/failure/cancellation, and production parallel-Agent
       failure/cancellation, mixed Agent/MCP success/failure/cancellation and
-      failure-with-unknown-outcome proofs: 779/779 passed, 0 failed or skipped
+      failure-with-unknown-outcome/store-append proofs:
+      781/781 passed, 0 failed or skipped
       (6m18s). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or

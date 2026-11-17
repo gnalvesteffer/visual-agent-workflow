@@ -2362,8 +2362,12 @@ settles the root as `failed`; the sibling retains correlated
 `tool.outcome-unknown` plus node-failure evidence. Playback keeps the run
 failure distinct from the uncertain external side effect, marks the iteration
 incomplete, and shows no completed join or later item. File and SQLite reopen
-preserve the same prefix (2 focused store cases). This controlled broker case
-does not qualify real-server failure races.
+preserve the same prefix (2 focused store cases). The expanded matrix also
+rejects the `tool.uncertain` append in both stores: playback reports that an
+authorized call has no recorded outcome and may have an external effect, rather
+than presenting the rejected event as saved. The accepted/rejected matrix
+passes 4/4 cases. This controlled broker case does not qualify real-server
+failure races.
 
 ## Production-broker sibling cancellation after MCP protocol failure (2026-11-15)
 
