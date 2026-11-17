@@ -4570,6 +4570,96 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_MixedAgentFailurePreservesMcpUnknownOutcome(bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var nodes = definition.Nodes.Remove("tool-review")
+            .Add("agent-right", ParallelBodyDefinition().Nodes["agent-right"]);
+        var connections = definition.Connections.Remove("input-tool-review")
+            .Add("input-right", new(new("input", "out"), new("agent-right", "in"), "data"));
+        var executionConnections = definition.ExecutionConnections!
+            .Remove("right-tool")
+            .Remove("tool-review-join")
+            .Add("right-agent", Edge("anchor-right", "then", "agent-right", "execute"))
+            .Add("agent-right-join", Edge("agent-right", "out", "join", "branch.right"));
+        definition = definition with
+        {
+            Nodes = nodes,
+            Connections = connections,
+            ExecutionConnections = executionConnections
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-mixed-agent-failure-unknown-outcome-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var broker = new ParallelMcpBroker(holdUntilCancelled: true, recordReservationIds: true,
+            expectedCallCount: 1);
+        var agents = new FailingAfterDispatchAgentExecutor(broker.DispatchStarted);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(broker, agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2))
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(result.Failed);
+        Assert.False(result.OutcomeUnknown);
+        Assert.False(result.Cancelled);
+        var agentStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "agent-right" && evt.ScopeId == "array-loop/0");
+        var agentFailed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "agent-right" && evt.ScopeId == "array-loop/0");
+        Assert.Equal(agentStarted.InvocationId, agentFailed.InvocationId);
+        var toolStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        var toolAuthorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        var toolUncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        var toolFailed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        Assert.Equal(toolStarted.InvocationId, toolAuthorized.InvocationId);
+        Assert.Equal(toolStarted.InvocationId, toolUncertain.InvocationId);
+        Assert.Equal(toolStarted.InvocationId, toolFailed.InvocationId);
+        using (var authorization = JsonDocument.Parse(toolAuthorized.Data!))
+        using (var uncertainty = JsonDocument.Parse(toolUncertain.Data!))
+            Assert.Equal(authorization.RootElement.GetProperty("toolCallId").GetString(),
+                uncertainty.RootElement.GetProperty("toolCallId").GetString());
+
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId is "tool-research" or "agent-right" or "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+            evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
+        Assert.Contains("MCP outcome is unknown:", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ParallelMcpFailureSuppressesJoinAndLaterItems(bool sqlite)
     {
         const string input = "[\"first\",\"must-not-run\"]";
@@ -18843,6 +18933,20 @@ public sealed class ArrayIterationVawBodyProofTests
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             }
             return JsonSerializer.Serialize(new { query = input });
+        }
+    }
+
+    private sealed class FailingAfterDispatchAgentExecutor(Task dispatchStarted) : IAgentNodeExecutor
+    {
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.failing-agent", "Failing proof agent", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            await dispatchStarted.WaitAsync(cancellationToken);
+            throw new InvalidOperationException("Deterministic Agent branch failure after MCP dispatch.");
         }
     }
 

@@ -2356,6 +2356,15 @@ preserve the same cancelled prefix (2 focused store cases). The broker is
 deterministic and test-only; this does not qualify remote server cancellation
 or resolve the broader cancellation/publication race matrix.
 
+`ProductionBodyActivationCoordinator_MixedAgentFailurePreservesMcpUnknownOutcome`
+fails the Agent after its sibling MCP call is dispatched. The Agent failure
+settles the root as `failed`; the sibling retains correlated
+`tool.outcome-unknown` plus node-failure evidence. Playback keeps the run
+failure distinct from the uncertain external side effect, marks the iteration
+incomplete, and shows no completed join or later item. File and SQLite reopen
+preserve the same prefix (2 focused store cases). This controlled broker case
+does not qualify real-server failure races.
+
 ## Production-broker sibling cancellation after MCP protocol failure (2026-11-15)
 
 `ProductionBodyActivationCoordinator_ProductionMcpFailureCancelsSiblingAndPreservesEvidence`
