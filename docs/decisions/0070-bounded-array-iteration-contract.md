@@ -2500,6 +2500,19 @@ host approval-request persistence, real user decisions, or permission-policy
 behavior. It does not alter the iterator architecture review; readiness
 remains **REVISE**.
 
+## Bounded predicate Loop composition across iterator candidates (2026-11-16)
+
+`IteratorCandidates_ExecutePredicateLoopBodyPerActivation` runs the existing
+bounded predicate Loop body for two changing string items using the structured
+dispatcher, a fresh Agent Framework subworkflow per item, and the hybrid
+candidate. Every candidate performs the same two Agent passes per item, stops
+at the configured maximum, and produces matching output, Agent inputs, and
+scoped Loop/Agent lifecycle shapes. Each of the six candidate/store histories
+passes persisted-prefix validation and reopens identically through file and
+SQLite (2 focused theory cases). This closes the tested Loop-composition
+comparison only; it neither authors a typed iterator nor selects a production
+scheduler. Architecture readiness remains **REVISE**.
+
 ## Three-candidate WorkflowInterfaceCall output comparison (2026-11-16)
 
 `IteratorCandidates_ScopeWorkflowInterfaceCallOutputsAcrossAllCandidates`

@@ -815,6 +815,14 @@ introduced.
       reconstruct three completed child calls from passive playback. This also
       corrected the fresh-subworkflow and hybrid proof adapters to prefix child
       scopes and keep embedded lifecycle evidence aligned.
+    - [x] Compare a bounded predicate `Loop` inside each array activation
+      across the structured dispatcher, fresh Agent Framework subworkflow, and
+      hybrid candidates. All three execute two Agent body passes per item,
+      reach the same maximum-iteration stop, and match outputs, Agent inputs,
+      and scoped loop/Agent lifecycle evidence. File and SQLite histories
+      reopen identically (6 candidate/store executions). This qualifies the
+      tested Loop composition only; public typed iterator authoring and
+      production scheduler selection remain open.
   - [x] Compare a pinned graph-function result and nested evaluation evidence
     over three changing items. All candidates agree on output, function inputs,
     evaluated values, and per-item scopes; file and SQLite persistence passes
