@@ -367,6 +367,12 @@ introduced.
       production-MCP proof still covers successful execution; this controlled
       broker failure does not qualify real-server failure or close the broader
       parallel-body race matrix.
+    - [x] Cancel a mixed production-body fork after its Agent and MCP branches
+      are active. Both invocations settle as cancelled, the dispatched MCP
+      retains correlated unknown-outcome evidence, the iteration records
+      cancellation, and file/SQLite reopen preserves the same prefix (2/2
+      focused cases). This deterministic broker proof does not establish
+      real-server cancellation behavior or close the broader race matrix.
     - [x] Cancel the production-body host after both parallel Agent branches
       enter. Both matching Agent invocations settle as cancelled; the join and
       later item are suppressed, the iteration records a cancelled settlement,
@@ -919,8 +925,8 @@ introduced.
     - [x] Re-run the full Agent Framework suite after the graph-function,
       typed-operation, Append-overflow, interface/WorkflowCall child
       output-routing/failure/cancellation, and production parallel-Agent
-      failure/cancellation, mixed Agent/MCP success, and mixed branch-failure
-      proofs: 775/775 passed, 0 failed or skipped
+      failure/cancellation, mixed Agent/MCP success/failure/cancellation
+      proofs: 777/777 passed, 0 failed or skipped
       (6m18s). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or

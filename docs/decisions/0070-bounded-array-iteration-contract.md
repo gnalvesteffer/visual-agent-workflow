@@ -2347,6 +2347,15 @@ production body dispatcher with mixed branch lifecycle settlement; the failing
 MCP behavior is supplied by a deterministic test broker, so real-server mixed
 failure and the broader cancellation/race matrix remain unproven.
 
+`ProductionBodyActivationCoordinator_MixedAgentMcpHostCancellationSettlesBranches`
+adds the synchronized host-cancellation case. After both branches enter and
+the MCP call is dispatched, cancellation settles both matching node
+invocations, records the MCP's correlated unknown outcome, records a cancelled
+iteration, and suppresses the join and next item. File and SQLite reopen
+preserve the same cancelled prefix (2 focused store cases). The broker is
+deterministic and test-only; this does not qualify remote server cancellation
+or resolve the broader cancellation/publication race matrix.
+
 ## Production-broker sibling cancellation after MCP protocol failure (2026-11-15)
 
 `ProductionBodyActivationCoordinator_ProductionMcpFailureCancelsSiblingAndPreservesEvidence`

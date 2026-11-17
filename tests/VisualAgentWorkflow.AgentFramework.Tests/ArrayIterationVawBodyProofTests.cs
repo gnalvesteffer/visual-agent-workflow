@@ -4472,6 +4472,104 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_MixedAgentMcpHostCancellationSettlesBranches(
+        bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        var agents = new BlockingAgentExecutor("first");
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var nodes = definition.Nodes.Remove("tool-review")
+            .Add("agent-right", ParallelBodyDefinition().Nodes["agent-right"]);
+        var connections = definition.Connections.Remove("input-tool-review")
+            .Add("input-right", new(new("input", "out"), new("agent-right", "in"), "data"));
+        var executionConnections = definition.ExecutionConnections!
+            .Remove("right-tool")
+            .Remove("tool-review-join")
+            .Add("right-agent", Edge("anchor-right", "then", "agent-right", "execute"))
+            .Add("agent-right-join", Edge("agent-right", "out", "join", "branch.right"));
+        definition = definition with
+        {
+            Nodes = nodes,
+            Connections = connections,
+            ExecutionConnections = executionConnections
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-mixed-agent-mcp-cancellation-per-item-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        using var cancellation = new CancellationTokenSource();
+        var broker = new ParallelMcpBroker(holdUntilCancelled: true, recordReservationIds: true,
+            expectedCallCount: 1, waitBeforeOutcome: agents.Started.Task, preserveHostCancellation: true);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(broker, agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, cancellation.Token, runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+        await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await broker.DispatchStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(result.Cancelled);
+        Assert.False(result.Failed);
+        Assert.False(result.OutcomeUnknown);
+        Assert.Equal(["first"], agents.Inputs);
+        var toolStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        var toolAuthorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        var toolUncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        Assert.Equal(toolStarted.InvocationId, toolAuthorized.InvocationId);
+        Assert.Equal(toolStarted.InvocationId, toolUncertain.InvocationId);
+        using (var authorization = JsonDocument.Parse(toolAuthorized.Data!))
+        using (var uncertainty = JsonDocument.Parse(toolUncertain.Data!))
+            Assert.Equal(authorization.RootElement.GetProperty("toolCallId").GetString(),
+                uncertainty.RootElement.GetProperty("toolCallId").GetString());
+
+        foreach (var nodeId in new[] { "tool-research", "agent-right" })
+        {
+            var started = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == nodeId && evt.ScopeId == "array-loop/0");
+            var cancelled = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+                evt.NodeId == nodeId && evt.ScopeId == "array-loop/0");
+            Assert.Equal(started.InvocationId, cancelled.InvocationId);
+        }
+
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId is "tool-research" or "agent-right" or "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+            evt.NodeId == "join");
+        var iterationSettlement = Assert.Single(events, evt =>
+            evt.Kind == ExecutionEventKinds.LoopIterationCompleted && evt.ScopeId == "array-loop/0");
+        using (var settlement = JsonDocument.Parse(iterationSettlement.Data!))
+            Assert.Equal("cancelled", settlement.RootElement.GetProperty("outcome").GetString());
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "cancelled");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: cancelled", playback, StringComparison.Ordinal);
+        Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ParallelMcpFailureSuppressesJoinAndLaterItems(bool sqlite)
     {
         const string input = "[\"first\",\"must-not-run\"]";
@@ -19437,7 +19535,7 @@ public sealed class ArrayIterationVawBodyProofTests
         bool holdUntilCancelled = false, string? resultPayload = null,
         Task? releaseAfterReservationRejected = null, bool waitForBothAuthorizations = false,
         bool denyAll = false, bool recordReservationIds = false, int expectedCallCount = 2,
-        Task? waitBeforeOutcome = null) : INodeToolBroker
+        Task? waitBeforeOutcome = null, bool preserveHostCancellation = false) : INodeToolBroker
     {
         private readonly ConcurrentQueue<ParallelToolCall> calls = new();
         private readonly TaskCompletionSource branchesStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -19446,12 +19544,16 @@ public sealed class ArrayIterationVawBodyProofTests
         private int activeCalls;
         private int maximumConcurrentCalls;
         private int dispatchedCalls;
+        private readonly TaskCompletionSource dispatchStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public int MaximumConcurrentCalls => maximumConcurrentCalls;
         public int DispatchedCalls => dispatchedCalls;
         public ParallelToolCall[] Calls => [.. calls];
         public Task BothBranchesStarted => branchesStarted.Task;
+        public Task DispatchStarted => dispatchStarted.Task;
         public Task WaitBeforeOutcome => waitBeforeOutcome ?? Task.CompletedTask;
+        public bool PreserveHostCancellation => preserveHostCancellation;
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
         public INodeToolScope OpenScope(NodeInvocationContext invocation) =>
@@ -19495,6 +19597,7 @@ public sealed class ArrayIterationVawBodyProofTests
                     if (waitForBothAuthorizations)
                         await owner.bothAuthorizationsRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
                     Interlocked.Increment(ref owner.dispatchedCalls);
+                    owner.dispatchStarted.TrySetResult();
                     if (releaseAfterReservationRejected is not null)
                         await releaseAfterReservationRejected;
                     if (nodeId == failNode || failNode == "*")
@@ -19519,6 +19622,7 @@ public sealed class ArrayIterationVawBodyProofTests
                                 failureCode = "tool.outcome_unknown",
                                 reason = "The dispatched sibling call was cancelled before its outcome was observed."
                             }));
+                            if (owner.PreserveHostCancellation) throw;
                             throw new ToolInvocationException(
                                 "The dispatched sibling call has an unknown outcome.",
                                 ToolInvocationFailureDisposition.OutcomeUnknown);
