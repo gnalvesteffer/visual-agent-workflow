@@ -7185,6 +7185,78 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredActivationSequenceProof_AdmittedAgentFailureOverridesBreak(bool sqlite)
+    {
+        var body = SequenceBodyDefinition();
+        var nodes = body.Nodes
+            .SetItem("sequence", body.Nodes["sequence"] with
+            {
+                Sequence = new([new("inventory", "Inventory"), new("architecture", "Architecture"),
+                    new("quality", "Quality")])
+            })
+            .SetItem("inventory-tool", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new AgentConfiguration("proof.settlement", null, "Wait, then fail.", []) { MaxTurns = 1 }))
+            .SetItem("architecture-tool", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"))
+            .Add("quality-tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("proof.quality", new string('c', 64)))
+            { McpArgumentsJson = "{\"query\":\"sequence\"}" });
+        var revision = WorkflowRevision.CreateProofOnly(body with
+        {
+            Nodes = nodes,
+            ExecutionConnections = body.ExecutionConnections!
+                .SetItem("inventory-output", Edge("inventory-tool", "out", "output", "execute"))
+                .Add("sequence-quality", Edge("sequence", "then.quality", "quality-tool", "execute"))
+                .Add("quality-output", Edge("quality-tool", "then", "output", "execute")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        }, "array-iteration-sequence-failure-wins-break");
+        using var runStore = new ProofRunStore(revision, "[\"stop\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new ControlledSettlementAgentExecutor("inventory-tool", failAfterRelease: true);
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "architecture-tool")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(new EchoToolBroker(), agents).ExecuteStructuredActivationSequenceProofAsync(
+            runStore.RunId, revision, "[\"stop\"]", "index", null, Record);
+        try
+        {
+            await Task.WhenAll(agents.Started.Task, breakCompleted.Task).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted, "Break must not finish while an admitted Agent is active.");
+            agents.Release.TrySetResult();
+            await Assert.ThrowsAsync<InvalidOperationException>(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            agents.Release.TrySetResult();
+            if (!execution.IsCompleted)
+                try { await execution.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (InvalidOperationException) { }
+        }
+
+        var recorded = recorder.Snapshot();
+        AssertPersistedSequence(runStore, recorded, "failed");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+            evt.NodeId == "sequence");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+            evt.NodeId == "sequence");
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(recorded, reopened.Events);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("failed", playback!.Status);
+    }
+
     [Fact]
     public async Task StructuredActivationSequenceProof_BreakAbortsForkAndSettlesAdmittedSibling()
     {

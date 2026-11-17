@@ -157,9 +157,11 @@ introduced.
 - [x] Add bounded `array<json>` mutable-variable defaults and exact Get/Set in
   unified schema 2.0. Preserve compact JSON values, member order, and numeric
   token spelling in variable evidence; enforce the shared aggregate evidence
-  budget atomically across reads and writes. Keep checkpoint snapshots rejected.
-  JSON transformations feeding Set remain a separate proof increment. See
-  [Decision 0071](decisions/0071-typed-array-run-scoped-variables.md).
+  budget atomically across reads and writes. Immutable JSON-array transformations
+  can feed Set, with whole-value commits; file/SQLite, playback, and failure
+  behavior are covered by Decision 0071. Checkpoint snapshots remain rejected,
+  and broader historical compatibility remains open. See [Decision
+  0071](decisions/0071-typed-array-run-scoped-variables.md).
 - [x] Compose the existing `array<json>` type with Array literal, length, get,
   append, insert, replace, remove, and concatenate in unified schema 2.0. Keep
   JSON null, nested values, item order, and exact `json` versus `array<json>`
@@ -201,7 +203,9 @@ introduced.
   histories reopen identically. Passive playback now has a distinct
   `sequence.break_completed` terminal with a versioned reason and validates the
   completed-prefix/skipped-suffix shape. Focused Core and integration checks
-  are recorded with this increment. This remains a private proof path: the
+  also prove that a failure from an admitted Agent overrides Break and remains
+  failed through file/SQLite reopen and passive playback (2/2). This remains a
+  private proof path: the
   production guard, public schema, and Studio authoring remain unchanged. Prove
   one VAW owner for frames,
   root lifecycle, and shared budgets, including failure/unknown/cancellation/

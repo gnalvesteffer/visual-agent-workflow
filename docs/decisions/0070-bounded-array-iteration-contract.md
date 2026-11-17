@@ -3246,3 +3246,12 @@ until the supported-body, race, failure/unknown, shared-budget, persistence,
 and playback matrix passes and receives a new architecture review. The
 user-facing guide is unchanged because this behavior is not shipped or
 authorable.
+
+The next failure-precedence proof runs a blocked real Agent as output A, a
+graph-dispatched Break as output B, and an unadmitted output C through both run
+stores. After B requests Break, A is released to fail. The run remains open
+until A settles, then records A failed, C skipped, no `sequence.break_completed`,
+and a failed root. Reopened passive playback reports `failed` (2/2 stores).
+This closes the admitted-Agent-failure-over-Break case for this private
+structured proof; unknown MCP outcomes, cancellation, pause/stop, and the
+broader production scheduler remain open.
