@@ -2568,11 +2568,12 @@ file/SQLite histories (6 candidate/store runs; 2 focused theory cases). This
 extends the payload-bound result beyond JSON while leaving other typed element
 types and shared-budget/store-failure behavior open.
 
-After the graph-function failure, expanded typed-operation, and JSON and typed
-string Append-overflow comparisons were added, the complete Agent Framework
-suite passed 759/759 (0 failed or skipped; 6m16s). This is broad regression
-evidence for that suite snapshot, not completion of the supported-body,
-lifecycle/budget, playback, or architecture-review gates.
+After the graph-function failure, expanded typed-operation, JSON and typed
+string Append-overflow, and WorkflowInterfaceCall child-failure comparisons
+were added, the complete Agent Framework suite passed 761/761 (0 failed or
+skipped; 6m17s). This is broad regression evidence for that suite snapshot,
+not completion of the supported-body, lifecycle/budget, playback, or
+architecture-review gates.
 
 `IteratorCandidates_AttributeGraphFunctionFailureAcrossCandidates` runs the
 same pinned `Lookup` function that fails on the second integer item because its
@@ -2600,6 +2601,15 @@ The fix is confined to proof harnesses; it does not change production
 WorkflowCall behavior or select an iterator architecture. Broader output-cache
 families, failure/race comparisons, and shared-budget parity remain open.
 Readiness remains **REVISE**.
+
+`IteratorCandidates_AttributeWorkflowInterfaceChildFailureAcrossCandidates`
+extends that comparison to a child projection failure. Structured dispatch,
+fresh subworkflow, and hybrid all retain the missing-field `node.failed` under
+the first item scope, record the failed interface call, and suppress the next
+activation. Each candidate's file and SQLite history reopens identically and
+reconstructs one failed call through passive playback (6 candidate/store runs;
+2 focused theory cases). This adds one persisted child-failure boundary; other
+interface-call race shapes and the architecture gate remain open.
 
 `ProductionBodyActivationCoordinator_CancellationWhileAwaitingItemApprovalStopsRun`
 blocks on the explicit approval gate for the first array item, then cancels

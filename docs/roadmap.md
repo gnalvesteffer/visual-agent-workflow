@@ -719,6 +719,12 @@ introduced.
       reconstructs the completed calls. Nested cancellation and child
       projection failure both stop later activations and reopen with the same
       playback state (6 focused store cases).
+    - [x] Compare a pinned interface child projection failure across the
+      structured, fresh-subworkflow, and hybrid candidates. All attribute the
+      missing-field error to the child projection under the first item scope,
+      suppress the next activation, and reopen identical failed histories with
+      failed WorkflowCall playback through both stores (6 candidate/store
+      executions; 2/2 focused theory cases).
   - [ ] Complete the non-public production-seam proof before selecting an
     iterator architecture: dispatch typed item/index values through Core's
     existing typed value contracts, consume a nearest-frame `Break`, and
@@ -862,8 +868,9 @@ introduced.
       proof to a non-JSON element type; shared-budget exhaustion and
       recorder/store failures remain distinct.
     - [x] Re-run the full Agent Framework suite after the graph-function,
-      typed-operation, and Append-overflow comparisons: 759/759 passed, 0
-      failed or skipped (6m16s). This validates the current suite snapshot;
+      typed-operation, Append-overflow, and interface-child failure
+      comparisons: 761/761 passed, 0 failed or skipped (6m17s). This validates
+      the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or
       architecture-review gates.
   - [x] Compare a pinned graph-function result and nested evaluation evidence

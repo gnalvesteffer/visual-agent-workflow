@@ -7485,6 +7485,104 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_AttributeWorkflowInterfaceChildFailureAcrossCandidates(bool sqlite)
+    {
+        const string input = "[\"alpha\",\"must-not-run\"]";
+        var revision = PinnedWorkflowInterfaceBodyRevision(failChild: true);
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+
+        var structuredError = await Record.ExceptionAsync(async () =>
+            await new WorkflowRunner().ExecuteStructuredActivationSequenceProofAsync(
+                structuredStore.RunId, revision, input, "index", null, evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }));
+        Assert.NotNull(structuredError);
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, new EchoAgentExecutor(), new EchoToolBroker());
+        var subworkflowWorkflow = new WorkflowBuilder(subworkflowIterator).WithOutputFrom(subworkflowIterator).Build();
+        var sawSubworkflowFailure = false;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflowWorkflow, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                sawSubworkflowFailure |= evt is WorkflowErrorEvent;
+        Assert.True(sawSubworkflowFailure);
+        subworkflowRecorder.FailRoot();
+
+        var hybridError = await Record.ExceptionAsync(async () =>
+            await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+                new EchoAgentExecutor(), new EchoToolBroker(), "array-loop",
+                ParseProofArrayItems(input, WorkflowDataTypes.String), null, "index", [], async frame =>
+                {
+                    ValueTask Record(ExecutionEvent evt)
+                    {
+                        if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                            ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+                            ExecutionEventKinds.Terminated)
+                            return ValueTask.CompletedTask;
+                        var eventScope = evt.ScopeId is null ? frame.ScopeId : $"{frame.ScopeId}/{evt.ScopeId}";
+                        var data = evt.Data;
+                        if (evt.Kind == ExecutionEventKinds.SubworkflowEvidence &&
+                            WorkflowCallLifecycleEvidence.TryRead(data, out var evidence))
+                            data = (evidence! with { ChildScopeId = eventScope }).Serialize();
+                        hybridRecorder.Append(evt with { ScopeId = eventScope, Data = data });
+                        return ValueTask.CompletedTask;
+                    }
+
+                    var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(hybridStore.RunId, revision,
+                        frame.Item, frame.Parameters, Record);
+                    if (result.Failed || result.Output is null)
+                        throw new InvalidOperationException("The interface-call child failed in the hybrid body.");
+                    return new ActivationLoopProofValue(result.Output);
+                }));
+        Assert.NotNull(hybridError);
+        hybridRecorder.FailRoot();
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        foreach (var (candidate, store, events) in new[]
+        {
+            ("structured", structuredStore, structuredEvents),
+            ("fresh-subworkflow", subworkflowStore, subworkflowEvents),
+            ("hybrid", hybridStore, hybridEvents)
+        })
+        {
+            AssertPersistedSequence(store, events, "failed");
+            Assert.Equal(events, store.ReopenStore().Get(store.RunId)!.Events);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed &&
+                evt.ScopeId == "array-loop/0/call");
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+                evt.NodeId == "project" && evt.ScopeId == "array-loop/0/call");
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1" ||
+                evt.ScopeId?.StartsWith("array-loop/1/", StringComparison.Ordinal) == true);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+            Assert.True(WorkflowCallEvidence.TryReconstructPlayback(events, out var playback),
+                $"WorkflowCall playback did not reconstruct the {candidate} failure.");
+            Assert.Equal("failed", playback!.Status);
+            Assert.Equal("failed", Assert.Single(playback.Calls).State);
+        }
+
+        Assert.Equal(FailureEvidence(structuredEvents), FailureEvidence(subworkflowEvents));
+        Assert.Equal(FailureEvidence(structuredEvents), FailureEvidence(hybridEvents));
+
+        static (string Kind, string? NodeId, string? ScopeId)[] FailureEvidence(
+            IEnumerable<ExecutionEvent> events) => events.Where(evt => evt.Kind is
+                ExecutionEventKinds.SubworkflowStarted or ExecutionEventKinds.SubworkflowFailed or
+                ExecutionEventKinds.NodeFailed or ExecutionEventKinds.LoopIterationStarted or
+                ExecutionEventKinds.LoopIterationCompleted)
+            .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_ExecutePredicateLoopBodyPerActivation(bool sqlite)
     {
         const string input = "[\"continue-alpha\",\"continue-beta\"]";
