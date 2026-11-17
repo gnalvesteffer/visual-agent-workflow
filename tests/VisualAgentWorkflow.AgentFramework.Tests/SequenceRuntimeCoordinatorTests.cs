@@ -47,6 +47,33 @@ public sealed class SequenceRuntimeCoordinatorTests
     }
 
     [Fact]
+    public void Break_closes_admission_and_waits_for_dispatched_outputs_to_settle()
+    {
+        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence",
+            ["first", "second", "third"],
+            new Dictionary<string, string>
+            {
+                ["first"] = "connection-a", ["second"] = "connection-b", ["third"] = "connection-c"
+            });
+        var firstActivation = Guid.NewGuid();
+
+        coordinator.DispatchNext(firstActivation);
+        coordinator.StopAdmission();
+
+        Assert.False(coordinator.IsTerminal);
+        Assert.Equal(["second", "third"], coordinator.Events
+            .Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped)
+            .Select(evt => evt.OutputId));
+        Assert.DoesNotContain(coordinator.Events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+        Assert.Throws<InvalidOperationException>(() => coordinator.DispatchNext(Guid.NewGuid()));
+
+        coordinator.Complete(firstActivation, SequenceTerminalState.Completed);
+
+        Assert.True(coordinator.IsTerminal);
+        Assert.Equal(ExecutionEventKinds.SequenceCompleted, coordinator.Events[^1].Kind);
+    }
+
+    [Fact]
     public void Failure_cancels_other_active_outputs_before_sequence_failure()
     {
         var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence",

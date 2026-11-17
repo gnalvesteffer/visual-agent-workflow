@@ -41,6 +41,60 @@ public sealed class SequenceActivationLedgerTests
         Assert.Throws<InvalidOperationException>(() => ledger.DispatchNext(Guid.NewGuid()));
     }
 
+    [Fact]
+    public void Closing_admission_skips_only_outputs_that_have_not_started()
+    {
+        var ledger = new SequenceActivationLedger(["first", "second", "third"]);
+        var first = ledger.DispatchNext(Guid.NewGuid());
+
+        var snapshot = ledger.SkipPending();
+
+        Assert.Equal(SequenceActivationState.Dispatched, snapshot[0].State);
+        Assert.Equal([SequenceActivationState.Skipped, SequenceActivationState.Skipped],
+            snapshot.Skip(1).Select(output => output.State));
+        Assert.Throws<InvalidOperationException>(() => ledger.DispatchNext(Guid.NewGuid()));
+        ledger.RecordTerminal(first.ActivationId!.Value, SequenceTerminalState.Completed);
+        Assert.True(ledger.IsTerminal);
+    }
+
+    [Fact]
+    public async Task Admission_and_closing_race_has_one_atomic_winner()
+    {
+        var ledger = new SequenceActivationLedger(["first", "second", "third"]);
+        using var start = new Barrier(3);
+        SequenceActivationSnapshot? dispatched = null;
+        var dispatch = Task.Run(() =>
+        {
+            start.SignalAndWait();
+            try
+            {
+                dispatched = ledger.DispatchNext(Guid.NewGuid());
+            }
+            catch (InvalidOperationException)
+            {
+                // Closing admission won the same synchronized boundary.
+            }
+        });
+        var close = Task.Run(() =>
+        {
+            start.SignalAndWait();
+            ledger.SkipPending();
+        });
+
+        start.SignalAndWait();
+        await Task.WhenAll(dispatch, close);
+
+        var snapshot = ledger.Snapshot;
+        Assert.DoesNotContain(snapshot, output => output.State == SequenceActivationState.Declared);
+        Assert.Equal(dispatched is null ? 0 : 1,
+            snapshot.Count(output => output.State == SequenceActivationState.Dispatched));
+        Assert.Equal(dispatched is null ? 3 : 2,
+            snapshot.Count(output => output.State == SequenceActivationState.Skipped));
+        if (dispatched is not null)
+            ledger.RecordTerminal(dispatched.ActivationId!.Value, SequenceTerminalState.Completed);
+        Assert.True(ledger.IsTerminal);
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(5)]

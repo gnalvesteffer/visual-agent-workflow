@@ -3158,3 +3158,15 @@ passive playback. Existing termination, linear, and bounded-loop behavior must
 remain intact. If the seam needs a second owner or waits for descendant
 completion before admitting the next output, return to architecture review.
 This remains an integration experiment, not shipped Sequence/Break parity.
+
+The first admission-state increment adds `StopAdmission` to the private
+Sequence activation ledger/coordinator. `DispatchNext` and `StopAdmission` are
+serialized on the same lock: if admission wins, that output remains dispatched
+and must settle; if Break wins, all undeclared outputs become skipped and later
+dispatch is rejected. The coordinator emits skip evidence immediately and
+waits for dispatched work to settle before emitting successful Sequence
+completion. Focused ledger/coordinator coverage passes 11/11, including a
+synchronized admission-versus-close race; the full Agent Framework suite passes
+798/798. This is a tested primitive only: the production Sequence source still
+queues all outputs, the Break-enabled body guard remains, and no integrated
+Sequence/Break runtime behavior is established.

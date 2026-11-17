@@ -17,6 +17,7 @@ internal sealed class SequenceRuntimeCoordinator
     private readonly object gate = new();
     private readonly IReadOnlyDictionary<string, SequenceWorkflowCallSettlement>? callSettlements;
     private SequenceTerminalState? terminalState;
+    private bool terminalEventRecorded;
 
     public SequenceRuntimeCoordinator(Guid sequenceInvocationId, string sequenceNodeId,
         IReadOnlyList<string> outputIds, IReadOnlyDictionary<string, string> connectionIds,
@@ -124,14 +125,23 @@ internal sealed class SequenceRuntimeCoordinator
                     Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId, skipped.OutputId,
                         skipped.Ordinal, null, connectionIds[skipped.OutputId]));
 
-            if (ledger.IsTerminal)
-            {
-                var sequenceTerminalKind = this.terminalState is null
-                    ? ExecutionEventKinds.SequenceCompleted
-                    : this.terminalState == SequenceTerminalState.Failed ? ExecutionEventKinds.SequenceFailed : ExecutionEventKinds.SequenceCancelled;
-                Add(new(sequenceTerminalKind, sequenceNodeId, sequenceInvocationId, null, null, null, null));
-            }
+            RecordTerminalIfComplete();
             return snapshot;
+        }
+    }
+
+    /// <summary>Closes future output admission while allowing dispatched outputs to settle.</summary>
+    public IReadOnlyList<SequenceActivationSnapshot> StopAdmission()
+    {
+        lock (gate)
+        {
+            var snapshots = ledger.SkipPending();
+            foreach (var skipped in snapshots.Where(item => item.State == SequenceActivationState.Skipped))
+                if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.OutputId == skipped.OutputId))
+                    Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId,
+                        skipped.OutputId, skipped.Ordinal, null, connectionIds[skipped.OutputId]));
+            RecordTerminalIfComplete();
+            return snapshots;
         }
     }
 
@@ -168,9 +178,21 @@ internal sealed class SequenceRuntimeCoordinator
                 if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.OutputId == skipped.OutputId))
                     Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId, skipped.OutputId,
                         skipped.Ordinal, null, connectionIds[skipped.OutputId]));
-            if (ledger.IsTerminal)
-                Add(new(ExecutionEventKinds.SequenceCancelled, sequenceNodeId, sequenceInvocationId, null, null, null, null));
+            RecordTerminalIfComplete();
         }
+    }
+
+    private void RecordTerminalIfComplete()
+    {
+        if (!ledger.IsTerminal || terminalEventRecorded) return;
+        terminalEventRecorded = true;
+        var sequenceTerminalKind = terminalState switch
+        {
+            null => ExecutionEventKinds.SequenceCompleted,
+            SequenceTerminalState.Failed => ExecutionEventKinds.SequenceFailed,
+            _ => ExecutionEventKinds.SequenceCancelled
+        };
+        Add(new(sequenceTerminalKind, sequenceNodeId, sequenceInvocationId, null, null, null, null));
     }
 
     private void Add(SequenceRuntimeEvent runtimeEvent)

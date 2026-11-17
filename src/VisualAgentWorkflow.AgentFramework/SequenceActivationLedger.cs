@@ -10,6 +10,7 @@ internal sealed class SequenceActivationLedger
 {
     private readonly object gate = new();
     private readonly List<Entry> entries;
+    private bool admissionClosed;
 
     public SequenceActivationLedger(IReadOnlyList<string> outputIds, bool allowSingleOutput = false)
     {
@@ -48,6 +49,8 @@ internal sealed class SequenceActivationLedger
 
         lock (gate)
         {
+            if (admissionClosed)
+                throw new InvalidOperationException("Sequence output admission is closed.");
             if (IsTerminalUnderLock())
                 throw new InvalidOperationException("A terminal sequence cannot dispatch another output.");
 
@@ -94,6 +97,7 @@ internal sealed class SequenceActivationLedger
     {
         lock (gate)
         {
+            admissionClosed = true;
             foreach (var entry in entries.Where(candidate => candidate.State == SequenceActivationState.Declared))
                 entry.State = SequenceActivationState.Skipped;
             return entries.Select(entry => entry.ToSnapshot()).ToArray();

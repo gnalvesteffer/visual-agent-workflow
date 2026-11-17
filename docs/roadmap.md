@@ -193,9 +193,15 @@ introduced.
   source/collector settlement path. Follow the Blueprint contract: ordered
   output admission without waiting for earlier latent descendants; make
   admission-versus-Break atomic, drain admitted scopes, and skip only the
-  undispatched suffix. Prove one VAW owner for frames, root lifecycle, and
-  shared budgets, including failure/unknown/cancellation/pause/stop races and
-  file/SQLite playback. See the latest review entry in [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  undispatched suffix. The private Sequence ledger/coordinator now serializes
+  `DispatchNext` against `StopAdmission`; dispatched work stays open until it
+  settles. Its synchronized race regression and focused ledger/coordinator
+  tests pass (11/11), and the Agent Framework suite passes (798/798). This
+  proves the admission primitive only; production dispatch integration and
+  the Break-enabled Sequence body remain open. Prove one VAW owner for frames,
+  root lifecycle, and shared budgets, including failure/unknown/cancellation/
+  pause/stop races and file/SQLite playback. See the latest review entry in
+  [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   The integrated `array<json>` body proof covers successful
   transforms and an Append result exceeding the 16 KiB bound: the failure is
   attributed to Append, later items and completion are suppressed, and file/
