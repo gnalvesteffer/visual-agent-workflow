@@ -227,21 +227,24 @@ introduced.
   for the current mechanism. A fresh triad returned REVISE: test any new
   mechanism through production dispatch before selecting architecture. The
   production Break guard remains in place. A separate three-role review of
-  mixed known-failure and unresolved-MCP outcomes also returned REVISE: the
-  private candidate paths do not yet establish a stable root policy. The two
-  settlement orders are now covered: failure-first with a cancelled sibling,
-  and unresolved outcome first followed by a definitive sibling failure. Both
-  preserve correlated tool evidence through file/SQLite reopen and passive
-  playback (4/4 focused cases). Root status precedence remains unselected;
-  rejection of either root terminal append also preserves both MCP outcomes
-  and the unterminal running prefix through reopen and passive playback for
-  both settlement orders (4/4 focused cases). Cancellation and Break controls
-  remain before the next adjudication of whether root status needs a richer
-  projection. Host cancellation injected after the first mixed MCP outcome
-  drains and persists both correlated outcomes in either settlement order
-  through file/SQLite reopen and playback (4/4 focused cases); root projection
-  remains explicitly unselected. Sequence Break controls remain open. The full
-  Agent Framework suite passes (818/818).
+  mixed known-failure and unresolved-MCP outcomes returned REVISE because the
+  private candidate paths did not establish stable root semantics. The two
+  settlement orders now preserve correlated tool evidence through file/SQLite
+  reopen and passive playback (4/4 focused cases). Rejection of either root
+  terminal append also preserves both outcomes and the unterminal running
+  prefix (4/4); host cancellation after the first outcome drains both calls in
+  either order (4/4). The integrated bounded Sequence proof admits two linear
+  MCP outputs, requests Break on the third, and skips the fourth while draining
+  one known failure plus one unresolved outcome in either order; file/SQLite
+  playback preserves both records (4/4). Root status precedence remains
+  unselected. The fresh three-role review returned REVISE: preserve root status
+  as execution disposition and investigate a separate read-only aggregate for
+  external-effect certainty, derived from committed correlated events. Its
+  incomplete-evidence behavior and cases with no effects, resolved effects,
+  success, and cancellation need proof before selecting or shipping that
+  contract. The private production guard, public schema, and Studio authoring
+  remain unchanged. The full Agent Framework suite passes at 822/822 after
+  this increment.
   The integrated `array<json>` body proof covers successful
   transforms and an Append result exceeding the 16 KiB bound: the failure is
   attributed to Append, later items and completion are suppressed, and file/

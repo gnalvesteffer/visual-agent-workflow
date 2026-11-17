@@ -5356,6 +5356,100 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task StructuredSequenceBreakDrainsMixedMcpOutcomes(bool sqlite, bool unknownFirst)
+    {
+        var revision = WorkflowRevision.CreateProofOnly(SequenceMixedMcpBreakDefinition(),
+            "sequence-break-mixed-mcp-outcome-proof");
+        var projection = revision.Definition with
+        {
+            Nodes = revision.Definition.Nodes.SetItem("quality-tool",
+                new(NodeTypes.Agent, "1.0.0", Agent: new("proof.break", null, "Private Break projection", [])))
+        };
+        Assert.Empty(WorkflowValidator.Validate(projection));
+        using var runStore = new ProofRunStore(revision, "[\"first\",\"must-not-run\"]", sqlite);
+        var broker = new OrderedMixedOutcomeParallelMcpBroker(unknownFirst, holdOutcomes: true,
+            researchNodeId: "inventory-tool", reviewNodeId: "architecture-tool");
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var qualitySkipped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "quality-tool")
+                breakCompleted.TrySetResult();
+            if (evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+                SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "archive")
+                qualitySkipped.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(tools: broker).ExecuteStructuredActivationSequenceProofAsync(
+            runStore.RunId, revision, "[\"first\",\"must-not-run\"]", "index", null, Record);
+        try
+        {
+            await Task.WhenAll(broker.BothAuthorized, breakCompleted.Task, qualitySkipped.Task)
+                .WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.False(execution.IsCompleted,
+                "The Sequence must drain already-authorized MCP work before settling its failed output.");
+        }
+        catch (TimeoutException exception)
+        {
+            var trace = string.Join(" | ", recorder.Snapshot().Select(evt =>
+                $"{evt.Sequence}:{evt.NodeId ?? "root"}:{evt.Kind}:{evt.Data}"));
+            throw new Xunit.Sdk.XunitException(
+                $"Sequence Break mixed-outcome gate timed out (authorizations={broker.Authorizations}). {trace} {exception.Message}");
+        }
+        finally
+        {
+            broker.ReleaseOutcomes.TrySetResult();
+        }
+
+        var executionError = await Xunit.Record.ExceptionAsync(() => execution.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.IsType<ToolInvocationException>(executionError);
+        var events = recorder.Snapshot();
+        Assert.Equal(2, broker.Authorizations);
+        var uncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            evt.NodeId == "architecture-tool");
+        var failed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed &&
+            evt.NodeId == "inventory-tool");
+        Assert.Equal(unknownFirst, uncertain.Sequence < failed.Sequence);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "quality-tool");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+            SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "archive");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched &&
+            SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "archive");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+
+        foreach (var nodeId in new[] { "inventory-tool", "architecture-tool" })
+        {
+            var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+                evt.NodeId == nodeId);
+            var outcome = Assert.Single(events, evt => evt.Kind is
+                ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ToolUncertain && evt.NodeId == nodeId);
+            using var authorizedPayload = JsonDocument.Parse(authorized.Data!);
+            using var outcomePayload = JsonDocument.Parse(outcome.Data!);
+            Assert.Equal(authorizedPayload.RootElement.GetProperty("toolCallId").GetString(),
+                outcomePayload.RootElement.GetProperty("toolCallId").GetString());
+        }
+
+        var snapshot = runStore.Store.Get(runStore.RunId)!;
+        Assert.Contains(snapshot.Status, new[] { "failed", "outcome-unknown" });
+        AssertPersistedSequence(runStore, events, snapshot.Status);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(snapshot.Status, reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains(ExecutionEventKinds.ToolFailed, playback, StringComparison.Ordinal);
+        Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Latest run status: completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_HostCancellationUnsettlesParallelProductionMcpCalls(bool sqlite)
@@ -17441,6 +17535,39 @@ public sealed class ArrayIterationVawBodyProofTests
         };
     }
 
+    private static WorkflowDefinition SequenceMixedMcpBreakDefinition()
+    {
+        var definition = SequenceBodyDefinition();
+        var nodes = definition.Nodes
+            .SetItem("sequence", definition.Nodes["sequence"] with
+            {
+                Sequence = new([new("inventory", "Research"), new("architecture", "Review"),
+                    new("quality", "Break"), new("archive", "Must be skipped")])
+            })
+            .SetItem("inventory-tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("proof.parallel-tool", new string('a', 64)))
+            { McpArgumentsJson = "{\"query\":\"research\"}" })
+            .SetItem("architecture-tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("proof.parallel-tool", new string('a', 64)))
+            { McpArgumentsJson = "{\"query\":\"review\"}" })
+            .Add("quality-tool", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"))
+            .Add("archive-tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("proof.quality", new string('b', 64)))
+            { McpArgumentsJson = "{\"query\":\"must-not-run\"}" });
+        var execution = definition.ExecutionConnections!
+            .Add("sequence-quality", Edge("sequence", "then.quality", "quality-tool", "execute"))
+            .Add("quality-output", Edge("quality-tool", "out", "output", "execute"))
+            .Add("sequence-archive", Edge("sequence", "then.archive", "archive-tool", "execute"))
+            .Add("archive-output", Edge("archive-tool", "then", "output", "execute"));
+        return definition with
+        {
+            Nodes = nodes,
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+    }
+
     private static async Task<HybridBudgetLoopResult> ExecuteHybridBudgetLoopAsync(ProofRunStore runStore,
         WorkflowRevision revision, ReservedEvidenceProofRecorder recorder, IAgentNodeExecutor agents,
         INodeToolBroker tools, string input, bool recordCompletionAppendFailureAsRunFailure = false,
@@ -20762,17 +20889,29 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
-    private sealed class OrderedMixedOutcomeParallelMcpBroker(bool unknownFirst) : INodeToolBroker
+    private sealed class OrderedMixedOutcomeParallelMcpBroker(bool unknownFirst, bool holdOutcomes = false,
+        string researchNodeId = "tool-research", string reviewNodeId = "tool-review")
+        : INodeToolBroker
     {
+        private readonly bool holdOutcomesForBroker = holdOutcomes;
+        private readonly string researchNodeIdForBroker = researchNodeId;
+        private readonly string reviewNodeIdForBroker = reviewNodeId;
         private readonly TaskCompletionSource bothAuthorized =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource reviewOutcomeRecorded =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource researchFailureRecorded =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource outcomesReleased =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int authorizations;
 
         public int Authorizations => Volatile.Read(ref authorizations);
+        public bool HoldOutcomes => holdOutcomesForBroker;
+        public string ResearchNodeId => researchNodeIdForBroker;
+        public string ReviewNodeId => reviewNodeIdForBroker;
+        public Task BothAuthorized => bothAuthorized.Task;
+        public TaskCompletionSource ReleaseOutcomes => outcomesReleased;
 
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(
             CancellationToken cancellationToken = default) =>
@@ -20805,8 +20944,10 @@ public sealed class ArrayIterationVawBodyProofTests
                 if (Interlocked.Increment(ref owner.authorizations) == 2)
                     owner.bothAuthorized.TrySetResult();
                 await owner.bothAuthorized.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                if (owner.HoldOutcomes)
+                    await owner.outcomesReleased.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
-                if (invocation.NodeId == "tool-review")
+                if (invocation.NodeId == owner.ReviewNodeId)
                 {
                     if (!unknownFirst)
                         await owner.researchFailureRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -20824,7 +20965,7 @@ public sealed class ArrayIterationVawBodyProofTests
                     throw new ToolInvocationException(reason, ToolInvocationFailureDisposition.OutcomeUnknown);
                 }
 
-                if (invocation.NodeId != "tool-research")
+                if (invocation.NodeId != owner.ResearchNodeId)
                     throw new InvalidOperationException($"Unexpected MCP node '{invocation.NodeId}'.");
 
                 if (unknownFirst)

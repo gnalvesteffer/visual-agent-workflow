@@ -3298,7 +3298,7 @@ been recorded. Across both settlement orders and both stores (4/4 focused
 cases), execution surfaces the storage failure, the durable prefix remains
 `running`, and reopen plus passive playback retain both correlated MCP
 outcomes without fabricating a root terminal.
-The complete Agent Framework suite passes after these proofs (814/814).
+The complete Agent Framework suite passed after these proofs (814/814).
 
 `ProductionBodyActivationCoordinator_HostCancellationDrainsMixedMcpOutcomes`
 injects host cancellation as soon as the first definitive or unresolved MCP
@@ -3306,11 +3306,27 @@ outcome is recorded. Both already-authorized calls still settle and retain
 their correlated outcomes in either order; file and SQLite reopen plus passive
 playback preserve the evidence (4/4 focused cases). The existing root projection
 is recorded without making a precedence assertion.
-The complete Agent Framework suite passes after this increment (818/818).
+The complete Agent Framework suite passed after this increment (818/818).
 
 Remaining proof control: combine both settlement orders with Sequence Break.
-Then adjudicate whether root status remains a single execution disposition or
-needs an additional aggregate projection.
+`StructuredSequenceBreakDrainsMixedMcpOutcomes` now exercises the integrated
+Sequence path with four bounded linear outputs: a known MCP failure, an
+unresolved MCP outcome, a Break output, and a suffix output. The first two
+outcomes are held until both calls are authorized and the Break has caused the
+suffix to be skipped. Both settlement orders drain the admitted calls, suppress
+successful Sequence completion, and preserve correlated tool evidence through
+file/SQLite reopen and passive playback (4/4 focused cases). This closes the
+enumerated mixed-outcome evidence controls, but does not select root precedence
+or public Sequence/Break support. A fresh three-role review must now decide
+whether root status remains a single execution disposition or needs an
+additional aggregate projection. The review returned REVISE: preserve root
+status as execution disposition and investigate a separate read-only external-
+effect certainty projection derived from the committed event prefix. It must
+represent incomplete evidence as unknown, and must not infer no effects from
+missing historical records. Current proof does not establish that projection;
+add coverage for no effects, resolved effects, success, cancellation, and
+incomplete correlation before selecting or shipping that contract.
+The complete Agent Framework suite passes after this increment (822/822).
 Until that proof and a subsequent review are complete, the integrated
 Sequence/Break proof remains private; the production guard, public schema, and
 Studio authoring do not change.
