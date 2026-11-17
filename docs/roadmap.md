@@ -573,7 +573,10 @@ introduced.
       passive playback for Sequence abort.
     - [x] Persist and reopen the host-cancellation-versus-Break race through
       file and SQLite stores. Host cancellation remains the root outcome, with
-      no successful terminal event.
+      no successful terminal event. The production-body nested coordinator is
+      also cancelled immediately after it records the consumed inner Break;
+      the Break remains in the persisted prefix, while the next inner item and
+      outer activation are not admitted (2 focused store cases).
     - [x] Reject a body-activation start when its lifecycle event cannot be
       appended. Both stores retain the failed root, and neither body Agent nor
       MCP work is dispatched.

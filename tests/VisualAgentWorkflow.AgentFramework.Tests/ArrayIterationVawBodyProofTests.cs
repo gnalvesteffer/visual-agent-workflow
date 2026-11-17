@@ -5093,6 +5093,51 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyNestedCoordinator_CancellationAfterBreakConsumptionStopsOuterActivation(bool sqlite)
+    {
+        var revision = WorkflowRevision.CreateProofOnly(IntegratedNestedAgentMcpBreakDefinition(),
+            "production-body-nested-break-consumption-cancellation-proof");
+        const string outerItems = "[\"outer-a\",\"outer-b\"]";
+        const string innerItems = "[\"break\",\"must-not-run\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        using var cancellation = new CancellationTokenSource();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.NodeId == "inner-loop" && evt.ScopeId == "outer-loop/0/inner-loop/0")
+                cancellation.Cancel();
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(new EchoToolBroker(), new EchoAgentExecutor())
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                outerItems, innerItems, "outerIndex", "index", null, Record,
+                cancellation.Token, itemParameterId: "item");
+
+        var events = recorder.Snapshot();
+        Assert.True(result.Cancelled);
+        Assert.False(result.Failed);
+        var consumedBreak = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "inner-loop" && evt.ScopeId == "outer-loop/0/inner-loop/0");
+        using var breakEvidence = JsonDocument.Parse(consumedBreak.Data!);
+        Assert.Equal("break", breakEvidence.RootElement.GetProperty("outcome").GetString());
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "outer-loop/0/inner-loop/1");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "outer-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+
+        AssertPersistedSequence(runStore, events, "cancelled");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("cancelled", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyNestedCoordinator_CallsPinnedWorkflowInEachNestedActivation(bool sqlite)
     {
         var childDefinition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,

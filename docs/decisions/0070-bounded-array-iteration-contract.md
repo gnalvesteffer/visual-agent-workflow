@@ -2795,6 +2795,15 @@ or next outer activation. Both file and SQLite histories reopen identically
 boundary; it does not cover cancellation racing already-admitted parallel
 descendants.
 
+`ProductionBodyNestedCoordinator_CancellationAfterBreakConsumptionStopsOuterActivation`
+adds the adjacent coordinator boundary: cancellation is requested after the
+consumed Break completion has been appended. The persisted Break remains in
+the event prefix, the next inner item and outer activation are not admitted,
+and the single root terminal outcome is cancelled. File and SQLite histories
+reopen identically (2 focused cases). This is boundary evidence for the
+proof-only coordinator; it does not add public iterator behavior or broaden
+the cancellation races for already-admitted descendants.
+
 `ProductionBodyNestedCoordinator_CallsPinnedWorkflowInEachNestedActivation`
 executes the exact pinned child revision once for each of four nested items.
 Each child receives and returns the matching item, and lifecycle/evidence
