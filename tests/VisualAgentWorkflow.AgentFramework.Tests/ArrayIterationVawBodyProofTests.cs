@@ -7842,6 +7842,77 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_CancellationWhilePausedDrainsAdmittedBody(bool sqlite)
+    {
+        var definition = StructuredBreakProofDefinition();
+        var body = definition with
+        {
+            Nodes = definition.Nodes.Add("agent", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.settlement", null, "Remain active until host cancellation.", []))),
+            Connections = definition.Connections.Add("render-agent",
+                new ConnectionDefinition(new("render", "out"), new("agent", "in"), "data")),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("condition-output")
+                .Add("condition-agent", Edge("condition", "true", "agent", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(body,
+            "concurrent-production-array-cancel-while-paused-proof");
+        const string input = "[\"continue\",\"continue\",\"must-not-run\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        using var cancellation = new CancellationTokenSource();
+        var gate = new PausableProofExecutionGate();
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agent = new PauseBoundaryAgentExecutor();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.LoopIterationCompleted && evt.NodeId == "array-loop" &&
+                evt.ScopeId == "array-loop/0")
+                gate.RequestPause();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(agents: agent)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                input, "index", null, Record, cancellationToken: cancellation.Token,
+                itemParameterId: "item", gate: gate);
+
+        await agent.HeldInvocationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await gate.WaitUntilBlockedAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(execution.IsCompleted);
+        Assert.Equal(2, recorder.Snapshot().Count(evt =>
+            evt.Kind == ExecutionEventKinds.LoopIterationStarted && evt.NodeId == "array-loop"));
+        Assert.DoesNotContain(recorder.Snapshot(), evt => evt.ScopeId == "array-loop/2");
+        Assert.DoesNotContain(recorder.Snapshot(), evt => evt.NodeId is null && evt.Kind is
+            ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
+
+        cancellation.Cancel();
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+
+        Assert.True(result.Cancelled);
+        Assert.False(result.Failed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+            evt.NodeId == "agent" && evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        Assert.Equal(Enumerable.Range(1, events.Length).Select(index => (long)index),
+            events.Select(evt => evt.Sequence));
+        AssertPersistedSequence(runStore, events, "cancelled");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderLoopActivations(reopened.Events, reopened.Status);
+        Assert.Contains("Iteration 1 · Completed", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 2 · Cancelled", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ConcurrentProductionBodyCoordinator_FailureDuringBreakDrainFailsRun(bool sqlite)
     {
         var definition = StructuredBreakProofDefinition();
@@ -20442,6 +20513,7 @@ public sealed class ArrayIterationVawBodyProofTests
         private readonly object sync = new();
         private TaskCompletionSource resumed = NewSignal();
         private readonly TaskCompletionSource pauseRequested = NewSignal();
+        private readonly TaskCompletionSource blockedAtBoundary = NewSignal();
         private bool paused;
 
         public void RequestPause()
@@ -20451,6 +20523,8 @@ public sealed class ArrayIterationVawBodyProofTests
         }
 
         public Task WaitUntilPausedAsync() => pauseRequested.Task;
+
+        public Task WaitUntilBlockedAsync() => blockedAtBoundary.Task;
 
         public void Resume()
         {
@@ -20474,6 +20548,7 @@ public sealed class ArrayIterationVawBodyProofTests
                     if (!paused) return;
                     wait = resumed.Task;
                 }
+                blockedAtBoundary.TrySetResult();
                 await wait.WaitAsync(cancellationToken);
             }
         }
@@ -21156,6 +21231,33 @@ public sealed class ArrayIterationVawBodyProofTests
             await Release.Task.WaitAsync(cancellationToken);
             if (failAfterRelease)
                 throw new InvalidOperationException("Controlled sibling failure after Break.");
+            return JsonSerializer.Serialize(new { query = input });
+        }
+    }
+
+    private sealed class PauseBoundaryAgentExecutor : IAgentNodeExecutor
+    {
+        private readonly TaskCompletionSource heldInvocationRelease =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource HeldInvocationStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.settlement", "Settlement proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId != "agent")
+                throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
+
+            if (!input.EndsWith(":1", StringComparison.Ordinal))
+                return JsonSerializer.Serialize(new { query = input });
+
+            HeldInvocationStarted.TrySetResult();
+            await heldInvocationRelease.Task.WaitAsync(cancellationToken);
             return JsonSerializer.Serialize(new { query = input });
         }
     }

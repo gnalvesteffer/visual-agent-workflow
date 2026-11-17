@@ -3512,3 +3512,19 @@ bounded to 1–8 (the nested case uses outer concurrency 1 and inner concurrency
 authoring remains gated, and the production architecture remains unselected
 pending the remaining compatibility/race matrix and a fresh architecture
 review.
+
+### Cancellation at a paused admission boundary (2026-11-17)
+
+The concurrent production-body proof now cancels the host while a later item is
+waiting at a paused admission boundary and an already admitted Agent remains
+active. Cancellation releases the boundary wait, cancels and drains that Agent,
+records the admitted iteration's `cancelled` settlement before the single root
+cancellation, and suppresses the undispatched suffix. The recorded playback
+marks the first item completed and the held second item cancelled rather than
+leaving an unmatched iteration-start event. Both file and SQLite reopen paths
+preserve the same event sequence and playback (2/2 focused cases).
+
+This qualifies cancellation at this paused coordinator boundary only. It does
+not integrate the host-owned `PauseRequested`/`Paused`/`Resumed` event writer,
+cover cancellation racing with MCP dispatch, exercise uncontrolled production
+scheduling, or select the public iterator architecture.

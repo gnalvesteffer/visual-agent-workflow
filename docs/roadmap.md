@@ -273,8 +273,8 @@ introduced.
   composition under its bounded 1–8 body-concurrency test parameter; it does
   not select a production scheduling policy or prove nested graph fork regions.
   Byte/event contention, tool/outcome reservation
-  races, host-control pause-event integration, cancellation while paused,
-  uncontrolled production races, and the full body compatibility matrix remain
+  races, host-control pause-event integration, uncontrolled production races,
+  and the full body compatibility matrix remain
   open. The proof coordinator now also honors `IWorkflowExecutionGate`: after
   two items are admitted and one settles, pause prevents item 3 admission and
   keeps the root nonterminal; resume completes all three exactly once with
@@ -286,7 +286,14 @@ introduced.
   successful prefix. The paired deterministic tests force both Break-first
   and pre-reserved-item boundaries; the stress schedules are not required to
   realize both outcomes under suite load. This does not replace an uncontrolled
-  production workload race test.
+  production workload race test. Cancellation while paused now cancels the
+  admission wait, drains a held Agent activation, records its cancelled
+  iteration outcome before the single root cancellation, suppresses the next
+  item, and reconstructs identical file/SQLite history and passive playback
+  (2/2 focused cases). This closes cancellation-at-paused-boundary evidence
+  only; host control-event integration, cancellation races during MCP dispatch,
+  uncontrolled production races, and the full body compatibility matrix remain
+  open.
   The
   production Break guard remains in place. A separate three-role review of
   mixed known-failure and unresolved-MCP outcomes returned REVISE because the

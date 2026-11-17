@@ -541,6 +541,34 @@ public sealed partial class WorkflowRunner
             if (nodeId is null && kind == ExecutionEventKinds.Started) rootStarted = true;
         }
 
+        string? IterationCompletionData(WorkflowBodyProofOutcome outcome, StructuredActivationFrame frame)
+        {
+            var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            return outcome.Disposition switch
+            {
+                WorkflowBodyProofDisposition.Succeeded => null,
+                WorkflowBodyProofDisposition.BreakRequested when outcome.BreakRequest is { } request =>
+                    SerializeBreakCompletion(frame, request, options),
+                WorkflowBodyProofDisposition.Terminated => JsonSerializer.Serialize(new { outcome = "terminated" }, options),
+                WorkflowBodyProofDisposition.Cancelled => JsonSerializer.Serialize(new { outcome = "cancelled" }, options),
+                WorkflowBodyProofDisposition.OutcomeUnknown =>
+                    JsonSerializer.Serialize(new { outcome = "outcome-unknown" }, options),
+                _ => JsonSerializer.Serialize(new { outcome = "failed" }, options)
+            };
+        }
+
+        string SerializeBreakCompletion(StructuredActivationFrame frame,
+            StructuredActivationBreakRequest request, JsonSerializerOptions options)
+        {
+            var signal = ConsumeProductionBodyBreakRequestProof(frame, request, proofBreakNodeIds);
+            return JsonSerializer.Serialize(new
+            {
+                outcome = "break",
+                signal.SourceNodeId,
+                signal.TargetFrameId
+            }, options);
+        }
+
         void StopAdmission() { lock (admissionGate) admissionStopped = true; }
 
         async Task<(int Index, StructuredActivationFrame Frame, WorkflowBodyProofOutcome Outcome)> RunBodyAsync(
@@ -725,8 +753,16 @@ public sealed partial class WorkflowRunner
         {
             StopAdmission();
             bodyCancellation.Cancel();
-            try { await Task.WhenAll(active.Values); }
+            var outstanding = active.OrderBy(pair => pair.Key).ToArray();
+            try { await Task.WhenAll(outstanding.Select(pair => pair.Value)); }
             catch (Exception) { }
+            foreach (var (_, task) in outstanding)
+            {
+                if (!task.IsCompletedSuccessfully) continue;
+                var (_, frame, outcome) = task.Result;
+                await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId,
+                    frame.Id, frame.ScopeId, IterationCompletionData(outcome, frame));
+            }
             if (ownsRunContext) await Emit(ExecutionEventKinds.Cancelled);
             return new(null, false, Cancelled: true, HasOutput: false);
         }
