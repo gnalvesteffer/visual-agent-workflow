@@ -3558,3 +3558,36 @@ playback agree (4/4 focused cases).
 This proves these two MCP admission limits across concurrent body activations.
 It does not qualify event/byte budget contention or establish a
 production-owned budget contract for public iterator execution.
+
+### Settlement-capacity reservation under event and byte budgets (2026-11-17)
+
+A clean-context three-role review returned **REVISE** on reserving capacity
+only for the successful path: a started activation must have a bounded
+settlement slot before body dispatch, and every definitive body outcome must
+attempt exactly one matching completion. The private concurrent coordinator
+now applies that contract through its shared root budget ledger. Each accepted
+`loop.iteration.started` reserves one ordinary event and enough serialized
+bytes for a completion carrying up to 1,024 characters of outcome data. The
+reservation is keyed by loop node, activation invocation, and scope; ordinary
+events and model/tool outcome reservations account for held completion slots
+and bytes. Completion commits the actual event and releases unused bytes only
+after the evidence callback accepts the append. The separate failure reserve
+remains available for root failure evidence.
+
+If start plus settlement cannot fit, the coordinator rejects admission before
+recording the iteration start or dispatching its body. Event-count and byte-cap
+tests exercise exhaustion after an accepted start: a later Agent/model event
+is rejected before provider dispatch, the node failure is retained, and the
+iteration still records one matching `outcome: failed` completion. The
+Run-inspector activation projection renders that recorded outcome as **Failed**;
+missing completion evidence remains incomplete. Three cases across file and
+SQLite stores pass (6/6), including refusal to start when settlement capacity
+cannot be reserved. The concurrent coordinator suite passes (31/31).
+
+This reservation guarantees budget capacity to attempt the settlement append,
+not store acceptance. A rejected or ambiguously acknowledged completion append
+can still leave a started prefix incomplete. The result is private proof
+evidence only: it does not establish a production-owned iterator budget,
+arbitrary nested contention, general scheduler races, or public iterator
+support. Architecture and user-guide behavior remain unchanged because no
+shipped workflow runtime path uses this proof coordinator.

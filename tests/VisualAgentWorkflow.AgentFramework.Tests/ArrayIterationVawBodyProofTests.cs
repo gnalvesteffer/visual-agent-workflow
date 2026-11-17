@@ -7379,6 +7379,71 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
+    [InlineData(false, "events")]
+    [InlineData(true, "events")]
+    [InlineData(false, "bytes")]
+    [InlineData(true, "bytes")]
+    [InlineData(false, "admission")]
+    [InlineData(true, "admission")]
+    public async Task ConcurrentProductionBodyCoordinator_ReservesIterationSettlementBeforeBodyBudget(bool sqlite,
+        string constrainedBudget)
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            $"concurrent-production-array-settlement-reservation-{constrainedBudget}-proof");
+        const string input = "[\"first\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var model = new SharedBudgetProofModel();
+        var provider = new AgentProviderDescriptor("proof.echo-agent", "Proof model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SharedBudgetProofChatClient(model))],
+            new EchoToolBroker());
+        var budget = StructuredRunBudget(maximumToolDispatches: 1) with
+        {
+            MaximumEvents = constrainedBudget switch { "events" => 12, "admission" => 10, _ => 512 },
+            MaximumBytes = constrainedBudget == "bytes" ? 95_000 : 4_000_000
+        };
+
+        var result = await new WorkflowRunner(agents: agents)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision, input,
+                "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, runBudget: budget, maximumConcurrentBodies: 1);
+
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.Equal(0, model.Calls);
+        if (constrainedBudget == "admission")
+        {
+            Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
+                ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.NodeStarted);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+            AssertPersistedSequence(runStore, events, "failed");
+            var rejected = runStore.ReopenStore().Get(runStore.RunId)!;
+            Assert.Equal(events, rejected.Events);
+            return;
+        }
+
+        var start = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        var completion = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        Assert.Equal(start.NodeId, completion.NodeId);
+        Assert.Equal(start.InvocationId, completion.InvocationId);
+        Assert.Equal(start.ScopeId, completion.ScopeId);
+        using (var outcome = JsonDocument.Parse(completion.Data!))
+            Assert.Equal("failed", outcome.RootElement.GetProperty("outcome").GetString());
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.ScopeId == start.ScopeId);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains("Iteration 1 · Failed", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(false, "tool-dispatches")]
     [InlineData(true, "tool-dispatches")]
     [InlineData(false, "outcome-reservations")]

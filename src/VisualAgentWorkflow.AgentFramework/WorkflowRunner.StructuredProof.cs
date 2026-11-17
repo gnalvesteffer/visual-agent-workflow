@@ -18,6 +18,8 @@ public sealed partial class WorkflowRunner
     private sealed record ScopedConcurrentBodyProofSettlement(WorkflowBodyProofDisposition Disposition,
         string? Output = null);
 
+    private readonly record struct IterationReservationKey(string NodeId, Guid InvocationId, string? ScopeId);
+
     private sealed record StructuredSchedulerProofResult(WorkflowExecutionResult Execution,
         StructuredActivationBreakRequest? BreakRequest = null);
 
@@ -62,10 +64,12 @@ public sealed partial class WorkflowRunner
         : InvalidOperationException("The activation run work or evidence budget was exhausted.");
 
     internal sealed class StructuredActivationRunContext(Guid runId, Guid revisionId,
-        Func<ExecutionEvent, ValueTask> record, StructuredActivationRunBudget? budget) : IDisposable
+        Func<ExecutionEvent, ValueTask> record, StructuredActivationRunBudget? budget,
+        bool reserveIterationSettlements = false) : IDisposable
     {
         private readonly SemaphoreSlim recordGate = new(1, 1);
-        private readonly StructuredActivationBudgetLedger? ledger = budget is null ? null : new(budget);
+        private readonly StructuredActivationBudgetLedger? ledger = budget is null ? null :
+            new(budget, reserveIterationSettlements);
         private long sequence;
         private bool started;
         private bool terminal;
@@ -110,8 +114,10 @@ public sealed partial class WorkflowRunner
 
     private sealed class StructuredActivationBudgetLedger
     {
-        public enum EventClass { Ordinary, Failure, OutcomeRequest, OutcomeResult }
-        public sealed record Transition(EventClass Class, string? ReservationId = null);
+        private const int MaximumIterationCompletionDataCharacters = 1_024;
+        public enum EventClass { Ordinary, Failure, OutcomeRequest, OutcomeResult, IterationStart, IterationResult }
+        public sealed record Transition(EventClass Class, string? ReservationId = null,
+            IterationReservationKey? IterationKey = null);
 
         private static readonly HashSet<string> FailureKinds =
         [ExecutionEventKinds.AgentFailed, ExecutionEventKinds.NodeFailed, ExecutionEventKinds.NodeCancelled,
@@ -126,7 +132,9 @@ public sealed partial class WorkflowRunner
         private readonly int maximumLoopActivations;
         private readonly int maximumModelDispatches;
         private readonly int maximumToolDispatches;
+        private readonly bool reserveIterationSettlements;
         private readonly Dictionary<string, long> outcomeReservations = new(StringComparer.Ordinal);
+        private readonly Dictionary<IterationReservationKey, long> iterationReservations = [];
         private int ordinaryEvents;
         private int failureEvents;
         private int loopActivations;
@@ -134,9 +142,11 @@ public sealed partial class WorkflowRunner
         private int toolDispatches;
         private long ordinaryBytes;
         private long pendingOutcomeBytes;
+        private long pendingIterationBytes;
         private long failureBytes;
 
-        public StructuredActivationBudgetLedger(StructuredActivationRunBudget budget)
+        public StructuredActivationBudgetLedger(StructuredActivationRunBudget budget,
+            bool reserveIterationSettlements)
         {
             ordinaryEventLimit = budget.MaximumEvents - budget.ReservedFailureEvents;
             maximumBytes = budget.MaximumBytes;
@@ -147,6 +157,7 @@ public sealed partial class WorkflowRunner
             maximumLoopActivations = budget.MaximumLoopActivations;
             maximumModelDispatches = budget.MaximumModelDispatches;
             maximumToolDispatches = budget.MaximumToolDispatches;
+            this.reserveIterationSettlements = reserveIterationSettlements;
             if (ordinaryEventLimit < 0 || reservedFailureEvents < FailureKinds.Count ||
                 maximumBytes < reservedFailureBytes || reservedFailureBytes < 0 || maximumOutcomeBytes < 0 ||
                 maximumConcurrentOutcomeReservations < 1 || maximumLoopActivations < 1 ||
@@ -162,11 +173,34 @@ public sealed partial class WorkflowRunner
                 evt.Kind == ExecutionEventKinds.ToolAuthorized && toolDispatches >= maximumToolDispatches)
                 throw new StructuredActivationBudgetExceededException();
 
+            if (reserveIterationSettlements && evt.Kind == ExecutionEventKinds.LoopIterationStarted)
+            {
+                if (!TryGetIterationKey(evt, out var key) || iterationReservations.ContainsKey(key))
+                    throw new InvalidOperationException("An iteration start requires a unique node, invocation, and scope identity.");
+                var completionBytes = IterationCompletionReservationBytes(evt);
+                if (ordinaryEvents + outcomeReservations.Count + iterationReservations.Count + 2 > ordinaryEventLimit ||
+                    ordinaryBytes + pendingOutcomeBytes + pendingIterationBytes + bytes + completionBytes >
+                    maximumBytes - reservedFailureBytes)
+                    throw new StructuredActivationBudgetExceededException();
+                return new(EventClass.IterationStart, IterationKey: key);
+            }
+
+            if (reserveIterationSettlements && evt.Kind == ExecutionEventKinds.LoopIterationCompleted)
+            {
+                if (!TryGetIterationKey(evt, out var key) ||
+                    !iterationReservations.TryGetValue(key, out var iterationReservedBytes))
+                    throw new InvalidOperationException("An iteration completion has no matching settlement reservation.");
+                if (bytes > iterationReservedBytes)
+                    throw new InvalidOperationException("The iteration completion exceeded its reserved evidence budget.");
+                return new(EventClass.IterationResult, IterationKey: key);
+            }
+
             if (TryGetReservationRequest(evt, out var requestId))
             {
                 if (outcomeReservations.Count >= maximumConcurrentOutcomeReservations ||
-                    ordinaryEvents + outcomeReservations.Count + 2 > ordinaryEventLimit ||
-                    ordinaryBytes + pendingOutcomeBytes + bytes + maximumOutcomeBytes > maximumBytes - reservedFailureBytes)
+                    ordinaryEvents + outcomeReservations.Count + iterationReservations.Count + 2 > ordinaryEventLimit ||
+                    ordinaryBytes + pendingOutcomeBytes + pendingIterationBytes + bytes + maximumOutcomeBytes >
+                    maximumBytes - reservedFailureBytes)
                     throw new StructuredActivationBudgetExceededException();
                 return new(EventClass.OutcomeRequest, requestId);
             }
@@ -175,8 +209,9 @@ public sealed partial class WorkflowRunner
 
             if (TryGetReservationOutcome(evt, out var outcomeId) && outcomeReservations.TryGetValue(outcomeId, out var reservedBytes))
             {
-                if (bytes > reservedBytes || ordinaryEvents + outcomeReservations.Count > ordinaryEventLimit ||
-                    ordinaryBytes + pendingOutcomeBytes - reservedBytes + bytes > maximumBytes - reservedFailureBytes)
+                if (bytes > reservedBytes || ordinaryEvents + outcomeReservations.Count + iterationReservations.Count > ordinaryEventLimit ||
+                    ordinaryBytes + pendingOutcomeBytes + pendingIterationBytes - reservedBytes + bytes >
+                    maximumBytes - reservedFailureBytes)
                     throw new InvalidOperationException("The activation outcome exceeded its reserved evidence budget.");
                 return new(EventClass.OutcomeResult, outcomeId);
             }
@@ -190,8 +225,8 @@ public sealed partial class WorkflowRunner
                 return new(EventClass.Failure);
             }
 
-            if (ordinaryEvents + outcomeReservations.Count + 1 > ordinaryEventLimit ||
-                ordinaryBytes + pendingOutcomeBytes + bytes > maximumBytes - reservedFailureBytes)
+            if (ordinaryEvents + outcomeReservations.Count + iterationReservations.Count + 1 > ordinaryEventLimit ||
+                ordinaryBytes + pendingOutcomeBytes + pendingIterationBytes + bytes > maximumBytes - reservedFailureBytes)
                 throw new StructuredActivationBudgetExceededException();
             return new(EventClass.Ordinary);
         }
@@ -213,6 +248,19 @@ public sealed partial class WorkflowRunner
                     pendingOutcomeBytes -= outcomeReservations[transition.ReservationId!];
                     outcomeReservations.Remove(transition.ReservationId!);
                     break;
+                case EventClass.IterationStart:
+                    ordinaryEvents++;
+                    ordinaryBytes += bytes;
+                    var iterationBytes = IterationCompletionReservationBytes(evt);
+                    iterationReservations.Add(transition.IterationKey!.Value, iterationBytes);
+                    pendingIterationBytes += iterationBytes;
+                    break;
+                case EventClass.IterationResult:
+                    ordinaryEvents++;
+                    ordinaryBytes += bytes;
+                    pendingIterationBytes -= iterationReservations[transition.IterationKey!.Value];
+                    iterationReservations.Remove(transition.IterationKey.Value);
+                    break;
                 case EventClass.Failure:
                     failureEvents++;
                     failureBytes += bytes;
@@ -230,6 +278,24 @@ public sealed partial class WorkflowRunner
 
         private static long EventBytes(ExecutionEvent evt) =>
             JsonSerializer.SerializeToUtf8Bytes(evt, JsonSerializerOptions.Web).Length;
+
+        private static long IterationCompletionReservationBytes(ExecutionEvent start) => EventBytes(start with
+        {
+            Sequence = long.MaxValue,
+            Kind = ExecutionEventKinds.LoopIterationCompleted,
+            Data = new string('x', MaximumIterationCompletionDataCharacters)
+        });
+
+        private static bool TryGetIterationKey(ExecutionEvent evt, out IterationReservationKey key)
+        {
+            if (!string.IsNullOrWhiteSpace(evt.NodeId) && evt.InvocationId is { } invocationId)
+            {
+                key = new(evt.NodeId, invocationId, evt.ScopeId);
+                return true;
+            }
+            key = default;
+            return false;
+        }
 
         private static bool TryGetReservationRequest(ExecutionEvent evt, out string reservationId) =>
             TryGetId(evt, evt.Kind switch
@@ -516,7 +582,7 @@ public sealed partial class WorkflowRunner
         var ownsRunContext = sharedRunContext is null;
         var baseParameters = WorkflowParameters.Resolve(bodyRevision.Definition, parameters);
         var runContext = sharedRunContext ?? new StructuredActivationRunContext(runId, bodyRevision.RevisionId,
-            record, runBudget);
+            record, runBudget, reserveIterationSettlements: true);
         var admissionGate = new object();
         var admissionStopped = false;
         var nextIndex = 0;
@@ -530,6 +596,7 @@ public sealed partial class WorkflowRunner
         using var bodyCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var active = new Dictionary<int, Task<(int Index, StructuredActivationFrame Frame,
             WorkflowBodyProofOutcome Outcome)>>();
+        var admittedFrames = new Dictionary<int, StructuredActivationFrame>();
 
         async ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
             string? scopeId = null, string? data = null, string? connectionId = null)
@@ -665,15 +732,17 @@ public sealed partial class WorkflowRunner
 
                     await Emit(ExecutionEventKinds.LoopIterationStarted, activationLoopNodeId, frame.Id,
                         frame.ScopeId);
+                    admittedFrames.Add(index, frame);
                     active.Add(index, RunBodyAsync(index, frame));
                 }
 
                 if (active.Count == 0) break;
                 var completed = await Task.WhenAny(active.Values);
                 var completedIndex = active.First(pair => ReferenceEquals(pair.Value, completed)).Key;
-                active.Remove(completedIndex);
                 var itemResult = await completed;
+                active.Remove(completedIndex);
                 var (settledIndex, settledFrame, bodyOutcome) = itemResult;
+                admittedFrames.Remove(settledIndex);
                 switch (bodyOutcome.Disposition)
                 {
                     case WorkflowBodyProofDisposition.Succeeded when bodyOutcome.Output is { } output:
@@ -753,13 +822,16 @@ public sealed partial class WorkflowRunner
         {
             StopAdmission();
             bodyCancellation.Cancel();
-            var outstanding = active.OrderBy(pair => pair.Key).ToArray();
-            try { await Task.WhenAll(outstanding.Select(pair => pair.Value)); }
+            try { await Task.WhenAll(active.Values); }
             catch (Exception) { }
-            foreach (var (_, task) in outstanding)
+            foreach (var (index, frame) in admittedFrames.OrderBy(pair => pair.Key).ToArray())
             {
-                if (!task.IsCompletedSuccessfully) continue;
-                var (_, frame, outcome) = task.Result;
+                var task = active.GetValueOrDefault(index);
+                var outcome = task?.IsCompletedSuccessfully == true
+                    ? task.Result.Outcome
+                    : new WorkflowBodyProofOutcome(WorkflowBodyProofDisposition.Cancelled);
+                active.Remove(index);
+                admittedFrames.Remove(index);
                 await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId,
                     frame.Id, frame.ScopeId, IterationCompletionData(outcome, frame));
             }
@@ -772,6 +844,17 @@ public sealed partial class WorkflowRunner
             bodyCancellation.Cancel();
             try { await Task.WhenAll(active.Values); }
             catch (Exception) { }
+            foreach (var (index, frame) in admittedFrames.OrderBy(pair => pair.Key).ToArray())
+            {
+                var task = active.GetValueOrDefault(index);
+                var outcome = task?.IsCompletedSuccessfully == true
+                    ? task.Result.Outcome
+                    : new WorkflowBodyProofOutcome(WorkflowBodyProofDisposition.BudgetRejected);
+                active.Remove(index);
+                admittedFrames.Remove(index);
+                await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId,
+                    frame.Id, frame.ScopeId, IterationCompletionData(outcome, frame));
+            }
             if (ownsRunContext)
                 await Emit(ExecutionEventKinds.Failed, data: "Workflow execution budget was exhausted.");
             return new(null, true, true, HasOutput: false);
@@ -782,6 +865,21 @@ public sealed partial class WorkflowRunner
             bodyCancellation.Cancel();
             try { await Task.WhenAll(active.Values); }
             catch (Exception) { }
+            foreach (var (index, frame) in admittedFrames.OrderBy(pair => pair.Key).ToArray())
+            {
+                var task = active.GetValueOrDefault(index);
+                var outcome = task?.IsCompletedSuccessfully == true
+                    ? task.Result.Outcome
+                    : new WorkflowBodyProofOutcome(WorkflowBodyProofDisposition.Failed);
+                active.Remove(index);
+                admittedFrames.Remove(index);
+                try
+                {
+                    await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId,
+                        frame.Id, frame.ScopeId, IterationCompletionData(outcome, frame));
+                }
+                catch (Exception) { }
+            }
             try { await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed."); }
             catch (Exception) { }
             throw;

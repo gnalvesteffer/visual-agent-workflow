@@ -303,8 +303,13 @@ introduced.
   admitted, exactly one authorization reaches the broker, the other fails
   before dispatch, and the admitted call settles before the failed run ends
   without admitting a third item. File/SQLite reopen and passive run playback
-  agree (4/4 focused cases). Event/byte budget contention and a
-  production-owned iterator budget remain unproven.
+  agree (4/4 focused cases). Targeted event-count and byte-budget exhaustion is
+  now covered in the private concurrent coordinator: accepted starts reserve
+  one bounded settlement event before body dispatch, while insufficient
+  admission capacity starts no body. The terminal budget rejection records a
+  matching failed iteration outcome through file and SQLite reopen; broader
+  concurrent/nested contention and a production-owned iterator budget remain
+  open.
   The
   production Break guard remains in place. A separate three-role review of
   mixed known-failure and unresolved-MCP outcomes returned REVISE because the
