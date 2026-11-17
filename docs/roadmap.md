@@ -726,6 +726,15 @@ introduced.
       claims grounded in the controlled-broker unknown-outcome proof; public
       iterator authoring and production ownership remain open. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Prove the shared settlement boundary with a parallel MCP sibling
+      whose admitted outcome is released after graph Break as success,
+      definitive failure, or unknown (6 focused cases across file and SQLite).
+      In every case, Break precedes settlement, the join and later inner item
+      stay suppressed, and one root terminal reflects the sibling result;
+      failure/unknown override Break. This is controlled-broker proof evidence,
+      not the production architecture selection gate. Broader cancellation,
+      budget settlement, and public authoring remain open; see
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core
@@ -966,9 +975,9 @@ introduced.
       output-routing/failure/cancellation, and production parallel-Agent
       failure/cancellation, mixed Agent/MCP success/failure/cancellation and
       failure-with-unknown-outcome/store-append and real-stdio MCP/nested-Break
-      composition proofs:
-      791/791 passed, 0 failed or skipped
-      (6m40s, 2026-11-17). This validates
+      composition, and Break/MCP settlement-matrix proofs:
+      795/795 passed, 0 failed or skipped
+      (6m41s, 2026-11-17). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or
       architecture-review gates.

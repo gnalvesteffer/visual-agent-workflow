@@ -5803,9 +5803,14 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ProductionBodyNestedBreak_UnknownMcpOutcomePreventsOuterIteration(bool sqlite)
+    [InlineData(false, ControlledToolOutcome.Success)]
+    [InlineData(true, ControlledToolOutcome.Success)]
+    [InlineData(false, ControlledToolOutcome.Failure)]
+    [InlineData(true, ControlledToolOutcome.Failure)]
+    [InlineData(false, ControlledToolOutcome.Unknown)]
+    [InlineData(true, ControlledToolOutcome.Unknown)]
+    public async Task ProductionBodyNestedBreak_SettlesAdmittedMcpOutcomeBeforeRootTerminal(
+        bool sqlite, ControlledToolOutcome outcome)
     {
         var body = ParallelMcpDefinition();
         var definition = body with
@@ -5819,10 +5824,12 @@ public sealed class ArrayIterationVawBodyProofTests
                 .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
         };
         var revision = WorkflowRevision.CreateProofOnly(definition,
-            "production-body-nested-break-unknown-tool-proof");
-        using var runStore = new ProofRunStore(revision, "[\"outer-a\",\"outer-b\"]", sqlite);
+            $"production-body-nested-break-{outcome.ToString().ToLowerInvariant()}-tool-proof");
+        const string outerItems = "[\"outer-a\"]";
+        const string innerItems = "[\"break\",\"must-not-run\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
         var recorder = new ProofRecorder(runStore, startRoot: false);
-        var tools = new ControlledUnknownOutcomeToolBroker("proof.parallel-tool");
+        var tools = new ControlledSettlementToolBroker("proof.parallel-tool", outcome);
         var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         ValueTask Record(ExecutionEvent evt)
@@ -5835,7 +5842,7 @@ public sealed class ArrayIterationVawBodyProofTests
 
         var execution = new WorkflowRunner(tools: tools)
             .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
-                "[\"outer-a\",\"outer-b\"]", "[\"break\"]", "outerIndex", "index", null,
+                outerItems, innerItems, "outerIndex", "index", null,
                 Record, runBudget: StructuredRunBudget(maximumToolDispatches: 1) with
                 {
                     MaximumModelDispatches = 1
@@ -5866,20 +5873,49 @@ public sealed class ArrayIterationVawBodyProofTests
 
         var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
         var events = recorder.Snapshot();
-        Assert.True(result.Failed);
-        Assert.True(result.OutcomeUnknown);
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain && evt.NodeId == "tool-review");
+        var expectedToolOutcome = outcome switch
+        {
+            ControlledToolOutcome.Success => ExecutionEventKinds.ToolCompleted,
+            ControlledToolOutcome.Failure => ExecutionEventKinds.ToolFailed,
+            ControlledToolOutcome.Unknown => ExecutionEventKinds.ToolUncertain,
+            _ => throw new ArgumentOutOfRangeException(nameof(outcome))
+        };
+        var expectedRunOutcome = outcome switch
+        {
+            ControlledToolOutcome.Success => ExecutionEventKinds.Completed,
+            ControlledToolOutcome.Failure => ExecutionEventKinds.Failed,
+            ControlledToolOutcome.Unknown => ExecutionEventKinds.OutcomeUnknown,
+            _ => throw new ArgumentOutOfRangeException(nameof(outcome))
+        };
+        var expectedRunStatus = outcome switch
+        {
+            ControlledToolOutcome.Success => "completed",
+            ControlledToolOutcome.Failure => "failed",
+            ControlledToolOutcome.Unknown => "outcome-unknown",
+            _ => throw new ArgumentOutOfRangeException(nameof(outcome))
+        };
+        Assert.Equal(outcome != ControlledToolOutcome.Success, result.Failed);
+        Assert.Equal(outcome == ControlledToolOutcome.Unknown, result.OutcomeUnknown);
+        Assert.Equal(outcome == ControlledToolOutcome.Success, result.HasOutput);
+        var toolOutcome = Assert.Single(events, evt => evt.Kind == expectedToolOutcome && evt.NodeId == "tool-review");
+        var breakEvent = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "tool-research");
+        Assert.True(breakEvent.Sequence < toolOutcome.Sequence,
+            "The admitted MCP operation must settle after the graph Break request.");
         Assert.DoesNotContain(events, evt => evt.ScopeId == "outer-loop/1");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "outer-loop/0/inner-loop/1");
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
-        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == expectedRunOutcome && evt.NodeId is null);
+        Assert.Single(events, evt => evt.NodeId is null && evt.Kind is ExecutionEventKinds.Completed or
+            ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated or
+            ExecutionEventKinds.OutcomeUnknown);
 
-        AssertPersistedSequence(runStore, events, "outcome-unknown");
+        AssertPersistedSequence(runStore, events, expectedRunStatus);
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(events, reopened.Events);
-        Assert.Equal("outcome-unknown", reopened.Status);
+        Assert.Equal(expectedRunStatus, reopened.Status);
         var playback = await RenderPlayback(reopened);
-        Assert.Contains("Latest run status: outcome-unknown", playback, StringComparison.Ordinal);
+        Assert.Contains($"Latest run status: {expectedRunStatus}", playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -19530,6 +19566,74 @@ public sealed class ArrayIterationVawBodyProofTests
                     reason
                 }));
                 throw new ToolInvocationException(reason, ToolInvocationFailureDisposition.OutcomeUnknown);
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    public enum ControlledToolOutcome { Success, Failure, Unknown }
+
+    private sealed class ControlledSettlementToolBroker(string expectedBindingId, ControlledToolOutcome outcome)
+        : INodeToolBroker
+    {
+        private readonly string registeredBindingId = expectedBindingId;
+        private readonly ControlledToolOutcome selectedOutcome = outcome;
+        public TaskCompletionSource DispatchStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseOutcome { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(this, invocation);
+
+        private sealed class Scope(ControlledSettlementToolBroker owner, NodeInvocationContext invocation) : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string bindingId, string input, CancellationToken cancellationToken = default) =>
+                Task.FromException<string>(new NotSupportedException("The proof expects structured MCP arguments."));
+
+            public async Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments,
+                CancellationToken cancellationToken = default)
+            {
+                if (bindingId != owner.registeredBindingId)
+                    throw new InvalidOperationException("The workflow requested an unexpected MCP binding.");
+
+                var toolCallId = Guid.NewGuid();
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolRequested,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId }));
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolAuthorized,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId, input = arguments }));
+                owner.DispatchStarted.TrySetResult();
+                await owner.ReleaseOutcome.Task.WaitAsync(cancellationToken);
+
+                if (owner.selectedOutcome == ControlledToolOutcome.Success)
+                {
+                    await invocation.RecordEventAsync(ExecutionEventKinds.ToolCompleted,
+                        JsonSerializer.Serialize(new { toolCallId, bindingId, output = "controlled-result" }));
+                    return "controlled-result";
+                }
+
+                var isUnknown = owner.selectedOutcome == ControlledToolOutcome.Unknown;
+                var reason = isUnknown
+                    ? "The controlled MCP dispatch has an unknown outcome."
+                    : "The controlled MCP dispatch failed definitively.";
+                await invocation.RecordEventAsync(isUnknown
+                    ? ExecutionEventKinds.ToolUncertain
+                    : ExecutionEventKinds.ToolFailed, JsonSerializer.Serialize(new
+                    {
+                        toolCallId,
+                        bindingId,
+                        failureCode = isUnknown ? "tool.outcome_unknown" : "mcp.server_declared_failure",
+                        disposition = (isUnknown ? ToolInvocationFailureDisposition.OutcomeUnknown :
+                            ToolInvocationFailureDisposition.Fatal).ToString(),
+                        reason
+                    }));
+                throw new ToolInvocationException(reason, isUnknown
+                    ? ToolInvocationFailureDisposition.OutcomeUnknown
+                    : ToolInvocationFailureDisposition.Fatal);
             }
 
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;

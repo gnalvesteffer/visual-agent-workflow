@@ -2972,14 +2972,33 @@ external outcomes overriding Break, along with budget settlement, static-body
 compatibility, and file/SQLite playback. Do not broaden into a single-scheduler
 rewrite unless the hybrid cannot establish a reliable body-settlement boundary.
 
-`ProductionBodyNestedBreak_UnknownMcpOutcomePreventsOuterIteration` now
-combines nested production-body coordination, a graph-routed inner Break, and
-an already-admitted parallel MCP call whose external outcome is unknown. The
-coordinator waits for settlement, records root `outcome-unknown`, suppresses
-the join and the next outer activation, and reopens the same history through
-both file and SQLite stores (2 focused cases). This strengthens the settlement
-matrix but remains proof-only; it does not establish production ownership,
-general cancellation/budget races, the public node contract, or recovery.
+### Follow-up adversarial review (2026-11-17)
+
+A clean-context proponent, opponent, and adjudicator review returned
+**REVISE**. Keep the hybrid as the leading proof candidate, but do not select
+production ownership or expose public For Each/Break authoring. The reviewers
+agreed the key unknown is one production run context owning frames, root
+lifecycle, and shared reservations while the Agent Framework dispatcher
+settles admitted work without finalizing the root. The adjudicated first gate
+was success, definitive failure, and unknown MCP settlement after a graph
+Break; the six controlled-broker file/SQLite cases below now cover that gate.
+Before architecture selection, still combine all Agent/MCP reservations with
+activation/lifecycle ownership and qualify supported body shapes, including
+Sequence and cancellation interactions, through file/SQLite playback. Repeat
+the three-role review before selecting the architecture or publishing node
+contracts.
+
+`ProductionBodyNestedBreak_SettlesAdmittedMcpOutcomeBeforeRootTerminal` now
+covers an admitted parallel MCP call settling as success, definitive failure,
+or unknown while the sibling requests nested Break. Across both file and
+SQLite stores (6 focused cases), the Break event precedes MCP settlement, no
+join or later inner item is emitted, and exactly one root terminal matches the
+sibling outcome: success completes the run, while failure and unknown outcome
+override Break. Reopened playback preserves the corresponding terminal state.
+This directly proves the controlled-broker settlement boundary for these
+three outcomes; it remains proof-only and does not establish production
+ownership, broader cancellation/budget races, the public node contract, or
+recovery.
 
 `ProductionBodyNestedBreak_ComposesRealMcpCompletionWithBreak` adds a direct
 MCP node backed by the local stdio fixture to the nested Break graph. The real
