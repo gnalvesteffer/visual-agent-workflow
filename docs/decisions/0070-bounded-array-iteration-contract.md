@@ -2337,6 +2337,16 @@ passive playback renders them (2 focused store cases). This proves one mixed
 success path; mixed failure/cancellation, other branch combinations, and the
 supported-body matrix remain open.
 
+`ProductionBodyActivationCoordinator_MixedAgentMcpFailureCancelsSiblingAndStopsLaterItems`
+adds the controlled failure counterpart. The MCP branch emits correlated
+authorization/failure evidence only after the Agent sibling has entered and
+blocked. The coordinator cancels that matching Agent invocation, suppresses
+the join and next item, and file/SQLite reopen preserves the contiguous failed
+prefix and passive playback result (2 focused store cases). This composes the
+production body dispatcher with mixed branch lifecycle settlement; the failing
+MCP behavior is supplied by a deterministic test broker, so real-server mixed
+failure and the broader cancellation/race matrix remain unproven.
+
 ## Production-broker sibling cancellation after MCP protocol failure (2026-11-15)
 
 `ProductionBodyActivationCoordinator_ProductionMcpFailureCancelsSiblingAndPreservesEvidence`

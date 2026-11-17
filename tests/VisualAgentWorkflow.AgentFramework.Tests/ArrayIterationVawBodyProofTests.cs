@@ -4384,6 +4384,94 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_MixedAgentMcpFailureCancelsSiblingAndStopsLaterItems(
+        bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        var agents = new BlockingAgentExecutor("first");
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var nodes = definition.Nodes.Remove("tool-review")
+            .Add("agent-right", ParallelBodyDefinition().Nodes["agent-right"]);
+        var connections = definition.Connections.Remove("input-tool-review")
+            .Add("input-right", new(new("input", "out"), new("agent-right", "in"), "data"));
+        var execution = definition.ExecutionConnections!
+            .Remove("right-tool")
+            .Remove("tool-review-join")
+            .Add("right-agent", Edge("anchor-right", "then", "agent-right", "execute"))
+            .Add("agent-right-join", Edge("agent-right", "out", "join", "branch.right"));
+        definition = definition with
+        {
+            Nodes = nodes,
+            Connections = connections,
+            ExecutionConnections = execution
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-mixed-agent-mcp-failure-per-item-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var broker = new ParallelMcpBroker(failNode: "tool-research", recordReservationIds: true,
+            expectedCallCount: 1, waitBeforeOutcome: agents.Started.Task);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(broker, agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2))
+            .WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.True(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.False(result.OutcomeUnknown);
+        Assert.Equal(["first"], agents.Inputs);
+        var toolStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        var toolFailed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed &&
+            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        Assert.Equal(toolStarted.InvocationId, toolFailed.InvocationId);
+        var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        using (var authorization = JsonDocument.Parse(authorized.Data!))
+        using (var failure = JsonDocument.Parse(toolFailed.Data!))
+        {
+            Assert.Equal(authorization.RootElement.GetProperty("toolCallId").GetString(),
+                failure.RootElement.GetProperty("toolCallId").GetString());
+            Assert.Equal("tool.host_failure", failure.RootElement.GetProperty("failureCode").GetString());
+        }
+
+        var agentStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "agent-right" && evt.ScopeId == "array-loop/0");
+        var agentCancelled = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+            evt.NodeId == "agent-right" && evt.ScopeId == "array-loop/0");
+        Assert.Equal(agentStarted.InvocationId, agentCancelled.InvocationId);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId is "tool-research" or "agent-right" or "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+            evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ParallelMcpFailureSuppressesJoinAndLaterItems(bool sqlite)
     {
         const string input = "[\"first\",\"must-not-run\"]";
@@ -19348,7 +19436,8 @@ public sealed class ArrayIterationVawBodyProofTests
     private sealed class ParallelMcpBroker(string? denyNode = null, string? failNode = null,
         bool holdUntilCancelled = false, string? resultPayload = null,
         Task? releaseAfterReservationRejected = null, bool waitForBothAuthorizations = false,
-        bool denyAll = false, bool recordReservationIds = false) : INodeToolBroker
+        bool denyAll = false, bool recordReservationIds = false, int expectedCallCount = 2,
+        Task? waitBeforeOutcome = null) : INodeToolBroker
     {
         private readonly ConcurrentQueue<ParallelToolCall> calls = new();
         private readonly TaskCompletionSource branchesStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -19362,17 +19451,19 @@ public sealed class ArrayIterationVawBodyProofTests
         public int DispatchedCalls => dispatchedCalls;
         public ParallelToolCall[] Calls => [.. calls];
         public Task BothBranchesStarted => branchesStarted.Task;
+        public Task WaitBeforeOutcome => waitBeforeOutcome ?? Task.CompletedTask;
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
         public INodeToolScope OpenScope(NodeInvocationContext invocation) =>
             new Scope(this, invocation.NodeId, invocation.InvocationId, invocation.Record,
                 denyNode, failNode, holdUntilCancelled, resultPayload, releaseAfterReservationRejected,
-                waitForBothAuthorizations, denyAll, recordReservationIds);
+                waitForBothAuthorizations, denyAll, recordReservationIds, expectedCallCount);
 
         private sealed class Scope(ParallelMcpBroker owner, string nodeId, Guid invocationId,
             Func<string, string?, ValueTask> record, string? denyNode, string? failNode,
             bool holdUntilCancelled, string? resultPayload, Task? releaseAfterReservationRejected,
-            bool waitForBothAuthorizations, bool denyAll, bool recordReservationIds) : INodeToolScope
+            bool waitForBothAuthorizations, bool denyAll, bool recordReservationIds,
+            int expectedCallCount) : INodeToolScope
         {
             public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
                 Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
@@ -19385,10 +19476,10 @@ public sealed class ArrayIterationVawBodyProofTests
                 var query = arguments.GetProperty("query").GetString()!;
                 owner.calls.Enqueue(new(nodeId, invocationId, query));
                 var toolCallId = Guid.NewGuid();
-                if (owner.calls.Count >= 2) owner.branchesStarted.TrySetResult();
+                if (owner.calls.Count >= expectedCallCount) owner.branchesStarted.TrySetResult();
                 try
                 {
-                    if (owner.calls.Count >= 2) owner.branchesStarted.TrySetResult();
+                    if (owner.calls.Count >= expectedCallCount) owner.branchesStarted.TrySetResult();
                     await owner.branchesStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
                     if (denyAll || nodeId == denyNode)
                     {
@@ -19398,6 +19489,7 @@ public sealed class ArrayIterationVawBodyProofTests
                     await record(ExecutionEventKinds.ToolAuthorized, recordReservationIds
                         ? JsonSerializer.Serialize(new { toolCallId, bindingId, input = arguments })
                         : query);
+                    await owner.WaitBeforeOutcome.WaitAsync(cancellationToken);
                     if (waitForBothAuthorizations && Interlocked.Increment(ref owner.authorizationCount) == 2)
                         owner.bothAuthorizationsRecorded.TrySetResult();
                     if (waitForBothAuthorizations)
