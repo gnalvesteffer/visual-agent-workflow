@@ -830,6 +830,12 @@ introduced.
       six histories reopen identically (2/2 focused theory cases). This
       qualifies this failure boundary only; broader failure and cancellation
       parity remain open.
+    - [x] Compare host cancellation during the second predicate-Loop Agent
+      pass across all three candidates and both stores. Each records two Loop
+      starts, only the first completed pass, a matching scoped Agent start and
+      cancellation, one cancelled root, and no later array item; all six
+      histories reopen identically (2/2 focused theory cases). This closes
+      only this cancellation point; cancellation races elsewhere remain open.
   - [x] Compare a pinned graph-function result and nested evaluation evidence
     over three changing items. All candidates agree on output, function inputs,
     evaluated values, and per-item scopes; file and SQLite persistence passes

@@ -7581,6 +7581,122 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_CancelPredicateLoopDuringSecondAgentPassAcrossCandidates(bool sqlite)
+    {
+        const string input = "[\"continue-alpha\",\"continue-beta\"]";
+        const string blockedSecondPassInput = "{\"query\":\"continue-alpha\"}";
+        var revision = WorkflowRevision.Create(PredicateLoopBodyDefinition(),
+            "array-iteration-predicate-loop-cancellation-candidates-proof");
+        var structured = await RunCandidateAsync("structured");
+        var subworkflow = await RunCandidateAsync("fresh-subworkflow");
+        var hybrid = await RunCandidateAsync("hybrid");
+        using var structuredStore = structured.Store;
+        using var subworkflowStore = subworkflow.Store;
+        using var hybridStore = hybrid.Store;
+
+        Assert.Equal(["continue-alpha", blockedSecondPassInput], structured.AgentInputs);
+        Assert.Equal(structured.AgentInputs, subworkflow.AgentInputs);
+        Assert.Equal(structured.AgentInputs, hybrid.AgentInputs);
+        foreach (var candidate in new[] { structured, subworkflow, hybrid })
+        {
+            var events = candidate.Events;
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+            Assert.DoesNotContain(events, evt => evt.NodeId is null && evt.Kind is
+                (ExecutionEventKinds.Completed or ExecutionEventKinds.Failed));
+            Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "loop" && evt.ScopeId == "array-loop/0"));
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.NodeId == "loop" && evt.ScopeId == "array-loop/0");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopStopped && evt.NodeId == "loop");
+            var cancelledAgent = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+                evt.NodeId == "agent" && evt.ScopeId == "array-loop/0");
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "agent" && evt.InvocationId == cancelledAgent.InvocationId &&
+                evt.ScopeId == cancelledAgent.ScopeId);
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+            AssertPersistedSequence(candidate.Store, events, "cancelled");
+            Assert.Equal(events, candidate.Store.ReopenStore().Get(candidate.Store.RunId)!.Events);
+        }
+        Assert.Equal(CancelledLoopShape(structured.Events), CancelledLoopShape(subworkflow.Events));
+        Assert.Equal(CancelledLoopShape(structured.Events), CancelledLoopShape(hybrid.Events));
+
+        async Task<(ExecutionEvent[] Events, string[] AgentInputs, ProofRunStore Store)> RunCandidateAsync(
+            string candidate)
+        {
+            var store = new ProofRunStore(revision, input, sqlite);
+            var startRoot = candidate != "structured";
+            var recorder = new ProofRecorder(store, startRoot);
+            var agents = new BlockingAgentExecutor(blockedSecondPassInput);
+            using var cancellation = new CancellationTokenSource();
+
+            if (candidate == "structured")
+            {
+                var task = new WorkflowRunner(agents: agents)
+                    .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                        evt => { recorder.Append(evt); return ValueTask.CompletedTask; }, cancellation.Token,
+                        itemParameterId: "item");
+                await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder, agents,
+                    new EchoToolBroker());
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                var watch = Task.Run(async () =>
+                {
+                    await foreach (var _ in run.WatchStreamAsync()) { }
+                });
+                await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await run.CancelRunAsync();
+                await watch.WaitAsync(TimeSpan.FromSeconds(5));
+                recorder.CancelRoot();
+            }
+            else
+            {
+                var task = RunActivationLoopProofAsync(store.RunId, revision, recorder, agents,
+                    new EchoToolBroker(), "array-loop", ParseProofArrayItems(input, WorkflowDataTypes.String),
+                    null, "index", [], async frame =>
+                    {
+                        ValueTask Record(ExecutionEvent evt)
+                        {
+                            if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+                                ExecutionEventKinds.Terminated)
+                                return ValueTask.CompletedTask;
+                            recorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                            return ValueTask.CompletedTask;
+                        }
+
+                        var result = await new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(
+                            store.RunId, revision, frame.Item, frame.Parameters, Record, cancellation.Token);
+                        if (result.Failed || result.Output is null)
+                            throw new InvalidOperationException("Hybrid predicate-loop body did not complete.");
+                        return new ActivationLoopProofValue(result.Output);
+                    });
+                await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
+                recorder.CancelRoot();
+            }
+
+            var events = recorder.Snapshot();
+            return (events, agents.Inputs, store);
+        }
+
+        static (string Kind, string? NodeId, string? ScopeId)[] CancelledLoopShape(
+            IEnumerable<ExecutionEvent> events) => events.Where(evt => evt.Kind is
+                ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or
+                ExecutionEventKinds.LoopStopped or ExecutionEventKinds.AgentStarted or
+                ExecutionEventKinds.AgentCompleted or ExecutionEventKinds.NodeCancelled)
+            .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_EmptyTypedArrayCompletesWithoutBodyActivation(bool sqlite)
     {
         const string input = "[]";

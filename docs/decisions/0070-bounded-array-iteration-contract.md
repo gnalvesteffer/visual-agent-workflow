@@ -2522,6 +2522,15 @@ candidate/store runs; 2 focused theory cases). This closes only this tested
 failure boundary; it does not establish general failure/cancellation
 equivalence or alter the architecture decision.
 
+`IteratorCandidates_CancelPredicateLoopDuringSecondAgentPassAcrossCandidates`
+then cancels while the second body Agent call is blocked. All candidates record
+two scoped Loop starts, only the first completed pass, the matching Agent
+invocation's `node.cancelled` event, one cancelled root, and no later array
+activation. The six file/SQLite histories reopen identically (2 focused theory
+cases). This covers this deterministic cancellation point only; it does not
+establish cancellation-race parity elsewhere or change the architecture
+decision.
+
 ## Three-candidate WorkflowInterfaceCall output comparison (2026-11-16)
 
 `IteratorCandidates_ScopeWorkflowInterfaceCallOutputsAcrossAllCandidates`
