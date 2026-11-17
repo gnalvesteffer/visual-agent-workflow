@@ -2421,6 +2421,16 @@ projection (2/2 focused cases). This proves one deterministic local fixture
 boundary; it does not prove whether arbitrary remote tools applied side
 effects before cancellation or resolve the broader cancellation/race matrix.
 
+`ProductionBodyActivationCoordinator_AgentFailureSettlesProductionMcpUnknownOutcome`
+tests the reverse failure direction with the production stdio broker. The
+blocked Agent fails after the `demo.slow` tool's `tool.authorized` event is
+accepted. The root and iteration remain failed/incomplete, while the MCP call
+retains matching authorization and `tool.uncertain` evidence; the join and
+second item are absent after file/SQLite reopen and playback (2/2 focused
+cases). This relies on the broker's explicit post-authorization uncertainty
+contract and does not claim the fixture completed the external operation or
+qualify arbitrary-server side effects.
+
 The same production-broker test now rejects the sibling's `tool.uncertain`
 append in both stores under both root-outcome policies (8/8 focused matrix
 cases). The append attempt is correlated to the accepted authorization, but

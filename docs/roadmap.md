@@ -397,6 +397,12 @@ introduced.
       file/SQLite reopen and passive playback preserve the cancelled prefix
       (2/2 focused cases). This qualifies one local fixture cancellation point,
       not general remote side-effect or race behavior.
+    - [x] Fail the Agent branch after the real stdio `demo.slow` MCP call is
+      authorized. The Agent failure determines the failed root status while the
+      MCP call retains correlated unknown-outcome evidence; the join and later
+      item are suppressed, and both stores reopen/render the same prefix (2/2
+      focused cases). This does not assert that the remote tool completed or
+      resolve arbitrary side-effect races.
     - [x] Cancel the production-body host after both parallel Agent branches
       enter. Both matching Agent invocations settle as cancelled; the join and
       later item are suppressed, the iteration records a cancelled settlement,
@@ -951,8 +957,8 @@ introduced.
       output-routing/failure/cancellation, and production parallel-Agent
       failure/cancellation, mixed Agent/MCP success/failure/cancellation and
       failure-with-unknown-outcome/store-append proofs:
-      787/787 passed, 0 failed or skipped
-      (6m29s). This validates
+      789/789 passed, 0 failed or skipped
+      (6m41s). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or
       architecture-review gates.

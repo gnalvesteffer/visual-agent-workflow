@@ -4682,6 +4682,103 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_AgentFailureSettlesProductionMcpUnknownOutcome(
+        bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        var toolAuthorized = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sourceRegistration = Assert.Single(CreateDemoMcpRegistrations("demo.slow"));
+        var discovery = new McpToolBroker([sourceRegistration], new DemoToolPolicy());
+        var binding = Assert.Single(await discovery.ListBindingsAsync(), item => item.BindingId == "demo.slow");
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var nodes = definition.Nodes.SetItem("tool-research", definition.Nodes["tool-research"] with
+        {
+            Tool = new(binding.BindingId, binding.ContractHash)
+            {
+                DescriptionHash = binding.DescriptionHash
+            },
+            McpArgumentsJson = "{}"
+        }).Remove("tool-review")
+            .Add("agent-right", ParallelBodyDefinition().Nodes["agent-right"]);
+        var connections = definition.Connections.Remove("input-tool-review")
+            .Add("input-right", new(new("input", "out"), new("agent-right", "in"), "data"));
+        var executionConnections = definition.ExecutionConnections!
+            .Remove("right-tool")
+            .Remove("tool-review-join")
+            .Add("right-agent", Edge("anchor-right", "then", "agent-right", "execute"))
+            .Add("agent-right-join", Edge("agent-right", "out", "join", "branch.right"));
+        definition = definition with
+        {
+            Nodes = nodes,
+            Connections = connections,
+            ExecutionConnections = executionConnections
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-agent-failure-production-mcp-uncertain-outcome-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var broker = new McpToolBroker([sourceRegistration], new DemoToolPolicy(), TimeSpan.FromSeconds(20));
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            if (evt.Kind == ExecutionEventKinds.ToolAuthorized)
+                toolAuthorized.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var agents = new FailingAfterDispatchAgentExecutor(toolAuthorized.Task);
+        var result = await new WorkflowRunner(broker, agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2))
+            .WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.True(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.False(result.OutcomeUnknown);
+        var toolStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        var uncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+        Assert.Equal(toolStarted.InvocationId, authorized.InvocationId);
+        Assert.Equal(toolStarted.InvocationId, uncertain.InvocationId);
+        using (var authorization = JsonDocument.Parse(authorized.Data!))
+        using (var outcome = JsonDocument.Parse(uncertain.Data!))
+            Assert.Equal(authorization.RootElement.GetProperty("toolCallId").GetString(),
+                outcome.RootElement.GetProperty("toolCallId").GetString());
+        var agentFailed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "agent-right" && evt.ScopeId == "array-loop/0");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId is "tool-research" or "agent-right" or "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+            evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.True(agentFailed.Sequence < events.Single(evt => evt.Kind == ExecutionEventKinds.Failed &&
+            evt.NodeId is null).Sequence);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
+        Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
     [InlineData(false, true)]
