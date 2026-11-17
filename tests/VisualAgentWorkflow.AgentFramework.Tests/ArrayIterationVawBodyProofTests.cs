@@ -5162,7 +5162,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var revision = WorkflowRevision.Create(definition,
             "production-body-parallel-mcp-unknown-before-failure-proof");
         using var runStore = new ProofRunStore(revision, input, sqlite);
-        var broker = new UnknownFirstParallelMcpBroker();
+        var broker = new OrderedMixedOutcomeParallelMcpBroker(unknownFirst: true);
         var events = new List<ExecutionEvent>();
 
         ValueTask Record(ExecutionEvent evt)
@@ -5215,6 +5215,74 @@ public sealed class ArrayIterationVawBodyProofTests
 
         Assert.True(result.Failed || result.OutcomeUnknown);
         Assert.False(result.Cancelled);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task ProductionBodyActivationCoordinator_MixedMcpOutcomesSurviveRejectedRootTerminal(
+        bool sqlite, bool unknownFirst)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-parallel-mcp-mixed-terminal-append-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.Failed, ExecutionEventKinds.OutcomeUnknown]);
+        var broker = new OrderedMixedOutcomeParallelMcpBroker(unknownFirst);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var failure = await Xunit.Record.ExceptionAsync(() => new WorkflowRunner(broker)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 4))
+            .WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.IsType<IOException>(failure);
+        Assert.Equal(2, broker.Authorizations);
+        var uncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            evt.NodeId == "tool-review");
+        var failed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed &&
+            evt.NodeId == "tool-research");
+        Assert.Equal(unknownFirst, uncertain.Sequence < failed.Sequence);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.Failed or
+            ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+
+        foreach (var nodeId in new[] { "tool-research", "tool-review" })
+        {
+            var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+                evt.NodeId == nodeId);
+            var outcome = Assert.Single(events, evt => evt.Kind is
+                ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ToolUncertain && evt.NodeId == nodeId);
+            using var authorizedPayload = JsonDocument.Parse(authorized.Data!);
+            using var outcomePayload = JsonDocument.Parse(outcome.Data!);
+            Assert.Equal(authorizedPayload.RootElement.GetProperty("toolCallId").GetString(),
+                outcomePayload.RootElement.GetProperty("toolCallId").GetString());
+        }
+
+        AssertPersistedSequence(runStore, events, "running");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal("running", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: running", playback, StringComparison.Ordinal);
+        Assert.Contains(ExecutionEventKinds.ToolFailed, playback, StringComparison.Ordinal);
+        Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -20624,11 +20692,13 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
-    private sealed class UnknownFirstParallelMcpBroker : INodeToolBroker
+    private sealed class OrderedMixedOutcomeParallelMcpBroker(bool unknownFirst) : INodeToolBroker
     {
         private readonly TaskCompletionSource bothAuthorized =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource reviewOutcomeRecorded =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource researchFailureRecorded =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int authorizations;
 
@@ -20638,9 +20708,11 @@ public sealed class ArrayIterationVawBodyProofTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
 
-        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(this, invocation);
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) =>
+            new Scope(this, invocation, unknownFirst);
 
-        private sealed class Scope(UnknownFirstParallelMcpBroker owner, NodeInvocationContext invocation)
+        private sealed class Scope(OrderedMixedOutcomeParallelMcpBroker owner, NodeInvocationContext invocation,
+            bool unknownFirst)
             : INodeToolScope
         {
             public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(
@@ -20666,6 +20738,8 @@ public sealed class ArrayIterationVawBodyProofTests
 
                 if (invocation.NodeId == "tool-review")
                 {
+                    if (!unknownFirst)
+                        await owner.researchFailureRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5));
                     const string reason = "The dispatched review call has an unresolved external outcome.";
                     await invocation.RecordEventAsync(ExecutionEventKinds.ToolUncertain,
                         JsonSerializer.Serialize(new
@@ -20683,7 +20757,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 if (invocation.NodeId != "tool-research")
                     throw new InvalidOperationException($"Unexpected MCP node '{invocation.NodeId}'.");
 
-                await owner.reviewOutcomeRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                if (unknownFirst)
+                    await owner.reviewOutcomeRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 const string failure = "The research call failed definitively after review outcome became unknown.";
                 await invocation.RecordEventAsync(ExecutionEventKinds.ToolFailed,
                     JsonSerializer.Serialize(new
@@ -20694,6 +20769,7 @@ public sealed class ArrayIterationVawBodyProofTests
                         disposition = ToolInvocationFailureDisposition.Fatal.ToString(),
                         reason = failure
                     }));
+                owner.researchFailureRecorded.TrySetResult();
                 throw new ToolInvocationException(failure, ToolInvocationFailureDisposition.Fatal);
             }
 

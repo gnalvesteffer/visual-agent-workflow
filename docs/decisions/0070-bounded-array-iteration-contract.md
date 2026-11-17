@@ -3292,10 +3292,17 @@ focused cases). The root projection is captured and checked for reopen
 stability, but the tests intentionally allow the current `failed` or
 `outcome-unknown` projection rather than selecting precedence.
 
-Remaining proof controls: combine the orderings with host cancellation, Break,
-and terminal-append failure, and verify both facts remain observable whenever
-the event store accepts them. Then adjudicate whether root status remains a
-single execution disposition or needs an additional aggregate projection.
+`ProductionBodyActivationCoordinator_MixedMcpOutcomesSurviveRejectedRootTerminal`
+rejects both possible root terminal appends after the per-call outcomes have
+been recorded. Across both settlement orders and both stores (4/4 focused
+cases), execution surfaces the storage failure, the durable prefix remains
+`running`, and reopen plus passive playback retain both correlated MCP
+outcomes without fabricating a root terminal.
+The complete Agent Framework suite passes after these proofs (814/814).
+
+Remaining proof controls: combine both settlement orders with host
+cancellation and Break. Then adjudicate whether root status remains a single
+execution disposition or needs an additional aggregate projection.
 Until that proof and a subsequent review are complete, the integrated
 Sequence/Break proof remains private; the production guard, public schema, and
 Studio authoring do not change.

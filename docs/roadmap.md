@@ -233,8 +233,11 @@ introduced.
   and unresolved outcome first followed by a definitive sibling failure. Both
   preserve correlated tool evidence through file/SQLite reopen and passive
   playback (4/4 focused cases). Root status precedence remains unselected;
-  cancellation, Break, and terminal-append-failure controls remain before the
-  next adjudication of whether root status needs a richer projection.
+  rejection of either root terminal append also preserves both MCP outcomes
+  and the unterminal running prefix through reopen and passive playback for
+  both settlement orders (4/4 focused cases). Cancellation and Break controls
+  remain before the next adjudication of whether root status needs a richer
+  projection. The complete Agent Framework suite passes (814/814).
   The integrated `array<json>` body proof covers successful
   transforms and an Append result exceeding the 16 KiB bound: the failure is
   attributed to Append, later items and completion are suppressed, and file/
