@@ -8039,11 +8039,30 @@ public sealed class ArrayIterationVawBodyProofTests
     [InlineData("replace", true)]
     [InlineData("remove", false)]
     [InlineData("remove", true)]
+    [InlineData("append-overflow", false)]
+    [InlineData("append-overflow", true)]
     public async Task IteratorCandidates_AttributeTypedArrayOperationFailureAcrossCandidates(
         string failingNode, bool sqlite)
     {
-        const string input = "[\"first\",\"must-not-run\"]";
-        var revision = WorkflowRevision.Create(TypedArrayOperationsItemBodyDefinition(failingOperation: failingNode),
+        var input = failingNode == "append-overflow"
+            ? "[\"append\",\"must-not-run\"]"
+            : "[\"first\",\"must-not-run\"]";
+        var definition = TypedArrayOperationsItemBodyDefinition(failingOperation: failingNode);
+        if (failingNode == "append-overflow")
+        {
+            var seedValue = JsonSerializer.Serialize(new[]
+            {
+                new string('x', WorkflowArrayLiteral.MaximumPayloadBytes - 8)
+            });
+            Assert.True(seedValue.Length < WorkflowArrayLiteral.MaximumPayloadBytes);
+            definition = definition with
+            {
+                Variables = definition.Variables!.SetItem("items",
+                    new WorkflowVariableDefinition("Items", seedValue)
+                    { Type = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String) })
+            };
+        }
+        var revision = WorkflowRevision.Create(definition,
             $"array-iteration-typed-array-{failingNode}-failure-candidates-proof");
         var structured = await RunCandidateAsync("structured");
         var subworkflow = await RunCandidateAsync("fresh-subworkflow");
@@ -8056,8 +8075,15 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             var events = candidate.Events;
             Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+            var expectedFailureNode = failingNode == "append-overflow" ? "append" : failingNode;
             Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
-                evt.NodeId == failingNode && evt.ScopeId == "array-loop/0");
+                evt.NodeId == expectedFailureNode && evt.ScopeId == "array-loop/0");
+            if (failingNode == "append-overflow")
+                Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+                    evt.NodeId == "append" && evt.ScopeId == "array-loop/0" &&
+                    evt.Data!.Contains(
+                        $"Typed array result exceeds {WorkflowArrayLiteral.MaximumPayloadBytes} UTF-8 bytes",
+                        StringComparison.Ordinal));
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
             Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");

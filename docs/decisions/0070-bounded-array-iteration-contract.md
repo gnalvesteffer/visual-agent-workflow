@@ -2559,11 +2559,20 @@ histories (6 candidate/store runs; 2 focused theory cases). This covers one
 payload-bound failure only; shared-budget exhaustion and recorder/store failure
 remain distinct.
 
-The complete Agent Framework suite previously passed 747/747 before the later
-graph-function failure, expanded typed-operation, and Append-overflow
-comparisons. That result is broad regression evidence for its tested snapshot,
-not completion of the supported-body, lifecycle/budget, playback, or
-architecture-review gates.
+The `append-overflow` variant of
+`IteratorCandidates_AttributeTypedArrayOperationFailureAcrossCandidates`
+repeats this bound with an `array<string>` variable and a typed string item.
+Structured dispatch, fresh subworkflow, and hybrid match the Append failure,
+stop before writing or activating the next item, and reopen identical
+file/SQLite histories (6 candidate/store runs; 2 focused theory cases). This
+extends the payload-bound result beyond JSON while leaving other typed element
+types and shared-budget/store-failure behavior open.
+
+After the graph-function failure, expanded typed-operation, and JSON and typed
+string Append-overflow comparisons were added, the complete Agent Framework
+suite passed 759/759 (0 failed or skipped; 6m16s). This is broad regression
+evidence for that suite snapshot, not completion of the supported-body,
+lifecycle/budget, playback, or architecture-review gates.
 
 `IteratorCandidates_AttributeGraphFunctionFailureAcrossCandidates` runs the
 same pinned `Lookup` function that fails on the second integer item because its
