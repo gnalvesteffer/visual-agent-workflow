@@ -2958,6 +2958,16 @@ beside the existing interface-child comparison; it does not cover parallel
 child settlement or select a production iterator architecture. Readiness
 remains **REVISE**.
 
+`IteratorCandidates_RouteWorkflowInterfaceCallOutputToAgentAcrossAllCandidates`
+routes the pinned interface result into a downstream Agent for three changing
+items. The structured, fresh-subworkflow, and hybrid candidates pass the
+matching per-item values to that Agent and preserve identical interface
+evaluation/call evidence after file and SQLite reopen (2 focused theory cases;
+six candidate/store executions). Passive playback reconstructs all three
+completed child calls. This proves one downstream runtime-data consumer path;
+it does not establish every runtime-output cache family or change the
+production iterator decision. Readiness remains **REVISE**.
+
 `ProductionBodyActivationCoordinator_HostCancellationSettlesParallelAgents`
 adds synchronized host cancellation after both production Agent Framework
 fork branches have entered. Both matching Agent invocations settle as

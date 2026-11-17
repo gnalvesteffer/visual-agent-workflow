@@ -7539,12 +7539,24 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task IteratorCandidates_ScopeWorkflowInterfaceCallOutputsAcrossAllCandidates(bool sqlite)
+    public async Task IteratorCandidates_RouteWorkflowInterfaceCallOutputToAgentAcrossAllCandidates(bool sqlite)
     {
         const string input = "[\"alpha\",\"beta\",\"gamma\"]";
         var source = PinnedWorkflowInterfaceBodyRevision();
+        var nodes = source.Definition.Nodes.Add("agent-after-call",
+            new(NodeTypes.Agent, "1.0.0", Agent: new("proof.echo-agent", null,
+                "Consume the interface result.", [])));
+        var connections = source.Definition.Connections.Remove("call-output")
+            .Add("call-agent", new(new("call", "value"), new("agent-after-call", "in"), "data"))
+            .Add("agent-output", new(new("agent-after-call", "out"), new("output", "in"), "data"));
+        var execution = source.Definition.ExecutionConnections!.Remove("call-output")
+            .Add("call-agent", Edge("call", "then", "agent-after-call", "execute"))
+            .Add("agent-output", Edge("agent-after-call", "out", "output", "execute"));
         var definition = source.Definition with
         {
+            Nodes = nodes,
+            Connections = connections,
+            ExecutionConnections = execution,
             Parameters = source.Definition.Parameters!
                 .Add("item", new("Array item", string.Empty) { Type = WorkflowDataTypes.String })
         };
@@ -7556,8 +7568,11 @@ public sealed class ArrayIterationVawBodyProofTests
         var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
         var subworkflowRecorder = new ProofRecorder(subworkflowStore);
         var hybridRecorder = new ProofRecorder(hybridStore);
+        var structuredAgents = new EchoAgentExecutor();
+        var subworkflowAgents = new EchoAgentExecutor();
+        var hybridAgents = new EchoAgentExecutor();
 
-        var structured = await new WorkflowRunner().ExecuteStructuredActivationSequenceProofAsync(
+        var structured = await new WorkflowRunner(agents: structuredAgents).ExecuteStructuredActivationSequenceProofAsync(
             structuredStore.RunId, revision, input, "index", null, evt =>
             {
                 structuredRecorder.Append(evt);
@@ -7565,7 +7580,7 @@ public sealed class ArrayIterationVawBodyProofTests
             }, itemParameterId: "item");
 
         var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
-            subworkflowRecorder, new EchoAgentExecutor(), new EchoToolBroker());
+            subworkflowRecorder, subworkflowAgents, new EchoToolBroker());
         var subworkflow = new WorkflowBuilder(subworkflowIterator).WithOutputFrom(subworkflowIterator).Build();
         string? subworkflowOutput = null;
         await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflow, input))
@@ -7574,7 +7589,7 @@ public sealed class ArrayIterationVawBodyProofTests
         subworkflowRecorder.CompleteRoot();
 
         var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
-            new EchoAgentExecutor(), new EchoToolBroker(), "array-loop",
+            hybridAgents, new EchoToolBroker(), "array-loop",
             ParseProofArrayItems(input, WorkflowDataTypes.String), null, "index", [], async frame =>
             {
                 ValueTask Record(ExecutionEvent evt)
@@ -7592,18 +7607,24 @@ public sealed class ArrayIterationVawBodyProofTests
                     return ValueTask.CompletedTask;
                 }
 
-                var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(hybridStore.RunId, revision,
+                var result = await new WorkflowRunner(agents: hybridAgents).ExecuteWithOutcomeAsync(
+                    hybridStore.RunId, revision,
                     frame.Item, frame.Parameters, Record);
                 if (result.Failed || result.Output is null)
-                    throw new InvalidOperationException("The interface-call hybrid body did not return a result.");
+                    throw new InvalidOperationException("The interface-result Agent did not return a result.");
                 return new ActivationLoopProofValue(result.Output);
             });
         hybridRecorder.CompleteRoot();
 
         Assert.False(structured.Failed);
-        Assert.Equal("alpha;beta;gamma", structured.Output);
+        Assert.Equal("{\"query\":\"alpha-agent-after-call\"};" +
+            "{\"query\":\"beta-agent-after-call\"};{\"query\":\"gamma-agent-after-call\"}",
+            structured.Output);
         Assert.Equal(structured.Output, subworkflowOutput);
         Assert.Equal(structured.Output, hybridOutput);
+        Assert.Equal(["alpha", "beta", "gamma"], structuredAgents.Inputs);
+        Assert.Equal(structuredAgents.Inputs, subworkflowAgents.Inputs);
+        Assert.Equal(structuredAgents.Inputs, hybridAgents.Inputs);
 
         var structuredEvents = structuredRecorder.Snapshot();
         var subworkflowEvents = subworkflowRecorder.Snapshot();
@@ -7634,9 +7655,14 @@ public sealed class ArrayIterationVawBodyProofTests
             foreach (var events in new[] { structuredEvents, subworkflowEvents, hybridEvents })
             {
                 var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
-                    evt.NodeId == "call" && evt.ScopeId == scope && evt.ConnectionId == "data:call-output");
+                    evt.NodeId == "call" && evt.ScopeId == scope && evt.ConnectionId == "data:call-agent");
                 using var payload = JsonDocument.Parse(evaluated.Data!);
                 Assert.Equal(expectedItem, payload.RootElement.GetProperty("value").GetString());
+                var agentStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                    evt.NodeId == "agent-after-call" && evt.ScopeId == scope);
+                Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                    evt.NodeId == "agent-after-call" && evt.ScopeId == scope &&
+                    evt.InvocationId == agentStarted.InvocationId);
                 Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
                     evt.ScopeId == scope);
             }

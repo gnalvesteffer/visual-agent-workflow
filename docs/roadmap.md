@@ -834,12 +834,14 @@ introduced.
       through both stores (2/2 focused cases). This proves the tested
       WorkflowCall output path; other runtime-output cache families remain
       open.
-    - [x] Compare a pinned `WorkflowInterfaceCall` output across all three
-      candidates for three changing items. Outputs and scoped data-evaluation
-      evidence match; all six candidate/store runs reopen identically and
-      reconstruct three completed child calls from passive playback. This also
-      corrected the fresh-subworkflow and hybrid proof adapters to prefix child
-      scopes and keep embedded lifecycle evidence aligned.
+    - [x] Compare a pinned `WorkflowInterfaceCall` output routed into a
+      downstream Agent across all three candidates for three changing items.
+      Each Agent receives the matching item from the interface output; output
+      values and scoped data-evaluation evidence match, and all six
+      candidate/store runs reopen identically with three completed child calls
+      reconstructed by passive playback. This also corrects the fresh-
+      subworkflow and hybrid proof adapters to prefix child scopes and keep
+      embedded lifecycle evidence aligned (2/2 focused theory cases).
     - [x] Compare host cancellation inside an exact pinned `WorkflowCall`
       child across the structured, fresh-subworkflow, and hybrid candidates.
       Each cancels the blocked child Agent at `array-loop/0/call`, suppresses
@@ -896,8 +898,8 @@ introduced.
       recorder/store failures remain distinct.
     - [x] Re-run the full Agent Framework suite after the graph-function,
       typed-operation, Append-overflow, interface/WorkflowCall child
-      failure/cancellation, and production parallel-Agent cancellation
-      comparisons: 769/769 passed, 0 failed or skipped
+      output-routing/failure/cancellation, and production parallel-Agent
+      cancellation comparisons: 769/769 passed, 0 failed or skipped
       (6m17s). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or
