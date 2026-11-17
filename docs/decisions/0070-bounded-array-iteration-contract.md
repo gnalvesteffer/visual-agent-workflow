@@ -3544,3 +3544,17 @@ This closes only cancellation of a single admitted MCP call in the private
 coordinator. It does not qualify concurrent MCP cancellation/reservation
 races, host pause-control event integration, uncontrolled scheduler races, or
 public iterator behavior.
+
+### Shared tool-dispatch budget under concurrent body admission (2026-11-17)
+
+With two body activations admitted concurrently and a root tool-dispatch limit
+of one, the private coordinator permits exactly one correlated authorization
+to reach the controlled MCP broker. The competing activation fails before
+dispatch. The admitted tool settles, the failed run drains without admitting a
+third item, and file/SQLite reopen plus passive playback agree (2/2 focused
+cases).
+
+This proves the root tool-dispatch count ceiling across concurrent body
+activations. It does not qualify contention for event/byte budgets or concurrent
+outcome-reservation slots, and it does not establish a production-owned budget
+contract for public iterator execution.

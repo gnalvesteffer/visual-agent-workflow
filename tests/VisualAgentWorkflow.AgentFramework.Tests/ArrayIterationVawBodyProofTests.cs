@@ -7381,6 +7381,86 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_SharesToolDispatchBudget(bool sqlite)
+    {
+        const string bindingId = "proof.concurrent-tool-budget";
+        const string input = "[\"first\",\"second\",\"must-not-run\"]";
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "concurrent-array-shared-tool-budget", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("tool", new(NodeTypes.McpTool, "1.0.0",
+                    new ToolBindingRequest(bindingId, new string('d', 64)))
+                {
+                    McpInputPorts = [new("arg.query", "query", WorkflowDataTypes.String, true)],
+                    McpArgumentsJson = "{}"
+                })
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-query", new(new("input", "out"), new("tool", "arg.query"), "data"))
+                .Add("tool-result", new(new("tool", "out"), new("output", "in"), "data")))
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-tool", Edge("input", "then", "tool", "execute"))
+                .Add("tool-output", Edge("tool", "then", "output", "execute"))
+        };
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "concurrent-array-shared-tool-budget-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var broker = new ControlledSettlementToolBroker(bindingId, ControlledToolOutcome.Success);
+        var budgetRejected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "tool")
+                budgetRejected.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(tools: broker)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                input, "index", null, Record,
+                runBudget: StructuredRunBudget(maximumToolDispatches: 1));
+        try
+        {
+            await Task.WhenAll(broker.DispatchStarted.Task, budgetRejected.Task)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            broker.ReleaseOutcome.TrySetResult();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        var authorization = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+            evt.NodeId == "tool");
+        var completion = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted &&
+            evt.NodeId == "tool");
+        Assert.Equal(authorization.ScopeId, completion.ScopeId);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "tool" &&
+            evt.ScopeId != authorization.ScopeId);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+        Assert.True(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains("Latest run status: failed", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ConcurrentProductionBodyCoordinator_NestedBreakTargetsNearestFrame(bool sqlite)
     {
         var revision = WorkflowRevision.CreateProofOnly(StructuredBreakProofDefinition(),
