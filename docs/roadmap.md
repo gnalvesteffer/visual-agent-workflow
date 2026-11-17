@@ -272,13 +272,13 @@ introduced.
   and SQLite reopen/playback (10/10 focused cases). The proof closes only this
   composition under its bounded 1–8 body-concurrency test parameter; it does
   not select a production scheduling policy or prove nested graph fork regions.
-  Byte/event contention, tool/outcome reservation
+  At that proof stage, byte/event contention, tool/outcome reservation
   races, host-control pause-event integration, uncontrolled production races,
-  and the full body compatibility matrix remain
-  open. The proof coordinator now also honors `IWorkflowExecutionGate`: after
+  and the full body compatibility matrix remained open. The proof coordinator
+  now also honors `IWorkflowExecutionGate`: after
   two items are admitted and one settles, pause prevents item 3 admission and
   keeps the root nonterminal; resume completes all three exactly once with
-  matching file/SQLite playback (2/2). This does not wire host
+  matching file/SQLite playback (2/2). At that point this did not wire host
   `PauseRequested`/`Paused`/`Resumed` evidence into the private coordinator. A
   48-schedule seeded scheduler-yield stress
   test checks the admission lock's recorded stop boundary: each reserved item
@@ -290,14 +290,14 @@ introduced.
   admission wait, drains a held Agent activation, records its cancelled
   iteration outcome before the single root cancellation, suppresses the next
   item, and reconstructs identical file/SQLite history and passive playback
-  (2/2 focused cases). This closes cancellation-at-paused-boundary evidence
-  only; host control-event integration, concurrent MCP cancellation races,
-  uncontrolled production races, and the full body compatibility matrix remain
-  open. A separate single-concurrency production-body case cancels after a
-  direct MCP dispatch starts: the broker's correlated `tool.uncertain` and node
-  cancellation survive, the admitted iteration is recorded cancelled, no
-  later item is admitted, and root status remains cancelled while reconciliation
-  reports the uncertain tool (2/2 file/SQLite cases).
+  (2/2 focused cases). At that point this closed cancellation-at-paused-boundary
+  evidence only; host control-event integration and concurrent MCP cancellation
+  races remained open. A separate single-concurrency production-body case
+  cancels after a direct MCP dispatch starts: the broker's correlated
+  `tool.uncertain` and node cancellation survive, the admitted iteration is
+  recorded cancelled, no later item is admitted, and root status remains
+  cancelled while reconciliation reports the uncertain tool (2/2 file/SQLite
+  cases).
   Concurrent two-item proofs now exercise a root tool-dispatch limit of one
   and an outcome-reservation slot limit of one. In both cases, two bodies are
   admitted, exactly one authorization reaches the broker, the other fails
@@ -309,7 +309,17 @@ introduced.
   admission capacity starts no body. The terminal budget rejection records a
   matching failed iteration outcome through file and SQLite reopen; broader
   concurrent/nested contention and a production-owned iterator budget remain
-  open.
+  open. The latest proof increment drives this coordinator through the real
+  `ControlledRun` gate and event writer. Across file and SQLite, pause records
+  `PauseRequested` then `Paused`, blocks the next item while nonterminal,
+  releases the shared execution slot, and resume records one `Resumed` before
+  the next iteration is admitted after reacquiring the slot. A second case
+  cancels while paused with an admitted Agent still active; the Agent drains as
+  cancelled, the suffix stays suppressed, and the root ends cancelled. Reopened
+  event histories and passive playback match (4/4 focused store cases). This
+  integrates host controls with the private coordinator for these cases only;
+  uncontrolled production races, concurrent MCP cancellation races, the full
+  body compatibility matrix, and architecture selection remain open.
   The
   production Break guard remains in place. A separate three-role review of
   mixed known-failure and unresolved-MCP outcomes returned REVISE because the

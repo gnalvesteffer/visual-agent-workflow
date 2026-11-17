@@ -7994,6 +7994,164 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_UsesHostPauseEventsAndExecutionSlot(bool sqlite)
+    {
+        var revision = WorkflowRevision.CreateProofOnly(StructuredBreakProofDefinition(),
+            "concurrent-production-array-host-pause-proof");
+        const string input = "[\"continue\",\"continue\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        using var executionSlot = new SemaphoreSlim(1, 1);
+        using var control = new ControlledRun(runStore.Store,
+            runStore.Store.Get(runStore.RunId)!.Header, executionSlot);
+        var pauseRequested = 0;
+        var secondItemAdmitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async ValueTask Record(ExecutionEvent evt)
+        {
+            await control.RecordAsync(evt);
+            if (evt.Kind == ExecutionEventKinds.LoopIterationCompleted && evt.NodeId == "array-loop" &&
+                evt.ScopeId == "array-loop/0" && Interlocked.Exchange(ref pauseRequested, 1) == 0)
+                control.RequestPause();
+        }
+
+        ValueTask AfterItemAdmitted(int index, CancellationToken _)
+        {
+            if (index == 1)
+            {
+                Assert.False(executionSlot.Wait(0), "The host gate must reacquire the shared execution slot before admission.");
+                secondItemAdmitted.TrySetResult();
+            }
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner().ExecuteProductionConcurrentBodyBreakSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, Record,
+            cancellationToken: control.Cancellation.Token, itemParameterId: "item", gate: control,
+            maximumConcurrentBodies: 1, afterItemAdmitted: AfterItemAdmitted);
+
+        var paused = await WaitForRunEventAsync(runStore.Store, runStore.RunId,
+            ExecutionEventKinds.Paused).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("paused", paused.Status);
+        Assert.False(execution.IsCompleted);
+        Assert.Single(paused.Events, evt => evt.Kind == ExecutionEventKinds.PauseRequested);
+        Assert.Single(paused.Events, evt => evt.Kind == ExecutionEventKinds.Paused);
+        Assert.Single(paused.Events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        Assert.DoesNotContain(paused.Events, evt => evt.ScopeId == "array-loop/1");
+
+        Assert.True(executionSlot.Wait(0), "A paused run must release the shared execution slot.");
+        control.Resume();
+        executionSlot.Release();
+
+        await secondItemAdmitted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var finished = runStore.Store.Get(runStore.RunId)!;
+        Assert.False(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.Equal("continue:0;continue:1", result.Output);
+        Assert.Equal("completed", finished.Status);
+        Assert.Equal(Enumerable.Range(1, finished.Events.Length).Select(i => (long)i),
+            finished.Events.Select(evt => evt.Sequence));
+        Assert.Single(finished.Events, evt => evt.Kind == ExecutionEventKinds.Resumed);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!.Events;
+        Assert.Equal(finished.Events.Select(evt => evt with { Timestamp = default }),
+            reopened.Select(evt => evt with { Timestamp = default }));
+        var pauseSequence = finished.Events.Single(evt => evt.Kind == ExecutionEventKinds.PauseRequested).Sequence;
+        var pausedSequence = finished.Events.Single(evt => evt.Kind == ExecutionEventKinds.Paused).Sequence;
+        var resumedSequence = finished.Events.Single(evt => evt.Kind == ExecutionEventKinds.Resumed).Sequence;
+        var secondIterationSequence = finished.Events.Single(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "array-loop/1").Sequence;
+        Assert.True(pauseSequence < pausedSequence && pausedSequence < resumedSequence &&
+            resumedSequence < secondIterationSequence);
+        Assert.Contains("Iteration 2 · Completed",
+            await RenderLoopActivations(finished.Events, finished.Status), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_HostCancellationWhilePausedDrainsAdmittedBody(bool sqlite)
+    {
+        var definition = StructuredBreakProofDefinition();
+        var body = definition with
+        {
+            Nodes = definition.Nodes.Add("agent", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.settlement", null, "Remain active until host cancellation.", []))),
+            Connections = definition.Connections.Add("render-agent",
+                new ConnectionDefinition(new("render", "out"), new("agent", "in"), "data")),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("condition-output")
+                .Add("condition-agent", Edge("condition", "true", "agent", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(body,
+            "concurrent-production-array-host-cancel-paused-proof");
+        const string input = "[\"continue\",\"continue\",\"must-not-run\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        using var executionSlot = new SemaphoreSlim(1, 1);
+        using var control = new ControlledRun(runStore.Store,
+            runStore.Store.Get(runStore.RunId)!.Header, executionSlot);
+        var agent = new PauseBoundaryAgentExecutor();
+        var pauseRequested = 0;
+
+        async ValueTask Record(ExecutionEvent evt)
+        {
+            await control.RecordAsync(evt);
+            if (evt.Kind == ExecutionEventKinds.LoopIterationCompleted && evt.NodeId == "array-loop" &&
+                evt.ScopeId == "array-loop/0" && Interlocked.Exchange(ref pauseRequested, 1) == 0)
+                control.RequestPause();
+        }
+
+        var execution = new WorkflowRunner(agents: agent)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision, input,
+                "index", null, Record, control.Cancellation.Token,
+                itemParameterId: "item", gate: control);
+
+        await agent.HeldInvocationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var paused = await WaitForRunEventAsync(runStore.Store, runStore.RunId,
+            ExecutionEventKinds.Paused).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("paused", paused.Status);
+        Assert.False(execution.IsCompleted);
+        Assert.Equal(2, paused.Events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.DoesNotContain(paused.Events, evt => evt.ScopeId == "array-loop/2");
+        Assert.True(executionSlot.Wait(0), "A paused run must release the shared execution slot.");
+        executionSlot.Release();
+
+        control.Cancel();
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var finished = runStore.Store.Get(runStore.RunId)!;
+        Assert.True(result.Cancelled);
+        Assert.False(result.Failed);
+        Assert.Equal("cancelled", finished.Status);
+        Assert.Contains(finished.Events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+            evt.NodeId == "agent" && evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(finished.Events, evt => evt.ScopeId == "array-loop/2");
+        Assert.Single(finished.Events, evt => evt.Kind == ExecutionEventKinds.PauseRequested);
+        Assert.Single(finished.Events, evt => evt.Kind == ExecutionEventKinds.Paused);
+        Assert.DoesNotContain(finished.Events, evt => evt.Kind == ExecutionEventKinds.Resumed);
+        Assert.Single(finished.Events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        Assert.Equal(Enumerable.Range(1, finished.Events.Length).Select(i => (long)i),
+            finished.Events.Select(evt => evt.Sequence));
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!.Events;
+        Assert.Equal(finished.Events.Select(evt => evt with { Timestamp = default }),
+            reopened.Select(evt => evt with { Timestamp = default }));
+        Assert.Contains("Iteration 2 · Cancelled",
+            await RenderLoopActivations(finished.Events, finished.Status), StringComparison.Ordinal);
+    }
+
+    private static async Task<RunSnapshot> WaitForRunEventAsync(IWorkflowRunStore store, Guid runId, string eventKind)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (true)
+        {
+            var snapshot = store.Get(runId)!;
+            if (snapshot.Events.Any(evt => evt.Kind == eventKind)) return snapshot;
+            await Task.Delay(10, timeout.Token);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ConcurrentProductionBodyCoordinator_CancellationWhilePausedDrainsAdmittedBody(bool sqlite)
     {
         var definition = StructuredBreakProofDefinition();

@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <InternalsVisibleTo Include="VisualAgentWorkflow.AgentFramework.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../VisualAgentWorkflow.AgentFramework/VisualAgentWorkflow.AgentFramework.csproj" />

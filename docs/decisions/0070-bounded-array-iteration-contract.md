@@ -3545,6 +3545,30 @@ coordinator. It does not qualify concurrent MCP cancellation/reservation
 races, host pause-control event integration, uncontrolled scheduler races, or
 public iterator behavior.
 
+### Host pause-control integration with the private iterator proof (2026-11-17)
+
+A fresh proponent/opponent/adjudicator review returned **REVISE**. It permits a
+test-only integration proof, but requires the actual host-owned `ControlledRun`
+and its `IWorkflowExecutionGate`; a simulated event adapter would repeat the
+existing coordinator-level pause tests without proving composition. Public
+schema, Studio authoring, production dispatch, and scheduler selection remain
+unchanged.
+
+The proof now sends iterator events through `ControlledRun` for both file and
+SQLite journals. It confirms one ordered `PauseRequested` → `Paused` →
+`Resumed` lifecycle, no later item admission while paused, shared execution-slot
+release during pause and reacquisition before the next admission, and exactly
+once continuation. A second case cancels while paused with a sibling Agent
+still active; that Agent settles cancelled, the suffix is suppressed, and the
+root ends cancelled. Reopened event histories preserve the same evidence and
+passive loop playback (4/4 focused store cases).
+
+This proves integration only for these controlled cases. It does not qualify
+uncontrolled production races, concurrent MCP cancellation, arbitrary nested
+scheduling, the supported-body matrix, checkpoint recovery, or public
+iterator/Break semantics. No architecture or user-guide behavior changes
+because the proof remains private and does not alter a shipped execution path.
+
 ### Shared tool admission budgets under concurrent body admission (2026-11-17)
 
 Two concurrent body activations now contend against separate root limits: a
