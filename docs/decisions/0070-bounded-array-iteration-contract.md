@@ -3266,3 +3266,34 @@ distinct cancelled root and Sequence, with the remaining suffix skipped and
 passive playback reconstructing `cancelled` through both stores (2/2).
 Pause/stop, concurrent/racing admission, and the broader production scheduler
 remain open.
+
+### Mixed failure and unresolved external outcome review (2026-11-17)
+
+A three-role review returned **REVISE** on root precedence. The proponent's
+proposal to make correlated `outcome-unknown` dominate a known failure would
+remove order dependence, but it assumes one root status can represent both
+workflow execution disposition and external-effect certainty. The opponent
+identified that these are separate facts: a run may certainly fail while an
+admitted MCP side effect remains unresolved. The adjudicator requires both
+facts to remain observable before choosing a single root policy.
+
+Confirmed code behavior: `RunSnapshot.Status` reflects the last root terminal
+event; `WorkflowRunner.StructuredProof.cs` records distinct root `failed` and
+`outcome-unknown` outcomes. The existing private proof
+`ProductionBodyActivationCoordinator_ParallelMcpFailurePreservesCancelledSiblingUncertainty`
+records a known MCP failure plus correlated sibling `tool.outcome-unknown`,
+then reopens and passively renders a `failed` root. This establishes that the
+failure and uncertainty evidence can coexist in one history, but only for its
+controlled settlement order. Candidate proofs for custom broker uncertainty
+and rejected MCP completion evidence now verify scoped uncertainty evidence
+and stable reopen while accepting either existing root projection. They
+deliberately do not select a precedence rule.
+
+Next proof: run one admitted known failure and one correlated unresolved MCP
+call in both settlement orders. Verify both facts and call correlation survive
+file/SQLite reopen and passive playback, with cancellation, Break, and terminal
+append failure controls. Only then decide whether root status remains a
+single execution disposition or needs an additional aggregate projection.
+Until that proof and a subsequent review are complete, the integrated
+Sequence/Break proof remains private; the production guard, public schema, and
+Studio authoring do not change.

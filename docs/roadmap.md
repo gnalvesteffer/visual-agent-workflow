@@ -226,7 +226,12 @@ introduced.
   as characterization, while the required A-active/B-admitted gate still fails
   for the current mechanism. A fresh triad returned REVISE: test any new
   mechanism through production dispatch before selecting architecture. The
-  production Break guard remains in place.
+  production Break guard remains in place. A separate three-role review of
+  mixed known-failure and unresolved-MCP outcomes also returned REVISE: the
+  private candidate paths do not yet establish a stable root policy. Prove both
+  branch settlement orders, preserve both execution-failure and external-effect
+  uncertainty through file/SQLite playback, then decide whether root status
+  needs a richer projection.
   The integrated `array<json>` body proof covers successful
   transforms and an Append result exceeding the 16 KiB bound: the failure is
   attributed to Append, later items and completion are suppressed, and file/
