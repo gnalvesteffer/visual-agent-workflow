@@ -3105,3 +3105,33 @@ and nearest-loop Break must be authored in the current unified schema without
 feature-specific schema gates. Checkpoint recovery stays excluded until the
 complete frame and coordinator state can be captured and restored. Readiness
 remains **REVISE**.
+
+## Sequence/Break integration review (2026-11-17)
+
+A new independent proponent/opponent/adjudicator review returned **REVISE**.
+The adjudicator permits a private, bounded experiment to test Sequence inside
+the hybrid production-body activation, but explicitly does not select that
+architecture, enable Sequence in the Break path, or close the iterator gate.
+Public iterator and Break contracts remain withheld until the integrated
+supported-body, budget, lifecycle, race, persistence, and playback matrix is
+complete and receives another three-role review.
+
+The current production Break proof rejects every body containing
+`NodeTypes.Sequence` (`WorkflowRunner.cs`). This is not safely removed as a
+standalone guard change: unified-schema Sequence execution is diverted through
+`BuildSequenceProductionWorkflow`, whose `SequenceProductionSource` queues all
+configured outputs before their descendants settle and whose collector owns
+per-output Sequence settlement (`WorkflowRunner.Sequence.cs`). The structured
+proof's `DispatchSequence` cancels and drains admitted output tasks, but it is
+a separate proof scheduler and does not establish that the hybrid body path
+shares the VAW activation frame, lifecycle, or budgets.
+
+The next experiment must keep frame/root lifecycle/shared budget ownership with
+the VAW activation coordinator, stop later Sequence output and item admission
+after Break, settle already admitted descendants, and prove explicit precedence
+for failure, unknown MCP outcome, and host cancellation. It must preserve
+nearest-frame Break identity and coherent event attribution, then reopen and
+reconstruct the same outcome through both file and SQLite stores. If satisfying
+those requirements needs a second independent settlement/lifecycle/budget
+protocol, record the hybrid experiment as inconclusive and return to scheduler
+selection. No runtime behavior changed as part of this review.
