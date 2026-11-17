@@ -18,6 +18,7 @@ internal sealed class SequenceRuntimeCoordinator
     private readonly IReadOnlyDictionary<string, SequenceWorkflowCallSettlement>? callSettlements;
     private SequenceTerminalState? terminalState;
     private bool terminalEventRecorded;
+    private bool breakCompletionRequested;
 
     public SequenceRuntimeCoordinator(Guid sequenceInvocationId, string sequenceNodeId,
         IReadOnlyList<string> outputIds, IReadOnlyDictionary<string, string> connectionIds,
@@ -76,7 +77,8 @@ internal sealed class SequenceRuntimeCoordinator
         return Events.Select((runtimeEvent, index) =>
         {
             var evidence = new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId, runtimeEvent.SequenceNodeId,
-                runtimeEvent.OutputId, runtimeEvent.Ordinal, runtimeEvent.ActivationId, runtimeEvent.ConnectionId);
+                runtimeEvent.OutputId, runtimeEvent.Ordinal, runtimeEvent.ActivationId, runtimeEvent.ConnectionId,
+                Reason: runtimeEvent.Reason);
             return new ExecutionEvent(runId, revisionId, checked(firstSequence + index), recordedAt,
                 runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
                 runtimeEvent.ConnectionId, SequenceEvidence.Serialize(evidence));
@@ -131,10 +133,11 @@ internal sealed class SequenceRuntimeCoordinator
     }
 
     /// <summary>Closes future output admission while allowing dispatched outputs to settle.</summary>
-    public IReadOnlyList<SequenceActivationSnapshot> StopAdmission()
+    public IReadOnlyList<SequenceActivationSnapshot> StopAdmission(bool successfulBreak = false)
     {
         lock (gate)
         {
+            breakCompletionRequested |= successfulBreak;
             var snapshots = ledger.SkipPending();
             foreach (var skipped in snapshots.Where(item => item.State == SequenceActivationState.Skipped))
                 if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.OutputId == skipped.OutputId))
@@ -188,11 +191,13 @@ internal sealed class SequenceRuntimeCoordinator
         terminalEventRecorded = true;
         var sequenceTerminalKind = terminalState switch
         {
+            null when breakCompletionRequested => ExecutionEventKinds.SequenceBreakCompleted,
             null => ExecutionEventKinds.SequenceCompleted,
             SequenceTerminalState.Failed => ExecutionEventKinds.SequenceFailed,
             _ => ExecutionEventKinds.SequenceCancelled
         };
-        Add(new(sequenceTerminalKind, sequenceNodeId, sequenceInvocationId, null, null, null, null));
+        Add(new(sequenceTerminalKind, sequenceNodeId, sequenceInvocationId, null, null, null, null,
+            sequenceTerminalKind == ExecutionEventKinds.SequenceBreakCompleted ? "break" : null));
     }
 
     private void Add(SequenceRuntimeEvent runtimeEvent)
@@ -248,4 +253,5 @@ internal sealed record SequenceRuntimeEvent(
     string? OutputId,
     int? Ordinal,
     Guid? ActivationId,
-    string? ConnectionId);
+    string? ConnectionId,
+    string? Reason = null);

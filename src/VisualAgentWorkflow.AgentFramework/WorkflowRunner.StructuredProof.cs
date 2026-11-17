@@ -815,6 +815,8 @@ public sealed partial class WorkflowRunner
                     var frame = message.ActivationFrame ?? activationFrame
                         ?? throw new InvalidOperationException("The structured proof Break has no active iterator frame.");
                     var request = new StructuredActivationBreakRequest(nodeId, frame.Id, frame.ScopeId);
+                    if (!frame.BreakScope.TryRequest(request))
+                        request = frame.BreakScope.Request ?? request;
                     var invocationId = Guid.NewGuid();
                     await Emit(ExecutionEventKinds.NodeStarted, nodeId, invocationId, eventScope: frame.ScopeId);
                     if (afterNodeStarted is not null) await afterNodeStarted(nodeId, token);
@@ -1033,7 +1035,7 @@ public sealed partial class WorkflowRunner
                 {
                     var evidence = new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
                         runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
-                        runtimeEvent.ActivationId, runtimeEvent.ConnectionId);
+                        runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason);
                     await Emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
                         runtimeEvent.ConnectionId, SequenceEvidence.Serialize(evidence));
                 }
@@ -1047,7 +1049,16 @@ public sealed partial class WorkflowRunner
                 var outputTasks = outputEdges.Select(async output =>
                 {
                     var activationId = Guid.NewGuid();
-                    var activation = coordinator.DispatchNext(activationId);
+                    var activation = message.ActivationFrame is { } frame
+                        ? frame.BreakScope.TryAdmit(() => coordinator.DispatchNext(activationId))
+                        : coordinator.DispatchNext(activationId);
+                    if (activation is null)
+                    {
+                        coordinator.StopAdmission();
+                        await FlushSequenceEvents();
+                        return (ActivationId: activationId, OutputId: output.OutputId,
+                            Result: (GraphMessage?)null, Error: (Exception?)null);
+                    }
                     await FlushSequenceEvents();
                     var lineage = new SequenceMessageLineage(sequenceInvocationId, nodeId, activation.OutputId,
                         activation.Ordinal, activation.ActivationId!.Value, output.ConnectionId,
@@ -1061,7 +1072,6 @@ public sealed partial class WorkflowRunner
                                 ParallelForkNodeId: message.ParallelForkNodeId,
                                 SequenceLineage: lineage, ActivationFrame: message.ActivationFrame,
                                 CollaborationRuntime: message.CollaborationRuntime), outputsCancellation.Token);
-                        if (result?.ActivationBreakRequest is not null) outputsCancellation.Cancel();
                         if (result is null)
                             return (ActivationId: activationId, OutputId: output.OutputId, Result: (GraphMessage?)null,
                                 Error: (Exception?)new InvalidOperationException($"Sequence output '{output.OutputId}' produced no result."));
@@ -1093,6 +1103,11 @@ public sealed partial class WorkflowRunner
                     .FirstOrDefault(result => result?.ActivationBreakRequest is not null);
                 if (breakResult is not null)
                 {
+                    coordinator.StopAdmission(successfulBreak: true);
+                    foreach (var completed in outcomes.Where(outcome => outcome.Result is not null))
+                        coordinator.Complete(completed.ActivationId, SequenceTerminalState.Completed,
+                            completed.Result!.Text);
+                    await FlushSequenceEvents();
                     await Emit("sequence.aborted", nodeId, sequenceInvocationId,
                         data: JsonSerializer.Serialize(breakResult.ActivationBreakRequest,
                             new JsonSerializerOptions(JsonSerializerDefaults.Web)));

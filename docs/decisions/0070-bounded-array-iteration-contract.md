@@ -3221,3 +3221,28 @@ source cannot receive a descendant Break between its output admissions. This
 is a failing result for the required A-active/B-admitted gate, not evidence that
 the desired contract should change. Keep Break withheld and continue scheduler
 mechanism work; no architecture is selected.
+
+### Private integrated Sequence/Break evidence proof (2026-11-17)
+
+The private production-body proof now uses the structured scheduler to admit
+output B while output A's real Agent executor remains active, atomically reject
+the undispatched C suffix after Break, and wait for A to settle. The focused
+proof records and reopens identical file and SQLite histories. It remains a
+test-only proof path and does not alter the production Sequence guard, public
+schema, or Studio authoring.
+
+A three-role adjudication selected a distinct successful-Break lifecycle
+terminal, `sequence.break_completed`, with version-1 Sequence evidence carrying
+reason `break`. It is emitted only after admissions close, all admitted outputs
+settle, and skipped suffix evidence is recorded. Passive playback reports
+`break-completed`, requires a contiguous completed prefix followed by at least
+one skipped suffix output, and rejects missing/incorrect reason, active work,
+or events after the terminal. Ordinary `sequence.completed` continues to mean
+all outputs completed; failed and cancelled terminals retain their meanings.
+Older readers that do not recognize the new event may display only a running
+prefix; they must not reinterpret it as ordinary completion. This narrows the
+private evidence gap only. Public iterator/Break readiness remains **REVISE**
+until the supported-body, race, failure/unknown, shared-budget, persistence,
+and playback matrix passes and receives a new architecture review. The
+user-facing guide is unchanged because this behavior is not shipped or
+authorable.

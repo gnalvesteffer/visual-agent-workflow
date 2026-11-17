@@ -75,6 +75,40 @@ public sealed class SequenceEvidenceTests
     }
 
     [Fact]
+    public void Playback_reconstructs_successful_break_only_after_completed_prefix_and_skipped_suffix()
+    {
+        var sequenceId = Guid.NewGuid();
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var activation = Guid.NewGuid();
+        var events = new[]
+        {
+            Lifecycle(runId, revisionId, 1, ExecutionEventKinds.SequenceStarted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null)),
+            Lifecycle(runId, revisionId, 2, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+                new(sequenceId, "sequence", "first", 0, activation, "connection-a")),
+            Lifecycle(runId, revisionId, 3, ExecutionEventKinds.SequenceOutputCompleted, sequenceId,
+                new(sequenceId, "sequence", "first", 0, activation, "connection-a")),
+            Lifecycle(runId, revisionId, 4, ExecutionEventKinds.SequenceOutputSkipped, sequenceId,
+                new(sequenceId, "sequence", "second", 1, null, "connection-b")),
+            Lifecycle(runId, revisionId, 5, ExecutionEventKinds.SequenceBreakCompleted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null, Reason: "break"))
+        };
+
+        Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var snapshot));
+        Assert.Equal("break-completed", snapshot!.Status);
+        Assert.Equal(["completed", "skipped"], snapshot.Outputs.Select(output => output.State));
+        Assert.False(SequenceEvidence.TryReconstructPlayback(events.Select(evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted
+            ? evt with { Data = SequenceEvidence.Serialize(new(sequenceId, "sequence", null, null, null, null)) }
+            : evt), out _));
+
+        var earlyTerminal = events.Take(3).Append(events[^1] with { Sequence = 4,
+            Data = SequenceEvidence.Serialize(new(sequenceId, "sequence", null, null, null, null, Reason: "break")) })
+            .Append(events[3] with { Sequence = 5 }).ToArray();
+        Assert.False(SequenceEvidence.TryReconstructPlayback(earlyTerminal, out _));
+    }
+
+    [Fact]
     public void Legacy_sequence_evidence_remains_usable_by_the_nested_reader_without_agent_events()
     {
         var sequenceId = Guid.NewGuid();

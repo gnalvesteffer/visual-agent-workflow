@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace VisualAgentWorkflow.Core;
 
@@ -10,7 +11,8 @@ public sealed record SequenceLifecycleEvidence(
     int? Ordinal,
     Guid? ActivationId,
     string? ConnectionId,
-    int Version = 1);
+    int Version = 1,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Reason = null);
 
 public static class SequenceEvidence
 {
@@ -23,6 +25,7 @@ public static class SequenceEvidence
         ExecutionEventKinds.SequenceOutputCancelled,
         ExecutionEventKinds.SequenceOutputSkipped,
         ExecutionEventKinds.SequenceCompleted,
+        ExecutionEventKinds.SequenceBreakCompleted,
         ExecutionEventKinds.SequenceFailed,
         ExecutionEventKinds.SequenceCancelled
     };
@@ -70,6 +73,9 @@ public static class SequenceEvidence
         foreach (var executionEvent in events)
         {
             if (!TryRead(executionEvent, out var evidence) || evidence is null || terminal)
+                return false;
+            if ((executionEvent.Kind == ExecutionEventKinds.SequenceBreakCompleted && evidence.Reason != "break") ||
+                (executionEvent.Kind != ExecutionEventKinds.SequenceBreakCompleted && evidence.Reason is not null))
                 return false;
             if (executionEvent.NodeId != evidence.SequenceNodeId ||
                 executionEvent.InvocationId != evidence.SequenceInvocationId ||
@@ -123,6 +129,23 @@ public static class SequenceEvidence
                     if (activeActivations.Count != 0 || outputs.Count == 0 || outputs.Values.Any(output => output.State != "completed"))
                         return false;
                     status = "completed";
+                    terminal = true;
+                    break;
+                case ExecutionEventKinds.SequenceBreakCompleted:
+                    if (activeActivations.Count != 0 || outputs.Count == 0 ||
+                        outputs.Values.Any(output => output.State is not ("completed" or "skipped")) ||
+                        !outputs.Values.Any(output => output.State == "skipped"))
+                        return false;
+                    var orderedOutputs = outputs.Values.OrderBy(output => output.Ordinal).ToArray();
+                    var skippedSeen = false;
+                    for (var index = 0; index < orderedOutputs.Length; index++)
+                    {
+                        var output = orderedOutputs[index];
+                        if (output.Ordinal != index) return false;
+                        if (output.State == "skipped") skippedSeen = true;
+                        else if (skippedSeen) return false;
+                    }
+                    status = "break-completed";
                     terminal = true;
                     break;
                 case ExecutionEventKinds.SequenceFailed:

@@ -546,15 +546,31 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
     internal sealed class ActivationAbortScope
     {
+        private readonly object gate = new();
         private StructuredActivationBreakRequest? request;
 
-        public bool IsRequested => Volatile.Read(ref request) is not null;
+        public bool IsRequested { get { lock (gate) return request is not null; } }
 
-        public bool TryRequest(StructuredActivationBreakRequest value) =>
-            Interlocked.CompareExchange(ref request, value, null) is null;
+        public StructuredActivationBreakRequest? Request { get { lock (gate) return request; } }
+
+        public bool TryRequest(StructuredActivationBreakRequest value)
+        {
+            lock (gate)
+            {
+                if (request is not null) return false;
+                request = value;
+                return true;
+            }
+        }
 
         public bool Matches(StructuredActivationBreakRequest value) =>
-            Equals(Volatile.Read(ref request), value);
+            Request == value;
+
+        public T? TryAdmit<T>(Func<T> admission) where T : class
+        {
+            ArgumentNullException.ThrowIfNull(admission);
+            lock (gate) return request is null ? admission() : null;
+        }
     }
 
     internal sealed record StructuredActivationFrame(Guid Id, StructuredActivationFrame? Parent,

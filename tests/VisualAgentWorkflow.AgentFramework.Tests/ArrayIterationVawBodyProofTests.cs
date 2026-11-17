@@ -7044,7 +7044,7 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Fact]
-    public async Task StructuredActivationSequenceProof_BreakAbortsSequenceWithoutPublishingOutputCompletion()
+    public async Task StructuredActivationSequenceProof_BreakCompletesAdmittedOutputAndSkipsSuffix()
     {
         var definition = SequenceBodyDefinition();
         var nodes = definition.Nodes.SetItem("inventory-tool",
@@ -7071,10 +7071,118 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.False(result.Failed);
         Assert.Equal(string.Empty, result.Output);
         Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
-        Assert.Single(recorded, evt => evt.Kind == "sequence.aborted" && evt.NodeId == "sequence");
-        Assert.DoesNotContain(recorded, evt => evt.Kind is ExecutionEventKinds.SequenceOutputCompleted or
-            ExecutionEventKinds.SequenceCompleted);
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted && evt.NodeId == "sequence");
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted && evt.NodeId == "sequence");
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.NodeId == "sequence");
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
         Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredActivationSequenceProof_BreakSkipsOnlyUnadmittedSuffixAndDrainsAdmittedAgent(bool sqlite)
+    {
+        var body = SequenceBodyDefinition();
+        var nodes = body.Nodes
+            .SetItem("sequence", body.Nodes["sequence"] with
+            {
+                Sequence = new([new("inventory", "Inventory"), new("architecture", "Architecture"),
+                    new("quality", "Quality")])
+            })
+            .SetItem("inventory-tool", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new AgentConfiguration("proof.settlement", null, "Wait for release.", []) { MaxTurns = 1 }))
+            .SetItem("architecture-tool", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"))
+            .Add("quality-tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("proof.quality", new string('c', 64)))
+            { McpArgumentsJson = "{\"query\":\"sequence\"}" });
+        var definition = body with
+        {
+            Nodes = nodes,
+            ExecutionConnections = body.ExecutionConnections!
+                .SetItem("inventory-output", Edge("inventory-tool", "out", "output", "execute"))
+                .Add("sequence-quality", Edge("sequence", "then.quality", "quality-tool", "execute"))
+                .Add("quality-output", Edge("quality-tool", "then", "output", "execute")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "array-iteration-sequence-break-drains-admitted-output");
+        using var runStore = new ProofRunStore(revision, "[\"stop\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new ControlledSettlementAgentExecutor("inventory-tool");
+        var tools = new EchoToolBroker();
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "architecture-tool")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        static string ReadSequenceOutputId(ExecutionEvent evt)
+        {
+            if (!SequenceEvidence.TryRead(evt, out var evidence))
+                throw new Xunit.Sdk.XunitException("Sequence lifecycle evidence could not be read.");
+            return evidence?.OutputId ?? throw new Xunit.Sdk.XunitException("Sequence lifecycle evidence has no output ID.");
+        }
+
+        var execution = new WorkflowRunner(tools, agents).ExecuteStructuredActivationSequenceProofAsync(
+            runStore.RunId, revision, "[\"stop\"]", "index", null, Record);
+        try
+        {
+            var startedOrCompleted = await Task.WhenAny(agents.Started.Task, execution)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            if (startedOrCompleted == execution)
+            {
+                var early = await execution;
+                throw new Xunit.Sdk.XunitException($"Sequence body ended before the Agent started (failed={early.Failed}): " +
+                    string.Join(" | ", recorder.Snapshot().Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+            }
+            await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var duringBreak = recorder.Snapshot();
+            var dispatched = duringBreak.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched)
+                .Select(ReadSequenceOutputId).ToArray();
+            Assert.Equal(["inventory", "architecture"], dispatched);
+            Assert.True(duringBreak.Single(evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "inventory-tool").Sequence < duringBreak.Single(evt =>
+                evt.Kind == ExecutionEventKinds.SequenceOutputDispatched && ReadSequenceOutputId(evt) == "architecture").Sequence,
+                "The second output must be admitted after the first output's Agent is already active.");
+            Assert.Contains(duringBreak, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+                ReadSequenceOutputId(evt) == "quality");
+            Assert.DoesNotContain(duringBreak, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+                evt.NodeId == "inventory-tool");
+            Assert.False(execution.IsCompleted, "Break must wait for the already admitted Agent output to settle.");
+
+            agents.Release.TrySetResult();
+            var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+            var recorded = recorder.Snapshot();
+            Assert.False(result.Failed);
+            Assert.DoesNotContain(tools.Queries, query => query.Contains("sequence", StringComparison.Ordinal));
+            Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+                ReadSequenceOutputId(evt) == "inventory");
+            Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+                ReadSequenceOutputId(evt) == "architecture");
+            Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+                ReadSequenceOutputId(evt) == "quality");
+            var breakTerminal = Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
+            Assert.Equal("break", JsonDocument.Parse(breakTerminal.Data!).RootElement.GetProperty("reason").GetString());
+            Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+            AssertPersistedSequence(runStore, recorded, "completed");
+            var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+            Assert.Equal(recorded, reopened.Events);
+            Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+            Assert.Equal("break-completed", playback!.Status);
+            Assert.Equal(["inventory", "architecture", "quality"], playback.Outputs.Select(output => output.OutputId));
+        }
+        finally
+        {
+            agents.Release.TrySetResult();
+            if (!execution.IsCompleted) await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        }
     }
 
     [Fact]

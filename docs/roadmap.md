@@ -195,10 +195,15 @@ introduced.
   admission-versus-Break atomic, drain admitted scopes, and skip only the
   undispatched suffix. The private Sequence ledger/coordinator now serializes
   `DispatchNext` against `StopAdmission`; dispatched work stays open until it
-  settles. Its synchronized race regression and focused ledger/coordinator
-  tests pass (11/11), and the Agent Framework suite passes (798/798). This
-  proves the admission primitive only; production dispatch integration and
-  the Break-enabled Sequence body remain open. Prove one VAW owner for frames,
+  settles. A private integrated production-body proof now confirms that a real
+  Agent output remains active while the next output is admitted, Break skips
+  only the undispatched suffix, and the admitted output drains; file and SQLite
+  histories reopen identically. Passive playback now has a distinct
+  `sequence.break_completed` terminal with a versioned reason and validates the
+  completed-prefix/skipped-suffix shape. Focused Core and integration checks
+  are recorded with this increment. This remains a private proof path: the
+  production guard, public schema, and Studio authoring remain unchanged. Prove
+  one VAW owner for frames,
   root lifecycle, and shared budgets, including failure/unknown/cancellation/
   pause/stop races and file/SQLite playback. See the latest review entry in
   [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). A
