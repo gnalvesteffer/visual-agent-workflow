@@ -5278,6 +5278,10 @@ public sealed class ArrayIterationVawBodyProofTests
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal("running", reopened.Status);
         Assert.Equal(events, reopened.Events);
+        // The failure-first private proof emits NodeFailed for the loop frame
+        // without a matching NodeStarted; reconciliation must surface that
+        // generic lifecycle gap as incomplete correlation.
+        AssertMixedToolReconciliation(reopened, !unknownFirst, "tool-research", "tool-review");
         var playback = await RenderPlayback(reopened);
         Assert.Contains("Latest run status: running", playback, StringComparison.Ordinal);
         Assert.Contains(ExecutionEventKinds.ToolFailed, playback, StringComparison.Ordinal);
@@ -5348,6 +5352,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(snapshot.Status, reopened.Status);
         Assert.Equal(events, reopened.Events);
+        AssertMixedToolReconciliation(reopened, false, "tool-research", "tool-review");
         var playback = await RenderPlayback(reopened);
         Assert.Contains($"Latest run status: {snapshot.Status}", playback, StringComparison.Ordinal);
         Assert.Contains(ExecutionEventKinds.ToolFailed, playback, StringComparison.Ordinal);
@@ -5443,10 +5448,31 @@ public sealed class ArrayIterationVawBodyProofTests
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(snapshot.Status, reopened.Status);
         Assert.Equal(events, reopened.Events);
+        AssertMixedToolReconciliation(reopened, false, "inventory-tool", "architecture-tool");
         var playback = await RenderPlayback(reopened);
         Assert.Contains(ExecutionEventKinds.ToolFailed, playback, StringComparison.Ordinal);
         Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
         Assert.DoesNotContain("Latest run status: completed", playback, StringComparison.Ordinal);
+    }
+
+    private static RunReconciliation AssertMixedToolReconciliation(RunSnapshot snapshot,
+        bool hasIncompleteCorrelation, params string[] expectedNodeIds)
+    {
+        var report = WorkflowRunReconciliation.Assess(snapshot, null);
+        Assert.Equal(snapshot.Status, report.Status);
+        Assert.Equal(RunRecoveryDisposition.UnresolvedWork, report.Disposition);
+        Assert.Equal(expectedNodeIds.Length, report.TotalUnresolvedWork);
+        Assert.Equal(expectedNodeIds.Length, report.UnresolvedWork.Length);
+        Assert.Equal(hasIncompleteCorrelation, report.HasIncompleteCorrelation);
+        Assert.Equal(expectedNodeIds.Order(StringComparer.Ordinal),
+            report.UnresolvedWork.Select(item => item.NodeId).Order(StringComparer.Ordinal));
+        Assert.All(report.UnresolvedWork, item =>
+        {
+            Assert.Equal(UnresolvedWorkKind.Tool, item.Kind);
+            Assert.Equal(UnresolvedWorkState.OutcomeUnknown, item.State);
+            Assert.NotNull(item.CallId);
+        });
+        return report;
     }
 
     [Theory]

@@ -3327,6 +3327,35 @@ missing historical records. Current proof does not establish that projection;
 add coverage for no effects, resolved effects, success, cancellation, and
 incomplete correlation before selecting or shipping that contract.
 The complete Agent Framework suite passes after this increment (822/822).
+
+### Run evidence projection follow-up audit (2026-11-17)
+
+The recommended separation already exists at the Core/Hosting boundary:
+`RunSnapshot.Status` remains the root execution disposition, while
+`WorkflowWorkEvidence.Read` derives outstanding work from correlated events
+and `WorkflowRunReconciliation.Assess` returns that work beside the unchanged
+status. `UnresolvedWork`, `TotalUnresolvedWork`, and
+`HasIncompleteCorrelation` preserve unsettled tool calls and ambiguous or
+malformed evidence independently of terminal status. Existing Core tests cover
+resolved and unresolved calls, no outstanding requests, terminal work,
+pre/post-authorization failure, and incomplete legacy correlation. The
+identified cross-layer gap is now covered: three mixed-outcome matrices assert
+that reopened file/SQLite evidence retains the unchanged root status and two
+separately correlated unresolved tool calls with the `UnresolvedWork`
+disposition (12 focused cases pass). Both settlement orders remain visible,
+including after terminal-append rejection and host cancellation, and after
+Sequence Break. This projection describes recorded calls only; it cannot detect
+external effects for which no event was persisted.
+
+The tests also preserve a private-harness lifecycle difference: on failure-first
+terminal-append rejection, the coordinator emits `node.failed` for the
+array-loop frame without a matching `node.started`, so
+`HasIncompleteCorrelation` is true; on unknown-first rejection that failure
+event is absent and the flag is false. Tool-call identities remain complete in
+both orders. Do not generalize this test-only loop event shape to the public
+iterator contract. The projection cross-check is complete for these cases, but
+closes no iterator architecture gate and selects no new API. Keep the
+architecture and public authoring gate **REVISE**.
 Until that proof and a subsequent review are complete, the integrated
 Sequence/Break proof remains private; the production guard, public schema, and
 Studio authoring do not change.
