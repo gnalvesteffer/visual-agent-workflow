@@ -187,13 +187,15 @@ introduced.
   failure/race, shared-budget, persistence, and playback matrix, followed by a
   fresh three-role architecture review. Do not introduce public iterator/Break
   schema or Studio authoring until that seam passes and the review selects the
-  architecture. A 2026-11-17 three-role review allows a private Sequence/Break
-  integration experiment but does not select the hybrid or remove its current
-  Sequence guard. The production Sequence path queues configured outputs
-  through a separate source/collector settlement path; the experiment must
-  prove one VAW owner for frames, root lifecycle, and shared budgets, including
-  Break/failure/unknown/cancellation races and file/SQLite playback. See the
-  latest review entry in [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  architecture. **Private integrated Sequence/Break activation proof — in
+  progress; runtime architecture and public contracts unselected.** The
+  production Sequence path queues configured outputs through a separate
+  source/collector settlement path. Follow the Blueprint contract: ordered
+  output admission without waiting for earlier latent descendants; make
+  admission-versus-Break atomic, drain admitted scopes, and skip only the
+  undispatched suffix. Prove one VAW owner for frames, root lifecycle, and
+  shared budgets, including failure/unknown/cancellation/pause/stop races and
+  file/SQLite playback. See the latest review entry in [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   The integrated `array<json>` body proof covers successful
   transforms and an Append result exceeding the 16 KiB bound: the failure is
   attributed to Append, later items and completion are suppressed, and file/

@@ -3135,3 +3135,26 @@ reconstruct the same outcome through both file and SQLite stores. If satisfying
 those requirements needs a second independent settlement/lifecycle/budget
 protocol, record the hybrid experiment as inconclusive and return to scheduler
 selection. No runtime behavior changed as part of this review.
+
+### Ordered-admission clarification (2026-11-17)
+
+A follow-up three-role review returned **REVISE** and tightened the experiment
+contract. The Blueprint reference promises ordered Sequence output dispatch,
+but no barrier waiting for latent descendants. Therefore the proof must not
+wait for output A's complete descendant scope before admitting output B. It
+must record an atomic admission boundary, allow already admitted descendants
+to overlap, and prevent only the outputs not yet admitted when Break wins that
+boundary. Output admission order is observable; descendant start, side-effect,
+and completion order are not guaranteed.
+
+The one VAW-owned coordinator for admission, frames, shared budgets, and root
+lifecycle remains a proof obligation rather than a selected architecture.
+Before changing the existing Sequence guard, the private production-body proof
+must cover: an active A while B is admitted; Break before, between, and racing
+with admission; skipped undispatched suffix evidence; draining the complete
+admitted scopes; nearest-frame targeting; failure, unknown MCP outcome,
+cancellation, pause/stop, and budget exhaustion; and file/SQLite reopen with
+passive playback. Existing termination, linear, and bounded-loop behavior must
+remain intact. If the seam needs a second owner or waits for descendant
+completion before admitting the next output, return to architecture review.
+This remains an integration experiment, not shipped Sequence/Break parity.
