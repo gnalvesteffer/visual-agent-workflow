@@ -7379,9 +7379,12 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ConcurrentProductionBodyCoordinator_SharesToolDispatchBudget(bool sqlite)
+    [InlineData(false, "tool-dispatches")]
+    [InlineData(true, "tool-dispatches")]
+    [InlineData(false, "outcome-reservations")]
+    [InlineData(true, "outcome-reservations")]
+    public async Task ConcurrentProductionBodyCoordinator_SharesToolAdmissionBudgets(bool sqlite,
+        string constrainedBudget)
     {
         const string bindingId = "proof.concurrent-tool-budget";
         const string input = "[\"first\",\"second\",\"must-not-run\"]";
@@ -7422,10 +7425,14 @@ public sealed class ArrayIterationVawBodyProofTests
             return ValueTask.CompletedTask;
         }
 
+        var budget = StructuredRunBudget(maximumToolDispatches:
+            constrainedBudget == "tool-dispatches" ? 1 : 2) with
+        {
+            MaximumConcurrentOutcomeReservations = constrainedBudget == "outcome-reservations" ? 1 : 2
+        };
         var execution = new WorkflowRunner(tools: broker)
             .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
-                input, "index", null, Record,
-                runBudget: StructuredRunBudget(maximumToolDispatches: 1));
+                input, "index", null, Record, runBudget: budget);
         try
         {
             await Task.WhenAll(broker.DispatchStarted.Task, budgetRejected.Task)

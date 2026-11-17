@@ -3545,16 +3545,16 @@ coordinator. It does not qualify concurrent MCP cancellation/reservation
 races, host pause-control event integration, uncontrolled scheduler races, or
 public iterator behavior.
 
-### Shared tool-dispatch budget under concurrent body admission (2026-11-17)
+### Shared tool admission budgets under concurrent body admission (2026-11-17)
 
-With two body activations admitted concurrently and a root tool-dispatch limit
-of one, the private coordinator permits exactly one correlated authorization
-to reach the controlled MCP broker. The competing activation fails before
-dispatch. The admitted tool settles, the failed run drains without admitting a
-third item, and file/SQLite reopen plus passive playback agree (2/2 focused
-cases).
+Two concurrent body activations now contend against separate root limits: a
+tool-dispatch count of one, and one outstanding tool-outcome reservation. In
+both cases the private coordinator admits both bodies, allows exactly one
+correlated authorization to reach the controlled MCP broker, and rejects the
+competing activation before dispatch. The admitted tool settles, the failed
+run drains without admitting a third item, and file/SQLite reopen plus passive
+playback agree (4/4 focused cases).
 
-This proves the root tool-dispatch count ceiling across concurrent body
-activations. It does not qualify contention for event/byte budgets or concurrent
-outcome-reservation slots, and it does not establish a production-owned budget
-contract for public iterator execution.
+This proves these two MCP admission limits across concurrent body activations.
+It does not qualify event/byte budget contention or establish a
+production-owned budget contract for public iterator execution.

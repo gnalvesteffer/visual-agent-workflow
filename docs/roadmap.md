@@ -298,12 +298,13 @@ introduced.
   cancellation survive, the admitted iteration is recorded cancelled, no
   later item is admitted, and root status remains cancelled while reconciliation
   reports the uncertain tool (2/2 file/SQLite cases).
-  A concurrent two-item case also contends for a root tool-dispatch limit of
-  one: both bodies are admitted, exactly one authorization reaches the broker,
-  the other fails before dispatch, the admitted call settles, and the run fails
+  Concurrent two-item proofs now exercise a root tool-dispatch limit of one
+  and an outcome-reservation slot limit of one. In both cases, two bodies are
+  admitted, exactly one authorization reaches the broker, the other fails
+  before dispatch, and the admitted call settles before the failed run ends
   without admitting a third item. File/SQLite reopen and passive run playback
-  agree (2/2 focused cases). Concurrent outcome-reservation races, event/byte
-  budget contention, and a production-owned iterator budget remain unproven.
+  agree (4/4 focused cases). Event/byte budget contention and a
+  production-owned iterator budget remain unproven.
   The
   production Break guard remains in place. A separate three-role review of
   mixed known-failure and unresolved-MCP outcomes returned REVISE because the
