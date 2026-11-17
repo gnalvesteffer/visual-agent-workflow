@@ -2548,9 +2548,20 @@ typed string-array variable body. All candidates record the same scoped
 failure, suppress the write and item completion, stop before the next item,
 and reopen identical file/SQLite histories (24 candidate/store executions; 8
 focused theory cases). This extends the four JSON-array operation failures to
-a non-JSON type; other element types and failure modes remain open. The
-complete Agent Framework test project passed 747/747 before the later graph-
-function failure proof was added. That result is broad regression evidence,
+a non-JSON type; other element types and failure modes remain open.
+
+`IteratorCandidates_AttributeJsonArrayAppendOverflowAcrossCandidates`
+initializes the activation variable just below the typed-array payload limit
+and appends the current JSON item so the result exceeds 16 KiB. All three
+candidates attribute `node.failed` to Append, suppress the variable write,
+iteration completion, and next item, and reopen identical file/SQLite
+histories (6 candidate/store runs; 2 focused theory cases). This covers one
+payload-bound failure only; shared-budget exhaustion and recorder/store failure
+remain distinct.
+
+The complete Agent Framework suite previously passed 747/747 before the later
+graph-function failure, expanded typed-operation, and Append-overflow
+comparisons. That result is broad regression evidence for its tested snapshot,
 not completion of the supported-body, lifecycle/budget, playback, or
 architecture-review gates.
 

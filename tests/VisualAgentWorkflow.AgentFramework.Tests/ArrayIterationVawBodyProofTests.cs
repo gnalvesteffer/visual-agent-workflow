@@ -7916,6 +7916,121 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IteratorCandidates_AttributeJsonArrayAppendOverflowAcrossCandidates(bool sqlite)
+    {
+        var seedValue = JsonSerializer.Serialize(new[]
+        {
+            new string('x', WorkflowArrayLiteral.MaximumPayloadBytes - 8)
+        });
+        Assert.True(seedValue.Length < WorkflowArrayLiteral.MaximumPayloadBytes);
+        const string input = "[{\"kind\":\"append\"},{\"kind\":\"must-not-run\"}]";
+        var definition = JsonArrayOperationsItemBodyDefinition();
+        definition = definition with
+        {
+            Variables = definition.Variables!.SetItem("items",
+                new WorkflowVariableDefinition("Items", seedValue) { Type = WorkflowDataTypes.JsonArray })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition, "array-iteration-json-array-append-overflow-proof");
+        var structured = await RunCandidateAsync("structured");
+        var subworkflow = await RunCandidateAsync("fresh-subworkflow");
+        var hybrid = await RunCandidateAsync("hybrid");
+        using var structuredStore = structured.Store;
+        using var subworkflowStore = subworkflow.Store;
+        using var hybridStore = hybrid.Store;
+
+        foreach (var candidate in new[] { structured, subworkflow, hybrid })
+        {
+            var events = candidate.Events;
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+            var appendFailure = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+                evt.NodeId == "append" && evt.ScopeId == "array-loop/0");
+            Assert.Contains($"Typed array result exceeds {WorkflowArrayLiteral.MaximumPayloadBytes} UTF-8 bytes",
+                appendFailure.Data, StringComparison.Ordinal);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+            AssertPersistedSequence(candidate.Store, events, "failed");
+            Assert.Equal(events, candidate.Store.ReopenStore().Get(candidate.Store.RunId)!.Events);
+        }
+        Assert.Equal(FailureShape(structured.Events), FailureShape(subworkflow.Events));
+        Assert.Equal(FailureShape(structured.Events), FailureShape(hybrid.Events));
+
+        async Task<(ExecutionEvent[] Events, ProofRunStore Store)> RunCandidateAsync(string candidate)
+        {
+            var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ProofRecorder(store, startRoot: candidate != "structured");
+            var tools = new EchoToolBroker();
+            var agents = new EchoAgentExecutor();
+
+            if (candidate == "structured")
+            {
+                try
+                {
+                    var result = await new WorkflowRunner(tools, agents)
+                        .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                            evt => { recorder.Append(evt); return ValueTask.CompletedTask; },
+                            arrayElementType: WorkflowDataTypes.Json);
+                    Assert.True(result.Failed);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Structured node evaluation can surface the same failure as an exception.
+                }
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder, agents, tools,
+                    arrayElementType: WorkflowDataTypes.Json);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var sawWorkflowError = false;
+                await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input))
+                    await foreach (var evt in run.WatchStreamAsync())
+                        sawWorkflowError |= evt is WorkflowErrorEvent;
+                Assert.True(sawWorkflowError);
+                recorder.FailRoot();
+            }
+            else
+            {
+                var error = await Record.ExceptionAsync(async () =>
+                    await RunActivationLoopProofAsync(store.RunId, revision, recorder, agents, tools, "array-loop",
+                        ParseProofArrayItems(input, WorkflowDataTypes.Json), null, "index", [], async frame =>
+                        {
+                            ValueTask Record(ExecutionEvent evt)
+                            {
+                                if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                                    ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+                                    ExecutionEventKinds.Terminated)
+                                    return ValueTask.CompletedTask;
+                                recorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                                return ValueTask.CompletedTask;
+                            }
+
+                            var result = await new WorkflowRunner(tools, agents).ExecuteWithOutcomeAsync(
+                                store.RunId, revision, frame.Item, frame.Parameters, Record);
+                            if (result.Failed || result.Output is null)
+                                throw new InvalidOperationException("Hybrid JSON-array append failed.");
+                            return new ActivationLoopProofValue(result.Output);
+                        }));
+                Assert.NotNull(error);
+                recorder.FailRoot();
+            }
+
+            var events = recorder.Snapshot();
+            AssertPersistedSequence(store, events, "failed");
+            return (events, store);
+        }
+
+        static (string Kind, string? NodeId, string? ScopeId)[] FailureShape(
+            IEnumerable<ExecutionEvent> events) => events.Where(evt => evt.Kind is
+                ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or
+                ExecutionEventKinds.NodeFailed or ExecutionEventKinds.VariableWritten)
+            .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
+    }
+
+    [Theory]
     [InlineData("get", false)]
     [InlineData("get", true)]
     [InlineData("insert", false)]

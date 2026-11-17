@@ -849,7 +849,14 @@ introduced.
       (8/8 focused theory cases). This extends failure parity beyond
       `array<json>`; other typed element types and operation failure modes
       remain open. The owning Agent Framework suite passed 747/747 before the
-      later graph-function failure proof was added.
+      later graph-function failure, typed-operation expansion, and
+      append-overflow comparisons were added.
+    - [x] Compare JSON Array Append payload overflow across all three
+      candidates and both stores. All attribute the 16 KiB failure to Append,
+      suppress Variable Set, item completion, and the next item, and reopen
+      identically (2/2 focused theory cases). This covers one payload-bound
+      failure; shared-budget exhaustion and recorder/store failures remain
+      distinct.
   - [x] Compare a pinned graph-function result and nested evaluation evidence
     over three changing items. All candidates agree on output, function inputs,
     evaluated values, and per-item scopes; file and SQLite persistence passes
