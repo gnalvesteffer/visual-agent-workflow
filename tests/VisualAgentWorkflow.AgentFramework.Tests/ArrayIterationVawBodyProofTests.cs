@@ -7216,6 +7216,120 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_ScopeWorkflowInterfaceCallOutputsAcrossAllCandidates(bool sqlite)
+    {
+        const string input = "[\"alpha\",\"beta\",\"gamma\"]";
+        var source = PinnedWorkflowInterfaceBodyRevision();
+        var definition = source.Definition with
+        {
+            Parameters = source.Definition.Parameters!
+                .Add("item", new("Array item", string.Empty) { Type = WorkflowDataTypes.String })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition, "array-iteration-interface-call-output-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+
+        var structured = await new WorkflowRunner().ExecuteStructuredActivationSequenceProofAsync(
+            structuredStore.RunId, revision, input, "index", null, evt =>
+            {
+                structuredRecorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }, itemParameterId: "item");
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, new EchoAgentExecutor(), new EchoToolBroker());
+        var subworkflow = new WorkflowBuilder(subworkflowIterator).WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflow, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            new EchoAgentExecutor(), new EchoToolBroker(), "array-loop",
+            ParseProofArrayItems(input, WorkflowDataTypes.String), null, "index", [], async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+                        ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    var eventScope = evt.ScopeId is null ? frame.ScopeId : $"{frame.ScopeId}/{evt.ScopeId}";
+                    var data = evt.Data;
+                    if (evt.Kind == ExecutionEventKinds.SubworkflowEvidence &&
+                        WorkflowCallLifecycleEvidence.TryRead(data, out var evidence))
+                        data = (evidence! with { ChildScopeId = eventScope }).Serialize();
+                    hybridRecorder.Append(evt with { ScopeId = eventScope, Data = data });
+                    return ValueTask.CompletedTask;
+                }
+
+                var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(hybridStore.RunId, revision,
+                    frame.Item, frame.Parameters, Record);
+                if (result.Failed || result.Output is null)
+                    throw new InvalidOperationException("The interface-call hybrid body did not return a result.");
+                return new ActivationLoopProofValue(result.Output);
+            });
+        hybridRecorder.CompleteRoot();
+
+        Assert.False(structured.Failed);
+        Assert.Equal("alpha;beta;gamma", structured.Output);
+        Assert.Equal(structured.Output, subworkflowOutput);
+        Assert.Equal(structured.Output, hybridOutput);
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        foreach (var (candidate, store, events) in new[]
+        {
+            ("structured", structuredStore, structuredEvents),
+            ("fresh-subworkflow", subworkflowStore, subworkflowEvents),
+            ("hybrid", hybridStore, hybridEvents)
+        })
+        {
+            AssertPersistedSequence(store, events, "completed");
+            Assert.Equal(events, store.ReopenStore().Get(store.RunId)!.Events);
+            Assert.True(WorkflowCallEvidence.TryReconstructPlayback(events, out var calls),
+                $"WorkflowCall playback did not reconstruct the {candidate} candidate: " +
+                string.Join("\n", events.Where(evt => evt.Kind.StartsWith("subworkflow.", StringComparison.Ordinal))
+                    .Select(evt => $"{evt.Kind} {evt.ScopeId} {evt.Data}")));
+            Assert.Equal(3, calls!.Calls.Count);
+            Assert.All(calls.Calls, call => Assert.Equal("completed", call.State));
+        }
+
+        Assert.Equal(InterfaceOutputEvidence(structuredEvents), InterfaceOutputEvidence(subworkflowEvents));
+        Assert.Equal(InterfaceOutputEvidence(structuredEvents), InterfaceOutputEvidence(hybridEvents));
+        for (var index = 0; index < 3; index++)
+        {
+            var scope = $"array-loop/{index}";
+            var expectedItem = new[] { "alpha", "beta", "gamma" }[index];
+            foreach (var events in new[] { structuredEvents, subworkflowEvents, hybridEvents })
+            {
+                var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                    evt.NodeId == "call" && evt.ScopeId == scope && evt.ConnectionId == "data:call-output");
+                using var payload = JsonDocument.Parse(evaluated.Data!);
+                Assert.Equal(expectedItem, payload.RootElement.GetProperty("value").GetString());
+                Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                    evt.ScopeId == scope);
+            }
+        }
+
+        static (string? NodeId, string? ScopeId, string? ConnectionId, string? Data)[] InterfaceOutputEvidence(
+            IEnumerable<ExecutionEvent> events) => events
+            .Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "call")
+            .Select(evt => (evt.NodeId, evt.ScopeId, evt.ConnectionId, evt.Data))
+            .OrderBy(evt => evt.ScopeId, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_EmptyTypedArrayCompletesWithoutBodyActivation(bool sqlite)
     {
         const string input = "[]";
@@ -16430,7 +16544,12 @@ public sealed class ArrayIterationVawBodyProofTests
                     if (evt.Kind is not (ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
                         ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated))
                     {
-                        var scopedEvent = evt with { ScopeId = scopeId };
+                        var eventScope = evt.ScopeId is null ? scopeId : $"{scopeId}/{evt.ScopeId}";
+                        var data = evt.Data;
+                        if (evt.Kind == ExecutionEventKinds.SubworkflowEvidence &&
+                            WorkflowCallLifecycleEvidence.TryRead(data, out var evidence))
+                            data = (evidence! with { ChildScopeId = eventScope }).Serialize();
+                        var scopedEvent = evt with { ScopeId = eventScope, Data = data };
                         await recordEvent(scopedEvent);
                         if (observeEvent is not null) await observeEvent(scopedEvent);
                     }

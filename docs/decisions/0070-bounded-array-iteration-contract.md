@@ -2500,6 +2500,23 @@ host approval-request persistence, real user decisions, or permission-policy
 behavior. It does not alter the iterator architecture review; readiness
 remains **REVISE**.
 
+## Three-candidate WorkflowInterfaceCall output comparison (2026-11-16)
+
+`IteratorCandidates_ScopeWorkflowInterfaceCallOutputsAcrossAllCandidates`
+compares a pinned interface call across three changing string items in the
+structured dispatcher, fresh Agent Framework subworkflow, and hybrid
+candidates. Each returns the same output and `data.evaluated` values, and
+file/SQLite histories reopen identically. Passive playback reconstructs all
+three completed interface calls for each candidate/store run (6 candidate/
+store executions). This comparison exposed that the fresh-subworkflow and
+hybrid proof adapters flattened child scopes while leaving embedded lifecycle
+evidence at the child-local scope. Both adapters now prefix nested event scopes
+and update the corresponding lifecycle evidence identity before persistence.
+The fix is confined to proof harnesses; it does not change production
+WorkflowCall behavior or select an iterator architecture. Broader output-cache
+families, failure/race comparisons, and shared-budget parity remain open.
+Readiness remains **REVISE**.
+
 `ProductionBodyActivationCoordinator_CancellationWhileAwaitingItemApprovalStopsRun`
 blocks on the explicit approval gate for the first array item, then cancels
 the host token. The production body coordinator records the node and run

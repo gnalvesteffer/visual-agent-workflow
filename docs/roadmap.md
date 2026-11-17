@@ -806,6 +806,12 @@ introduced.
       through both stores (2/2 focused cases). This proves the tested
       WorkflowCall output path; other runtime-output cache families remain
       open.
+    - [x] Compare a pinned `WorkflowInterfaceCall` output across all three
+      candidates for three changing items. Outputs and scoped data-evaluation
+      evidence match; all six candidate/store runs reopen identically and
+      reconstruct three completed child calls from passive playback. This also
+      corrected the fresh-subworkflow and hybrid proof adapters to prefix child
+      scopes and keep embedded lifecycle evidence aligned.
   - [x] Compare a pinned graph-function result and nested evaluation evidence
     over three changing items. All candidates agree on output, function inputs,
     evaluated values, and per-item scopes; file and SQLite persistence passes
