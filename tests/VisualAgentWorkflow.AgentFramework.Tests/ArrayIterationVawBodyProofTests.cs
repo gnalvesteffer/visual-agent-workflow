@@ -4474,6 +4474,74 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_HostCancellationSettlesParallelAgents(bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        var definition = ParallelBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-parallel-agent-host-cancellation-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        using var cancellation = new CancellationTokenSource();
+        var agents = new TwoBranchBlockingAgentExecutor();
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, cancellation.Token);
+        await agents.BothBranchesStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(result.Cancelled);
+        Assert.False(result.Failed);
+        Assert.Equal(["agent-left", "agent-right"], events
+            .Where(evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.ScopeId == "array-loop/0")
+            .Where(evt => evt.NodeId is "agent-left" or "agent-right")
+            .Select(evt => evt.NodeId).Order(StringComparer.Ordinal));
+        foreach (var nodeId in new[] { "agent-left", "agent-right" })
+        {
+            var started = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == nodeId && evt.ScopeId == "array-loop/0");
+            var cancelled = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+                evt.NodeId == nodeId && evt.ScopeId == "array-loop/0");
+            Assert.Equal(started.InvocationId, cancelled.InvocationId);
+        }
+
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId is "agent-left" or "agent-right" or "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+            evt.NodeId == "join");
+        var iterationSettlement = Assert.Single(events, evt =>
+            evt.Kind == ExecutionEventKinds.LoopIterationCompleted && evt.ScopeId == "array-loop/0");
+        using (var settlement = JsonDocument.Parse(iterationSettlement.Data!))
+            Assert.Equal("cancelled", settlement.RootElement.GetProperty("outcome").GetString());
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.NodeId is null && evt.Kind is
+            (ExecutionEventKinds.Failed or ExecutionEventKinds.Completed));
+        AssertPersistedSequence(runStore, events, "cancelled");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: cancelled", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(false, false, false)]
     [InlineData(true, false, false)]
     [InlineData(false, true, false)]

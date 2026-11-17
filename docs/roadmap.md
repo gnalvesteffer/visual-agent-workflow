@@ -357,8 +357,15 @@ introduced.
     - [x] Run a successful two-branch Agent fork and join for two items through
       the production body. Each item retains its own branch outputs, both join
       arrivals, and completed join in reopened file/SQLite playback (2/2
-      focused cases). Fork failure/cancellation and broader parallel-body
-      compositions remain open.
+      focused cases). Production-body host cancellation is also covered below;
+      other fork failure races and broader parallel-body compositions remain
+      open.
+    - [x] Cancel the production-body host after both parallel Agent branches
+      enter. Both matching Agent invocations settle as cancelled; the join and
+      later item are suppressed, the iteration records a cancelled settlement,
+      and file/SQLite reopen preserves the same terminal history (2 focused
+      cases). This covers one synchronized fork-cancellation point; failure
+      races and other parallel-body compositions remain open.
     - [x] Run a parallel direct-MCP fork/join with separate typed query pins
       fed by each current array item through the production body. Both
       correlated tool calls complete per item, each join contains that item's
@@ -888,8 +895,9 @@ introduced.
       proof to a non-JSON element type; shared-budget exhaustion and
       recorder/store failures remain distinct.
     - [x] Re-run the full Agent Framework suite after the graph-function,
-      typed-operation, Append-overflow, and interface/WorkflowCall child
-      failure/cancellation comparisons: 767/767 passed, 0 failed or skipped
+      typed-operation, Append-overflow, interface/WorkflowCall child
+      failure/cancellation, and production parallel-Agent cancellation
+      comparisons: 769/769 passed, 0 failed or skipped
       (6m17s). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or

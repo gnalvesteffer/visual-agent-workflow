@@ -2958,6 +2958,17 @@ beside the existing interface-child comparison; it does not cover parallel
 child settlement or select a production iterator architecture. Readiness
 remains **REVISE**.
 
+`ProductionBodyActivationCoordinator_HostCancellationSettlesParallelAgents`
+adds synchronized host cancellation after both production Agent Framework
+fork branches have entered. Both matching Agent invocations settle as
+cancelled, no join result or later item is admitted, and the current iteration
+is recorded with outcome `cancelled`. Reopened file and SQLite histories
+preserve that terminal event sequence (2 focused store cases). This closes one
+parallel-Agent cancellation point in the private production-body coordinator;
+it does not qualify cancellation races with already-dispatched MCP side
+effects, nested child settlement, or production iterator authoring. Readiness
+remains **REVISE**.
+
 The review explicitly keeps the end state unchanged: typed array iteration
 and nearest-loop Break must be authored in the current unified schema without
 feature-specific schema gates. Checkpoint recovery stays excluded until the
