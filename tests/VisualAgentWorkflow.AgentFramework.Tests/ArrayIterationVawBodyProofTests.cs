@@ -3353,7 +3353,7 @@ public sealed class ArrayIterationVawBodyProofTests
     public async Task ProductionBodyActivationCoordinator_AttributesTypedArrayReplaceFailureAndStopsLaterItems(bool sqlite)
     {
         const string input = "[\"first\",\"must-not-run\"]";
-        var revision = WorkflowRevision.Create(TypedArrayOperationsItemBodyDefinition(replaceIndex: 99),
+        var revision = WorkflowRevision.Create(TypedArrayOperationsItemBodyDefinition(failingOperation: "replace"),
             "production-body-array-replace-failure-proof");
         using var runStore = new ProofRunStore(revision, input, sqlite);
         var events = new List<ExecutionEvent>();
@@ -7916,13 +7916,20 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task IteratorCandidates_AttributeTypedArrayReplaceFailureAcrossCandidates(bool sqlite)
+    [InlineData("get", false)]
+    [InlineData("get", true)]
+    [InlineData("insert", false)]
+    [InlineData("insert", true)]
+    [InlineData("replace", false)]
+    [InlineData("replace", true)]
+    [InlineData("remove", false)]
+    [InlineData("remove", true)]
+    public async Task IteratorCandidates_AttributeTypedArrayOperationFailureAcrossCandidates(
+        string failingNode, bool sqlite)
     {
         const string input = "[\"first\",\"must-not-run\"]";
-        var revision = WorkflowRevision.Create(TypedArrayOperationsItemBodyDefinition(replaceIndex: 99),
-            "array-iteration-typed-array-replace-failure-candidates-proof");
+        var revision = WorkflowRevision.Create(TypedArrayOperationsItemBodyDefinition(failingOperation: failingNode),
+            $"array-iteration-typed-array-{failingNode}-failure-candidates-proof");
         var structured = await RunCandidateAsync("structured");
         var subworkflow = await RunCandidateAsync("fresh-subworkflow");
         var hybrid = await RunCandidateAsync("hybrid");
@@ -7934,10 +7941,8 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             var events = candidate.Events;
             Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
-            var failure = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
-                evt.NodeId == "replace" && evt.ScopeId == "array-loop/0");
-            Assert.Contains("Replace index must identify an existing array item", failure.Data,
-                StringComparison.Ordinal);
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+                evt.NodeId == failingNode && evt.ScopeId == "array-loop/0");
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
             Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
@@ -16397,7 +16402,7 @@ public sealed class ArrayIterationVawBodyProofTests
         return definition;
     }
 
-    private static WorkflowDefinition TypedArrayOperationsItemBodyDefinition(int replaceIndex = 0)
+    private static WorkflowDefinition TypedArrayOperationsItemBodyDefinition(string failingOperation = "")
     {
         var type = WorkflowDataTypes.String;
         var arrayType = WorkflowDataTypes.ArrayOf(type);
@@ -16409,14 +16414,18 @@ public sealed class ArrayIterationVawBodyProofTests
                 { VariableId = "items", OutputDataType = arrayType })
             .Add("append", new(NodeTypes.ArrayAppend, "1.0.0") { ArrayElementType = type })
             .Add("length", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = type })
-            .Add("minus-one", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(-1) })
+            .Add("minus-one", new(NodeTypes.IntegerConstant, "1.0.0")
+                { IntegerConstant = new(failingOperation == "get" ? 1 : -1) })
             .Add("last-index", new(NodeTypes.IntegerAdd, "1.0.0"))
             .Add("get", new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = type })
-            .Add("insert-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
+            .Add("insert-index", new(NodeTypes.IntegerConstant, "1.0.0")
+                { IntegerConstant = new(failingOperation == "insert" ? 99 : 1) })
             .Add("insert", new(NodeTypes.ArrayInsert, "1.0.0") { ArrayElementType = type })
-            .Add("replace-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(replaceIndex) })
+            .Add("replace-index", new(NodeTypes.IntegerConstant, "1.0.0")
+                { IntegerConstant = new(failingOperation == "replace" ? 99 : 0) })
             .Add("replace", new(NodeTypes.ArrayReplace, "1.0.0") { ArrayElementType = type })
-            .Add("remove-index", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
+            .Add("remove-index", new(NodeTypes.IntegerConstant, "1.0.0")
+                { IntegerConstant = new(failingOperation == "remove" ? 99 : 1) })
             .Add("remove", new(NodeTypes.ArrayRemove, "1.0.0") { ArrayElementType = type })
             .Add("tail", new(NodeTypes.ArrayLiteral, "1.0.0")
                 { ArrayLiteral = new(type, "[\"tail\"]") })

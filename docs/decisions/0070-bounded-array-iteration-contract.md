@@ -2542,16 +2542,17 @@ these four deterministic data-operation failures only; it does not establish
 the full deterministic-node failure matrix or alter the architecture
 decision.
 
-`IteratorCandidates_AttributeTypedArrayReplaceFailureAcrossCandidates` also
-injects an invalid Array Replace index into the typed string-array variable
-body. The three candidates preserve the same scoped failure reason, suppress
-the write and item completion, stop before the next item, and reopen identical
-file/SQLite histories (6 candidate/store runs; 2 focused theory cases). This
-extends one failure contract beyond `array<json>`; other typed operation and
-element-type failures remain open. The complete Agent Framework test project
-passes 747/747 with the current candidate comparisons included. This is broad
-regression evidence, not completion of the supported-body, lifecycle/budget,
-playback, or architecture-review gates.
+`IteratorCandidates_AttributeTypedArrayOperationFailureAcrossCandidates`
+injects invalid indices into Array Get, Insert, Replace, and Remove in the
+typed string-array variable body. All candidates record the same scoped
+failure, suppress the write and item completion, stop before the next item,
+and reopen identical file/SQLite histories (24 candidate/store executions; 8
+focused theory cases). This extends the four JSON-array operation failures to
+a non-JSON type; other element types and failure modes remain open. The
+complete Agent Framework test project passed 747/747 before the later graph-
+function failure proof was added. That result is broad regression evidence,
+not completion of the supported-body, lifecycle/budget, playback, or
+architecture-review gates.
 
 `IteratorCandidates_AttributeGraphFunctionFailureAcrossCandidates` runs the
 same pinned `Lookup` function that fails on the second integer item because its

@@ -842,13 +842,14 @@ introduced.
       operation, suppress Variable Set, iteration completion, and the next
       item, and reopen identically (8/8 focused theory cases). Other
       deterministic-node failure shapes remain open.
-    - [x] Compare the invalid-index Array Replace failure for typed string
-      arrays across all three candidates and both stores. Each records the
-      same node-attributed error, suppresses the write, iteration completion,
-      and following item, and reopens identically (2/2 focused theory cases).
-      This extends failure parity across a non-JSON typed array; other typed
-      operation and element-type failures remain open. The owning Agent
-      Framework suite passes 747/747 with the current candidate proofs.
+    - [x] Compare invalid-index failures from Array Get, Insert, Replace, and
+      Remove for typed string arrays across all three candidates and both
+      stores. Each records the same node-attributed error, suppresses the
+      write, iteration completion, and following item, and reopens identically
+      (8/8 focused theory cases). This extends failure parity beyond
+      `array<json>`; other typed element types and operation failure modes
+      remain open. The owning Agent Framework suite passed 747/747 before the
+      later graph-function failure proof was added.
   - [x] Compare a pinned graph-function result and nested evaluation evidence
     over three changing items. All candidates agree on output, function inputs,
     evaluated values, and per-item scopes; file and SQLite persistence passes
