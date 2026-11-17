@@ -3300,9 +3300,17 @@ cases), execution surfaces the storage failure, the durable prefix remains
 outcomes without fabricating a root terminal.
 The complete Agent Framework suite passes after these proofs (814/814).
 
-Remaining proof controls: combine both settlement orders with host
-cancellation and Break. Then adjudicate whether root status remains a single
-execution disposition or needs an additional aggregate projection.
+`ProductionBodyActivationCoordinator_HostCancellationDrainsMixedMcpOutcomes`
+injects host cancellation as soon as the first definitive or unresolved MCP
+outcome is recorded. Both already-authorized calls still settle and retain
+their correlated outcomes in either order; file and SQLite reopen plus passive
+playback preserve the evidence (4/4 focused cases). The existing root projection
+is recorded without making a precedence assertion.
+The complete Agent Framework suite passes after this increment (818/818).
+
+Remaining proof control: combine both settlement orders with Sequence Break.
+Then adjudicate whether root status remains a single execution disposition or
+needs an additional aggregate projection.
 Until that proof and a subsequent review are complete, the integrated
 Sequence/Break proof remains private; the production guard, public schema, and
 Studio authoring do not change.

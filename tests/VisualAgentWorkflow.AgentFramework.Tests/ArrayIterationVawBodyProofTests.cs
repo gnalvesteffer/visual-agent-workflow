@@ -5286,6 +5286,76 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task ProductionBodyActivationCoordinator_HostCancellationDrainsMixedMcpOutcomes(
+        bool sqlite, bool unknownFirst)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-parallel-mcp-mixed-host-cancellation-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var broker = new OrderedMixedOutcomeParallelMcpBroker(unknownFirst);
+        using var cancellation = new CancellationTokenSource();
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            if (evt.Kind == (unknownFirst ? ExecutionEventKinds.ToolUncertain : ExecutionEventKinds.ToolFailed))
+                cancellation.Cancel();
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(broker)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, cancellation.Token, runBudget: StructuredRunBudget(maximumToolDispatches: 4))
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(2, broker.Authorizations);
+        var uncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            evt.NodeId == "tool-review");
+        var failed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed &&
+            evt.NodeId == "tool-research");
+        Assert.Equal(unknownFirst, uncertain.Sequence < failed.Sequence);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+
+        foreach (var nodeId in new[] { "tool-research", "tool-review" })
+        {
+            var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+                evt.NodeId == nodeId);
+            var outcome = Assert.Single(events, evt => evt.Kind is
+                ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ToolUncertain && evt.NodeId == nodeId);
+            using var authorizedPayload = JsonDocument.Parse(authorized.Data!);
+            using var outcomePayload = JsonDocument.Parse(outcome.Data!);
+            Assert.Equal(authorizedPayload.RootElement.GetProperty("toolCallId").GetString(),
+                outcomePayload.RootElement.GetProperty("toolCallId").GetString());
+        }
+
+        Assert.True(result.Cancelled || result.Failed || result.OutcomeUnknown);
+        var snapshot = runStore.Store.Get(runStore.RunId)!;
+        Assert.Contains(snapshot.Status, new[] { "cancelled", "failed", "outcome-unknown" });
+        AssertPersistedSequence(runStore, events, snapshot.Status);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(snapshot.Status, reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains($"Latest run status: {snapshot.Status}", playback, StringComparison.Ordinal);
+        Assert.Contains(ExecutionEventKinds.ToolFailed, playback, StringComparison.Ordinal);
+        Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_HostCancellationUnsettlesParallelProductionMcpCalls(bool sqlite)

@@ -237,7 +237,11 @@ introduced.
   and the unterminal running prefix through reopen and passive playback for
   both settlement orders (4/4 focused cases). Cancellation and Break controls
   remain before the next adjudication of whether root status needs a richer
-  projection. The complete Agent Framework suite passes (814/814).
+  projection. Host cancellation injected after the first mixed MCP outcome
+  drains and persists both correlated outcomes in either settlement order
+  through file/SQLite reopen and playback (4/4 focused cases); root projection
+  remains explicitly unselected. Sequence Break controls remain open. The full
+  Agent Framework suite passes (818/818).
   The integrated `array<json>` body proof covers successful
   transforms and an Append result exceeding the 16 KiB bound: the failure is
   attributed to Append, later items and completion are suppressed, and file/
