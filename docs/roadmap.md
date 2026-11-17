@@ -262,8 +262,17 @@ introduced.
   targets the inner frame ID rather than its supplied outer frame, suppresses
   the remaining inner suffix, and reopens with matching Break playback through
   both stores (2/2). This proves nearest-frame identity within this body seam;
-  an enclosing concurrent production coordinator resuming after nested
-  settlement remains unproven. Byte/event contention, tool/outcome reservation
+  nested concurrent composition is now covered by a private coordinator proof
+  that passes one root event/budget context and returns scoped child outcomes.
+  Inner Break drains an admitted Agent before the parent resumes; the parent
+  admits its next outer item only after child settlement. Admitted failure,
+  unresolved MCP outcome, and cancellation prevent parent continuation and
+  preserve root disposition/evidence; a shared loop-activation cap is enforced
+  across parent and child. These five controlled scenarios pass through file
+  and SQLite reopen/playback (10/10 focused cases). The proof closes only this
+  composition under its bounded 1–8 body-concurrency test parameter; it does
+  not select a production scheduling policy or prove nested graph fork regions.
+  Byte/event contention, tool/outcome reservation
   races, host-control pause-event integration, cancellation while paused,
   uncontrolled production races, and the full body compatibility matrix remain
   open. The proof coordinator now also honors `IWorkflowExecutionGate`: after

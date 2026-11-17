@@ -3479,3 +3479,36 @@ cover cancellation arriving while the gate is paused.
 This proof-only test change does not alter shipped workflow behavior, so the
 architecture and user-guide descriptions remain accurate; the roadmap and this
 decision record the new evidence and remaining limits.
+
+### Nested concurrent coordinator composition (2026-11-17)
+
+A fresh three-role review returned **REVISE**: nested resumption could only be
+proved after specifying that a child coordinator settles as a scoped,
+nonterminal outcome, while the root owner alone owns shared budgets and emits
+the root terminal. The proof now passes one shared
+`StructuredActivationRunContext` through nested coordinator calls. A child
+closes only its own frame on Break, drains already admitted work, and returns
+its output/disposition; its parent resumes only after settlement. Child calls
+do not emit root lifecycle events or create independent budget ledgers.
+
+Five controlled cases pass through file and SQLite stores (10/10 focused
+cases): (1) inner Break waits for a held Agent sibling, suppresses the inner
+suffix, then allows the parent to complete and admit its next item; (2) an
+admitted sibling failure after Break fails the root after drain and suppresses
+the next outer item; (3) an admitted MCP call's correlated unknown outcome
+survives inner Break and prevents parent continuation; (4) host cancellation
+during inner drain records node/root cancellation and prevents later
+admission; and (5) a root loop-activation budget is shared across outer and
+inner coordinators. Each case checks a single root lifecycle and reopened
+event history; applicable success/failure/unknown/cancellation cases also
+check passive playback or correlated tool evidence.
+
+This closes nested item-coordinator settlement for these controlled cases. It
+does not prove arbitrary nesting depth, nested graph fork regions, uncontrolled
+production scheduling, production host pause-event integration, cancellation
+while paused, or checkpoint recovery. The proof uses configurable concurrency
+bounded to 1–8 (the nested case uses outer concurrency 1 and inner concurrency
+2); it does not select a production scheduling policy. Public iterator/Break
+authoring remains gated, and the production architecture remains unselected
+pending the remaining compatibility/race matrix and a fresh architecture
+review.

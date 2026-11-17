@@ -15,6 +15,9 @@ public sealed partial class WorkflowRunner
     internal sealed record StructuredActivationBreakSignal(string SourceNodeId, Guid SourceFrameId,
         Guid TargetFrameId, string ScopeId);
 
+    private sealed record ScopedConcurrentBodyProofSettlement(WorkflowBodyProofDisposition Disposition,
+        string? Output = null);
+
     private sealed record StructuredSchedulerProofResult(WorkflowExecutionResult Execution,
         StructuredActivationBreakRequest? BreakRequest = null);
 
@@ -58,7 +61,7 @@ public sealed partial class WorkflowRunner
     internal sealed class StructuredActivationBudgetExceededException()
         : InvalidOperationException("The activation run work or evidence budget was exhausted.");
 
-    private sealed class StructuredActivationRunContext(Guid runId, Guid revisionId,
+    internal sealed class StructuredActivationRunContext(Guid runId, Guid revisionId,
         Func<ExecutionEvent, ValueTask> record, StructuredActivationRunBudget? budget) : IDisposable
     {
         private readonly SemaphoreSlim recordGate = new(1, 1);
@@ -478,13 +481,25 @@ public sealed partial class WorkflowRunner
         IReadOnlySet<string>? proofBreakNodeIds = null,
         Func<int, CancellationToken, ValueTask>? afterItemAdmitted = null,
         Action<int>? onBreakAdmissionStopped = null,
-        IWorkflowExecutionGate? gate = null)
+        IWorkflowExecutionGate? gate = null,
+        string? nestedItemsJson = null,
+        string? nestedIndexParameterId = null,
+        string? nestedActivationLoopNodeId = null,
+        StructuredActivationRunContext? sharedRunContext = null,
+        int maximumConcurrentBodies = 2)
     {
         ArgumentNullException.ThrowIfNull(bodyRevision);
         ArgumentNullException.ThrowIfNull(jsonItems);
         ArgumentException.ThrowIfNullOrWhiteSpace(indexParameterId);
         ArgumentException.ThrowIfNullOrWhiteSpace(activationLoopNodeId);
         ArgumentNullException.ThrowIfNull(record);
+        if ((nestedItemsJson is null) != (nestedIndexParameterId is null) ||
+            (nestedItemsJson is null) != (nestedActivationLoopNodeId is null))
+            throw new ArgumentException("Nested proof items, index parameter, and loop node must be supplied together.");
+        if (sharedRunContext is not null && runBudget is not null)
+            throw new ArgumentException("A nested proof must use its root coordinator's shared budget.", nameof(runBudget));
+        if (maximumConcurrentBodies is < 1 or > 8)
+            throw new ArgumentOutOfRangeException(nameof(maximumConcurrentBodies));
         if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
         if (jsonItems.Length > 16_384)
             throw new ArgumentException("Activation proof input exceeds 16,384 characters.", nameof(jsonItems));
@@ -496,8 +511,12 @@ public sealed partial class WorkflowRunner
                 nameof(jsonItems));
 
         var items = ParseProductionActivationItems(typedItems, arrayElementType);
+        if (nestedItemsJson is { Length: > 16_384 })
+            throw new ArgumentException("Nested activation proof input exceeds 16,384 characters.", nameof(nestedItemsJson));
+        var ownsRunContext = sharedRunContext is null;
         var baseParameters = WorkflowParameters.Resolve(bodyRevision.Definition, parameters);
-        using var runContext = new StructuredActivationRunContext(runId, bodyRevision.RevisionId, record, runBudget);
+        var runContext = sharedRunContext ?? new StructuredActivationRunContext(runId, bodyRevision.RevisionId,
+            record, runBudget);
         var admissionGate = new object();
         var admissionStopped = false;
         var nextIndex = 0;
@@ -515,7 +534,7 @@ public sealed partial class WorkflowRunner
         async ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
             string? scopeId = null, string? data = null, string? connectionId = null)
         {
-            if (nodeId is null && kind is (ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
+            if (ownsRunContext && nodeId is null && kind is (ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
                 ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown))
                 rootTerminalAppendAttempted = true;
             await runContext.EmitAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
@@ -528,6 +547,12 @@ public sealed partial class WorkflowRunner
             int index, StructuredActivationFrame frame)
         {
             var scopeId = frame.ScopeId;
+            if (nestedItemsJson is not null)
+            {
+                var settlement = await RunNestedCoordinatorAsync(frame, scopeId);
+                return (index, frame, new(settlement.Disposition, settlement.Output));
+            }
+
             var outcome = await ExecuteBodyForActivationProofAsync(runId, bodyRevision, items[index],
                 frame.Parameters, evt => Emit(evt.Kind, evt.NodeId, evt.InvocationId,
                     evt.ScopeId ?? scopeId, evt.Data, evt.ConnectionId), bodyCancellation.Token,
@@ -549,14 +574,34 @@ public sealed partial class WorkflowRunner
             return (index, frame, outcome);
         }
 
+        async Task<ScopedConcurrentBodyProofSettlement> RunNestedCoordinatorAsync(
+            StructuredActivationFrame frame, string scopeId)
+        {
+            var nestedResult = await ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runId,
+                    bodyRevision, nestedItemsJson, nestedIndexParameterId!, frame.Parameters,
+                    evt => runContext.EmitAsync(evt.Kind, evt.NodeId, evt.InvocationId,
+                        evt.ScopeId ?? scopeId, evt.Data, evt.ConnectionId), bodyCancellation.Token,
+                    parentFrame: frame, activationLoopNodeId: nestedActivationLoopNodeId!,
+                    itemParameterId: itemParameterId, arrayElementType: arrayElementType,
+                    proofBreakNodeIds: proofBreakNodeIds, gate: gate, sharedRunContext: runContext);
+            var disposition = nestedResult switch
+            {
+                { Cancelled: true } => WorkflowBodyProofDisposition.Cancelled,
+                { OutcomeUnknown: true } => WorkflowBodyProofDisposition.OutcomeUnknown,
+                { Failed: true } => WorkflowBodyProofDisposition.Failed,
+                { Terminated: true } => WorkflowBodyProofDisposition.Terminated,
+                { HasOutput: true, Output: not null } => WorkflowBodyProofDisposition.Succeeded,
+                _ => WorkflowBodyProofDisposition.Failed
+            };
+            return new(disposition, nestedResult.Output);
+        }
+
         try
         {
-            await Emit(ExecutionEventKinds.Started);
-            const int maximumActiveBodies = 2;
-
+            if (ownsRunContext) await Emit(ExecutionEventKinds.Started);
             while (nextIndex < items.Length || active.Count > 0)
             {
-                while (active.Count < maximumActiveBodies)
+                while (active.Count < maximumConcurrentBodies)
                 {
                     lock (admissionGate)
                         if (admissionStopped || nextIndex >= items.Length) break;
@@ -651,28 +696,29 @@ public sealed partial class WorkflowRunner
             cancellationToken.ThrowIfCancellationRequested();
             if (cancelled)
             {
-                await Emit(ExecutionEventKinds.Cancelled);
+                if (ownsRunContext) await Emit(ExecutionEventKinds.Cancelled);
                 return new(null, false, Cancelled: true, HasOutput: false);
             }
             if (failureReason is not null)
             {
-                await Emit(ExecutionEventKinds.Failed, data: failureReason);
+                if (ownsRunContext) await Emit(ExecutionEventKinds.Failed, data: failureReason);
                 return new(null, true, true, HasOutput: false);
             }
             if (outcomeUnknown)
             {
-                await Emit(ExecutionEventKinds.OutcomeUnknown,
-                    data: "Workflow execution ended with an unresolved external outcome.");
+                if (ownsRunContext)
+                    await Emit(ExecutionEventKinds.OutcomeUnknown,
+                        data: "Workflow execution ended with an unresolved external outcome.");
                 return new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false);
             }
             if (terminated)
             {
-                await Emit(ExecutionEventKinds.Terminated);
+                if (ownsRunContext) await Emit(ExecutionEventKinds.Terminated);
                 return new(null, true, HasOutput: false);
             }
 
             var outputText = string.Join(';', results.OrderBy(pair => pair.Key).Select(pair => pair.Value));
-            await Emit(ExecutionEventKinds.Completed, data: outputText);
+            if (ownsRunContext) await Emit(ExecutionEventKinds.Completed, data: outputText);
             return new(outputText, false, HasOutput: true);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -681,7 +727,7 @@ public sealed partial class WorkflowRunner
             bodyCancellation.Cancel();
             try { await Task.WhenAll(active.Values); }
             catch (Exception) { }
-            await Emit(ExecutionEventKinds.Cancelled);
+            if (ownsRunContext) await Emit(ExecutionEventKinds.Cancelled);
             return new(null, false, Cancelled: true, HasOutput: false);
         }
         catch (StructuredActivationBudgetExceededException)
@@ -690,7 +736,8 @@ public sealed partial class WorkflowRunner
             bodyCancellation.Cancel();
             try { await Task.WhenAll(active.Values); }
             catch (Exception) { }
-            await Emit(ExecutionEventKinds.Failed, data: "Workflow execution budget was exhausted.");
+            if (ownsRunContext)
+                await Emit(ExecutionEventKinds.Failed, data: "Workflow execution budget was exhausted.");
             return new(null, true, true, HasOutput: false);
         }
         catch (Exception) when (rootStarted && !rootTerminalAppendAttempted)
@@ -702,6 +749,10 @@ public sealed partial class WorkflowRunner
             try { await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed."); }
             catch (Exception) { }
             throw;
+        }
+        finally
+        {
+            if (ownsRunContext) runContext.Dispose();
         }
     }
 
