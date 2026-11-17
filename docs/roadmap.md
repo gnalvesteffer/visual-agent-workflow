@@ -358,14 +358,20 @@ introduced.
       the production body. Each item retains its own branch outputs, both join
       arrivals, and completed join in reopened file/SQLite playback (2/2
       focused cases). Production-body host cancellation is also covered below;
-      other fork failure races and broader parallel-body compositions remain
-      open.
+      synchronized Agent branch failure is also covered below; other fork
+      races and broader parallel-body compositions remain open.
     - [x] Cancel the production-body host after both parallel Agent branches
       enter. Both matching Agent invocations settle as cancelled; the join and
       later item are suppressed, the iteration records a cancelled settlement,
       and file/SQLite reopen preserves the same terminal history (2 focused
       cases). This covers one synchronized fork-cancellation point; failure
-      races and other parallel-body compositions remain open.
+      races are separately covered below; other parallel-body compositions
+      remain open.
+    - [x] Fail one production-body Agent branch after the sibling enters.
+      The sibling invocation is cancelled, the join and next item are
+      suppressed, and both stores reopen with the same failed root history
+      (2 focused cases). Playback retains the failed run without a completed
+      join. Other failure races and branch body combinations remain open.
     - [x] Run a parallel direct-MCP fork/join with separate typed query pins
       fed by each current array item through the production body. Both
       correlated tool calls complete per item, each join contains that item's
@@ -899,7 +905,7 @@ introduced.
     - [x] Re-run the full Agent Framework suite after the graph-function,
       typed-operation, Append-overflow, interface/WorkflowCall child
       output-routing/failure/cancellation, and production parallel-Agent
-      cancellation comparisons: 769/769 passed, 0 failed or skipped
+      failure/cancellation comparisons: 771/771 passed, 0 failed or skipped
       (6m17s). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or

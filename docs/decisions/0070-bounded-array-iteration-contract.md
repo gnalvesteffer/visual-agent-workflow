@@ -2319,6 +2319,15 @@ both joins as completed (2/2 focused cases). This closes only successful
 two-Agent fork/join composition; fork failure, cancellation, other branch body
 types, and the full supported-body matrix remain open.
 
+`ProductionBodyActivationCoordinator_ParallelAgentFailureSuppressesJoinAndLaterItems`
+adds the ordinary failure counterpart to the integrated parallel-Agent
+cancellation case. One branch fails after the sibling has entered; the
+sibling's matching invocation is cancelled, no join result or next activation
+is admitted, and file/SQLite reopen preserves the failed root event prefix
+(2 focused store cases). Passive playback shows the failed run without a
+completed join. This covers one synchronized Agent failure boundary only;
+failure races and other branch body combinations remain open.
+
 ## Production-broker sibling cancellation after MCP protocol failure (2026-11-15)
 
 `ProductionBodyActivationCoordinator_ProductionMcpFailureCancelsSiblingAndPreservesEvidence`
