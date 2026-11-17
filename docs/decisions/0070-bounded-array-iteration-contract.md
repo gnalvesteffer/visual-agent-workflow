@@ -2328,6 +2328,15 @@ is admitted, and file/SQLite reopen preserves the failed root event prefix
 completed join. This covers one synchronized Agent failure boundary only;
 failure races and other branch body combinations remain open.
 
+`ProductionBodyActivationCoordinator_ComposesAgentAndProductionMcpPerItem`
+composes a deterministic Agent branch with a real local stdio MCP branch in
+the production-body fork for two array items. Each item produces the expected
+Agent result and uppercase MCP value, correlated authorization/completion
+evidence, and a completed join. File and SQLite reopen preserve both joins and
+passive playback renders them (2 focused store cases). This proves one mixed
+success path; mixed failure/cancellation, other branch combinations, and the
+supported-body matrix remain open.
+
 ## Production-broker sibling cancellation after MCP protocol failure (2026-11-15)
 
 `ProductionBodyActivationCoordinator_ProductionMcpFailureCancelsSiblingAndPreservesEvidence`

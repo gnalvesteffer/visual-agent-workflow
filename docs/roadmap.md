@@ -372,6 +372,13 @@ introduced.
       suppressed, and both stores reopen with the same failed root history
       (2 focused cases). Playback retains the failed run without a completed
       join. Other failure races and branch body combinations remain open.
+    - [x] Compose a deterministic Agent and the production stdio MCP broker in
+      opposite branches of the same fork across two items. Each item reaches
+      both branches, receives its correlated MCP authorization/completion and
+      Agent lifecycle evidence, and joins the expected values; file/SQLite
+      reopen and playback retain both completed joins (2 focused cases). This
+      covers one mixed successful branch composition, not mixed failure or
+      cancellation races.
     - [x] Run a parallel direct-MCP fork/join with separate typed query pins
       fed by each current array item through the production body. Both
       correlated tool calls complete per item, each join contains that item's
@@ -905,7 +912,8 @@ introduced.
     - [x] Re-run the full Agent Framework suite after the graph-function,
       typed-operation, Append-overflow, interface/WorkflowCall child
       output-routing/failure/cancellation, and production parallel-Agent
-      failure/cancellation comparisons: 771/771 passed, 0 failed or skipped
+      failure/cancellation and mixed Agent/MCP branch comparison:
+      773/773 passed, 0 failed or skipped
       (6m17s). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or

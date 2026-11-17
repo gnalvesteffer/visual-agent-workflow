@@ -4268,6 +4268,122 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ComposesAgentAndProductionMcpPerItem(bool sqlite)
+    {
+        const string input = "[\"north\",\"south\"]";
+        var registrations = CreateDemoMcpRegistrations("demo.uppercase");
+        var discovery = new McpToolBroker(registrations, new DemoToolPolicy());
+        var binding = Assert.Single(await discovery.ListBindingsAsync(), item => item.BindingId == "demo.uppercase");
+        var definition = ParallelBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var nodes = definition.Nodes.Remove("agent-left")
+            .Add("tool-left", new NodeDefinition(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest(binding.BindingId, binding.ContractHash)
+                {
+                    DescriptionHash = binding.DescriptionHash
+                })
+            {
+                McpArgumentsJson = null,
+                McpInputPorts = [new("arg.text", "text", WorkflowDataTypes.String, true)]
+            });
+        var connections = definition.Connections.Remove("input-left")
+            .Add("input-tool-left", new(new("input", "out"), new("tool-left", "arg.text"), "data"));
+        var execution = definition.ExecutionConnections!
+            .Remove("left-agent")
+            .Remove("left-join")
+            .Add("left-tool", Edge("anchor-left", "then", "tool-left", "execute"))
+            .Add("tool-left-join", Edge("tool-left", "then", "join", "branch.left"));
+        definition = definition with
+        {
+            Nodes = nodes,
+            Connections = connections,
+            ExecutionConnections = execution
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition,
+            "production-body-parallel-agent-mcp-per-item-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var broker = new McpToolBroker(registrations, new DemoToolPolicy());
+        var agents = new EchoAgentExecutor();
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(tools: broker, agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2))
+            .WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.False(result.Failed);
+        Assert.False(result.Cancelled);
+        var returnedItems = result.Output!.Split(';');
+        Assert.Equal(2, returnedItems.Length);
+        Assert.Equal(["north", "south"], agents.Inputs);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        for (var index = 0; index < 2; index++)
+        {
+            var item = index == 0 ? "north" : "south";
+            var scopeId = $"array-loop/{index}";
+            var scoped = events.Where(evt => evt.ScopeId == scopeId).ToArray();
+            var evaluated = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.NodeId == "input" && evt.ConnectionId == "data:input-tool-left");
+            using (var argument = JsonDocument.Parse(evaluated.Data!))
+            {
+                Assert.Equal("tool-left", argument.RootElement.GetProperty("activatedByNodeId").GetString());
+                Assert.Equal(item, argument.RootElement.GetProperty("value").GetString());
+            }
+
+            var toolStarted = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "tool-left");
+            var authorized = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+                evt.NodeId == "tool-left" && evt.InvocationId == toolStarted.InvocationId);
+            var toolCompleted = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.ToolCompleted &&
+                evt.NodeId == "tool-left" && evt.InvocationId == toolStarted.InvocationId);
+            using (var authorization = JsonDocument.Parse(authorized.Data!))
+                Assert.Equal(item, authorization.RootElement.GetProperty("input")
+                    .GetProperty("text").GetString());
+            using (var toolOutput = JsonDocument.Parse(toolCompleted.Data!))
+                Assert.Equal(item.ToUpperInvariant(), toolOutput.RootElement.GetProperty("output").GetString());
+
+            var agentStarted = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "agent-right");
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "agent-right" && evt.InvocationId == agentStarted.InvocationId);
+            var join = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "join");
+            using var joined = JsonDocument.Parse(join.Data!);
+            Assert.Equal(item.ToUpperInvariant(), joined.RootElement.GetProperty("left").GetString());
+            using var rightOutput = JsonDocument.Parse(joined.RootElement.GetProperty("right").GetString()!);
+            Assert.Equal($"{item}-agent-right", rightOutput.RootElement.GetProperty("query").GetString());
+            using var returned = JsonDocument.Parse(returnedItems[index]);
+            Assert.Equal(item.ToUpperInvariant(), returned.RootElement.GetProperty("left").GetString());
+            using var returnedRight = JsonDocument.Parse(returned.RootElement.GetProperty("right").GetString()!);
+            Assert.Equal($"{item}-agent-right", returnedRight.RootElement.GetProperty("query").GetString());
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+                evt.NodeId == "join"));
+        }
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Equal(2, CountOccurrences(playback, "Parallel join join · completed"));
+
+        static int CountOccurrences(string text, string value) =>
+            (text.Length - text.Replace(value, string.Empty, StringComparison.Ordinal).Length) / value.Length;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_ParallelMcpFailureSuppressesJoinAndLaterItems(bool sqlite)
     {
         const string input = "[\"first\",\"must-not-run\"]";
