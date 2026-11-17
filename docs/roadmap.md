@@ -382,6 +382,14 @@ introduced.
       the accepted event prefix; playback warns that the authorized MCP effect
       may be unknown without claiming an uncertainty event was saved (4/4
       file/SQLite and accepted/rejected matrix cases).
+    - [x] Fail a mixed production-body fork through the real stdio MCP broker
+      while its Agent sibling is active. The pinned `demo.protocol-failure`
+      call records correlated authorization and either classified failure or
+      unknown-outcome evidence; the Agent is cancelled, the join and next item
+      are suppressed, and file/SQLite reopen and playback preserve the result
+      (4/4 focused cases). This qualifies one local protocol-failure fixture
+      and classification policy, not arbitrary server failures or the wider
+      race/recovery matrix.
     - [x] Cancel the production-body host after both parallel Agent branches
       enter. Both matching Agent invocations settle as cancelled; the join and
       later item are suppressed, the iteration records a cancelled settlement,
@@ -936,8 +944,8 @@ introduced.
       output-routing/failure/cancellation, and production parallel-Agent
       failure/cancellation, mixed Agent/MCP success/failure/cancellation and
       failure-with-unknown-outcome/store-append proofs:
-      781/781 passed, 0 failed or skipped
-      (6m18s). This validates
+      785/785 passed, 0 failed or skipped
+      (6m22s). This validates
       the current suite snapshot;
       it does not close the remaining iterator lifecycle, budget, playback, or
       architecture-review gates.

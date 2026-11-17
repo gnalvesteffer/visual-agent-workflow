@@ -2391,6 +2391,25 @@ processed the canceled request, select the iterator architecture, or add
 public iterator schema/Studio authoring. The broader append-failure, race,
 recovery, and supported-body matrices remain open.
 
+## Mixed Agent fork with production MCP protocol failure (2026-11-16)
+
+`ProductionBodyActivationCoordinator_ProductionMcpFailureSettlesMixedAgentFork`
+puts the pinned local stdio `demo.protocol-failure` MCP tool in one fork branch
+and a blocking Agent in the other. The MCP connection waits until the Agent
+has entered, making sibling cancellation deterministic. Across file and
+SQLite stores, the default policy records correlated authorization and
+`tool.uncertain`, then settles the root as `outcome-unknown`; when the host
+classifies the protocol exception as definitive, the same path records
+`tool.failed` and settles the root as `failed`. In both policies, the matching
+Agent invocation is cancelled, the join and second item are suppressed, and
+reopened playback retains the evidence (4/4 focused cases).
+
+This proves one local production-broker protocol-failure path and two host
+classification outcomes. It does not qualify arbitrary MCP servers, prove
+whether a remote server applied a request before reporting a protocol error,
+select the iterator architecture, or close the general race, recovery, and
+append-failure matrices.
+
 The same production-broker test now rejects the sibling's `tool.uncertain`
 append in both stores under both root-outcome policies (8/8 focused matrix
 cases). The append attempt is correlated to the accepted authorization, but
