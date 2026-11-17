@@ -2542,6 +2542,14 @@ these four deterministic data-operation failures only; it does not establish
 the full deterministic-node failure matrix or alter the architecture
 decision.
 
+`IteratorCandidates_AttributeTypedArrayReplaceFailureAcrossCandidates` also
+injects an invalid Array Replace index into the typed string-array variable
+body. The three candidates preserve the same scoped failure reason, suppress
+the write and item completion, stop before the next item, and reopen identical
+file/SQLite histories (6 candidate/store runs; 2 focused theory cases). This
+extends one failure contract beyond `array<json>`; other typed operation and
+element-type failures remain open.
+
 ## Three-candidate WorkflowInterfaceCall output comparison (2026-11-16)
 
 `IteratorCandidates_ScopeWorkflowInterfaceCallOutputsAcrossAllCandidates`

@@ -842,6 +842,12 @@ introduced.
       operation, suppress Variable Set, iteration completion, and the next
       item, and reopen identically (8/8 focused theory cases). Other
       deterministic-node failure shapes remain open.
+    - [x] Compare the invalid-index Array Replace failure for typed string
+      arrays across all three candidates and both stores. Each records the
+      same node-attributed error, suppresses the write, iteration completion,
+      and following item, and reopens identically (2/2 focused theory cases).
+      This extends failure parity across a non-JSON typed array; other typed
+      operation and element-type failures remain open.
   - [x] Compare a pinned graph-function result and nested evaluation evidence
     over three changing items. All candidates agree on output, function inputs,
     evaluated values, and per-item scopes; file and SQLite persistence passes
