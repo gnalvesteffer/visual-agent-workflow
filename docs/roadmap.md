@@ -291,9 +291,13 @@ introduced.
   iteration outcome before the single root cancellation, suppresses the next
   item, and reconstructs identical file/SQLite history and passive playback
   (2/2 focused cases). This closes cancellation-at-paused-boundary evidence
-  only; host control-event integration, cancellation races during MCP dispatch,
+  only; host control-event integration, concurrent MCP cancellation races,
   uncontrolled production races, and the full body compatibility matrix remain
-  open.
+  open. A separate single-concurrency production-body case cancels after a
+  direct MCP dispatch starts: the broker's correlated `tool.uncertain` and node
+  cancellation survive, the admitted iteration is recorded cancelled, no
+  later item is admitted, and root status remains cancelled while reconciliation
+  reports the uncertain tool (2/2 file/SQLite cases).
   The
   production Break guard remains in place. A separate three-role review of
   mixed known-failure and unresolved-MCP outcomes returned REVISE because the

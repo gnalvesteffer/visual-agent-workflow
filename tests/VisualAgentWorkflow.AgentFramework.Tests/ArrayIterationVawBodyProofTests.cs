@@ -7913,6 +7913,89 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_CancellationAfterMcpDispatchPreservesUncertainty(bool sqlite)
+    {
+        const string bindingId = "proof.concurrent-cancel-after-dispatch";
+        const string input = "[\"first\",\"must-not-run\"]";
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "concurrent-array-cancel-after-mcp-dispatch", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("tool", new(NodeTypes.McpTool, "1.0.0",
+                    new ToolBindingRequest(bindingId, new string('d', 64)))
+                {
+                    McpInputPorts = [new("arg.query", "query", WorkflowDataTypes.String, true)],
+                    McpArgumentsJson = "{}"
+                })
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-query", new(new("input", "out"), new("tool", "arg.query"), "data"))
+                .Add("tool-result", new(new("tool", "out"), new("output", "in"), "data")))
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-tool", Edge("input", "then", "tool", "execute"))
+                .Add("tool-output", Edge("tool", "then", "output", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "concurrent-array-cancel-after-mcp-dispatch-proof");
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        using var cancellation = new CancellationTokenSource();
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var broker = new CancelAfterDispatchToolBroker(bindingId);
+
+        var execution = new WorkflowRunner(tools: broker)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                input, "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, cancellation.Token, maximumConcurrentBodies: 1);
+
+        await broker.DispatchStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+
+        Assert.True(result.Cancelled);
+        Assert.False(result.Failed);
+        Assert.Equal(1, broker.DispatchAttempts);
+        var authorization = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+            evt.NodeId == "tool" && evt.ScopeId == "array-loop/0");
+        var uncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            evt.NodeId == "tool" && evt.ScopeId == "array-loop/0");
+        using var authorizationData = JsonDocument.Parse(authorization.Data!);
+        using var uncertainData = JsonDocument.Parse(uncertain.Data!);
+        Assert.Equal(authorizationData.RootElement.GetProperty("toolCallId").GetGuid(),
+            uncertainData.RootElement.GetProperty("toolCallId").GetGuid());
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+            evt.NodeId == "tool" && evt.ScopeId == "array-loop/0");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "array-loop" && evt.ScopeId == "array-loop/0" &&
+            evt.Data!.Contains("\"outcome\":\"cancelled\"", StringComparison.Ordinal));
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        Assert.Equal(Enumerable.Range(1, events.Length).Select(index => (long)index),
+            events.Select(evt => evt.Sequence));
+        AssertPersistedSequence(runStore, events, "cancelled");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var reconciliation = WorkflowRunReconciliation.Assess(reopened, null);
+        Assert.Equal("cancelled", reconciliation.Status);
+        var unresolved = Assert.Single(reconciliation.UnresolvedWork);
+        Assert.Equal(UnresolvedWorkKind.Tool, unresolved.Kind);
+        Assert.Equal(UnresolvedWorkState.OutcomeUnknown, unresolved.State);
+        Assert.Equal("tool", unresolved.NodeId);
+        var playback = await RenderLoopActivations(reopened.Events, reopened.Status);
+        Assert.Contains("Iteration 1 · Cancelled", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ConcurrentProductionBodyCoordinator_FailureDuringBreakDrainFailsRun(bool sqlite)
     {
         var definition = StructuredBreakProofDefinition();

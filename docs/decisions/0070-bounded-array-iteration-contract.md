@@ -3528,3 +3528,19 @@ This qualifies cancellation at this paused coordinator boundary only. It does
 not integrate the host-owned `PauseRequested`/`Paused`/`Resumed` event writer,
 cover cancellation racing with MCP dispatch, exercise uncontrolled production
 scheduling, or select the public iterator architecture.
+
+### Cancellation after direct-MCP dispatch (2026-11-17)
+
+The concurrent production-body coordinator is also tested with one admitted
+item and concurrency set to one. Host cancellation occurs only after the
+controlled broker confirms MCP dispatch. The broker records a correlated
+`tool.uncertain`, the body records node cancellation, and the coordinator
+records the activation as cancelled before the single root cancellation. It
+does not admit the next item. File and SQLite reopen preserve the same event
+sequence and passive loop playback; reconciliation retains the uncertain tool
+as unresolved work while run status remains `cancelled` (2/2 focused cases).
+
+This closes only cancellation of a single admitted MCP call in the private
+coordinator. It does not qualify concurrent MCP cancellation/reservation
+races, host pause-control event integration, uncontrolled scheduler races, or
+public iterator behavior.
