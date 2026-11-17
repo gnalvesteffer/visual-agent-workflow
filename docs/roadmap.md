@@ -207,6 +207,8 @@ introduced.
   failed through file/SQLite reopen and passive playback (2/2). An admitted
   direct MCP call with an unresolved external outcome also overrides Break and
   retains root `outcome-unknown` through both stores and passive playback (2/2).
+  Host cancellation after Break is requested while an Agent is admitted stays
+  a cancelled root and Sequence through both stores and playback (2/2).
   This remains a private proof path: the
   production guard, public schema, and Studio authoring remain unchanged. Prove
   one VAW owner for frames,

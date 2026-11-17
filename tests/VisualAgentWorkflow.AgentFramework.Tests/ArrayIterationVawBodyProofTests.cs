@@ -7329,6 +7329,63 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal("failed", playback!.Status);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredActivationSequenceProof_HostCancellationOverridesBreak(bool sqlite)
+    {
+        var body = SequenceBodyDefinition();
+        var nodes = body.Nodes
+            .SetItem("sequence", body.Nodes["sequence"] with
+            {
+                Sequence = new([new("inventory", "Inventory"), new("architecture", "Architecture"),
+                    new("quality", "Quality")])
+            })
+            .SetItem("inventory-tool", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new AgentConfiguration("proof.settlement", null, "Wait for host cancellation.", []) { MaxTurns = 1 }))
+            .SetItem("architecture-tool", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"))
+            .Add("quality-tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("proof.skipped-tool", new string('e', 64)))
+            { McpArgumentsJson = "{\"query\":\"must-not-run\"}" });
+        var revision = WorkflowRevision.CreateProofOnly(body with
+        {
+            Nodes = nodes,
+            ExecutionConnections = body.ExecutionConnections!
+                .SetItem("inventory-output", Edge("inventory-tool", "out", "output", "execute"))
+                .Add("sequence-quality", Edge("sequence", "then.quality", "quality-tool", "execute"))
+                .Add("quality-output", Edge("quality-tool", "then", "output", "execute")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        }, "array-iteration-sequence-host-cancellation-wins-break");
+        using var runStore = new ProofRunStore(revision, "[\"stop\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new ControlledSettlementAgentExecutor("inventory-tool");
+        using var cancellation = new CancellationTokenSource();
+        var execution = new WorkflowRunner(new EchoToolBroker(), agents).ExecuteStructuredActivationSequenceProofAsync(
+            runStore.RunId, revision, "[\"stop\"]", "index", null, evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }, cancellation.Token, afterNodeStarted: (nodeId, _) =>
+            {
+                if (nodeId == "architecture-tool") cancellation.Cancel();
+                return ValueTask.CompletedTask;
+            });
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        var recorded = recorder.Snapshot();
+        AssertPersistedSequence(runStore, recorded, "cancelled");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "inventory-tool");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.NodeId == "sequence");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceCancelled && evt.NodeId == "sequence");
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.ScopeId is null);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(recorded, reopened.Events);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("cancelled", playback!.Status);
+    }
+
     [Fact]
     public async Task StructuredActivationSequenceProof_BreakAbortsForkAndSettlesAdmittedSibling()
     {

@@ -3260,5 +3260,9 @@ broker records request and authorization, then reports an unresolved outcome
 after Break; the admitted call is drained, the unadmitted suffix is skipped,
 and the root remains `outcome-unknown` after both store reopens and passive
 playback (2/2). This qualifies direct-MCP uncertainty in the private
-Sequence/Break path only. Cancellation, pause/stop, concurrent/racing admission,
-and the broader production scheduler remain open.
+Sequence/Break path only. A host cancellation injected after Break is
+requested while an admitted Agent remains active is also persisted as a
+distinct cancelled root and Sequence, with the remaining suffix skipped and
+passive playback reconstructing `cancelled` through both stores (2/2).
+Pause/stop, concurrent/racing admission, and the broader production scheduler
+remain open.
