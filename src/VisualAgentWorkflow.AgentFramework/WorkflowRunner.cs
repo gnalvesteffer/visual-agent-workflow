@@ -2612,6 +2612,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             "number" when value.Value is double number && double.IsFinite(number) => JsonValue.Create(number)!,
             "boolean" when value.Value is bool boolean => JsonValue.Create(boolean)!,
             "json" when value.Value is JsonElement json => JsonNode.Parse(json.GetRawText())!,
+            _ when WorkflowDataTypes.TryGetArrayElementType(value.DataType, out _) &&
+                value.Value is JsonElement array && array.ValueKind == JsonValueKind.Array => JsonNode.Parse(array.GetRawText())!,
             _ => throw new InvalidOperationException($"MCP argument data type '{value.DataType}' is not supported.")
         };
 

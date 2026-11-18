@@ -157,6 +157,24 @@ normalization remains explicit, deterministic, and provenance-preserving.
 - Checkpoint admission continues to reject unsupported array-bearing shapes.
 - Historical 1.x fixtures and the existing JSON-array sequences preserve hashes,
   behavior, and playback.
+
+## Current-schema direct MCP composition (2026-11-18)
+
+The unified schema now permits bounded typed-array MCP argument pins and no
+longer rejects an immutable typed-array node merely because its graph also
+contains a Sequence, call, or parallel node. The type and requiredness checks
+remain per pin. Runtime MCP argument construction serializes evaluated
+`array<T>` values as JSON arrays. A focused production-runner regression
+validates and package-round-trips a schema-2.0 Sequence graph, then verifies
+two direct MCP calls receive the same authored array. The test covers
+`array<string>`, `array<boolean>`, `array<integer>`, `array<number>`, and
+`array<json>` (5/5).
+
+This composition is safe for immutable data values: it does not grant a tool,
+change the host broker's invocation checks, or define mutable array writes in
+parallel regions. Historical schemas retain their original MCP-pin admission
+rules. Array-valued workflow interface ports and checkpoint state remain
+unsupported; mutable array-variable placement restrictions are unchanged.
 - Studio authoring exposes the element type and literal values, updates typed
   pins from one canonical contract, and saves invalid drafts for correction.
 - Architecture, user guide, capability matrix, and roadmap distinguish shipped

@@ -924,6 +924,51 @@ public sealed class SequenceProductionRunnerTests
         Assert.All(playback.Outputs, output => Assert.Equal("completed", output.State));
     }
 
+    [Theory]
+    [InlineData("string", """["alpha","beta"]""", """["alpha","beta"]""")]
+    [InlineData("boolean", "[true,false]", "[true,false]")]
+    [InlineData("integer", "[-1,42]", "[-1,42]")]
+    [InlineData("number", "[1.5,-2]", "[1.5,-2]")]
+    [InlineData("json", """[{"z":1.00,"a":[null,true]},-0]""", """[{"z":1.00,"a":[null,true]},-0]""")]
+    public async Task Unified_sequence_passes_typed_array_values_to_direct_mcp_argument_pins(
+        string elementType, string valuesJson, string expectedJson)
+    {
+        var source = SequencePathDefinition();
+        var nodes = source.Nodes
+            .Add("values", new(NodeTypes.ArrayLiteral, "1.0.0")
+            { ArrayLiteral = new(elementType, valuesJson) });
+        foreach (var id in new[] { "inventory-tool", "architecture-tool" })
+            nodes = nodes.SetItem(id, nodes[id] with
+            {
+                McpArgumentsJson = null,
+                McpInputPorts = [new("arg.values", "values", WorkflowDataTypes.ArrayOf(elementType), true)]
+            });
+
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Nodes = nodes,
+            Connections = source.Connections
+                .Add("inventory-values", new(new("values", "out"), new("inventory-tool", "arg.values"), "data"))
+                .Add("architecture-values", new(new("values", "out"), new("architecture-tool", "arg.values"), "data"))
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var package = WorkflowPackageJson.Create(definition, WorkflowLayout.Create(definition));
+        var reopened = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(definition, package.Layout));
+        var broker = new RecordingBroker();
+
+        var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(reopened.Definition, "test"), "caller input", null,
+            _ => ValueTask.CompletedTask);
+
+        Assert.False(result.Failed);
+        Assert.Equal(2, broker.Arguments.Count);
+        Assert.All(broker.Arguments, arguments =>
+        {
+            Assert.Equal(expectedJson, arguments.GetProperty("values").GetRawText());
+        });
+    }
+
     [Fact]
     public async Task Unified_sequence_agent_result_flows_through_a_following_transform()
     {

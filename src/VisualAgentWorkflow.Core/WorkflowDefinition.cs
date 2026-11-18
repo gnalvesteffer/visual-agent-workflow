@@ -107,7 +107,7 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     /// <summary>Optional static JSON arguments for a direct MCP tool node; credentials and grants are never stored here.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? McpArgumentsJson { get; init; }
-    /// <summary>Schema-driven top-level argument pins for direct MCP graph schema 1.37.</summary>
+    /// <summary>Schema-driven top-level argument pins for direct MCP calls.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableArray<McpInputPortDefinition>? McpInputPorts { get; init; }
     /// <summary>Stable variable declaration ID used by VariableGet and VariableSet nodes.</summary>

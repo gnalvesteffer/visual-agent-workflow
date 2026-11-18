@@ -120,7 +120,7 @@ creation, wiring, save, and deterministic execution with no promotion controls.
 
 ### Next parity workstream: first-class collections
 
-**Status: Active; primitive and JSON-valued arrays compose through workflow boundaries, parameters, pure graph functions, bounded operations, and JSON-array variable Get/Set. Iteration remains a separate increment.**
+**Status: Active; primitive and JSON-valued arrays compose through workflow boundaries, parameters, pure graph functions, direct MCP argument pins, bounded operations, and JSON-array variable Get/Set. Iteration remains a separate increment.**
 The capability audit and three-role adversarial review identify containers as a
 foundational Blueprint language gap. Existing `array<json>` support is useful
 but remains subject to bounded graph shapes and explicit placement contracts.
@@ -128,7 +128,7 @@ but remains subject to bounded graph shapes and explicit placement contracts.
 sets the staged contract: current schema 2.0, homogeneous bounded primitive
 arrays in ordinary pure-data composition and typed workflow input/output
 boundaries, then separately proven placements. Maps/sets, workflow interfaces,
-direct MCP arguments, iteration, and checkpoint state remain future work. No
+iteration, and checkpoint state remain future work. No
 feature-specific schema gates, promotion controls, or preview modes will be
 introduced.
 
@@ -158,6 +158,11 @@ introduced.
   and Agent graph-function tools, exact package/hash behavior, runtime input
   validation, and bounded aggregate call evidence recorded in ordinary run events.
   See [Decision 0069](decisions/0069-typed-arrays-in-pure-graph-functions.md).
+- [x] Compose bounded primitive and JSON arrays with current-schema direct MCP
+  argument pins and Sequence dispatch. Validation admits array-typed MCP pins
+  only in schema 2.0; execution serializes the exact evaluated array as a JSON
+  argument. A focused regression validates the graph, package round-trips it,
+  and verifies both deterministic Sequence calls receive the authored values.
 - [x] Implement typed array declarations/defaults, exact Get/Set pins, immutable
   append/insert/replace/remove/concatenate nodes, canonical state and playback
   evidence, with a shared 65,536-byte per-invocation array-value evidence budget.

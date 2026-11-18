@@ -78,7 +78,7 @@ public sealed class WorkflowArrayLiteralTests
     }
 
     [Fact]
-    public void Typed_array_schema_admits_typed_workflow_input_and_output_boundaries()
+    public void Typed_array_schema_admits_typed_boundaries_and_does_not_gate_sequence_composition()
     {
         var graph = ArrayGraph();
         var boundaryGraph = TypedArrayBoundaryGraph();
@@ -104,7 +104,7 @@ public sealed class WorkflowArrayLiteralTests
             Nodes = graph.Nodes.Add("sequence", new(NodeTypes.Sequence, "1.0.0")
             { Sequence = new([new("one", "One"), new("two", "Two")]) })
         };
-        Assert.Contains(WorkflowValidator.Validate(withSequence), issue => issue.Code == "array.placement");
+        Assert.DoesNotContain(WorkflowValidator.Validate(withSequence), issue => issue.Code == "array.placement");
     }
 
     [Fact]

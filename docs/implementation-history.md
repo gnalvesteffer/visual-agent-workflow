@@ -1,5 +1,17 @@
 # Implementation history
 
+## Typed array values in current-schema Sequence MCP calls (2026-11-18)
+
+Schema 2.0 now accepts bounded typed-array values on direct MCP argument pins,
+including when the call is dispatched from a Sequence path. Immutable array
+nodes are no longer rejected based only on the presence of Sequence, workflow
+call, or parallel nodes; typed pins and host grants remain authoritative. The
+runtime serializes evaluated primitive and JSON arrays into the argument
+object. A package round-trip and production-runner regression covers all five
+array element types and verifies both Sequence calls receive the array (5/5).
+Historical schemas, mutable array-variable placement, and array checkpoint
+state are unchanged. See [Decision 0066](decisions/0066-unified-typed-array-values.md).
+
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
 ## Normalize legacy conditionals whose arms end at Output

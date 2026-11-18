@@ -324,8 +324,11 @@ map. JSON arrays compact through `JsonElement.WriteTo`, preserving object member
 order and number-token spelling; this representation is not canonical JSON.
 `core.workflow-value` emits the exact array type, and prompt/template
 interpolation uses the same resolved text. Invalid overrides fail before
-admission. Schema 2.0 pure-function ports support primitive arrays and `array<json>`;
-interface ports, direct MCP arguments, and checkpoint state remain unsupported.
+admission. Schema 2.0 pure-function ports support primitive arrays and
+`array<json>`. Current-schema direct MCP argument pins also accept bounded array
+types and serialize them as JSON arrays; Sequence-dispatched MCP calls are
+covered. Workflow interface ports and checkpoint state remain unsupported for
+array values.
 Run-scoped variables support primitive arrays, canonical defaults, immutable
 transformations, and bounded aggregate state evidence in linear and bounded-loop
 execution. Immutable array values can also feed lazy data dependencies consumed

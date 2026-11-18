@@ -1393,7 +1393,8 @@
         _ => "is unavailable"
     };
     private static string ToolInputSummary(ToolBindingDescriptor binding) => binding.InputSummary;
-    private static System.Collections.Immutable.ImmutableArray<McpInputPortDefinition> McpInputPorts(ToolBindingDescriptor binding)
+    private static System.Collections.Immutable.ImmutableArray<McpInputPortDefinition> McpInputPorts(
+        ToolBindingDescriptor binding, bool supportsTypedArrays)
     {
         try
         {
@@ -1404,7 +1405,7 @@
                 ? requiredValues.EnumerateArray().Where(value => value.ValueKind == System.Text.Json.JsonValueKind.String).Select(value => value.GetString()!).ToHashSet(StringComparer.Ordinal)
                 : new HashSet<string>(StringComparer.Ordinal);
             return [.. properties.EnumerateObject().Select(property => new McpInputPortDefinition(
-                $"arg.{property.Name}", property.Name, McpPortDataType(property.Value), required.Contains(property.Name)))];
+                $"arg.{property.Name}", property.Name, McpPortDataType(property.Value, supportsTypedArrays), required.Contains(property.Name)))];
         }
         catch (System.Text.Json.JsonException)
         {
@@ -1438,17 +1439,32 @@
         }
     }
 
-    private static string McpPortDataType(System.Text.Json.JsonElement schema) =>
-        schema.TryGetProperty("type", out var type) && type.ValueKind == System.Text.Json.JsonValueKind.String && type.GetString() is "string" or "integer" or "number" or "boolean"
-            ? type.GetString()!
-            : "json";
+    private static string McpPortDataType(System.Text.Json.JsonElement schema, bool supportsTypedArrays)
+    {
+        if (!schema.TryGetProperty("type", out var type) || type.ValueKind != System.Text.Json.JsonValueKind.String)
+            return WorkflowDataTypes.Json;
+
+        var typeName = type.GetString();
+        if (typeName is "string" or "integer" or "number" or "boolean") return typeName;
+        if (typeName != "array" || !supportsTypedArrays || !schema.TryGetProperty("items", out var items))
+            return WorkflowDataTypes.Json;
+
+        var itemType = items.ValueKind == System.Text.Json.JsonValueKind.Object &&
+            items.TryGetProperty("type", out var itemTypeElement) &&
+            itemTypeElement.ValueKind == System.Text.Json.JsonValueKind.String
+                ? itemTypeElement.GetString()
+                : null;
+        return WorkflowDataTypes.ArrayOf(itemType is "string" or "integer" or "number" or "boolean"
+            ? itemType
+            : WorkflowDataTypes.Json);
+    }
 
     private System.Collections.Immutable.ImmutableArray<WorkflowPortDescriptor> CanvasPorts(NodeDefinition node)
     {
         if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && node.Type == NodeTypes.McpTool && SchemaDrivenMcpPins)
         {
             var ports = node.McpInputPorts ?? (Bindings.FirstOrDefault(binding => node.Tool is not null && BindingMatches(node.Tool, binding)) is { } binding
-                ? McpInputPorts(binding)
+                ? McpInputPorts(binding, Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
                 : []);
             var descriptions = Bindings.FirstOrDefault(binding => node.Tool is not null && BindingMatches(node.Tool, binding)) is { } matchingBinding
                 ? McpInputDescriptions(matchingBinding)
@@ -1554,7 +1570,12 @@
         }
         var binding = Bindings.SingleOrDefault(b => ToolKey(b) == value);
         return binding is null ? new(value, "1.0.0") : new(NodeTypes.McpTool, "1.0.0", new(binding.BindingId, binding.ContractHash)
-        { DescriptionHash = binding.DescriptionHash }) { McpInputPorts = SchemaDrivenMcpPins ? McpInputPorts(binding) : null };
+        { DescriptionHash = binding.DescriptionHash })
+        {
+            McpInputPorts = SchemaDrivenMcpPins
+                ? McpInputPorts(binding, Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                : null
+        };
     }
 
     private Task ChangeStringConstant(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,

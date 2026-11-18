@@ -280,9 +280,10 @@ public static class WorkflowValidator
             if (node.McpInputPorts is not null &&
                 (!WorkflowSchemaVersions.UsesDirectMcpPins(definition.SchemaVersion) || node.Type != NodeTypes.McpTool ||
                  node.McpInputPorts.Value.Any(port => port is null || string.IsNullOrWhiteSpace(port.Id) || string.IsNullOrWhiteSpace(port.Name) ||
-                     port.Id.Length > 256 || port.Name.Length > 256 || !WorkflowDataTypeCatalog.IsSupported(port.DataType) || WorkflowDataTypes.TryGetArrayElementType(port.DataType, out _) ||
+                     port.Id.Length > 256 || port.Name.Length > 256 || !WorkflowDataTypeCatalog.IsSupported(port.DataType) ||
+                     WorkflowDataTypes.TryGetArrayElementType(port.DataType, out _) && definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph ||
                      !port.Id.StartsWith("arg.", StringComparison.Ordinal))))
-                Error("mcp.input-ports", $"nodes.{id}.mcpInputPorts", "Schema 1.37 MCP input pins must be unique, bounded arg.* ports with supported graph data types.");
+                Error("mcp.input-ports", $"nodes.{id}.mcpInputPorts", "Direct MCP input pins must have unique bounded arg.* IDs and names and use a data type supported by the workflow schema.");
             if (node.McpInputPorts is { } inputPorts && inputPorts.Select(port => port.Id).Distinct(StringComparer.Ordinal).Count() != inputPorts.Length)
                 Error("mcp.input-ports", $"nodes.{id}.mcpInputPorts", "MCP input pin IDs must be unique.");
             if (node.McpInputPorts is { } namedPorts && namedPorts.Select(port => port.Name).Distinct(StringComparer.Ordinal).Count() != namedPorts.Length)
@@ -839,17 +840,8 @@ public static class WorkflowValidator
     private static void ValidateUnifiedGraph(WorkflowDefinition definition, Action<string, string, string> error)
     {
         if (definition.Nodes.Values.Any(node => node is null)) return;
-        var hasTypedArrays = definition.Nodes.Values.Any(node => node is not null &&
-            (node.Type == NodeTypes.ArrayLiteral || node.ArrayElementType is not null));
         var hasArrayVariables = definition.Variables?.Values.Any(variable => variable is not null &&
             WorkflowDataTypes.IsArrayType(variable.Type)) == true;
-        if (hasTypedArrays && definition.Nodes.Values.Any(node => node?.Type is
-                NodeTypes.Sequence or NodeTypes.WorkflowCall or
-                NodeTypes.WorkflowInterfaceCall or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or
-                NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous))
-        {
-            error("array.placement", "nodes", "Typed arrays in this schema 2.0 slice support linear and bounded-loop dataflow; Sequence, nested calls, and parallel regions are not supported.");
-        }
         if (hasArrayVariables && definition.Nodes.Values.Any(node => node?.Type is
                 NodeTypes.Sequence or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.ParallelFork or
                 NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous or NodeTypes.FunctionCall))
