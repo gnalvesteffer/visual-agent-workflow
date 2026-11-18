@@ -88,7 +88,7 @@ public sealed class UnifiedCheckpointRecoveryTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Unified_checkpoint_admission_rejects_typed_arrays_with_or_without_loop_variable_state(bool withLoop)
+    public void Checkpoint_admission_rejects_valid_typed_array_graphs_with_or_without_loop_variable_state(bool withLoop)
     {
         var definition = withLoop ? LoopDefinition() : VariableDefinition();
         Assert.Empty(WorkflowValidator.Validate(definition));
@@ -96,16 +96,24 @@ public sealed class UnifiedCheckpointRecoveryTests : IDisposable
 
         var withArray = definition with
         {
-            Nodes = definition.Nodes.Add("array", new NodeDefinition(NodeTypes.ArrayLiteral, "1.0.0")
-            {
-                ArrayLiteral = new(WorkflowDataTypes.String, "[\"value\"]")
-            })
+            Nodes = definition.Nodes
+                .SetItem("output", definition.Nodes["output"] with
+                    { OutputDataType = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String) })
+                .Add("array", new NodeDefinition(NodeTypes.ArrayLiteral, "1.0.0")
+                {
+                    ArrayLiteral = new(WorkflowDataTypes.String, "[\"value\"]")
+                }),
+            Connections = definition.Connections
+                .RemoveRange(definition.Connections.Where(pair => pair.Value.Target.NodeId == "output")
+                    .Select(pair => pair.Key))
+                .Add("array-output", new(new("array", "out"), new("output", "in"), "data"))
         };
 
-        Assert.Contains(WorkflowValidator.Validate(withArray), issue => issue.Code == "array.placement");
-        var admissionError = Assert.Throws<ArgumentException>(() =>
+        Assert.Empty(WorkflowValidator.Validate(withArray));
+        var admissionError = Assert.Throws<InvalidOperationException>(() =>
             WorkflowRunner.ValidateCheckpointGraph(withArray, allowLoopCheckpointRecovery: withLoop));
-        Assert.Contains("array.placement", admissionError.Message, StringComparison.Ordinal);
+        Assert.Contains("Checkpoint recovery requires the proven deterministic loop-variable or linear scalar-variable shape",
+            admissionError.Message, StringComparison.Ordinal);
     }
 
     [Fact]

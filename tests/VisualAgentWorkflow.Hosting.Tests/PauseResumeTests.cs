@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.Extensions.Logging.Abstractions;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
@@ -86,6 +87,58 @@ public sealed class PauseResumeTests : IDisposable
             Assert.Equal(finished.Events.ToArray(), Journal.Get(started.Header.RunId)!.Events.ToArray());
         }
         finally { await runtime.StopAsync(CancellationToken.None); }
+    }
+
+    [Fact]
+    public async Task ProductionParallelPauseAcknowledgementWaitsForEveryActiveAgentToSettle()
+    {
+        var (definition, leftAgentId, rightAgentId) = ParallelAgents();
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var agent = new ConcurrentPauseAgent(leftAgentId, rightAgentId);
+        using var runtime = Runtime(agent);
+        await runtime.StartAsync(CancellationToken.None);
+        try
+        {
+            var run = await runtime.StartRunAsync(definition, "hello");
+            await Task.WhenAll(agent.LeftAgentStarted.Task, agent.RightAgentStarted.Task)
+                .WaitAsync(TimeSpan.FromSeconds(10));
+
+            await runtime.PauseRunAsync(run.Header.RunId);
+            agent.ReleaseLeftAgent.TrySetResult();
+            var leftSettled = await WaitFor(runtime, run.Header.RunId, snapshot => snapshot.Events.Any(evt =>
+                evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == leftAgentId));
+            Assert.DoesNotContain(leftSettled.Events, evt => evt.Kind == ExecutionEventKinds.Paused);
+            Assert.DoesNotContain(leftSettled.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == rightAgentId);
+
+            agent.ReleaseRightAgent.TrySetResult();
+            var paused = await WaitFor(runtime, run.Header.RunId, snapshot => snapshot.Events.Any(evt =>
+                evt.Kind == ExecutionEventKinds.Paused));
+
+            Assert.Equal("paused", paused.Status);
+            Assert.Contains(paused.Events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == leftAgentId);
+            Assert.Contains(paused.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == leftAgentId);
+            Assert.Contains(paused.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == rightAgentId);
+            Assert.Contains(paused.Events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == rightAgentId);
+            Assert.DoesNotContain(paused.Events, evt => evt.Kind == ExecutionEventKinds.Completed);
+
+            await runtime.ResumeRunAsync(run.Header.RunId);
+            agent.ReleaseRightAgent.TrySetResult();
+            var finished = await WaitFor(runtime, run.Header.RunId, snapshot => snapshot.IsTerminal);
+            Assert.Equal("completed", finished.Status);
+            Assert.Single(finished.Events, evt => evt.Kind == ExecutionEventKinds.Paused);
+            Assert.Single(finished.Events, evt => evt.Kind == ExecutionEventKinds.Resumed);
+        }
+        finally
+        {
+            agent.ReleaseLeftAgent.TrySetResult();
+            agent.ReleaseRightAgent.TrySetResult();
+            await runtime.StopAsync(CancellationToken.None);
+        }
     }
 
     [Fact]
@@ -219,6 +272,82 @@ public sealed class PauseResumeTests : IDisposable
             Entered.TrySetResult(invocation);
             await Release.Task.WaitAsync(cancellationToken);
             return input.ToUpperInvariant();
+        }
+    }
+
+    private static (WorkflowDefinition Definition, string LeftAgentId, string RightAgentId) ParallelAgents()
+    {
+        var branches = ImmutableArray.Create(
+            new ParallelBranchDescriptor("left", "Left", "anchor-left"),
+            new ParallelBranchDescriptor("right", "Right", "anchor-right"));
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("fork", new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(branches) })
+            .Add("anchor-left", new(NodeTypes.ParallelBranch, "1.0.0")
+                { ParallelBranch = new("fork", "left") })
+            .Add("anchor-right", new(NodeTypes.ParallelBranch, "1.0.0")
+                { ParallelBranch = new("fork", "right") })
+            .Add("agent-left", new(NodeTypes.Agent, "1.0.0",
+                Agent: new("controlled-parallel-pause", null, "left", [])))
+            .Add("agent-right", new(NodeTypes.Agent, "1.0.0",
+                Agent: new("controlled-parallel-pause", null, "right", [])))
+            .Add("join", new(NodeTypes.ParallelJoin, "1.0.0")
+                { ParallelJoin = new("fork", ["left", "right"]) })
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.Json });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-left", new(new("input", "out"), new("agent-left", "in"), "data"))
+            .Add("input-right", new(new("input", "out"), new("agent-right", "in"), "data"))
+            .Add("join-output", new(new("join", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-fork", new(new("input", "then"), new("fork", "execute"), "execution"))
+            .Add("fork-left", new(new("fork", ParallelBranchLimits.PinId("left")),
+                new("anchor-left", "execute"), "execution"))
+            .Add("fork-right", new(new("fork", ParallelBranchLimits.PinId("right")),
+                new("anchor-right", "execute"), "execution"))
+            .Add("left-agent", new(new("anchor-left", "then"),
+                new("agent-left", "execute"), "execution"))
+            .Add("right-agent", new(new("anchor-right", "then"), new("agent-right", "execute"), "execution"))
+            .Add("left-join", new(new("agent-left", "out"),
+                new("join", "branch.left"), "execution"))
+            .Add("right-join", new(new("agent-right", "out"),
+                new("join", "branch.right"), "execution"))
+            .Add("join-output", new(new("join", "then"), new("output", "execute"), "execution"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "parallel-pause-boundary", "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+        return (definition, "agent-left", "agent-right");
+    }
+
+    private sealed class ConcurrentPauseAgent(string leftNodeId, string rightNodeId) : IAgentNodeExecutor
+    {
+        public TaskCompletionSource LeftAgentStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource RightAgentStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseLeftAgent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseRightAgent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("controlled-parallel-pause", "Controlled parallel pause", "test", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId == leftNodeId)
+            {
+                LeftAgentStarted.TrySetResult();
+                await ReleaseLeftAgent.Task.WaitAsync(cancellationToken);
+            }
+            else if (invocation.NodeId == rightNodeId)
+            {
+                RightAgentStarted.TrySetResult();
+                await ReleaseRightAgent.Task.WaitAsync(cancellationToken);
+            }
+            return input;
         }
     }
 
