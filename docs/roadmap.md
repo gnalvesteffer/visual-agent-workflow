@@ -126,6 +126,12 @@ introduced.
   exact type identity, item and payload bounds, scalar output, node-attributed
   index failures, recorded evaluation evidence, invalid-draft persistence, and
   unchanged historical JSON-array behavior. See [Decision 0066](decisions/0066-unified-typed-array-values.md).
+- [x] Prove immutable typed-array data dependencies inside the current-schema
+  bounded-loop body: `ArrayGet` supplies a real variable write on every body
+  activation, and the shared evidence budget rejects the fifth pass before its
+  write while preserving the four accepted values. This does not provide array
+  iteration or loop-carried immutable state; the integrated iterator/Break
+  runtime proof remains active in [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [x] Extend typed arrays through workflow input/output boundaries as JSON text
   on the existing string run API, with exact type validation, shared bounds,
   package/hash/runtime/evidence proofs, and Studio guidance. See

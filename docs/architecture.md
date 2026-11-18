@@ -311,7 +311,10 @@ admission. Schema 2.0 pure-function ports support primitive arrays and `array<js
 interface ports, direct MCP arguments, and checkpoint state remain unsupported.
 Run-scoped variables support primitive arrays, canonical defaults, immutable
 transformations, and bounded aggregate state evidence in linear and bounded-loop
-execution. They also support bounded `array<json>` defaults and whole-value
+execution. Immutable array values can also feed lazy data dependencies consumed
+by a bounded-loop body; each activation evaluates its own value evidence against
+the same run-level 65,536-byte budget. This does not provide an iterator or
+loop-carried immutable state. They also support bounded `array<json>` defaults and whole-value
 Get/Set in unified schema 2.0. JSON values compact while preserving member order
 and number-token spelling. Immutable array transformations can feed JSON-array
 Set. The shared 65,536-byte invocation budget counts each emitted data-evaluation

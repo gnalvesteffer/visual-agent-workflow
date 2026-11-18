@@ -46,6 +46,46 @@ public sealed class WorkflowTypedArrayTests
     }
 
     [Fact]
+    public async Task Immutable_array_data_is_resolved_by_each_bounded_loop_body_activation()
+    {
+        var graph = ArrayGetInsideExplicitLoopGraph();
+        WorkflowValidator.ThrowIfInvalid(graph);
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(graph, "typed-array-loop-data"), "continue", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+        Assert.Equal("alpha", result.Output);
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "literal"));
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "item"));
+        Assert.Equal(3, events
+            .Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "item")
+            .Select(evt => evt.InvocationId).Distinct().Count());
+        AssertDataEvidence(events, "item", WorkflowDataTypes.String, "\"alpha\"");
+    }
+
+    [Fact]
+    public async Task Immutable_array_evidence_budget_is_shared_across_bounded_loop_iterations()
+    {
+        var literalValues = "[\"" + new string('x', 15_000) + "\"]";
+        var graph = ArrayGetInsideExplicitLoopGraph(literalValues, maximumIterations: 5);
+        var events = new List<ExecutionEvent>();
+
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
+            new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+                WorkflowRevision.Create(graph, "typed-array-loop-evidence-budget"), "continue", null,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains("aggregate limit", exception.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "literal"));
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.VariableWritten && evt.NodeId == "set"));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
     public async Task Json_array_append_accepts_input_values_and_preserves_nested_json()
     {
         var graph = JsonArrayAppendGraph();
@@ -271,5 +311,48 @@ public sealed class WorkflowTypedArrayTests
         }.ToImmutableSortedDictionary(StringComparer.Ordinal);
         return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "json-array-append", "input", nodes, data)
         { ExecutionConnections = execution };
+    }
+
+    private static WorkflowDefinition ArrayGetInsideExplicitLoopGraph(string literalValues = "[\"alpha\"]",
+        int maximumIterations = 3)
+    {
+        var nodes = new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["loop"] = new(NodeTypes.Loop, "1.0.0") { Loop = new(new("contains", "continue"), maximumIterations) },
+            ["body"] = new(NodeTypes.LoopBody, "1.0.0"),
+            ["literal"] = new(NodeTypes.ArrayLiteral, "1.0.0")
+                { ArrayLiteral = new(WorkflowDataTypes.String, literalValues) },
+            ["index"] = new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(0) },
+            ["item"] = new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = WorkflowDataTypes.String },
+            ["set"] = new(NodeTypes.VariableSet, "1.0.0")
+                { VariableId = "item", InputDataType = WorkflowDataTypes.String },
+            ["get"] = new(NodeTypes.VariableGet, "1.0.0")
+                { VariableId = "item", OutputDataType = WorkflowDataTypes.String },
+            ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var data = new Dictionary<string, ConnectionDefinition>
+        {
+            ["literal-item"] = new(new("literal", "out"), new("item", "array"), "data"),
+            ["index-item"] = new(new("index", "out"), new("item", "index"), "data"),
+            ["item-set"] = new(new("item", "item"), new("set", "value"), "data"),
+            ["get-output"] = new(new("get", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var execution = new Dictionary<string, ConnectionDefinition>
+        {
+            ["input-loop"] = new(new("input", "then"), new("loop", "execute"), "execution"),
+            ["loop-body"] = new(new("loop", "body"), new("body", "execute"), "execution"),
+            ["body-set"] = new(new("body", "then"), new("set", "execute"), "execution"),
+            ["set-get"] = new(new("set", "then"), new("get", "execute"), "execution"),
+            ["get-loop"] = new(new("get", "then"), new("loop", "execute"), "execution"),
+            ["loop-output"] = new(new("loop", "done"), new("output", "execute"), "execution")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "typed-array-loop-data", "input", nodes, data)
+        {
+            Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
+                .Add("item", new("Item", "default")),
+            ExecutionConnections = execution
+        };
     }
 }
