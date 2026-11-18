@@ -258,6 +258,14 @@ introduced.
   with two concurrently admitted production bodies: the one-request cap admits
   exactly one provider call, fails the other activation before dispatch, and
   reopens with identical failed playback through file and SQLite stores (2/2).
+  A byte-cap proof calibrates the serialized MCP authorization prefix and
+  pending iteration/outcome reservations from a synchronized two-dispatch
+  baseline. Both stores reject the second dispatch before broker invocation,
+  settle the admitted sibling, suppress the run result, and reopen the same
+  failed history (2/2). This verifies integrated byte contention for this
+  direct-MCP body; broader concurrent payload shapes and production budget
+  ownership remain open. See [Decision
+  0070](decisions/0070-bounded-array-iteration-contract.md).
   A nested-frame production-body case now confirms that graph-dispatched Break
   targets the inner frame ID rather than its supplied outer frame, suppresses
   the remaining inner suffix, and reopens with matching Break playback through
@@ -1025,6 +1033,15 @@ introduced.
       shared one-activation cap after the first item's Agent/MCP work completes;
       both stores reopen the failed root and playback shows only the completed
       first iteration (2/2 focused cases).
+      - [x] Calibrate a concurrent production-body byte cap from the serialized
+        prefix through the second MCP authorization, including held iteration
+        settlement slots, both tool-outcome reservations, and reserved failure
+        evidence. The second call is rejected before broker dispatch, the
+        admitted sibling settles, and file/SQLite reopen preserves the failed
+        history (2/2 focused cases; concurrent coordinator group 39/39). This
+        does not establish limits for other payload shapes or a production-owned
+        budget contract. See [Decision
+        0070](decisions/0070-bounded-array-iteration-contract.md).
       - [x] Verify reservation identity extraction for delegated model and
         production-MCP calls through the structured run context. Delegated
         evidence wraps the original call ID inside its `eventData` envelope;

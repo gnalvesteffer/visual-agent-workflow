@@ -3622,6 +3622,17 @@ parallel Agent completes before the first is cancelled during failure drain;
 the coordinator stops admission, records root failure, and does not fabricate
 either settlement. Reopened file and SQLite histories equal the accepted
 prefix, and passive playback marks both started iterations incomplete after
-run end (2/2). The concurrent coordinator group passes 37/37. This characterizes
-store rejection after successful reservation; it does not establish recovery
-from process loss or a production scheduler contract.
+run end (2/2). This characterizes store rejection after successful reservation;
+it does not establish recovery from process loss or a production scheduler
+contract.
+
+`ConcurrentProductionBodyCoordinator_ReservesToolOutcomeBytesBeforeDispatch`
+calibrates an integrated coordinator byte ceiling from a synchronized
+two-item baseline. It includes the serialized prefix through the competing
+MCP authorization, outstanding iteration settlement slots, two bounded tool
+outcomes, and failure reserve. With that cap, only one authorization reaches
+the broker; its sibling settles, the run fails without a joined result, and
+both file and SQLite stores reopen the same failed history (2/2). The
+concurrent production-body coordinator group passes 39/39. This covers one
+direct-MCP event shape and bounded two-item race, not every payload envelope,
+production budget ownership, or general scheduler races.

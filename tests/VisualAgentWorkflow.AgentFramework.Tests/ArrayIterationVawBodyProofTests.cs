@@ -7602,6 +7602,115 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_ReservesToolOutcomeBytesBeforeDispatch(bool sqlite)
+    {
+        var baseline = await ExecuteAsync(maximumBytes: 4_000_000, expectedDispatches: 2,
+            maximumToolDispatches: 2);
+        var authorizations = baseline.Events.Where(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized)
+            .OrderBy(evt => evt.Sequence).ToArray();
+        Assert.Equal(2, authorizations.Length);
+
+        var secondAuthorization = authorizations[1];
+        var prefixBytes = baseline.Events.Where(evt => evt.Sequence < secondAuthorization.Sequence)
+            .Sum(EventBytes);
+        var iterationReservationBytes = baseline.Events
+            .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.Sequence < secondAuthorization.Sequence)
+            .Where(start => !baseline.Events.Any(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.Sequence < secondAuthorization.Sequence && evt.NodeId == start.NodeId &&
+                evt.InvocationId == start.InvocationId && evt.ScopeId == start.ScopeId))
+            .Sum(IterationSettlementReservationBytes);
+        const long maximumOutcomeBytes = 32_000;
+        const long reservedFailureBytes = 64_000;
+        const long byteAdmissionMargin = 4_096;
+        var maximumBytes = checked(prefixBytes + EventBytes(secondAuthorization) +
+            (2 * maximumOutcomeBytes) + iterationReservationBytes + reservedFailureBytes - byteAdmissionMargin);
+
+        var limited = await ExecuteAsync(maximumBytes, expectedDispatches: 1, maximumToolDispatches: 2);
+        Assert.True(limited.Result.Failed);
+        Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+        Assert.Equal(2, limited.Events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "tool");
+        Assert.DoesNotContain(limited.Events,
+            evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.Contains("Latest run status: failed", limited.Playback, StringComparison.Ordinal);
+
+        async Task<(ExecutionEvent[] Events, WorkflowExecutionResult Result, string Playback)>
+            ExecuteAsync(long maximumBytes, int expectedDispatches, int maximumToolDispatches)
+        {
+            const string bindingId = "proof.concurrent-tool-byte-budget";
+            const string input = "[\"first\",\"second\"]";
+            var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+                "concurrent-array-shared-tool-byte-budget", "input",
+                ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                    .Add("input", new(NodeTypes.Input, "1.0.0"))
+                    .Add("tool", new(NodeTypes.McpTool, "1.0.0",
+                        new ToolBindingRequest(bindingId, new string('d', 64)))
+                    {
+                        McpInputPorts = [new("arg.query", "query", WorkflowDataTypes.String, true)],
+                        McpArgumentsJson = "{}"
+                    })
+                    .Add("output", new(NodeTypes.Output, "1.0.0")),
+                ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                    .Add("input-query", new(new("input", "out"), new("tool", "arg.query"), "data"))
+                    .Add("tool-result", new(new("tool", "out"), new("output", "in"), "data")))
+            {
+                Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                    .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+                ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                    .Add("input-tool", Edge("input", "then", "tool", "execute"))
+                    .Add("tool-output", Edge("tool", "then", "output", "execute"))
+            };
+            var revision = WorkflowRevision.CreateProofOnly(definition,
+                "concurrent-array-shared-tool-byte-budget-proof");
+            using var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ProofRecorder(store, startRoot: false);
+            var broker = new ControlledSettlementToolBroker(bindingId, ControlledToolOutcome.Success,
+                expectedDispatches);
+            var budgetRejected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            ValueTask Record(ExecutionEvent evt)
+            {
+                recorder.Append(evt);
+                if (evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "tool")
+                    budgetRejected.TrySetResult();
+                return ValueTask.CompletedTask;
+            }
+
+            var execution = new WorkflowRunner(tools: broker)
+                .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(store.RunId, revision, input,
+                    "index", null, Record, runBudget: StructuredRunBudget(maximumToolDispatches) with
+                    {
+                        MaximumBytes = maximumBytes
+                    });
+            try
+            {
+                if (expectedDispatches == 2)
+                    await broker.AllDispatchesStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                else
+                    await Task.WhenAll(broker.DispatchStarted.Task, budgetRejected.Task)
+                        .WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                broker.ReleaseOutcome.TrySetResult();
+            }
+
+            var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+            var events = recorder.Snapshot();
+            var status = result.Failed ? "failed" : "completed";
+            AssertPersistedSequence(store, events, status);
+            var reopened = store.ReopenStore().Get(store.RunId)!;
+            Assert.Equal(events, reopened.Events);
+            return (events, result, await RenderPlayback(reopened));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ConcurrentProductionBodyCoordinator_NestedBreakTargetsNearestFrame(bool sqlite)
     {
         var revision = WorkflowRevision.CreateProofOnly(StructuredBreakProofDefinition(),
@@ -15248,6 +15357,13 @@ public sealed class ArrayIterationVawBodyProofTests
     private static long EventBytes(ExecutionEvent evt) =>
         JsonSerializer.SerializeToUtf8Bytes(evt, JsonSerializerOptions.Web).Length;
 
+    private static long IterationSettlementReservationBytes(ExecutionEvent start) => EventBytes(start with
+    {
+        Sequence = long.MaxValue,
+        Kind = ExecutionEventKinds.LoopIterationCompleted,
+        Data = new string('x', 1_024)
+    });
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -21813,13 +21929,17 @@ public sealed class ArrayIterationVawBodyProofTests
 
     public enum ControlledToolOutcome { Success, Failure, Unknown }
 
-    private sealed class ControlledSettlementToolBroker(string expectedBindingId, ControlledToolOutcome outcome)
+    private sealed class ControlledSettlementToolBroker(string expectedBindingId, ControlledToolOutcome outcome,
+        int expectedDispatches = 1)
         : INodeToolBroker
     {
         private readonly string registeredBindingId = expectedBindingId;
         private readonly ControlledToolOutcome selectedOutcome = outcome;
+        private readonly int expectedDispatchCount = expectedDispatches;
         public TaskCompletionSource DispatchStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource AllDispatchesStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseOutcome { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int dispatchCount;
 
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
@@ -21846,6 +21966,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 await invocation.RecordEventAsync(ExecutionEventKinds.ToolAuthorized,
                     JsonSerializer.Serialize(new { toolCallId, bindingId, input = arguments }));
                 owner.DispatchStarted.TrySetResult();
+                if (Interlocked.Increment(ref owner.dispatchCount) == owner.expectedDispatchCount)
+                    owner.AllDispatchesStarted.TrySetResult();
                 await owner.ReleaseOutcome.Task.WaitAsync(cancellationToken);
 
                 if (owner.selectedOutcome == ControlledToolOutcome.Success)
