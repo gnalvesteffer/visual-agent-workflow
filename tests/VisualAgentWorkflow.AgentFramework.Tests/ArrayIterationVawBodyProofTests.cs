@@ -7533,6 +7533,78 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_SequenceFailurePreservesSiblingItemCompletion(bool sqlite)
+    {
+        var definition = SequenceBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "concurrent-production-array-sequence-failure-proof");
+        const string input = "[\"first\",\"second\"]";
+        using var store = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        var invocationScopes = new ConcurrentDictionary<Guid, string>();
+        var siblingSequenceCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var broker = new ConcurrentSequenceFailureMcpBroker(
+            invocationId => invocationScopes.GetValueOrDefault(invocationId),
+            siblingSequenceCompleted.Task);
+
+        var result = await new WorkflowRunner(tools: broker)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(store.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    recorder.Append(evt);
+                    if (evt.Kind == ExecutionEventKinds.ToolAuthorized && evt.InvocationId is { } invocationId &&
+                        evt.ScopeId is { } scopeId)
+                        invocationScopes[invocationId] = scopeId;
+                    if (evt.Kind == ExecutionEventKinds.SequenceCompleted && evt.ScopeId == "array-loop/1")
+                        siblingSequenceCompleted.TrySetResult();
+                    return ValueTask.CompletedTask;
+                }, runBudget: StructuredRunBudget(maximumToolDispatches: 4) with
+                {
+                    MaximumConcurrentOutcomeReservations = 4
+                }).WaitAsync(TimeSpan.FromSeconds(10));
+
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.Equal(4, broker.Calls.Length);
+        Assert.Equal(4, broker.MaximumConcurrentCalls);
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolCompleted));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed);
+        AssertPersistedSequence(store, events, "failed");
+
+        var failedItem = events.Where(evt => evt.ScopeId == "array-loop/0").ToArray();
+        Assert.Equal(2, failedItem.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched));
+        Assert.Single(failedItem, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled);
+        Assert.Single(failedItem, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed);
+        Assert.Single(failedItem, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.Single(failedItem, evt => evt.Kind == ExecutionEventKinds.ToolCompleted &&
+            evt.NodeId == "architecture-tool");
+        Assert.Contains(failedItem, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.Data!.Contains("\"outcome\":\"failed\"", StringComparison.Ordinal));
+
+        var completedItem = events.Where(evt => evt.ScopeId == "array-loop/1").ToArray();
+        Assert.Equal(2, completedItem.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+        Assert.Single(completedItem, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+        Assert.Single(completedItem, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.Data is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Iteration 1 · Failed", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 2 · Completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ConcurrentProductionBodyCoordinator_SharesModelDispatchBudget(bool sqlite)
     {
         var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
@@ -22924,6 +22996,97 @@ public sealed class ArrayIterationVawBodyProofTests
             }
 
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class ConcurrentSequenceFailureMcpBroker(Func<Guid, string?> scopeForInvocation,
+        Task siblingSequenceCompleted) : INodeToolBroker
+    {
+        private readonly ConcurrentQueue<ParallelToolCall> calls = new();
+        private readonly TaskCompletionSource allAuthorizationsRecorded =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int authorizationCount;
+        private int activeCalls;
+        private int maximumConcurrentCalls;
+
+        public ParallelToolCall[] Calls => [.. calls];
+        public int MaximumConcurrentCalls => maximumConcurrentCalls;
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) =>
+            new Scope(this, invocation, scopeForInvocation, siblingSequenceCompleted);
+
+        private sealed class Scope(ConcurrentSequenceFailureMcpBroker owner,
+            NodeInvocationContext invocation, Func<Guid, string?> scopeForInvocation,
+            Task siblingSequenceCompleted) : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string bindingId, string input,
+                CancellationToken cancellationToken = default) =>
+                Task.FromException<string>(new NotSupportedException());
+
+            public async Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments,
+                CancellationToken cancellationToken = default)
+            {
+                var active = Interlocked.Increment(ref owner.activeCalls);
+                UpdateMaximum(owner, active);
+                try
+                {
+                    var query = arguments.GetProperty("query").GetString()!;
+                    owner.calls.Enqueue(new(invocation.NodeId, invocation.InvocationId, query));
+                    var toolCallId = Guid.NewGuid();
+                    await invocation.RecordEventAsync(ExecutionEventKinds.ToolAuthorized,
+                        JsonSerializer.Serialize(new { toolCallId, bindingId, input = arguments }));
+                    if (Interlocked.Increment(ref owner.authorizationCount) == 4)
+                        owner.allAuthorizationsRecorded.TrySetResult();
+                    await owner.allAuthorizationsRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5),
+                        cancellationToken);
+
+                    if (scopeForInvocation(invocation.InvocationId) == "array-loop/0" &&
+                        invocation.NodeId == "inventory-tool")
+                    {
+                        await siblingSequenceCompleted.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+                        await invocation.RecordEventAsync(ExecutionEventKinds.ToolFailed,
+                            JsonSerializer.Serialize(new
+                            {
+                                toolCallId,
+                                bindingId,
+                                failureCode = "tool.host_failure",
+                                disposition = ToolInvocationFailureDisposition.Fatal.ToString(),
+                                reason = "Deterministic first-item Sequence failure."
+                            }));
+                        throw new ToolInvocationException("Deterministic first-item Sequence failure.",
+                            ToolInvocationFailureDisposition.Fatal);
+                    }
+
+                    var result = $"result:{query}";
+                    await invocation.RecordEventAsync(ExecutionEventKinds.ToolCompleted,
+                        JsonSerializer.Serialize(new { toolCallId, bindingId, output = result }));
+                    return result;
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref owner.activeCalls);
+                }
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+
+        private static void UpdateMaximum(ConcurrentSequenceFailureMcpBroker owner, int candidate)
+        {
+            var current = Volatile.Read(ref owner.maximumConcurrentCalls);
+            while (candidate > current)
+            {
+                var previous = Interlocked.CompareExchange(ref owner.maximumConcurrentCalls, candidate, current);
+                if (previous == current) return;
+                current = previous;
+            }
         }
     }
 

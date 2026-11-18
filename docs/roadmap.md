@@ -266,6 +266,15 @@ introduced.
   direct-MCP body; broader concurrent payload shapes and production budget
   ownership remain open. See [Decision
   0070](decisions/0070-bounded-array-iteration-contract.md).
+  The concurrent production-body Sequence proof now also forces an item-0
+  MCP failure only after item 1's Sequence completes. All four calls are
+  authorized; item 1's full Sequence and iteration completion remain recorded,
+  while item 0 records one completed MCP side effect, a failed output, a
+  cancelled sibling output, and a failed iteration. Both file and SQLite
+  stores reopen and passively render the same mixed prefix (2/2). This proves
+  one synchronized failure ordering only; cancellation races, other failure
+  positions, and production scheduler ownership remain open. See [Decision
+  0070](decisions/0070-bounded-array-iteration-contract.md).
   A synchronized two-Agent body now covers both a single outstanding model
   outcome reservation and a calibrated byte cap. In each case, the second
   `model.requested` is rejected before provider dispatch while both iteration

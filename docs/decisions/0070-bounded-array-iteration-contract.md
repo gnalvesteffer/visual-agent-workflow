@@ -3677,3 +3677,20 @@ SQLite reopen/render the same two completed iterations (2/2). This closes one
 supported-body composition case only. It does not qualify Sequence failure,
 Break/admission races, arbitrary concurrent branches, production budget or
 lifecycle ownership, or the remaining integrated matrix.
+
+### Concurrent Sequence failure with a completed sibling activation (2026-11-17)
+
+`ConcurrentProductionBodyCoordinator_SequenceFailurePreservesSiblingItemCompletion`
+holds four direct-MCP invocations until all are authorized. It lets the second
+item's two-output Sequence complete, and the first item's architecture tool
+record a successful result, before failing the first item's inventory tool.
+The persisted prefix retains the second item's completed Sequence and
+iteration, plus the first item's failed Sequence output, cancelled sibling
+output, and failed iteration. The sibling tool's completed side effect remains
+separately visible even though its Sequence output path is cancelled. Both
+file and SQLite stores reopen and render that exact mixed prefix (2/2).
+
+This establishes one synchronized ordering only; it does not qualify alternate
+failure positions, cancellation or Break races, arbitrary body compositions,
+or production iterator ownership. Keep external tool completion distinct from
+whether the enclosing Sequence output path completed.
