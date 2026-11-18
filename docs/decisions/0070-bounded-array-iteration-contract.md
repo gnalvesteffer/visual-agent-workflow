@@ -3732,3 +3732,32 @@ On 2026-11-17, the focused current-checkout characterization and Sequence
 composition/failure cases passed 5/5, including both file/SQLite theory cases
 for each proof. This confirms the existing boundary and prior proofs still hold;
 it does not exercise the per-output dispatch candidate or close its first gate.
+
+### Separate streaming-run dispatch attempt and single-run follow-up (2026-11-17)
+
+A proof-only implementation attempted to run each admitted Sequence output by
+building a one-output production Sequence workflow and starting another
+`ExecuteCoreAsync` streaming run, while sharing the outer VAW Sequence
+coordinator and run recorder. The focused regression
+`ProductionSequenceOutputCoordinator_AdmitsBreakWhileEarlierAgentIsActive`
+failed for both file and SQLite stores (0/2): output A's Agent started and
+remained held, output B was recorded as dispatched, but B's production
+Sequence source emitted no start event and its graph-dispatched Break never
+completed. The same code change left the existing Sequence production filter
+passing 56/56. This falsifies the separate concurrent streaming-run route at
+its first A-active/B-start gate; it is not evidence that the VAW coordinator or
+the underlying body proof is invalid.
+
+A fresh proponent/opponent/adjudicator review of the alternative—one
+Agent Framework streaming run with bounded, lazy Sequence output admission—
+returned **REVISE**. The proponent found it best aligned with the production
+topology. The opponent highlighted unresolved source/collector reentrancy,
+completion protocol, drain, and admission-bound risks. The adjudicator requires
+a same-stream test that holds A, starts B, requests Break, proves C is never
+admitted, drains A, and validates store reopen/playback; it also requires
+controlled failure, unknown-tool-outcome, and cancellation cases. Keep VAW as
+the single owner of Sequence admission, closure, output settlement, root
+lifecycle, and persisted evidence. The production graph may report descendant
+outcomes but must not independently settle the same output. This follow-up is
+only an experiment direction: no shipped behavior, public schema, or runtime
+architecture is selected.

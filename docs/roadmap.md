@@ -286,7 +286,16 @@ introduced.
   The current-checkout characterization plus Sequence composition and failure
   proof filter passed 5/5, confirming the existing dispatch boundary and both
   store variants of the recent proofs. It does not exercise the per-output
-  dispatch candidate or satisfy the A-active/B-Break gate.
+  dispatch candidate or satisfy the A-active/B-Break gate. A proof-only
+  implementation of per-output concurrent `ExecuteCoreAsync` streaming runs
+  then failed its first gate: with output A's Agent held, B was recorded as
+  dispatched but its production Sequence source never started (file/SQLite
+  0/2); the existing Sequence production filter remained green (56/56). A
+  fresh three-role review of the single-stream, bounded-lazy-admission
+  alternative returned REVISE pending a same-stream A-active/B-Break/C-skipped
+  test and failure, unknown-outcome, cancellation, and playback evidence. No
+  architecture or shipped behavior is selected. Details are recorded in
+  [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   A synchronized two-Agent body now covers both a single outstanding model
   outcome reservation and a calibrated byte cap. In each case, the second
   `model.requested` is rejected before provider dispatch while both iteration
