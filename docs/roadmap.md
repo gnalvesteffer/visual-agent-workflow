@@ -1356,10 +1356,16 @@ introduced.
     it: production ownership of frames, lifecycle, and shared reservations is
     still unproven. The adjudicator confirmed that commit `955151a` admits a
     bounded Condition/BooleanBranch → Merge region, but does not represent a
-    selected Break arm while a sibling continues through Sequence. The next
-    gate is a validator-to-playback composition proof for that case; if the
-    current region cannot express it, review the smallest topology-contract
-    change before implementation. Core now confirms the current public boundary:
+    selected Break arm while a sibling continues through Sequence. A second
+    three-role review of the typed Break terminal returned REVISE: before
+    public authoring or architecture selection, prove which Sequence output
+    owns Break, how queued and admitted siblings settle, and how failures,
+    unknown outcomes, cancellation, and persistence rejection take precedence.
+    The proof must use public validation and production-body dispatch, with one
+    VAW lifecycle/reservation owner and identical file/SQLite passive playback.
+    Existing private Break projection and synthetic Output handoff do not meet
+    this gate. If the current topology cannot express the case, review the
+    smallest contract change before implementing it. Core confirms the current public boundary:
     a successful Terminate arm is rejected as `sequence.branch.nested`, and an
     arm that bypasses the required Merge is `sequence.branch.ambiguous-terminal`
     (SequenceGraphTests 41/41). Terminate cannot stand in for iterator Break,

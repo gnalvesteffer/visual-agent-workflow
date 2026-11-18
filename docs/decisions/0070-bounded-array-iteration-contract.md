@@ -3902,3 +3902,39 @@ for iterator Break: Terminate exits the workflow, while Break must settle only
 the nearest activation and resume its parent. Core SequenceGraphTests pass
 41/41. This records the present contract boundary; the validator-to-playback
 composition proof still requires a reviewed Break-terminal ownership rule.
+
+### Break-terminal topology review (2026-11-18)
+
+A separate proponent/opponent/adjudicator review of the proposed typed Break
+terminal returned **REVISE**. Keep Break as a candidate in unified schema 2.0;
+do not add public node authoring or select a production runtime architecture.
+The proposal correctly distinguishes nearest-iteration Break from workflow
+`core.terminate`, and the no-schema-gate/no-body-allowlist direction remains
+unchanged. The unresolved contract is how one Break request settles its owning
+Sequence output while other outputs are queued or active.
+
+Existing proof evidence does not close this gate: the private
+`vaw.proof.array-break` path projects Break to a validator-known node and uses
+a synthetic Output handoff, while the nested production-body proof is invoked
+through a proof-only coordinator. Those tests are useful runtime evidence but
+do not establish public unified-schema validation or a no-result Break route.
+
+Before another architecture review, the composition proof must specify and
+exercise: (1) which Sequence output owns the selected Break route and how that
+output settles exactly once; (2) whether queued and already admitted sibling
+outputs continue, drain, or skip; (3) source-only Break requests whose nearest
+frame is resolved by the single VAW owner, with atomic closure of future item
+admission; (4) precedence of Break against failure, unknown external outcomes,
+host cancellation, and rejected persistence; and (5) one owner for root and
+activation lifecycle plus shared reservations. Break must never synthesize a
+workflow Output value or a Merge arrival.
+
+The falsifiable case remains a unified-schema graph with concurrent iteration
+activations: one chooses nearest-frame Break while another follows a bounded
+branchable Sequence path. It must pass public validation, production-body
+dispatch, and file/SQLite persistence and reopen with identical passive
+playback, including exact-once Sequence settlements, admission ordering,
+draining, parent resumption, malformed topology, and failure/cancellation
+races. Passing would justify another architecture review, not automatic public
+admission or architecture selection. Do not weaken graph validation or hide
+unsupported body nodes to make this proof pass.
