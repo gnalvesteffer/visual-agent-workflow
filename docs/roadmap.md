@@ -226,8 +226,13 @@ introduced.
   characterization now proves a structurally valid one-branch/one-merge
   candidate is still blocked by the current linear contract, and rejects cycle,
   unreachable-node, and duplicate-settlement mutations with stable graph
-  diagnostics (4/4). Branch-specific sharing/ambiguous-terminal diagnostics and
-  serialization of a future valid branch definition remain open. See
+  diagnostics (4/4). A proof-only Core analyzer now recognizes the bounded
+  Condition/BooleanBranch → exclusive Merge shape, permits a disjoint linear
+  sibling output, and reports cross-output sharing and an arm that terminates
+  before its Merge. Draft JSON round-trip preserves the candidate bytes and
+  route identities. It remains outside public admission;
+  valid package serialization and full branch-specific malformed-topology
+  coverage remain open. See
   [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework

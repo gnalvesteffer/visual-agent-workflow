@@ -45,9 +45,110 @@ public sealed class SequenceGraphTests
     public void Unified_sequence_branch_candidate_is_well_formed_but_not_yet_admitted()
     {
         var issues = WorkflowValidator.Validate(BranchCandidate());
+        var topology = SequenceBranchTopologyAnalyzer.Analyze(BranchCandidate());
 
         Assert.Contains(issues, issue => issue.Code == "sequence.path.node" && issue.Path == "nodes.branch");
         Assert.DoesNotContain(issues, issue => issue.Code is "graph.degree" or "graph.cycle" or "graph.unreachable");
+        Assert.True(topology.IsValid, string.Join(Environment.NewLine, topology.Issues.Select(issue => issue.Message)));
+        var path = Assert.Single(topology.Paths);
+        Assert.Equal("inventory", path.OutputId);
+        Assert.Equal("branch", path.DecisionNodeId);
+        Assert.Equal("merge", path.MergeNodeId);
+        Assert.Empty(path.TrueNodeIds);
+        Assert.Equal(["reverse"], path.FalseNodeIds.ToArray());
+    }
+
+    [Fact]
+    public void Sequence_branch_topology_reports_ambiguous_arm_terminal()
+    {
+        var candidate = BranchCandidate();
+        var ambiguous = candidate with
+        {
+            ExecutionConnections = candidate.ExecutionConnections!
+                .Remove("branch-false")
+                .Remove("reverse-merge")
+                .Add("branch-false-output", new(new("branch", "false"), new("output", "execute"), "execution"))
+        };
+
+        var analysis = SequenceBranchTopologyAnalyzer.Analyze(ambiguous);
+
+        Assert.Contains(analysis.Issues, issue => issue.Code == "sequence.branch.ambiguous-terminal");
+    }
+
+    [Fact]
+    public void Sequence_branch_topology_candidate_preserves_route_identity_in_draft_json()
+    {
+        var candidate = BranchCandidate();
+        var serialized = WorkflowJson.SerializeDraft(candidate);
+        var restored = WorkflowJson.DeserializeDraft(serialized);
+        var analysis = SequenceBranchTopologyAnalyzer.Analyze(restored);
+
+        Assert.Equal(serialized, WorkflowJson.SerializeDraft(restored));
+        Assert.True(analysis.IsValid, string.Join(Environment.NewLine, analysis.Issues.Select(issue => issue.Message)));
+        Assert.Equal("branch", Assert.Single(analysis.Paths).DecisionNodeId);
+        Assert.Equal("merge", Assert.Single(analysis.Paths).MergeNodeId);
+    }
+
+    [Fact]
+    public void Sequence_branch_topology_reports_cross_output_node_sharing()
+    {
+        var candidate = BranchCandidate();
+        var shared = candidate with
+        {
+            ExecutionConnections = candidate.ExecutionConnections!
+                .Remove("sequence-architecture")
+                .Add("sequence-architecture", new(new("sequence", "then.architecture"), new("reverse", "execute"), "execution"))
+        };
+
+        var analysis = SequenceBranchTopologyAnalyzer.Analyze(shared);
+
+        Assert.Contains(analysis.Issues, issue => issue.Code == "sequence.branch.shared" && issue.Path == "nodes.reverse");
+    }
+
+    [Fact]
+    public void Sequence_branch_topology_allows_a_disjoint_linear_sibling_output()
+    {
+        var candidate = BranchCandidate();
+        var withLinearSibling = candidate with
+        {
+            Nodes = candidate.Nodes.Add("linear", new(NodeTypes.SequenceUppercase, "1.0.0")),
+            Connections = candidate.Connections.Add("linear-input", new(new("input", "out"), new("linear", "in"), "data")),
+            ExecutionConnections = candidate.ExecutionConnections!
+                .Remove("sequence-architecture")
+                .Add("sequence-architecture", new(new("sequence", "then.architecture"), new("linear", "execute"), "execution"))
+                .Remove("architecture-output")
+                .Add("architecture-output", new(new("linear", "then"), new("output", "execute"), "execution"))
+        };
+
+        var analysis = SequenceBranchTopologyAnalyzer.Analyze(withLinearSibling);
+
+        Assert.True(analysis.IsValid, string.Join(Environment.NewLine, analysis.Issues.Select(issue => issue.Message)));
+        Assert.Equal("inventory", Assert.Single(analysis.Paths).OutputId);
+    }
+
+    [Fact]
+    public void Sequence_branch_topology_accepts_a_string_condition_decision()
+    {
+        var candidate = BranchCandidate();
+        var conditional = candidate with
+        {
+            Nodes = candidate.Nodes.SetItem("branch", new NodeDefinition(NodeTypes.Condition, "1.0.0")
+            {
+                Condition = new("contains", "research")
+            }),
+            Connections = candidate.Connections
+                .Remove("branch-condition")
+                .Remove("reverse-input")
+                .Remove("merge-direct-input")
+                .Add("condition-input", new(new("input", "out"), new("branch", "in"), "data"))
+                .Add("condition-true-merge", new(new("branch", "true"), new("merge", "in"), "data"))
+                .Add("condition-false-reverse", new(new("branch", "false"), new("reverse", "in"), "data")),
+        };
+
+        var analysis = SequenceBranchTopologyAnalyzer.Analyze(conditional);
+
+        Assert.True(analysis.IsValid, string.Join(Environment.NewLine, analysis.Issues.Select(issue => issue.Message)));
+        Assert.Equal("branch", Assert.Single(analysis.Paths).DecisionNodeId);
     }
 
     [Fact]

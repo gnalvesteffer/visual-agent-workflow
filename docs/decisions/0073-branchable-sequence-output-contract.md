@@ -128,9 +128,17 @@ that it is still rejected at `sequence.path.node`, while graph-level cycle,
 unreachable-node, and duplicate-branch-settlement mutations are rejected with
 stable `graph.cycle`, `graph.unreachable`, and `graph.degree` diagnostics
 (4/4). This demonstrates fail-closed admission for these malformed shapes; it
-does not implement the branched-region validator. Branch-specific
-cross-output-sharing and ambiguous-terminal diagnostics, plus serialization of
-a future valid branched definition, remain open.
+does not implement the branched-region validator. A proof-only Core topology
+analyzer now recognizes one bounded Condition or Boolean Branch with two
+exclusive arms, one matching Merge, and a linear suffix. Its tests confirm both
+decision forms, permit a disjoint linear sibling output, and report cross-output
+node sharing and an arm that terminates before the Merge. Draft JSON round-trip
+also preserves the candidate bytes and route identities. The analyzer is not
+wired into public admission. Existing graph
+validation tests cover cycles, unreachable nodes, and duplicate settlement;
+branch-specific tests cover cross-output sharing and ambiguous terminals.
+Valid package serialization and admission of a branched definition remain
+open.
 
 If the output-to-route mapping requires a second lifecycle/collector owner or
 cannot preserve these invariants, return the design for review rather than
