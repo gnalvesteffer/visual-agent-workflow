@@ -129,9 +129,13 @@ the historical promotion chain.
     incomplete feedback, and ambiguous migration are rejected. The candidate
     migration preserves node and connection IDs while retargeting only the
     return edges. Public and package validation still reject nested loops, so
-    this remains proof-only. Focused cases pass 14/14 and Core passes 662/662.
-    Sequence/Break topology, package round-trip of admitted candidates, runtime
-    settlement, persistence/playback, and full compatibility remain open.
+    this remains proof-only. The topology fixture now includes a two-output
+    Sequence with one inner-loop return and one terminal proof Break. Both pin
+    shapes derive the same feedback and nearest-Break ownership; shared routes
+    and Break fallthrough are rejected. Focused topology tests pass 22/22 and
+    Core passes 671/671. Public/package admission still rejects the candidate;
+    runtime settlement, persistence/playback, and full compatibility remain
+    open.
   Reject arbitrary cycles and accept only explicitly declared, bounded loop
   feedback. Exercise nested Sequence/loop/Break composition through public and
   package validation, production dispatch, file/SQLite reopen, passive playback,

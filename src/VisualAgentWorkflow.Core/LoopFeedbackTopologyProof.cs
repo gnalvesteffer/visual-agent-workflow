@@ -14,7 +14,8 @@ internal sealed record LoopFeedbackRegionProof(
     string? ParentLoopNodeId,
     string InitialConnectionId,
     string FeedbackConnectionId,
-    ImmutableArray<string> BodyNodeIds);
+    ImmutableArray<string> BodyNodeIds,
+    ImmutableArray<string> BreakNodeIds);
 
 internal sealed record LoopFeedbackTopologyIssue(string Code, string Path, string Message);
 
@@ -32,6 +33,7 @@ internal sealed record LoopFeedbackTopologyProof(
 internal static class LoopFeedbackTopologyProofAnalyzer
 {
     private const int MaximumBodyNodes = 256;
+    private const string ProofBreakNodeType = "vaw.proof.array-break";
 
     public static LoopFeedbackTopologyProof Analyze(WorkflowDefinition definition, LoopFeedbackPinShape shape)
     {
@@ -116,89 +118,113 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                 Issue("loop.feedback.done", $"nodes.{loopId}.done", "Each loop must have one continuation from its done output.");
 
             var body = ImmutableArray.CreateBuilder<string>();
-            var visited = new HashSet<string>(StringComparer.Ordinal);
-            var current = loopAnchors[loopId];
+            var breakNodes = ImmutableArray.CreateBuilder<string>();
+            var bodyNodeIds = new HashSet<string>(StringComparer.Ordinal);
+            var pending = new Queue<(string NodeId, HashSet<string> Path)>();
+            pending.Enqueue((loopAnchors[loopId], new(StringComparer.Ordinal)));
             string? returnConnectionId = null;
-            while (true)
+
+            void Follow(string sourceNodeId, string sourcePortId, HashSet<string> path)
             {
-                if (!visited.Add(current))
+                var successors = (outgoing.GetValueOrDefault(sourceNodeId) ?? [])
+                    .Where(item => item.Edge.Source.PortId == sourcePortId).ToArray();
+                if (successors.Length != 1)
+                {
+                    Issue("loop.feedback.body-path", $"nodes.{sourceNodeId}",
+                        "Each body route must have exactly one successor in this topology comparison.");
+                    return;
+                }
+
+                var next = successors[0];
+                if (next.Edge.Target.NodeId == loopId)
+                {
+                    if (returnConnectionId is not null)
+                        Issue("loop.feedback.cardinality", $"executionConnections.{next.Id}",
+                            "A loop body must have exactly one normal return route; other Sequence outputs may end in Break.");
+                    returnConnectionId ??= next.Id;
+                    if (next.Edge.Target.PortId != feedbackPort)
+                        Issue("loop.feedback.pin", $"executionConnections.{next.Id}",
+                            "The body return must target the candidate feedback input.");
+                    return;
+                }
+                if (loops.Contains(next.Edge.Target.NodeId, StringComparer.Ordinal) &&
+                    (activeLoops.Contains(next.Edge.Target.NodeId) || next.Edge.Target.PortId != initialPort))
+                    Issue("loop.feedback.cross-owner", $"executionConnections.{next.Id}",
+                        "A loop body may return only to its owning loop; nested loops are entered through their initial input.");
+                pending.Enqueue((next.Edge.Target.NodeId, path));
+            }
+
+            while (pending.TryDequeue(out var route))
+            {
+                var current = route.NodeId;
+                var path = route.Path;
+                if (!path.Add(current))
                 {
                     Issue("loop.feedback.cycle", $"nodes.{current}", "An unowned cycle occurs inside a bounded loop body.");
-                    break;
+                    continue;
                 }
-                if (visited.Count > MaximumBodyNodes)
+                if (bodyNodeIds.Count >= MaximumBodyNodes)
                 {
                     Issue("loop.feedback.limit", $"nodes.{loopId}", "The candidate body exceeds the topology proof bound.");
-                    break;
+                    continue;
+                }
+                if (!bodyNodeIds.Add(current))
+                {
+                    Issue("loop.feedback.multiple-owner", $"nodes.{current}",
+                        "Sequence output routes in the candidate must remain disjoint.");
+                    continue;
                 }
                 body.Add(current);
                 if (current == loopId)
                 {
                     Issue("loop.feedback.cycle", $"nodes.{loopId}", "A loop body cannot re-enter its owner except through its declared feedback input.");
-                    break;
+                    continue;
                 }
 
                 if (!definition.Nodes.TryGetValue(current, out var node) || node is null)
                 {
                     Issue("loop.feedback.node", $"nodes.{current}", "The loop body references a missing node.");
-                    break;
+                    continue;
                 }
 
                 if (node.Type == NodeTypes.LoopBody && current != loopAnchors[loopId])
                     Issue("loop.feedback.anchor", $"nodes.{current}", "A body anchor must have one owning loop.");
+
+                if (node.Type == ProofBreakNodeType)
+                {
+                    if ((outgoing.GetValueOrDefault(current) ?? []).Length > 0)
+                        Issue("loop.feedback.break-terminal", $"nodes.{current}", "A proof Break must be a terminal route.");
+                    breakNodes.Add(current);
+                    continue;
+                }
 
                 if (node.Type == NodeTypes.Loop)
                 {
                     if (!loopAnchors.ContainsKey(current))
                     {
                         Issue("loop.feedback.nested", $"nodes.{current}", "The nested loop has no uniquely identified body anchor.");
-                        break;
+                        continue;
                     }
 
-                    if (!AnalyzeRegion(current, loopId)) break;
-                    var continuation = (outgoing.GetValueOrDefault(current) ?? [])
-                        .Where(item => item.Edge.Source.PortId == "done").ToArray();
-                    if (continuation.Length != 1) break;
-                    if (continuation[0].Edge.Target.NodeId == loopId)
-                    {
-                        returnConnectionId = continuation[0].Id;
-                        if (continuation[0].Edge.Target.PortId != feedbackPort)
-                            Issue("loop.feedback.pin", $"executionConnections.{continuation[0].Id}",
-                                "The nested loop continuation must target the owning loop's candidate feedback input.");
-                        break;
-                    }
-                    if (loops.Contains(continuation[0].Edge.Target.NodeId, StringComparer.Ordinal))
-                    {
-                        Issue("loop.feedback.cross-owner", $"executionConnections.{continuation[0].Id}",
-                            "A nested loop continuation may return only to its owning loop.");
-                        break;
-                    }
-                    current = continuation[0].Edge.Target.NodeId;
+                    if (!AnalyzeRegion(current, loopId)) continue;
+                    Follow(current, "done", path);
                     continue;
                 }
 
-                var successors = (outgoing.GetValueOrDefault(current) ?? [])
-                    .Where(item => item.Edge.Source.PortId == "then").ToArray();
-                if (successors.Length != 1)
+                if (node.Type == NodeTypes.Sequence)
                 {
-                    Issue("loop.feedback.body-path", $"nodes.{current}", "Each body step must have exactly one successor in this topology comparison.");
-                    break;
+                    var outputs = node.Sequence?.Outputs;
+                    if (outputs is not { IsDefaultOrEmpty: false } || outputs.Value.Length is < SequenceOutputLimits.MinimumOutputs or > SequenceOutputLimits.MaximumOutputs)
+                    {
+                        Issue("loop.feedback.sequence", $"nodes.{current}.sequence", "The proof Sequence must declare a bounded set of outputs.");
+                        continue;
+                    }
+                    foreach (var output in outputs.Value)
+                        Follow(current, SequenceOutputLimits.PinId(output.Id), new(path, StringComparer.Ordinal));
+                    continue;
                 }
 
-                var next = successors[0];
-                if (next.Edge.Target.NodeId == loopId)
-                {
-                    returnConnectionId = next.Id;
-                    if (next.Edge.Target.PortId != feedbackPort)
-                        Issue("loop.feedback.pin", $"executionConnections.{next.Id}", "The body return must target the candidate feedback input.");
-                    break;
-                }
-                if (loops.Contains(next.Edge.Target.NodeId, StringComparer.Ordinal) &&
-                    (activeLoops.Contains(next.Edge.Target.NodeId) || next.Edge.Target.PortId != initialPort))
-                    Issue("loop.feedback.cross-owner", $"executionConnections.{next.Id}",
-                        "A loop body may return only to its owning loop; nested loops are entered through their initial input.");
-
-                current = next.Edge.Target.NodeId;
+                Follow(current, "then", path);
             }
 
             if (returnConnectionId is null && !issues.Any(issue => issue.Path.StartsWith($"nodes.{loopId}", StringComparison.Ordinal)))
@@ -220,7 +246,7 @@ internal static class LoopFeedbackTopologyProofAnalyzer
             var initialConnectionId = initialCandidates.Length == 1 ? initialCandidates[0].Id : "";
             if (returnConnectionId is not null)
                 regions.Add(new(loopId, loopAnchors[loopId], parentLoopId,
-                    initialConnectionId, returnConnectionId, body.ToImmutable()));
+                    initialConnectionId, returnConnectionId, body.ToImmutable(), breakNodes.ToImmutable()));
 
             activeLoops.Remove(loopId);
             return returnConnectionId is not null;

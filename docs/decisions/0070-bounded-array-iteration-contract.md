@@ -4107,11 +4107,16 @@ ownership under both pin shapes (14/14 focused cases). It rejects a cross-owner
 return, an unowned cycle, an unreachable loop, an incomplete return, and an
 ambiguous migration. The candidate migration preserves node and connection
 IDs while changing only the target pin on the two established feedback edges.
-Current public and package validation still reject nested loops. The complete
-Core suite passes 662/662. This does not yet include Sequence or Break in the
-topology fixture, nor does it prove package round-trip of a newly admitted
-shape, production execution, or runtime migration. The feedback-pin choice
-remains unresolved.
+Current public and package validation still reject nested loops. The topology
+fixture now includes a two-output Sequence whose distinct routes return to the
+inner loop or end at a proof-only nearest-frame Break. Both feedback-pin
+candidates derive the same nested loop ownership and Break owner. Shared output
+routes and a Break with a successor are rejected; package validation continues
+to reject the candidate as unsupported. The focused topology suite passes
+22/22 and the complete Core suite passes 671/671. This remains a non-authoritative
+topology comparison; it does not prove package round-trip of an admitted shape,
+production execution, or runtime migration. The feedback-pin choice remains
+unresolved.
 
 ### Concurrent parent-frame Break isolation proof (2026-11-18)
 

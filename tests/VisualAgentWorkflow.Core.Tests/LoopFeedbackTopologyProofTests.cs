@@ -34,6 +34,94 @@ public sealed class LoopFeedbackTopologyProofTests
     [Theory]
     [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
     [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Nested_sequence_break_candidates_keep_feedback_ownership_and_nearest_break(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopSequenceBreakCandidate();
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(candidate, shape);
+
+        Assert.True(proof.IsValid, string.Join(Environment.NewLine, proof.Issues));
+        var outer = Assert.Single(proof.Regions, region => region.LoopNodeId == "outer-loop");
+        var inner = Assert.Single(proof.Regions, region => region.LoopNodeId == "inner-loop");
+        Assert.Equal("outer-loop", inner.ParentLoopNodeId);
+        Assert.Equal("outer-return", outer.FeedbackConnectionId);
+        Assert.Equal("inner-return", inner.FeedbackConnectionId);
+        Assert.Equal(["inner-break"], inner.BreakNodeIds.ToArray());
+        Assert.Empty(outer.BreakNodeIds);
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Sequence_break_topology_candidate_is_not_publicly_admitted(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopSequenceBreakCandidate();
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(candidate, shape);
+
+        Assert.True(proof.IsValid, string.Join(Environment.NewLine, proof.Issues));
+        Assert.Contains(WorkflowValidator.Validate(candidate), issue =>
+            issue.Path == "nodes.inner-break" && issue.Code == "node.unsupported");
+        Assert.Throws<ArgumentException>(() =>
+            WorkflowPackageJson.Create(candidate, WorkflowLayout.Create(candidate)));
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Shared_sequence_output_routes_are_rejected(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopSequenceBreakCandidate();
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+        var shared = candidate with
+        {
+            ExecutionConnections = candidate.ExecutionConnections!.SetItem("inner-break",
+                Edge("inner-sequence", "then.break", "inner-step", "execute"))
+        };
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(shared, shape);
+
+        Assert.False(proof.IsValid);
+        Assert.Contains(proof.Issues, issue => issue.Code is "loop.feedback.multiple-owner" or
+            "loop.feedback.cardinality");
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Sequence_break_terminal_cannot_have_a_successor(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopSequenceBreakCandidate();
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+        var fallthrough = candidate with
+        {
+            ExecutionConnections = candidate.ExecutionConnections!.Add("break-fallthrough",
+                Edge("inner-break", "then", "inner-step", "execute"))
+        };
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(fallthrough, shape);
+
+        Assert.False(proof.IsValid);
+        Assert.Contains(proof.Issues, issue => issue.Code == "loop.feedback.break-terminal");
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
     public void Unowned_cycle_is_rejected_for_both_pin_shapes(string shapeName)
     {
         var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
@@ -198,6 +286,30 @@ public sealed class LoopFeedbackTopologyProofTests
         {
             ExecutionConnections = execution
         };
+    }
+
+    private static WorkflowDefinition NestedLoopSequenceBreakCandidate()
+    {
+        var definition = NestedLoopCandidate();
+        var nodes = definition.Nodes
+            .Remove("inner-step")
+            .Add("inner-sequence", new NodeDefinition(NodeTypes.Sequence, "1.0.0")
+            {
+                Sequence = new([
+                    new("continue", "Continue inner loop"),
+                    new("break", "Break inner loop")
+                ])
+            })
+            .Add("inner-step", new(NodeTypes.Reverse, "1.0.0"))
+            .Add("inner-break", new("vaw.proof.array-break", "proof-only"));
+        var execution = definition.ExecutionConnections!
+            .Remove("inner-step-start")
+            .Remove("inner-return")
+            .Add("inner-sequence-start", Edge("inner-body", "then", "inner-sequence", "execute"))
+            .Add("inner-continue", Edge("inner-sequence", "then.continue", "inner-step", "execute"))
+            .Add("inner-return", Edge("inner-step", "then", "inner-loop", "execute"))
+            .Add("inner-break", Edge("inner-sequence", "then.break", "inner-break", "execute"));
+        return definition with { Nodes = nodes, ExecutionConnections = execution };
     }
 
     private static WorkflowDefinition AddDisconnectedLoop(WorkflowDefinition definition, LoopFeedbackPinShape shape)
