@@ -7468,6 +7468,71 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_ComposesSequenceAcrossActiveItems(bool sqlite)
+    {
+        var definition = SequenceBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "concurrent-production-array-sequence-body-proof");
+        const string input = "[\"first\",\"second\"]";
+        using var store = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        var broker = new ParallelMcpBroker(recordReservationIds: true, waitForBothAuthorizations: true,
+            expectedCallCount: 4);
+
+        var result = await new WorkflowRunner(tools: broker)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(store.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, runBudget: StructuredRunBudget(maximumToolDispatches: 4) with
+                {
+                    MaximumConcurrentOutcomeReservations = 4
+                });
+
+        var events = recorder.Snapshot();
+        Assert.False(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.Equal("result:sequence;result:sequence", result.Output);
+        Assert.Equal(4, broker.Calls.Length);
+        Assert.Equal(4, broker.MaximumConcurrentCalls);
+        Assert.Equal(4, broker.DispatchedCalls);
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolCompleted));
+        AssertPersistedSequence(store, events, "completed");
+
+        foreach (var index in Enumerable.Range(0, 2))
+        {
+            var scopeId = $"array-loop/{index}";
+            var scoped = events.Where(evt => evt.ScopeId == scopeId).ToArray();
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.SequenceStarted && evt.NodeId == "sequence");
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched &&
+                evt.NodeId == "sequence"));
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+                evt.NodeId == "sequence"));
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted &&
+                evt.NodeId == "sequence");
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ToolCompleted));
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        }
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains("Iteration 1 · Completed", await RenderPlayback(reopened), StringComparison.Ordinal);
+        Assert.Contains("Iteration 2 · Completed", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ConcurrentProductionBodyCoordinator_SharesModelDispatchBudget(bool sqlite)
     {
         var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
@@ -22923,7 +22988,7 @@ public sealed class ArrayIterationVawBodyProofTests
                         ? JsonSerializer.Serialize(new { toolCallId, bindingId, input = arguments })
                         : query);
                     await owner.WaitBeforeOutcome.WaitAsync(cancellationToken);
-                    if (waitForBothAuthorizations && Interlocked.Increment(ref owner.authorizationCount) == 2)
+                    if (waitForBothAuthorizations && Interlocked.Increment(ref owner.authorizationCount) == expectedCallCount)
                         owner.bothAuthorizationsRecorded.TrySetResult();
                     if (waitForBothAuthorizations)
                         await owner.bothAuthorizationsRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);

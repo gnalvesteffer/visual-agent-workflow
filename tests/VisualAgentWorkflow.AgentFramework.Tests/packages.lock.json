@@ -305,6 +305,12 @@
           "VisualAgentWorkflow.Core": "[1.0.0, )"
         }
       },
+      "visualagentworkflow.blazor": {
+        "type": "Project",
+        "dependencies": {
+          "VisualAgentWorkflow.Core": "[1.0.0, )"
+        }
+      },
       "visualagentworkflow.core": {
         "type": "Project"
       },

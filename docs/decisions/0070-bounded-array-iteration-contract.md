@@ -3664,3 +3664,16 @@ the exact accepted prefix with status still `running` (2/2). This confirms
 failure-reserve exhaustion does not fabricate a terminal run outcome. It does
 not recover, retry, or repair the incomplete run; production ownership and
 operator recovery semantics remain outside this proof.
+
+### Sequence composition across concurrent body activations (2026-11-17)
+
+`ConcurrentProductionBodyCoordinator_ComposesSequenceAcrossActiveItems` runs
+two typed array items concurrently through a production-body Sequence with two
+direct MCP outputs per item. The broker holds all four outcomes until all four
+authorizations have arrived, forcing overlapping Sequence activations. Each
+item records one ordered Sequence lifecycle with both outputs dispatched and
+completed; the coordinator retains one root lifecycle, and both file and
+SQLite reopen/render the same two completed iterations (2/2). This closes one
+supported-body composition case only. It does not qualify Sequence failure,
+Break/admission races, arbitrary concurrent branches, production budget or
+lifecycle ownership, or the remaining integrated matrix.

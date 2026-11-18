@@ -1066,6 +1066,14 @@ introduced.
         This characterizes undersized-reserve behavior; it does not recover or
         repair the incomplete run. See [Decision
         0070](decisions/0070-bounded-array-iteration-contract.md).
+      - [x] Compose a two-output Sequence body across two simultaneously
+        active typed array items. Four direct MCP calls are held until all
+        authorizations arrive; each activation records ordered Sequence
+        dispatch/completion evidence, and file/SQLite reopen and passive
+        playback preserve both completed iterations (2/2 focused cases).
+        This proves one concurrent Sequence/body composition only; other
+        Sequence races and production scheduler ownership remain open. See
+        [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
       - [x] Verify reservation identity extraction for delegated model and
         production-MCP calls through the structured run context. Delegated
         evidence wraps the original call ID inside its `eventData` envelope;
