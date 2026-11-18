@@ -87,6 +87,17 @@ the historical promotion chain.
     definitions. Runtime output, selected route, and lazy arm evidence match
     legacy behavior for transformed and empty arms. Other ambiguous control-
     flow topologies remain diagnostic-only.
+- [ ] Prove a contract-derived bounded activation-region plan for composed
+  current-schema graphs. Keep authored nodes, pins, and connections flat; derive
+  ownership from node/pin contracts and topology without node-family allowlists.
+  Reject arbitrary cycles and accept only explicitly declared, bounded loop
+  feedback. Exercise nested Sequence/loop/Break composition through public and
+  package validation, production dispatch, file/SQLite reopen, passive playback,
+  failure/cancellation/persistence races, and identity-preserving migration.
+  This is a proof gate, not architecture selection or permission to expose
+  public Break. Nested serialized regions remain a fallback only if evidence
+  shows the flat representation cannot meet the contract. See the adjudicated
+  review in [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [x] Preserve 2.0 through package, reuse, graph-function, clipboard, and
   nested-workflow editing paths while preserving pinned dependency snapshots.
 - [x] Extend bounded `array<json>` in current schema 2.0 with an exact

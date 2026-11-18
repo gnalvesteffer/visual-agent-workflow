@@ -3988,3 +3988,43 @@ an already-admitted sibling frame. Test the exact two-activation graph through
 unified-schema validation and production body dispatch, reject malformed or
 multiply-owned topology, and reopen file and SQLite evidence into identical
 passive playback. Passing permits another architecture review only.
+
+## Flat graph and bounded activation-region proof review (adjudicated 2026-11-18)
+
+A fresh three-role review compared a flat serialized graph with derived
+activation regions, serialized nested regions, and root-level/special-case
+composition. The adjudicator returned **REVISE**. Flat serialization is the
+strongest proof hypothesis because it preserves the existing node, pin, and
+connection identities and the unified editing model. This is not an
+implementation selection: the topology analyzer and runtime ownership model
+have not passed production evidence, and nested regions have not been shown to
+be inferior through an equivalent proof. Root-level or WorkflowCall-only
+composition does not meet the full composability/parity objective.
+
+The next proof must keep authored identities flat and derive a bounded
+activation-region plan from explicit node/pin contracts and graph topology,
+without node-family allowlists. Reject arbitrary cycles; accept only feedback
+edges declared and bounded by a loop owner. Do not serialize trusted derived
+ownership. Public validation and package validation must independently
+recompute the plan and reject ambiguous, multiply-owned, unreachable, or
+unbounded structures. Keep the proof-only Break settlement contract above
+unchanged.
+
+Exercise the smallest unified-schema composition containing nested bounded
+activation regions, a Sequence, and nearest-frame Break through public
+validation, package validation, production coordinator and adapters, file and
+SQLite persistence/reopen, and passive playback. Prove one activation owner,
+exactly-once settlement, and deterministic failure, cancellation, and
+persistence-rejection behavior. Include migration from supported existing
+flat definitions, preserving authored identities and accepting the migrated
+result without an author-facing schema or capability gate. Synthetic
+proof-only dispatch does not satisfy this gate.
+
+Pass only when every layer accepts the same valid composition and rejects
+malformed ownership/cycles, production dispatch settles each activation once
+across required races, both stores reproduce the same accepted evidence and
+playback, and migration/package validation preserve identity without a
+capability gate. On failure, identify whether the topology contract or flat
+representation caused it; reconsider nested serialized regions only with that
+evidence. A pass permits another architecture review, not public Break
+admission or general runtime selection.
