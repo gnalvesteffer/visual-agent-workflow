@@ -4049,3 +4049,25 @@ misclassifying it as a persistence failure. These are proof-only interruption
 semantics. They do not establish process-loss recovery, production ownership
 of atomic budgets, or the full candidate evidence matrix, and do not change
 the current **REVISE** architecture outcome.
+
+## Loop feedback pin contract re-review (2026-11-18)
+
+A separate proponent/opponent/adjudicator review compared two flat graph
+contracts: one `execute` input whose bounded body return is inferred from
+topology, and distinct initial-entry and bounded-feedback inputs. The review
+returned **REVISE**: preserve both as proof candidates until a representative
+nested composition distinguishes them. The existing unified graph uses
+`execute` for both roles and recognizes the return through a linear body walk;
+this single-loop implementation is not evidence that topology inference will
+remain unambiguous for nested loops, Sequence, and nearest-frame Break.
+
+The next topology proof should run both pin shapes against the same cases:
+nested bounded loops with Sequence and nearest-frame Break; cross-owner,
+duplicate, unreachable, and arbitrary-cycle feedback; and incomplete drafts
+during edge editing. Public and package validation must agree, and both file
+and SQLite reopen plus passive playback must preserve the accepted evidence.
+For existing definitions, automatic migration must preserve node, pin, and
+connection identities wherever feedback can be mapped unambiguously; an
+ambiguous mapping must produce a diagnostic rather than guess. This review
+does not add a schema/capability gate, select production runtime ownership, or
+authorize public Break.

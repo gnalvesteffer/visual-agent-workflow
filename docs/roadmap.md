@@ -90,6 +90,11 @@ the historical promotion chain.
 - [ ] Prove a contract-derived bounded activation-region plan for composed
   current-schema graphs. Keep authored nodes, pins, and connections flat; derive
   ownership from node/pin contracts and topology without node-family allowlists.
+  As the first discriminator, compare a distinct Loop feedback input against
+  topology-derived feedback on the same nested composition; the 2026-11-18
+  review found neither persisted pin shape proven superior. Preserve authored
+  node, pin, and edge identities through automatic migration, and diagnose any
+  legacy feedback mapping that cannot be inferred without guessing.
   Reject arbitrary cycles and accept only explicitly declared, bounded loop
   feedback. Exercise nested Sequence/loop/Break composition through public and
   package validation, production dispatch, file/SQLite reopen, passive playback,
