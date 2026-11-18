@@ -274,6 +274,14 @@ introduced.
   stores reopen and passively render the same mixed prefix (2/2). This proves
   one synchronized failure ordering only; cancellation races, other failure
   positions, and production scheduler ownership remain open. See [Decision
+  0070](decisions/0070-bounded-array-iteration-contract.md). A new clean-context
+  proponent/opponent/adjudicator review of splitting Sequence outputs into
+  separate production body dispatches returned REVISE. This remains an
+  experiment candidate only. The next gate must show A's real Agent still
+  active when B reaches graph-dispatched Break, while one VAW owner preserves
+  Sequence output settlement, root lifecycle, shared budgets, original revision
+  identity, and a monotonic event sequence; C must be recorded skipped. No code
+  or shipped behavior changed in that review. See [Decision
   0070](decisions/0070-bounded-array-iteration-contract.md).
   A synchronized two-Agent body now covers both a single outstanding model
   outcome reservation and a calibrated byte cap. In each case, the second

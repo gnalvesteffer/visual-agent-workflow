@@ -3694,3 +3694,36 @@ This establishes one synchronized ordering only; it does not qualify alternate
 failure positions, cancellation or Break races, arbitrary body compositions,
 or production iterator ownership. Keep external tool completion distinct from
 whether the enclosing Sequence output path completed.
+
+### Per-output production-dispatch experiment review (2026-11-17)
+
+A fresh proponent, opponent, and adjudicator reviewed a candidate to dispatch
+each admitted Sequence output through a separate invocation of the existing
+`ExecuteCoreAsync`/production body path, under one VAW-owned coordinator. The
+adjudication is **REVISE**: this is a candidate experiment only, not a selected
+runtime architecture or permission to remove the production Break guard.
+
+The candidate is plausible because independent production body invocations
+could let output B's Agent Framework descendant start while output A remains
+active. However, `ExecuteCoreAsync` creates per-call activation, variable,
+event-sequencing, and workflow state, while the normal Sequence source/collector
+already owns output settlement. Reusing the root recorder alone does not prove
+one event sequence, shared budgets, original revision attribution, preserved
+mutable-variable semantics, or exactly-once output settlement. A proof must
+make the VAW coordinator the sole owner of output admission/closure, frame and
+root lifecycle, shared budgets, and final output settlement; production body
+invocations may only return scoped outcomes. Preserve the original revision
+identity and node IDs, assign one monotonic run sequence, and correlate each
+event with its output, connection, invocation, and activation scope. Do not
+leave settlement of the same output to both the coordinator and the production
+Sequence collector.
+
+The first falsifiable case remains: hold output A in a real production Agent,
+admit output B and reach its graph Break before releasing A, record C skipped,
+then drain A. Assert one gap-free run event sequence, exactly-once output
+settlement, original revision identity, one root terminal after all admitted
+work settles, and identical file/SQLite reopen plus passive playback. Failure,
+unknown MCP outcome, and cancellation must retain their established precedence
+over successful Break. Any duplicate/missing settlement, identity mismatch,
+early root terminal, or failure to start B before A releases rejects this
+candidate. No code or shipped behavior changed for this review.
