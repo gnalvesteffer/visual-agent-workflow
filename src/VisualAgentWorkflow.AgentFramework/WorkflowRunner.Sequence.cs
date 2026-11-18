@@ -233,7 +233,8 @@ public sealed partial class WorkflowRunner
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
         IWorkflowExecutionGate? gate, WorkflowRevision rootRevision,
         ImmutableArray<WorkflowApprovalScope> workflowPath,
-        Func<string, CancellationTokenSource?>? callScopeCancellation = null)
+        Func<string, CancellationTokenSource?>? callScopeCancellation = null,
+        SequenceProductionDispatchSession? sequenceDispatchSession = null)
     {
         var sequenceInvocationId = Guid.NewGuid();
         var connectionIds = plan.Outputs.ToDictionary(output => output.OutputId, output => output.ConnectionId,
@@ -285,7 +286,7 @@ public sealed partial class WorkflowRunner
             .ToDictionary(path => path.CallNodeId, path => new SequenceWorkflowCallSettlement(
                 new SequenceWorkflowCallIdentity(path.OutputId, path.CallNodeId, path.ChildWorkflowId,
                     path.ChildRevisionId, path.ChildContentHash)), StringComparer.Ordinal);
-        var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, plan.SequenceNodeId,
+        var coordinator = sequenceDispatchSession?.Coordinator ?? new SequenceRuntimeCoordinator(sequenceInvocationId, plan.SequenceNodeId,
             plan.Outputs.Select(output => output.OutputId).ToArray(), connectionIds, plan.AllowSingleOutput,
             callSettlements);
         var sequenceEventGate = new SemaphoreSlim(1, 1);
@@ -299,7 +300,7 @@ public sealed partial class WorkflowRunner
                 {
                     var evidence = new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
                         runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
-                        runtimeEvent.ActivationId, runtimeEvent.ConnectionId);
+                        runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason);
                     await emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
                         runtimeEvent.ConnectionId, SequenceEvidence.Serialize(evidence), null);
                 }
@@ -327,8 +328,16 @@ public sealed partial class WorkflowRunner
                     if (coordinator.IsActivationTerminal(lineage.OutputActivationId)) return;
                     coordinator.Complete(lineage.OutputActivationId, terminalState);
                     await FlushSequenceEvents();
-                }, null, callSettlements.GetValueOrDefault(outputNodeId), true, callScopeCancellation), StringComparer.Ordinal);
-        var source = new SequenceProductionSource(plan.SequenceNodeId, plan, coordinator, FlushSequenceEvents, emit, gate);
+                }, null, callSettlements.GetValueOrDefault(outputNodeId), true, callScopeCancellation,
+                activationBreakNode: sequenceDispatchSession?.BreakNodeIds.Contains(outputNodeId) == true,
+                proofBreakNodeIds: sequenceDispatchSession?.BreakNodeIds,
+                onSequenceBreakRequested: sequenceDispatchSession is null ? null : async (lineage, request) =>
+                {
+                    sequenceDispatchSession.RequestBreak(lineage, request);
+                    await FlushSequenceEvents();
+                }), StringComparer.Ordinal);
+        var source = new SequenceProductionSource(plan.SequenceNodeId, plan, coordinator, FlushSequenceEvents, emit,
+            gate, sequenceDispatchSession);
         var collector = new SequenceProductionCollector("sequence-collector", plan, coordinator,
             FlushSequenceEvents, emit);
         var sink = new SequenceProductionSink();
@@ -533,16 +542,58 @@ public sealed partial class WorkflowRunner
         return new SequenceProductionPlan(sequence.Key, outputs, null, SequenceTerminalState.Completed);
     }
 
-    private sealed record SequenceProductionPlan(string SequenceNodeId, IReadOnlyList<SequenceProductionOutput> Outputs,
+    internal sealed record SequenceProductionPlan(string SequenceNodeId, IReadOnlyList<SequenceProductionOutput> Outputs,
         string? TerminalOutputId, SequenceTerminalState TerminalState, bool AllowSingleOutput = false,
         bool DirectOutputCollection = false, bool BypassRevisionExecutionEdges = false);
 
-    private sealed record SequenceProductionOutput(string OutputId, int Ordinal, string OutputNodeId,
+    internal sealed record SequenceProductionOutput(string OutputId, int Ordinal, string OutputNodeId,
         string SourceNodeId, string SourcePortId, string ConnectionId);
+
+    internal sealed class SequenceProductionDispatchSession(SequenceRuntimeCoordinator coordinator,
+        StructuredActivationFrame activationFrame, IReadOnlySet<string> breakNodeIds, int maximumConcurrentOutputs)
+    {
+        private readonly object gate = new();
+        private StructuredActivationBreakRequest? breakRequest;
+
+        public SequenceRuntimeCoordinator Coordinator { get; } = coordinator;
+        public StructuredActivationFrame ActivationFrame { get; } = activationFrame;
+        public IReadOnlySet<string> BreakNodeIds { get; } = breakNodeIds;
+
+        public StructuredActivationBreakRequest? BreakRequest
+        {
+            get { lock (gate) return breakRequest; }
+        }
+
+        public SequenceActivationSnapshot? TryAdmit()
+        {
+            lock (gate)
+            {
+                if (ActivationFrame.BreakScope.Request is { } request)
+                {
+                    breakRequest ??= request;
+                    Coordinator.StopAdmission(successfulBreak: true);
+                    return null;
+                }
+                return Coordinator.TryDispatchNext(Guid.NewGuid(), maximumConcurrentOutputs);
+            }
+        }
+
+        public void RequestBreak(SequenceMessageLineage lineage, StructuredActivationBreakRequest request)
+        {
+            if (!BreakNodeIds.Contains(request.SourceNodeId) || request.SourceFrameId != ActivationFrame.Id ||
+                request.ScopeId != ActivationFrame.ScopeId)
+                throw new InvalidOperationException("The Sequence Break request does not belong to its active frame.");
+            lock (gate) breakRequest ??= request;
+            Coordinator.StopAdmission(successfulBreak: true);
+            if (!Coordinator.IsActivationTerminal(lineage.OutputActivationId))
+                Coordinator.Complete(lineage.OutputActivationId, SequenceTerminalState.Completed);
+        }
+    }
 
     private sealed class SequenceProductionSource(string id, SequenceProductionPlan plan,
         SequenceRuntimeCoordinator coordinator, Func<ValueTask> flushSequenceEvents,
-        Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate)
+        Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
+        SequenceProductionDispatchSession? sequenceDispatchSession)
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
         public override async ValueTask<GraphMessage> HandleAsync(GraphMessage message, IWorkflowContext context,
@@ -557,6 +608,20 @@ public sealed partial class WorkflowRunner
                     if (message.SequenceLineage is not { } completedLineage)
                         throw new InvalidOperationException("A Sequence completion is missing its lineage.");
                     await flushSequenceEvents();
+                    var nextActivation = sequenceDispatchSession?.TryAdmit();
+                    if (nextActivation is { } admitted)
+                    {
+                        await flushSequenceEvents();
+                        var nextOutput = plan.Outputs[admitted.Ordinal];
+                        var nextLineage = new SequenceMessageLineage(coordinator.SequenceInvocationId,
+                            coordinator.SequenceNodeId, admitted.OutputId, admitted.Ordinal,
+                            admitted.ActivationId!.Value, nextOutput.ConnectionId,
+                            $"sequence/{admitted.OutputId}");
+                        await context.SendMessageAsync(new GraphMessage(message.Text, nextOutput.SourceNodeId,
+                            nextOutput.SourcePortId, DataType: "string", SequenceLineage: nextLineage,
+                            ActivationFrame: sequenceDispatchSession!.ActivationFrame), nextOutput.OutputNodeId,
+                            cancellationToken);
+                    }
                     var terminal = coordinator.IsTerminal;
                     await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
                         terminal ? "All Sequence outputs completed." : "Waiting for remaining Sequence outputs.",
@@ -566,26 +631,45 @@ public sealed partial class WorkflowRunner
                         Text = terminal ? coordinator.DeterministicResult ?? message.Text : message.Text,
                         SourceNode = Id,
                         SourcePort = terminal ? "terminal" : "continue",
-                        FailureSignal = terminal && coordinator.TerminalState is not null
+                        FailureSignal = terminal && coordinator.TerminalState is not null,
+                        ActivationBreakRequest = terminal ? sequenceDispatchSession?.BreakRequest : null
                     };
                 }
 
                 await flushSequenceEvents();
                 var pendingOutputs = new List<ValueTask>();
-                foreach (var output in plan.Outputs)
+                if (sequenceDispatchSession is null)
                 {
-                    if (gate is not null)
-                        await gate.WaitForBoundaryAsync($"sequence:{output.OutputId}", cancellationToken);
-                    var activationId = Guid.NewGuid();
-                    var activation = coordinator.DispatchNext(activationId);
-                    var lineage = new SequenceMessageLineage(coordinator.SequenceInvocationId,
-                        coordinator.SequenceNodeId, activation.OutputId, activation.Ordinal,
-                        activation.ActivationId!.Value, output.ConnectionId,
-                        $"sequence/{activation.OutputId}");
-                    await flushSequenceEvents();
-                    pendingOutputs.Add(context.SendMessageAsync(new GraphMessage(message.Text, output.SourceNodeId,
-                        output.SourcePortId, DataType: "string", SequenceLineage: lineage), output.OutputNodeId,
-                        cancellationToken));
+                    foreach (var output in plan.Outputs)
+                    {
+                        if (gate is not null) await gate.WaitForBoundaryAsync($"sequence:{output.OutputId}", cancellationToken);
+                        var activation = coordinator.DispatchNext(Guid.NewGuid());
+                        var lineage = new SequenceMessageLineage(coordinator.SequenceInvocationId,
+                            coordinator.SequenceNodeId, activation.OutputId, activation.Ordinal,
+                            activation.ActivationId!.Value, output.ConnectionId,
+                            $"sequence/{activation.OutputId}");
+                        await flushSequenceEvents();
+                        pendingOutputs.Add(context.SendMessageAsync(new GraphMessage(message.Text, output.SourceNodeId,
+                            output.SourcePortId, DataType: "string", SequenceLineage: lineage), output.OutputNodeId,
+                            cancellationToken));
+                    }
+                }
+                else
+                {
+                    while (sequenceDispatchSession.TryAdmit() is { } activation)
+                    {
+                        var output = plan.Outputs[activation.Ordinal];
+                        if (gate is not null) await gate.WaitForBoundaryAsync($"sequence:{output.OutputId}", cancellationToken);
+                        var lineage = new SequenceMessageLineage(coordinator.SequenceInvocationId,
+                            coordinator.SequenceNodeId, activation.OutputId, activation.Ordinal,
+                            activation.ActivationId!.Value, output.ConnectionId,
+                            $"sequence/{activation.OutputId}");
+                        await flushSequenceEvents();
+                        pendingOutputs.Add(context.SendMessageAsync(new GraphMessage(message.Text, output.SourceNodeId,
+                            output.SourcePortId, DataType: "string", SequenceLineage: lineage,
+                            ActivationFrame: sequenceDispatchSession.ActivationFrame), output.OutputNodeId,
+                            cancellationToken));
+                    }
                 }
                 await Task.WhenAll(pendingOutputs.Select(pending => pending.AsTask()));
                 await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, "All Sequence outputs dispatched.", null);

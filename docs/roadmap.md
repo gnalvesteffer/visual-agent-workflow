@@ -209,6 +209,15 @@ introduced.
   retains root `outcome-unknown` through both stores and passive playback (2/2).
   Host cancellation after Break is requested while an Agent is admitted stays
   a cancelled root and Sequence through both stores and playback (2/2).
+  A new proof-scoped single-stream dispatch session now passes the central
+  A-active/B-Break/C-skipped/drain gate and reopens `break-completed` playback
+  through both stores (2/2); the existing structured activation
+  Break/failure/unknown/cancellation matrix passes 28/28. The serializer now
+  retains the Break reason required by playback. This does not broaden the
+  production admission policy or select an architecture; failure/unknown and
+  cancellation must still be exercised inside this exact same-stream session,
+  followed by the remaining shared-budget/race matrix and a fresh review. See
+  [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   This remains a private proof path: the
   production guard, public schema, and Studio authoring remain unchanged. Prove
   one VAW owner for frames,

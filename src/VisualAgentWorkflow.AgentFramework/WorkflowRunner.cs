@@ -92,7 +92,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         IWorkflowExecutionGate? gate = null, StructuredActivationFrame? activationFrame = null,
         IReadOnlySet<string>? proofBreakNodeIds = null,
         Action<StructuredActivationBreakRequest>? onBreakRequested = null,
-        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
+        SequenceProductionPlan? sequencePlan = null,
+        SequenceProductionDispatchSession? sequenceDispatchSession = null)
     {
         ArgumentNullException.ThrowIfNull(record);
         string? terminalNodeId = null;
@@ -113,12 +115,17 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var allowedJoinExit = outgoing.Length == 1 && outgoing[0].Source.PortId == "out" &&
                 revision.Definition.Nodes.TryGetValue(outgoing[0].Target.NodeId, out var target) &&
                 target.Type == NodeTypes.ParallelJoin && outgoing[0].Target.PortId.StartsWith("branch.", StringComparison.Ordinal);
+            var allowedSequenceOutputExit = sequencePlan is not null && sequenceDispatchSession is not null &&
+                outgoing.Length == 1 && outgoing[0].Source.PortId == "out" &&
+                revision.Definition.Nodes.TryGetValue(outgoing[0].Target.NodeId, out var sequenceTarget) &&
+                sequenceTarget.Type == NodeTypes.Output && outgoing[0].Target.PortId == "execute";
             if (!revision.Definition.Nodes.TryGetValue(nodeId, out var node) ||
-                node.Type != StructuredProofBreakNodeType || outgoing.Length > 0 && !allowedJoinExit || !allowedDataInputs)
+                node.Type != StructuredProofBreakNodeType || outgoing.Length > 0 && !allowedJoinExit && !allowedSequenceOutputExit || !allowedDataInputs)
                 throw new ArgumentException("Activation proof Break IDs must identify private Break nodes with only a direct parallel-join exit and an optional entry-value input.",
                     nameof(proofBreakNodeIds));
         }
-        if (proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node => node.Type == NodeTypes.Sequence))
+        if (proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node => node.Type == NodeTypes.Sequence) &&
+            sequenceDispatchSession is null)
             throw new NotSupportedException("The production Break proof does not yet cover Sequence settlement.");
         if (proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node => node.Type == NodeTypes.ParallelFork))
             ValidateStaticForkBreakProofTopology(revision.Definition, proofBreakNodeIds);
@@ -147,10 +154,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         try
         {
             var result = await ExecuteCoreAsync(runId, revision, input, parameters, RecordBodyEvent, gate,
-                cancellationToken, allowOutcomeUnknown: true,
+                cancellationToken, sequencePlan: sequencePlan, allowOutcomeUnknown: true,
                 skipValidationForInternalProof: proofBreakNodeIds.Count > 0, emitRunLifecycle: false,
                 afterNodeStarted: afterNodeStarted,
                 activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds,
+                sequenceDispatchSession: sequenceDispatchSession,
                 captureActivationBreak: request =>
                 {
                     breakRequest = request;
@@ -220,7 +228,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         bool emitRunLifecycle = true,
         StructuredActivationFrame? activationFrame = null,
         IReadOnlySet<string>? proofBreakNodeIds = null,
-        Action<StructuredActivationBreakRequest>? captureActivationBreak = null)
+        Action<StructuredActivationBreakRequest>? captureActivationBreak = null,
+        SequenceProductionDispatchSession? sequenceDispatchSession = null)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -270,7 +279,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 collaborationRuntime, variableStore, afterNodeStarted: afterNodeStarted,
                 activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds)
             : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
-                callScopeCancellation);
+                callScopeCancellation, sequenceDispatchSession);
 
         if (emitRunLifecycle) await Emit(ExecutionEventKinds.Started);
         try
@@ -635,7 +644,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     }
 
     /// <summary>Private transport identity for a future Sequence activation; never authored or persisted.</summary>
-    private sealed record SequenceMessageLineage(Guid SequenceInvocationId, string SequenceNodeId,
+    internal sealed record SequenceMessageLineage(Guid SequenceInvocationId, string SequenceNodeId,
         string OutputId, int Ordinal, Guid OutputActivationId, string ConnectionId, string? DescendantScopeId = null);
 
     private sealed class AgentRouteSelectionState(ImmutableArray<AgentExecutionRoute> routes)
@@ -1639,7 +1648,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
         Func<Guid?, WorkflowVariableStore?>? activationVariableStore = null,
         bool activationBreakNode = false,
-        IReadOnlySet<string>? proofBreakNodeIds = null)
+        IReadOnlySet<string>? proofBreakNodeIds = null,
+        Func<SequenceMessageLineage, StructuredActivationBreakRequest, ValueTask>? onSequenceBreakRequested = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -1736,7 +1746,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     throw new InvalidOperationException("Invalid activation Break output handoff.");
                 return received with { SourcePort = "break" };
             }
-            if (received.ActivationFrame?.BreakScope.IsRequested == true && !IsAdmittedParallelBranchEntry(received))
+            if (received.ActivationFrame?.BreakScope.IsRequested == true &&
+                received.SequenceLineage is null && !IsAdmittedParallelBranchEntry(received))
                 return new(string.Empty, Id, "activation.aborted", DataType: "string", HasValue: false,
                     ActivationFrame: received.ActivationFrame,
                     ParallelActivationId: received.ParallelActivationId,
@@ -1876,8 +1887,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         throw new InvalidOperationException("This activation already requested Break.");
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation,
                         data: JsonSerializer.Serialize(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                    if (received.SequenceLineage is { } sequenceLineage && onSequenceBreakRequested is not null)
+                        await onSequenceBreakRequested(sequenceLineage, request);
                     return new(string.Empty, Id, "out", DataType: "string", HasValue: false,
-                        ActivationFrame: frame, ActivationBreakRequest: request);
+                        SequenceLineage: received.SequenceLineage, ActivationFrame: frame,
+                        ActivationBreakRequest: request);
                 }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Output &&
                     !internalTerminationHandoff && (received.SequenceLineage is null ||

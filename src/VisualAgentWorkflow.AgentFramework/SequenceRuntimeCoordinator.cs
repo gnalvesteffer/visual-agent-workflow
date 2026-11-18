@@ -19,6 +19,7 @@ internal sealed class SequenceRuntimeCoordinator
     private SequenceTerminalState? terminalState;
     private bool terminalEventRecorded;
     private bool breakCompletionRequested;
+    private bool admissionStopped;
 
     public SequenceRuntimeCoordinator(Guid sequenceInvocationId, string sequenceNodeId,
         IReadOnlyList<string> outputIds, IReadOnlyDictionary<string, string> connectionIds,
@@ -89,11 +90,32 @@ internal sealed class SequenceRuntimeCoordinator
     {
         lock (gate)
         {
-            var snapshot = ledger.DispatchNext(activationId);
-            Add(new(ExecutionEventKinds.SequenceOutputDispatched, sequenceNodeId, sequenceInvocationId, snapshot.OutputId,
-                snapshot.Ordinal, activationId, connectionIds[snapshot.OutputId]));
-            return snapshot;
+            return DispatchNextUnderLock(activationId);
         }
+    }
+
+    public SequenceActivationSnapshot? TryDispatchNext(Guid activationId, int maximumActiveOutputs)
+    {
+        if (activationId == Guid.Empty) throw new ArgumentException("An activation ID is required.", nameof(activationId));
+        if (maximumActiveOutputs is < 1 or > 4) throw new ArgumentOutOfRangeException(nameof(maximumActiveOutputs));
+
+        lock (gate)
+        {
+            var snapshot = ledger.Snapshot;
+            if (admissionStopped || ledger.IsTerminal ||
+                snapshot.Count(item => item.State == SequenceActivationState.Dispatched) >= maximumActiveOutputs ||
+                snapshot.All(item => item.State != SequenceActivationState.Declared))
+                return null;
+            return DispatchNextUnderLock(activationId);
+        }
+    }
+
+    private SequenceActivationSnapshot DispatchNextUnderLock(Guid activationId)
+    {
+        var snapshot = ledger.DispatchNext(activationId);
+        Add(new(ExecutionEventKinds.SequenceOutputDispatched, sequenceNodeId, sequenceInvocationId, snapshot.OutputId,
+            snapshot.Ordinal, activationId, connectionIds[snapshot.OutputId]));
+        return snapshot;
     }
 
     public SequenceActivationSnapshot Complete(Guid activationId, SequenceTerminalState terminalState, string? result = null)
@@ -106,7 +128,11 @@ internal sealed class SequenceRuntimeCoordinator
             var snapshot = ledger.RecordTerminal(activationId, terminalState);
             if (terminalState == SequenceTerminalState.Completed && result is not null)
                 completedResults[activationId] = result;
-            if (terminalState != SequenceTerminalState.Completed) this.terminalState ??= terminalState;
+            if (terminalState != SequenceTerminalState.Completed)
+            {
+                admissionStopped = true;
+                this.terminalState ??= terminalState;
+            }
             var terminalKind = terminalState switch
             {
                 SequenceTerminalState.Completed => ExecutionEventKinds.SequenceOutputCompleted,
@@ -137,6 +163,7 @@ internal sealed class SequenceRuntimeCoordinator
     {
         lock (gate)
         {
+            admissionStopped = true;
             breakCompletionRequested |= successfulBreak;
             var snapshots = ledger.SkipPending();
             foreach (var skipped in snapshots.Where(item => item.State == SequenceActivationState.Skipped))
@@ -171,6 +198,7 @@ internal sealed class SequenceRuntimeCoordinator
     {
         lock (gate)
         {
+            admissionStopped = true;
             if (ledger.IsTerminal) return;
             var cancelled = CancelProjectedPending();
             terminalState ??= SequenceTerminalState.Cancelled;

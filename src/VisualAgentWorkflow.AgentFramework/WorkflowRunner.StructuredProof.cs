@@ -49,6 +49,99 @@ public sealed partial class WorkflowRunner
         return definition with { Nodes = nodes.ToImmutable() };
     }
 
+    internal async Task<WorkflowExecutionResult> ExecuteSingleStreamSequenceBreakProofAsync(
+        Guid runId, WorkflowRevision revision, string input, Func<ExecutionEvent, ValueTask> record,
+        IReadOnlySet<string> proofBreakNodeIds, CancellationToken cancellationToken = default,
+        int maximumConcurrentOutputs = 2)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(proofBreakNodeIds);
+        if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
+        if (proofBreakNodeIds.Count == 0) throw new ArgumentException("At least one proof Break node is required.", nameof(proofBreakNodeIds));
+
+        var plan = CreateSequenceProductionPlan(revision)
+            ?? throw new ArgumentException("The private proof requires a Sequence node.", nameof(revision));
+        var parameters = WorkflowParameters.Resolve(revision.Definition, null) ??
+            ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+        var frame = new StructuredActivationFrame(Guid.NewGuid(), null, "array-loop", 0, input, parameters);
+        var connections = plan.Outputs.ToDictionary(output => output.OutputId,
+            output => output.ConnectionId, StringComparer.Ordinal);
+        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), plan.SequenceNodeId,
+            plan.Outputs.Select(output => output.OutputId).ToArray(), connections);
+        var session = new SequenceProductionDispatchSession(coordinator, frame, proofBreakNodeIds,
+            maximumConcurrentOutputs);
+        using var runContext = new StructuredActivationRunContext(runId, revision.RevisionId, record, null,
+            reserveIterationSettlements: true);
+        ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
+            string? scopeId = null, string? data = null, string? connectionId = null) =>
+            runContext.EmitAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
+        async ValueTask FlushSequenceEvents()
+        {
+            foreach (var runtimeEvent in coordinator.DrainEvents())
+            {
+                var evidence = new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
+                    runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
+                    runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason);
+                await Emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
+                    frame.ScopeId, SequenceEvidence.Serialize(evidence), runtimeEvent.ConnectionId);
+            }
+        }
+
+        await Emit(ExecutionEventKinds.Started);
+        await Emit(ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id, frame.ScopeId);
+        var outcome = await ExecuteBodyForActivationProofAsync(runId, revision, input, frame.Parameters,
+            evt => Emit(evt.Kind, evt.NodeId, evt.InvocationId, evt.ScopeId ?? frame.ScopeId,
+                evt.Data, evt.ConnectionId), cancellationToken, activationFrame: frame,
+            proofBreakNodeIds: proofBreakNodeIds, sequencePlan: plan, sequenceDispatchSession: session);
+        await FlushSequenceEvents();
+
+        if (outcome.Disposition == WorkflowBodyProofDisposition.BreakRequested && outcome.BreakRequest is { } request)
+        {
+            var signal = ConsumeProductionBodyBreakRequestProof(frame, request, proofBreakNodeIds);
+            await Emit(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, frame.ScopeId,
+                JsonSerializer.Serialize(new { outcome = "break", signal.SourceNodeId, signal.TargetFrameId },
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            await Emit(ExecutionEventKinds.Completed, data: coordinator.DeterministicResult ?? string.Empty);
+            return new(coordinator.DeterministicResult ?? string.Empty, false, HasOutput: true);
+        }
+
+        if (outcome.Disposition == WorkflowBodyProofDisposition.Succeeded)
+        {
+            await Emit(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, frame.ScopeId,
+                JsonSerializer.Serialize(new { outcome = "completed" }));
+            await Emit(ExecutionEventKinds.Completed, data: outcome.Output);
+            return new(outcome.Output, false, HasOutput: true);
+        }
+
+        if (outcome.Disposition is WorkflowBodyProofDisposition.Cancelled or WorkflowBodyProofDisposition.TimedOut)
+        {
+            coordinator.CancelPending();
+            await FlushSequenceEvents();
+            await Emit(ExecutionEventKinds.Cancelled);
+            return new(null, false, Cancelled: true, HasOutput: false);
+        }
+
+        if (outcome.Disposition == WorkflowBodyProofDisposition.OutcomeUnknown)
+        {
+            coordinator.CancelPending();
+            await FlushSequenceEvents();
+            await Emit(ExecutionEventKinds.OutcomeUnknown,
+                data: "Workflow execution ended with an unresolved external outcome.");
+            return new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false);
+        }
+
+        coordinator.CancelPending();
+        await FlushSequenceEvents();
+        const string failure = "Sequence output failed.";
+        await Emit(ExecutionEventKinds.NodeFailed, plan.SequenceNodeId, scopeId: frame.ScopeId, data: failure);
+        await Emit(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, frame.ScopeId,
+            JsonSerializer.Serialize(new { outcome = "failed" }));
+        await Emit(ExecutionEventKinds.Failed, data: failure);
+        return new(null, true, Failed: true, HasOutput: false);
+    }
+
     internal sealed record StructuredActivationRunBudget(
         int MaximumEvents,
         long MaximumBytes,

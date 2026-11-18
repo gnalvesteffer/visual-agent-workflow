@@ -3398,6 +3398,29 @@ array iteration remains gated in the roadmap, and checkpoint recovery remains
 excluded until activation frames and coordinator state can be captured and
 restored.
 
+### Single-stream bounded Sequence/Break experiment (2026-11-17)
+
+The next private experiment reuses one Agent Framework production stream with
+a proof-scoped `SequenceProductionDispatchSession`. The VAW coordinator admits
+at most the configured number of outputs, closes admission when an admitted
+Break node requests it, records the skipped suffix, and keeps the stream alive
+until previously admitted work settles. The file and SQLite regression holds
+the first Agent active while the second admitted output requests Break; the
+third output never starts, both admitted outputs settle, the root completes
+once, and reopened passive playback reconstructs `break-completed` (2/2).
+Existing structured activation Break/failure/unknown/cancellation regressions
+also pass (28/28).
+
+This is evidence for the same-stream A-active/B-Break/C-skipped/drain gate, not
+an architecture selection or a public contract. The new session is reachable
+only through the internal proof method. Admission races, failure and unknown
+outcomes inside this exact same-stream session, host cancellation, nested
+frames, shared budgets, and the complete production matrix still need proof
+and a fresh three-role review. During this experiment the lifecycle serializer
+was found to omit the coordinator's Break reason; it now persists that reason,
+which is required for passive playback to validate the terminal. No public
+schema, production admission policy, or Studio authoring changes.
+
 ### Production body overlap proof (2026-11-17)
 
 The first bounded experiment now passes through independent invocations of
