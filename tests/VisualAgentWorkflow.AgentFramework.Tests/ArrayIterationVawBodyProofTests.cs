@@ -5412,6 +5412,11 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched &&
             SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "archive");
         Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        var sequenceEvents = events.Where(evt => SequenceEvidence.IsLifecycleEvent(evt.Kind)).ToArray();
+        Assert.True(SequenceEvidence.TryReconstructPlayback(sequenceEvents, out var sequencePlayback));
+        Assert.Equal("array-loop/0", sequencePlayback!.ScopeId);
+        Assert.Equal("failed", sequencePlayback.Status);
+        Assert.Contains(sequencePlayback.Outputs, output => output.State == "failed");
 
         foreach (var nodeId in new[] { "inventory-tool", "architecture-tool" })
         {

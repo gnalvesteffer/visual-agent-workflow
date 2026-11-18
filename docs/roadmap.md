@@ -103,8 +103,11 @@ the historical promotion chain.
   scope, with production proof events independently reconstructed for nested
   activations in both stores. Coordinator tests cover the Break/admission race
   and current failure cancellation of an active sibling. Production aggregate
-  signal behavior under mixed sibling outcomes and persistence rejection still
-  needs proof.
+  evidence now reconstructs a failed Sequence activation after Break races with
+  already-authorized failed and outcome-unknown MCP siblings; run-level
+  reconciliation retains both unresolved tool identities. Persistence
+  rejection at aggregate settlement and other mixed-outcome combinations still
+  need proof.
   As the first discriminator, compare a distinct Loop feedback input against
   topology-derived feedback on the same nested composition; the 2026-11-18
   review found neither persisted pin shape proven superior. Preserve authored

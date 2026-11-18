@@ -227,3 +227,11 @@ existing aggregate lifecycle signal can be attributed to its owning activation
 in passive playback. It does not add a new aggregate event, prove nested
 Sequence/Break admission semantics, or settle outcome precedence, sibling
 draining, and persistence failure behavior in the production adapter.
+
+The mixed-outcome production proof also confirms that, after Break has closed
+admission and an already-authorized MCP sibling settles as failed while the
+other is outcome-unknown, the Sequence evidence reconstructs as `failed` in its
+own activation scope; run-level reconciliation still retains both unresolved
+tool identities. This is recorded for both stores and both event orderings
+(4/4), and does not define precedence for other mixed outcomes or authorize
+continuing the enclosing iterator.
