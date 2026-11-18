@@ -106,8 +106,11 @@ the historical promotion chain.
   evidence now reconstructs a failed Sequence activation after Break races with
   already-authorized failed and outcome-unknown MCP siblings; run-level
   reconciliation retains both unresolved tool identities. Persistence
-  rejection at aggregate settlement and other mixed-outcome combinations still
-  need proof.
+  rejection before commit and lost acknowledgment after committed Break
+  settlement are now characterized in both stores: playback distinguishes a
+  missing terminal from a committed `break-completed` Sequence, while the
+  enclosing run remains nonterminal after the lost acknowledgment. Other
+  mixed-outcome combinations and enclosing-run recovery still need proof.
   As the first discriminator, compare a distinct Loop feedback input against
   topology-derived feedback on the same nested composition; the 2026-11-18
   review found neither persisted pin shape proven superior. Preserve authored

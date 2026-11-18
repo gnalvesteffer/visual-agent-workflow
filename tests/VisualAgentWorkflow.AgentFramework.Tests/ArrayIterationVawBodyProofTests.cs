@@ -9274,6 +9274,58 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task StructuredActivationSequenceProof_LostBreakTerminalAcknowledgmentKeepsCommittedPrefix(bool sqlite)
+    {
+        var definition = SequenceBodyDefinition();
+        var nodes = definition.Nodes.SetItem("inventory-tool",
+            new NodeDefinition(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"));
+        var revision = WorkflowRevision.CreateProofOnly(definition with
+        {
+            Nodes = nodes,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        }, "array-iteration-sequence-break-terminal-acknowledgment-loss");
+        using var store = new ProofRunStore(revision, "[\"stop\"]", sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        var attemptedKinds = new List<string>();
+
+        ValueTask AppendThenLoseAcknowledgment(ExecutionEvent evt)
+        {
+            attemptedKinds.Add(evt.Kind);
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.SequenceBreakCompleted)
+                throw new IOException("The store committed Sequence Break but its acknowledgment was lost.");
+            return ValueTask.CompletedTask;
+        }
+
+        var failure = await Xunit.Record.ExceptionAsync(() => new WorkflowRunner()
+            .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, "[\"stop\"]", "index", null,
+                AppendThenLoseAcknowledgment));
+
+        Assert.NotNull(failure);
+        Assert.Contains("acknowledgment was lost", failure!.ToString(), StringComparison.Ordinal);
+        Assert.Equal(1, attemptedKinds.Count(kind => kind == ExecutionEventKinds.SequenceBreakCompleted));
+
+        var committed = store.Store.Get(store.RunId)!;
+        Assert.Equal("running", committed.Status);
+        Assert.Single(committed.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
+        Assert.DoesNotContain(committed.Events, evt => evt.Kind is ExecutionEventKinds.Completed or
+            ExecutionEventKinds.Failed);
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal(committed.Events.Select(evt => (evt.Sequence, evt.Kind, evt.NodeId, evt.InvocationId,
+                evt.ConnectionId, evt.Data, evt.ScopeId)),
+            reopened.Events.Select(evt => (evt.Sequence, evt.Kind, evt.NodeId, evt.InvocationId,
+                evt.ConnectionId, evt.Data, evt.ScopeId)));
+        Assert.Equal("running", reopened.Status);
+        var sequenceEvents = reopened.Events.Where(evt => SequenceEvidence.IsLifecycleEvent(evt.Kind));
+        Assert.True(SequenceEvidence.TryReconstructPlayback(sequenceEvents, out var playback));
+        Assert.Equal("break-completed", playback!.Status);
+        Assert.Equal("array-loop/0", playback.ScopeId);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ConcurrentProductionBodyCoordinator_RejectedBreakRequestLeavesAcceptedPrefixIncomplete(bool sqlite)
     {
         var revision = WorkflowRevision.CreateProofOnly(StructuredBreakProofDefinition(),

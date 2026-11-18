@@ -235,3 +235,12 @@ own activation scope; run-level reconciliation still retains both unresolved
 tool identities. This is recorded for both stores and both event orderings
 (4/4), and does not define precedence for other mixed outcomes or authorize
 continuing the enclosing iterator.
+
+For the successful Break terminal, an injected lost acknowledgment after the
+store append proves a distinct accepted-prefix case in both file and SQLite
+(2/2): the Sequence terminal is durable exactly once and passive playback
+reconstructs `break-completed`, while the enclosing run remains `running`
+because its root completion was not recorded. The existing pre-commit
+rejection cases still leave the Sequence terminal absent and the accepted run
+prefix incomplete (4/4). This characterizes persistence and playback only; it
+does not authorize automatic retry or resolve recovery of the enclosing run.
