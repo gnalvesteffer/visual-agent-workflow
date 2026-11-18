@@ -8124,6 +8124,105 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task NestedConcurrentProductionCoordinator_BreakIsolatedAcrossActiveParentFrames(bool sqlite)
+    {
+        var definition = NestedConcurrentBreakProofDefinition();
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "nested-concurrent-production-break-frame-isolation-proof");
+        using var runStore = new ProofRunStore(revision, "[\"outer-a\",\"outer-b\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agent = new ControlledSettlementAgentExecutor("agent");
+        var secondParentAdmitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSecondParent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstInnerBreakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondInnerAgentStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.LoopIterationCompleted && evt.NodeId == "inner-loop" &&
+                evt.ScopeId == "outer-loop/0/inner-loop/1")
+                firstInnerBreakCompleted.TrySetResult();
+            if (evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent" &&
+                evt.ScopeId == "outer-loop/1/inner-loop/0")
+                secondInnerAgentStarted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask AfterOuterItemAdmitted(int index, CancellationToken cancellationToken)
+        {
+            if (index != 1) return ValueTask.CompletedTask;
+            secondParentAdmitted.TrySetResult();
+            return new(releaseSecondParent.Task.WaitAsync(cancellationToken));
+        }
+
+        var execution = new WorkflowRunner(agents: agent)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                "[\"outer-a\",\"outer-b\"]", "index", null, Record,
+                itemParameterId: "item", activationLoopNodeId: "outer-loop",
+                nestedItemsJson: "[\"continue\",\"stop\",\"must-not-run\"]",
+                nestedIndexParameterId: "innerIndex", nestedActivationLoopNodeId: "inner-loop",
+                maximumConcurrentBodies: 2, afterItemAdmitted: AfterOuterItemAdmitted);
+        try
+        {
+            await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await secondParentAdmitted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await firstInnerBreakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "Breaking one nested frame must not complete the run while its admitted parent-frame sibling remains active.");
+
+            releaseSecondParent.TrySetResult();
+            await secondInnerAgentStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "The second parent frame must dispatch its own nested body after the first frame breaks.");
+            agent.Release.TrySetResult();
+        }
+        finally
+        {
+            releaseSecondParent.TrySetResult();
+            agent.Release.TrySetResult();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.False(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "outer-loop"));
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "inner-loop"));
+        Assert.DoesNotContain(events, evt => evt.ScopeId is "outer-loop/0/inner-loop/2" or
+            "outer-loop/1/inner-loop/2");
+        foreach (var parentIndex in new[] { 0, 1 })
+        {
+            var parentScope = $"outer-loop/{parentIndex}";
+            var breakScope = $"{parentScope}/inner-loop/1";
+            var breakCompletion = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.NodeId == "inner-loop" && evt.ScopeId == breakScope);
+            var breakFrame = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "inner-loop" && evt.ScopeId == breakScope);
+            using var breakData = JsonDocument.Parse(breakCompletion.Data!);
+            Assert.Equal(breakFrame.InvocationId, breakData.RootElement.GetProperty("targetFrameId").GetGuid());
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.NodeId == "outer-loop" && evt.ScopeId == parentScope);
+        }
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "outer-loop" && evt.ScopeId == "outer-loop/2");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains("outer-loop/0/inner-loop/1", await RenderLoopActivations(reopened.Events, reopened.Status),
+            StringComparison.Ordinal);
+        Assert.Contains("outer-loop/1/inner-loop/1", await RenderLoopActivations(reopened.Events, reopened.Status),
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task NestedConcurrentProductionCoordinator_PropagatesChildFailureAfterBreakDrain(bool sqlite)
     {
         var definition = NestedConcurrentBreakProofDefinition();

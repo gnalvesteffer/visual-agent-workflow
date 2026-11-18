@@ -445,6 +445,13 @@ introduced.
   and SQLite reopen/playback (10/10 focused cases). The proof closes only this
   composition under its bounded 1–8 body-concurrency test parameter; it does
   not select a production scheduling policy or prove nested graph fork regions.
+  A further file/SQLite proof now overlaps two parent frames: an inner Break in
+  one frame does not cancel or settle its sibling frame, which independently
+  dispatches and consumes its own nearest-frame Break; both scopes replay from
+  the reopened histories (2/2). This is controlled private-coordinator
+  evidence, not public topology, uncontrolled scheduler-race, or production
+  ownership proof. See [Decision
+  0070](decisions/0070-bounded-array-iteration-contract.md).
   At that proof stage, byte/event contention, tool/outcome reservation
   races, host-control pause-event integration, uncontrolled production races,
   and the full body compatibility matrix remained open. The proof coordinator

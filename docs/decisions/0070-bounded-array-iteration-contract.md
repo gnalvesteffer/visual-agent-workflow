@@ -4112,3 +4112,20 @@ Core suite passes 662/662. This does not yet include Sequence or Break in the
 topology fixture, nor does it prove package round-trip of a newly admitted
 shape, production execution, or runtime migration. The feedback-pin choice
 remains unresolved.
+
+### Concurrent parent-frame Break isolation proof (2026-11-18)
+
+The nested production-body proof now overlaps two parent activation frames.
+The first frame reaches an inner Break while the second parent frame is already
+admitted but held at its body boundary. Releasing that boundary after the first
+Break confirms the second frame still dispatches its own inner body, reaches
+and consumes its own nearest-frame Break, and settles independently. Both inner
+suffixes remain unadmitted; each Break evidence payload targets the matching
+inner-frame invocation; the root completes once. File and SQLite reopen retain
+the same event stream and passive playback identifies both nested Break scopes
+(2/2 store cases).
+
+This closes the controlled concurrent-parent-frame isolation case for the
+private proof coordinator. It does not establish an uncontrolled scheduler
+race, public Sequence/Break topology, production-owned scheduling or budgets,
+mixed-outcome precedence across sibling frames, or general Blueprint parity.
