@@ -1245,22 +1245,20 @@ public sealed class ArrayIterationVawBodyProofTests
             return ValueTask.CompletedTask;
         }
 
-        var result = await new WorkflowRunner(tools, agents)
+        await AssertExceptionInChainAsync<IOException>(() => new WorkflowRunner(tools, agents)
             .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
-                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
 
-        Assert.True(result.Failed);
         Assert.Equal(["ONE:0"], agents.Inputs);
         Assert.Equal(["ONE:0"], tools.Queries);
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
         Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolCompleted or
             ExecutionEventKinds.ToolUncertain);
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
-        AssertPersistedSequence(runStore, events, "failed");
+        AssertNonterminalEvidencePrefix(runStore, events);
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(events, reopened.Events);
         var playback = await RenderPlayback(reopened);
-        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.Contains("Latest run status: running", playback, StringComparison.Ordinal);
         Assert.DoesNotContain("Iteration 1 · Completed", playback, StringComparison.Ordinal);
     }
 
@@ -1291,11 +1289,11 @@ public sealed class ArrayIterationVawBodyProofTests
             return ValueTask.CompletedTask;
         }
 
-        var result = await new WorkflowRunner(tools: broker, agents: new EchoAgentExecutor())
-            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
-                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+        await AssertExceptionInChainAsync<IOException>(() =>
+            new WorkflowRunner(tools: broker, agents: new EchoAgentExecutor())
+                .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                    Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
 
-        Assert.True(result.Failed);
         Assert.Equal(1, broker.DispatchAttempts);
         Assert.True(broker.FailureEvidenceAttempted);
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolRequested);
@@ -1303,18 +1301,16 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolFailed or
             ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolUncertain);
         Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
-        AssertPersistedSequence(runStore, events, "failed");
+        AssertNonterminalEvidencePrefix(runStore, events);
 
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(events, reopened.Events);
         var playback = await RenderPlayback(reopened);
-        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
         Assert.Contains("An MCP call was authorized, but no outcome event was recorded.", playback,
             StringComparison.Ordinal);
         Assert.Contains("Its external effect may be unknown.", playback, StringComparison.Ordinal);
         Assert.DoesNotContain("Tool failed:", playback, StringComparison.Ordinal);
-        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.Contains("Latest run status: running", playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1339,26 +1335,22 @@ public sealed class ArrayIterationVawBodyProofTests
             return ValueTask.CompletedTask;
         }
 
-        var result = await new WorkflowRunner(tools, agents)
+        await AssertExceptionInChainAsync<IOException>(() => new WorkflowRunner(tools, agents)
             .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
-                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
 
-        Assert.True(result.Failed);
         Assert.Equal(["ONE:0"], agents.Inputs);
         Assert.Empty(tools.Queries);
         Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolAuthorized or
             ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolFailed or
             ExecutionEventKinds.ToolUncertain);
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "tool");
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
-        AssertPersistedSequence(runStore, events, "failed");
+        AssertNonterminalEvidencePrefix(runStore, events);
 
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(events, reopened.Events);
         var playback = await RenderPlayback(reopened);
-        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
-        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.Contains("Latest run status: running", playback, StringComparison.Ordinal);
         Assert.DoesNotContain("tool · tool.authorized", playback, StringComparison.Ordinal);
     }
 
@@ -1419,25 +1411,21 @@ public sealed class ArrayIterationVawBodyProofTests
             return ValueTask.CompletedTask;
         }
 
-        var result = await new WorkflowRunner(tools)
+        await AssertExceptionInChainAsync<IOException>(() => new WorkflowRunner(tools)
             .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
-                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
 
-        Assert.True(result.Failed);
         Assert.Equal(0, Volatile.Read(ref connectionAttempts));
         Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolRequested or
             ExecutionEventKinds.ToolAuthorized or ExecutionEventKinds.ToolCompleted or
             ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ToolUncertain);
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "tool");
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
-        AssertPersistedSequence(runStore, events, "failed");
+        AssertNonterminalEvidencePrefix(runStore, events);
 
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(events, reopened.Events);
         var playback = await RenderPlayback(reopened);
-        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
-        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.Contains("Latest run status: running", playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1477,30 +1465,24 @@ public sealed class ArrayIterationVawBodyProofTests
             return ValueTask.CompletedTask;
         }
 
-        var result = await new WorkflowRunner(tools, agents)
+        await AssertExceptionInChainAsync<IOException>(() => new WorkflowRunner(tools, agents)
             .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
-                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
 
-        Assert.True(result.Failed);
         Assert.Single(model.Calls);
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent");
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
         Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolAuthorized or
             ExecutionEventKinds.ToolCompleted);
         Assert.Empty(tools.Queries);
         Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
-        AssertPersistedSequence(runStore, events, "failed");
+        AssertNonterminalEvidencePrefix(runStore, events);
 
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
-        Assert.Equal("failed", reopened.Status);
+        Assert.Equal("running", reopened.Status);
         Assert.Equal(events, reopened.Events);
         var playback = await RenderPlayback(reopened);
-        Assert.Contains("agent · node.failed", playback, StringComparison.Ordinal);
-        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
-        Assert.Contains("Recorded node failure event; the iteration outcome is not established.",
-            playback, StringComparison.Ordinal);
+        Assert.Contains("Latest run status: running", playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1540,26 +1522,22 @@ public sealed class ArrayIterationVawBodyProofTests
             return ValueTask.CompletedTask;
         }
 
-        var result = await new WorkflowRunner(tools, agents)
+        await AssertExceptionInChainAsync<IOException>(() => new WorkflowRunner(tools, agents)
             .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
-                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
 
-        Assert.True(result.Failed);
         Assert.Empty(model.Calls);
         Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ModelRequested or
             ExecutionEventKinds.ModelResponded);
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent");
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
         Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolAuthorized or
             ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.LoopIterationCompleted);
         Assert.Empty(tools.Queries);
-        AssertPersistedSequence(runStore, events, "failed");
+        AssertNonterminalEvidencePrefix(runStore, events);
 
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(events, reopened.Events);
         var playback = await RenderPlayback(reopened);
-        Assert.Contains("Latest run status: failed", playback, StringComparison.Ordinal);
-        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.Contains("Latest run status: running", playback, StringComparison.Ordinal);
         Assert.DoesNotContain("agent · model.requested", playback, StringComparison.Ordinal);
     }
 
@@ -3270,12 +3248,13 @@ public sealed class ArrayIterationVawBodyProofTests
             return ValueTask.CompletedTask;
         }
 
-        var failure = await Assert.ThrowsAsync<WorkflowRunStoreConflictException>(() =>
+        var failure = await AssertExceptionInChainAsync<InvalidOperationException>(() =>
             new WorkflowRunner().ExecuteProductionBodyActivationSequenceProofAsync(
                 runStore.RunId, revision, input, "index", null, Record,
                 arrayElementType: WorkflowDataTypes.Json));
 
-        Assert.Contains("sequence has changed", failure.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Injected recorder failure after variable write.", failure.ToString(),
+            StringComparison.Ordinal);
         var write = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.VariableWritten &&
             evt.ScopeId == "array-loop/0");
         using var writeData = JsonDocument.Parse(write.Data!);
@@ -4844,18 +4823,25 @@ public sealed class ArrayIterationVawBodyProofTests
             evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
         var toolAuthorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
             evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
-        var toolFailed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
-            evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
         var uncertaintyAttempt = Assert.Single(appendAttempts, evt =>
             evt.Kind == ExecutionEventKinds.ToolUncertain && evt.NodeId == "tool-research" &&
             evt.ScopeId == "array-loop/0");
         Assert.Equal(toolStarted.InvocationId, toolAuthorized.InvocationId);
-        Assert.Equal(toolStarted.InvocationId, toolFailed.InvocationId);
         if (rejectUnknownOutcomeAppend)
+        {
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
                 evt.NodeId == "tool-research");
+            Assert.DoesNotContain(events, evt => evt.NodeId == "tool-research" &&
+                evt.Kind is ExecutionEventKinds.ToolFailed or ExecutionEventKinds.NodeFailed or
+                    ExecutionEventKinds.NodeCompleted);
+        }
         else
+        {
+            var toolFailed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+                evt.NodeId == "tool-research" && evt.ScopeId == "array-loop/0");
+            Assert.Equal(toolStarted.InvocationId, toolFailed.InvocationId);
             Assert.Contains(uncertaintyAttempt, events);
+        }
         using (var authorization = JsonDocument.Parse(toolAuthorized.Data!))
         using (var uncertainty = JsonDocument.Parse(uncertaintyAttempt.Data!))
             Assert.Equal(authorization.RootElement.GetProperty("toolCallId").GetString(),
@@ -16643,7 +16629,7 @@ public sealed class ArrayIterationVawBodyProofTests
         using var store = new ProofRunStore(revision, input, sqlite);
         var recorder = new ProofRecorder(store, startRoot: false);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<WorkflowRunner.StructuredActivationBudgetExceededException>(() =>
             new WorkflowRunner(agents: new EchoAgentExecutor(failNodeId: "agent"))
                 .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
                     evt =>
@@ -16774,8 +16760,7 @@ public sealed class ArrayIterationVawBodyProofTests
                     output = result.Output;
                     structuredBudgetRejected = result.Failed;
                 }
-                catch (Exception error) when (error is EvidenceBudgetExhaustedException or
-                    WorkflowRunner.StructuredActivationBudgetExceededException)
+                catch (WorkflowRunner.StructuredActivationBudgetExceededException)
                 {
                     structuredBudgetRejected = true;
                 }
@@ -16886,8 +16871,7 @@ public sealed class ArrayIterationVawBodyProofTests
                     output = result.Output;
                     structuredWorkLimitRejected = result.Failed;
                 }
-                catch (Exception error) when (error is EvidenceBudgetExhaustedException or
-                    WorkflowRunner.StructuredActivationBudgetExceededException)
+                catch (WorkflowRunner.StructuredActivationBudgetExceededException)
                 {
                     structuredWorkLimitRejected = true;
                 }
@@ -16965,7 +16949,7 @@ public sealed class ArrayIterationVawBodyProofTests
                             runBudget: StructuredRunBudget(maximumToolDispatches: 2));
                     output = result.Output;
                 }
-                catch (IOException)
+                catch (Exception exception) when (HasExceptionInChain<IOException>(exception))
                 {
                     // The provider returned, but the store rejected its outcome event.
                 }
@@ -16985,14 +16969,22 @@ public sealed class ArrayIterationVawBodyProofTests
                     if (evt is WorkflowErrorEvent) failed = true;
                 }
 
-                await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
-                    store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
-                    failed ? ExecutionEventKinds.Failed : ExecutionEventKinds.Completed));
+                if (!failed)
+                    await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
+                        store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
+                        ExecutionEventKinds.Completed));
             }
             else
             {
-                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
-                output = result.Output;
+                try
+                {
+                    var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
+                    output = result.Output;
+                }
+                catch (Exception exception) when (HasExceptionInChain<IOException>(exception))
+                {
+                    // Preserve the accepted evidence prefix after a rejected append.
+                }
             }
 
             var events = recorder.Snapshot();
@@ -17003,20 +16995,15 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
-            var activationScope = candidate == "hybrid"
-                ? "outer-loop/0/array-loop/0"
-                : "array-loop/0";
             Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed &&
-                evt.ScopeId == activationScope);
-            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
-                evt.NodeId == "agent" && evt.ScopeId == activationScope);
-            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+                evt.ScopeId == (candidate == "hybrid" ? "outer-loop/0/array-loop/0" : "array-loop/0"));
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Failed);
             Assert.Equal(1, recorder.PendingOutcomeReservations);
             Assert.True(recorder.PendingOutcomeBytes > 0);
-            AssertPersistedSequence(store, events, "failed");
+            AssertNonterminalEvidencePrefix(store, events);
 
             var reopened = store.ReopenStore().Get(store.RunId)!;
-            Assert.Equal("failed", reopened.Status);
+            Assert.Equal("running", reopened.Status);
             Assert.Equal(events, reopened.Events);
             Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
         }
@@ -17053,7 +17040,7 @@ public sealed class ArrayIterationVawBodyProofTests
                             recorder.RecordResequencedAsync);
                     output = result.Output;
                 }
-                catch (IOException)
+                catch (Exception exception) when (HasExceptionInChain<IOException>(exception))
                 {
                     // The data evaluator ran, but the store rejected its evidence event.
                 }
@@ -17073,14 +17060,22 @@ public sealed class ArrayIterationVawBodyProofTests
                     if (evt is WorkflowErrorEvent) failed = true;
                 }
 
-                await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
-                    store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
-                    failed ? ExecutionEventKinds.Failed : ExecutionEventKinds.Completed));
+                if (!failed)
+                    await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
+                        store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
+                        ExecutionEventKinds.Completed));
             }
             else
             {
-                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
-                output = result.Output;
+                try
+                {
+                    var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
+                    output = result.Output;
+                }
+                catch (Exception exception) when (HasExceptionInChain<IOException>(exception))
+                {
+                    // Preserve the accepted evidence prefix after a rejected append.
+                }
             }
 
             var events = recorder.Snapshot();
@@ -17091,11 +17086,10 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
                 evt.NodeId == "uppercase");
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
-            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
-            AssertPersistedSequence(store, events, "failed");
+            AssertNonterminalEvidencePrefix(store, events);
 
             var reopened = store.ReopenStore().Get(store.RunId)!;
-            Assert.Equal("failed", reopened.Status);
+            Assert.Equal("running", reopened.Status);
             Assert.Equal(events, reopened.Events);
             Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
         }
@@ -17173,7 +17167,7 @@ public sealed class ArrayIterationVawBodyProofTests
                             recorder.RecordResequencedAsync);
                     output = result.Output;
                 }
-                catch (IOException)
+                catch (Exception exception) when (HasExceptionInChain<IOException>(exception))
                 {
                     // The model returned a delegated call, but its response event was rejected.
                 }
@@ -17193,19 +17187,28 @@ public sealed class ArrayIterationVawBodyProofTests
                     if (evt is WorkflowErrorEvent) failed = true;
                 }
 
-                await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
-                    store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
-                    failed ? ExecutionEventKinds.Failed : ExecutionEventKinds.Completed));
+                if (!failed)
+                    await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
+                        store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
+                        ExecutionEventKinds.Completed));
             }
             else
             {
-                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
-                output = result.Output;
+                try
+                {
+                    var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
+                    output = result.Output;
+                }
+                catch (Exception exception) when (HasExceptionInChain<IOException>(exception))
+                {
+                    // Preserve the accepted evidence prefix after a rejected append.
+                }
             }
 
             var events = recorder.Snapshot();
-            var prefix = events.Select(evt => (evt.Kind, evt.NodeId,
-                ScopeId: evt.ScopeId?.Replace("outer-loop/0/", string.Empty, StringComparison.Ordinal))).ToArray();
+            var prefix = events.Where(evt => evt.Kind != ExecutionEventKinds.NodeFailed)
+                .Select(evt => (evt.Kind, evt.NodeId,
+                    ScopeId: evt.ScopeId?.Replace("outer-loop/0/", string.Empty, StringComparison.Ordinal))).ToArray();
             expectedPrefix ??= prefix;
             Assert.Equal(expectedPrefix, prefix);
             Assert.Null(output);
@@ -17221,12 +17224,12 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
             Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed &&
                 evt.InvocationId == parentInvocationId);
-            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Failed);
             Assert.Equal(1, recorder.PendingOutcomeReservations);
-            AssertPersistedSequence(store, events, "failed");
+            AssertNonterminalEvidencePrefix(store, events);
 
             var reopened = store.ReopenStore().Get(store.RunId)!;
-            Assert.Equal("failed", reopened.Status);
+            Assert.Equal("running", reopened.Status);
             Assert.Equal(events, reopened.Events);
             Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
         }
@@ -17477,7 +17480,7 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task IteratorCandidates_RootCompletionAppendFailureRecordsFailedFallback(bool sqlite)
+    public async Task IteratorCandidates_RootCompletionAppendFailureLeavesNonterminalHistory(bool sqlite)
     {
         const string input = "[\"first\",\"second\"]";
         var revision = WorkflowRevision.Create(
@@ -17512,23 +17515,14 @@ public sealed class ArrayIterationVawBodyProofTests
                     await foreach (var evt in run.WatchStreamAsync())
                         Assert.IsNotType<WorkflowErrorEvent>(evt);
 
-                    try
-                    {
-                        await RecordRootAsync(ExecutionEventKinds.Completed);
-                    }
-                    catch (IOException)
-                    {
-                        await RecordRootAsync(ExecutionEventKinds.Failed);
-                        throw;
-                    }
+                    await RecordRootAsync(ExecutionEventKinds.Completed);
                 }
                 else
                 {
-                    await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input,
-                        recordCompletionAppendFailureAsRunFailure: true);
+                    await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
                 }
             }
-            catch (IOException exception)
+            catch (Exception exception) when (HasExceptionInChain<IOException>(exception))
             {
                 failure = exception;
             }
@@ -17542,12 +17536,10 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool"));
             Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.Completed or
                 ExecutionEventKinds.Cancelled);
-            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
-            Assert.Equal("failed", store.Store.Get(store.RunId)!.Status);
-            AssertPersistedSequence(store, events, "failed");
+            AssertNonterminalEvidencePrefix(store, events);
 
             var reopened = store.ReopenStore().Get(store.RunId)!;
-            Assert.Equal("failed", reopened.Status);
+            Assert.Equal("running", reopened.Status);
             Assert.Equal(events, reopened.Events);
             Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
 
@@ -17603,7 +17595,7 @@ public sealed class ArrayIterationVawBodyProofTests
                     await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
                 }
             }
-            catch (IOException exception)
+            catch (Exception exception) when (HasExceptionInChain<IOException>(exception))
             {
                 failure = exception;
             }
@@ -17646,7 +17638,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var agents = new EchoAgentExecutor();
         var tools = new EchoToolBroker();
 
-        await Assert.ThrowsAsync<IOException>(() => new WorkflowRunner(tools, agents)
+        await AssertExceptionInChainAsync<IOException>(() => new WorkflowRunner(tools, agents)
             .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
                 recorder.RecordResequencedAsync, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
 
@@ -17654,13 +17646,13 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Empty(agents.Inputs);
         Assert.Empty(tools.Queries);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
-        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
-        AssertPersistedSequence(store, events, "failed");
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.Failed or
+            ExecutionEventKinds.Completed or ExecutionEventKinds.OutcomeUnknown);
+        AssertPersistedSequence(store, events, "running");
 
         var reopened = store.ReopenStore().Get(store.RunId)!;
         Assert.Equal(events, reopened.Events);
-        Assert.Equal("failed", reopened.Status);
+        Assert.Equal("running", reopened.Status);
     }
 
     [Theory]
@@ -17762,7 +17754,8 @@ public sealed class ArrayIterationVawBodyProofTests
                             recorder.RecordResequencedAsync);
                     output = result.Output;
                 }
-                catch (EvidenceBudgetExhaustedException) when (recorder.ReservationRejected.IsCompleted) { }
+                catch (WorkflowRunner.StructuredActivationBudgetExceededException)
+                    when (recorder.ReservationRejected.IsCompleted) { }
             }
             else if (candidate == "fresh-subworkflow")
             {
@@ -17785,7 +17778,8 @@ public sealed class ArrayIterationVawBodyProofTests
             }
 
             var events = recorder.Snapshot();
-            AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
+            AssertPersistedSequence(store, events, output is null ? "failed" : "completed",
+                $"Concurrent model reservation candidate '{candidate}' did not settle as expected.");
             Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
             return new(output, events, model.Calls.Length, model.MaximumConcurrentCalls,
                 recorder.MaximumPendingOutcomeReservationsObserved, recorder.PendingOutcomeReservations,
@@ -17877,7 +17871,8 @@ public sealed class ArrayIterationVawBodyProofTests
                             recorder.RecordResequencedAsync);
                     output = result.Output;
                 }
-                catch (EvidenceBudgetExhaustedException) when (recorder.ReservationRejected.IsCompleted) { }
+                catch (WorkflowRunner.StructuredActivationBudgetExceededException)
+                    when (recorder.ReservationRejected.IsCompleted) { }
             }
             else if (candidate == "fresh-subworkflow")
             {
@@ -17902,7 +17897,8 @@ public sealed class ArrayIterationVawBodyProofTests
             }
 
             var events = recorder.Snapshot();
-            AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
+            AssertPersistedSequence(store, events, output is null ? "failed" : "completed",
+                $"Production MCP reservation candidate '{candidate}' did not settle as expected.");
             Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
             return new(output, events, tools.DispatchedCalls, tools.MaximumConcurrentCalls,
                 recorder.MaximumPendingOutcomeReservationsObserved, recorder.ReservationRejected.IsCompleted);
@@ -17971,7 +17967,7 @@ public sealed class ArrayIterationVawBodyProofTests
             var concurrentOutcomeByteLimit = bytesBeforeSecondAuthorization + EventBytes(secondAuthorization) +
                 (2 * 32_000L) + 64_000 - 4_096;
             var byteLimited = await ExecuteCandidateAsync(candidate, maximumConcurrentReservations: 2,
-                maximumBytes: concurrentOutcomeByteLimit);
+                maximumBytes: concurrentOutcomeByteLimit, releaseConnectionOnReservationRejected: true);
             Assert.Null(byteLimited.Output);
             Assert.True(byteLimited.ReservationRejected);
             Assert.Single(byteLimited.Events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
@@ -17984,7 +17980,8 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.Equal(1, byteLimited.MaximumPendingReservations);
             Assert.Equal(0, byteLimited.PendingReservations);
 
-            var limited = await ExecuteCandidateAsync(candidate, maximumConcurrentReservations: 1);
+            var limited = await ExecuteCandidateAsync(candidate, maximumConcurrentReservations: 1,
+                releaseConnectionOnReservationRejected: true);
             Assert.Null(limited.Output);
             Assert.True(limited.ReservationRejected);
             Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
@@ -18047,7 +18044,8 @@ public sealed class ArrayIterationVawBodyProofTests
             }
 
             var events = recorder.Snapshot();
-            AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
+            AssertPersistedSequence(store, events, output is null ? "failed" : "completed",
+                $"Production MCP reservation candidate '{candidate}' did not settle as expected.");
             Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
             return new(output, events, recorder.MaximumPendingOutcomeReservationsObserved,
                 recorder.PendingOutcomeReservations, recorder.ReservationRejected.IsCompleted);
@@ -18176,7 +18174,8 @@ public sealed class ArrayIterationVawBodyProofTests
                             recorder.RecordResequencedAsync);
                     output = result.Output;
                 }
-                catch (EvidenceBudgetExhaustedException) when (recorder.ReservationRejected.IsCompleted) { }
+                catch (WorkflowRunner.StructuredActivationBudgetExceededException)
+                    when (recorder.ReservationRejected.IsCompleted) { }
             }
             else if (candidate == "fresh-subworkflow")
             {
@@ -18343,7 +18342,8 @@ public sealed class ArrayIterationVawBodyProofTests
                             recorder.RecordResequencedAsync);
                     output = result.Output;
                 }
-                catch (EvidenceBudgetExhaustedException) when (recorder.ReservationRejected.IsCompleted) { }
+                catch (WorkflowRunner.StructuredActivationBudgetExceededException)
+                    when (recorder.ReservationRejected.IsCompleted) { }
             }
             else if (candidate == "fresh-subworkflow")
             {
@@ -20169,8 +20169,7 @@ public sealed class ArrayIterationVawBodyProofTests
 
     private static async Task<HybridBudgetLoopResult> ExecuteHybridBudgetLoopAsync(ProofRunStore runStore,
         WorkflowRevision revision, ReservedEvidenceProofRecorder recorder, IAgentNodeExecutor agents,
-        INodeToolBroker tools, string input, bool recordCompletionAppendFailureAsRunFailure = false,
-        CancellationToken cancellationToken = default)
+        INodeToolBroker tools, string input, CancellationToken cancellationToken = default)
     {
         var runId = runStore.RunId;
         var revisionId = runStore.Store.Get(runId)!.Header.RevisionId;
@@ -20216,6 +20215,11 @@ public sealed class ArrayIterationVawBodyProofTests
                     DateTimeOffset.UtcNow, ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id)
                 { ScopeId = frame.ScopeId });
             }
+            catch (Exception exception) when (HasExceptionInChain<IOException>(exception))
+            {
+                // Evidence append failures preserve the accepted nonterminal prefix.
+                throw;
+            }
             catch (Exception exception)
             {
                 if (exception is OperationCanceledException && cancellationToken.IsCancellationRequested)
@@ -20223,20 +20227,13 @@ public sealed class ArrayIterationVawBodyProofTests
                     await RecordRootTerminalAsync(ExecutionEventKinds.Cancelled);
                     return new(null, exception.ToString(), Cancelled: true);
                 }
+                if (HasExceptionInChain<IOException>(exception)) throw;
                 await RecordRootTerminalAsync(ExecutionEventKinds.Failed);
                 return new(null, exception.ToString());
             }
         }
 
-        try
-        {
-            await RecordRootTerminalAsync(ExecutionEventKinds.Completed);
-        }
-        catch (IOException) when (recordCompletionAppendFailureAsRunFailure)
-        {
-            await RecordRootTerminalAsync(ExecutionEventKinds.Failed);
-            throw;
-        }
+        await RecordRootTerminalAsync(ExecutionEventKinds.Completed);
         return new(string.Join(';', results), null);
 
         ValueTask RecordRootTerminalAsync(string kind) => recorder.RecordResequencedAsync(
@@ -22101,13 +22098,46 @@ public sealed class ArrayIterationVawBodyProofTests
         new(new(source, sourcePort), new(target, targetPort), "execution");
 
     private static void AssertPersistedSequence(ProofRunStore store, IReadOnlyList<ExecutionEvent> expected,
-        string expectedStatus)
+        string expectedStatus, string? because = null)
     {
         var persisted = store.Store.Get(store.RunId)!;
-        Assert.Equal(expectedStatus, persisted.Status);
+        Assert.True(expectedStatus == persisted.Status,
+            because ?? $"Expected persisted run status '{expectedStatus}', actual '{persisted.Status}'.");
         Assert.Equal(expected, persisted.Events);
         Assert.Equal(Enumerable.Range(1, expected.Count).Select(value => (long)value),
             persisted.Events.Select(evt => evt.Sequence));
+    }
+
+    private static void AssertNonterminalEvidencePrefix(ProofRunStore store, IReadOnlyList<ExecutionEvent> events)
+    {
+        AssertPersistedSequence(store, events, "running");
+        Assert.DoesNotContain(events, evt => evt.NodeId is null && evt.Kind is
+            (ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+                ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown));
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal("running", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+    }
+
+    private static async Task<TException> AssertExceptionInChainAsync<TException>(Func<Task> action)
+        where TException : Exception
+    {
+        var outer = await Assert.ThrowsAnyAsync<Exception>(action);
+        for (Exception? current = outer; current is not null; current = current.InnerException)
+            if (current is TException expected)
+                return expected;
+
+        Assert.Fail($"Expected an exception chain containing {typeof(TException).Name}; got {outer}.");
+        throw new InvalidOperationException("Unreachable after assertion failure.");
+    }
+
+    private static bool HasExceptionInChain<TException>(Exception exception)
+        where TException : Exception
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+            if (current is TException)
+                return true;
+        return false;
     }
 
     private static async Task<string> RenderPlayback(RunSnapshot snapshot)
@@ -22514,19 +22544,19 @@ public sealed class ArrayIterationVawBodyProofTests
                 (evt.Kind == ExecutionEventKinds.ToolAuthorized && toolDispatches >= maximumToolDispatches))
             {
                 workLimitRejected.TrySetResult();
-                throw new EvidenceBudgetExhaustedException();
+                throw new WorkflowRunner.StructuredActivationBudgetExceededException();
             }
 
             if (isRequest && pendingOutcomeReservations >= maximumConcurrentOutcomeReservations)
             {
                 reservationRejected.TrySetResult();
-                throw new EvidenceBudgetExhaustedException();
+                throw new WorkflowRunner.StructuredActivationBudgetExceededException();
             }
             if (isRequest && (ordinaryEvents + pendingOutcomeReservations + 2 > ordinaryEventLimit ||
                 ordinaryBytes + pendingOutcomeBytes + bytes + maximumOutcomeBytes > maximumBytes - reservedFailureBytes))
             {
                 reservationRejected.TrySetResult();
-                throw new EvidenceBudgetExhaustedException();
+                throw new WorkflowRunner.StructuredActivationBudgetExceededException();
             }
             if (isOutcome && (pendingOutcomeReservations == 0 || bytes > maximumOutcomeBytes ||
                 ordinaryBytes + pendingOutcomeBytes - maximumOutcomeBytes + bytes > maximumBytes - reservedFailureBytes))
@@ -22536,7 +22566,7 @@ public sealed class ArrayIterationVawBodyProofTests
             if (!isRequest && !isOutcome && !isFailureEvidence &&
                 (ordinaryEvents + pendingOutcomeReservations + 1 > ordinaryEventLimit ||
                  ordinaryBytes + pendingOutcomeBytes + bytes > maximumBytes - reservedFailureBytes))
-                throw new EvidenceBudgetExhaustedException();
+                throw new WorkflowRunner.StructuredActivationBudgetExceededException();
 
             runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
             events.Add(evt);
@@ -22577,9 +22607,6 @@ public sealed class ArrayIterationVawBodyProofTests
 
         public ExecutionEvent[] Snapshot() { lock (gate) return [.. events]; }
     }
-
-    private sealed class EvidenceBudgetExhaustedException()
-        : InvalidOperationException("The run evidence budget or aggregate work limit was exhausted.");
 
     private sealed class ParallelActivationBarrier
     {

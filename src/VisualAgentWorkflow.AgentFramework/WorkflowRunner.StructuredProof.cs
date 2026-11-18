@@ -156,7 +156,7 @@ public sealed partial class WorkflowRunner
         int MaximumToolDispatches = int.MaxValue);
 
     internal sealed class StructuredActivationBudgetExceededException()
-        : InvalidOperationException("The activation run work or evidence budget was exhausted.");
+        : InvalidOperationException("The run evidence budget or aggregate work limit was exhausted.");
 
     internal sealed class StructuredActivationRunContext(Guid runId, Guid revisionId,
         Func<ExecutionEvent, ValueTask> record, StructuredActivationRunBudget? budget,

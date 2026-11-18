@@ -2090,6 +2090,13 @@ introduced.
   Input and JSON Pointer selection to the workflow output. Selected values and
   source JSON persist as scoped evidence with file/SQLite reopen (2/2). This
   proves one JSON-input composition; projection, merge, and failure cases remain.
+- [x] Requalify evidence-write interruption across the structured,
+  fresh-subworkflow, and hybrid proof candidates. File and SQLite tests now
+  assert that rejected evidence appends preserve the accepted nonterminal
+  prefix, stop later admissions, and never fabricate a root failure; a dedicated
+  budget-exhaustion signal still uses its reserved failure settlement. The full
+  Agent Framework suite passes 933/933. This updates proof coverage only; the
+  production scheduler and integrated typed-iterator contract remain open.
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

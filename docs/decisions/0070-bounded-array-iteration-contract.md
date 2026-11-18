@@ -4050,6 +4050,16 @@ semantics. They do not establish process-loss recovery, production ownership
 of atomic budgets, or the full candidate evidence matrix, and do not change
 the current **REVISE** architecture outcome.
 
+The Agent Framework append-failure matrix now applies that prefix contract
+across the structured, fresh-subworkflow, and hybrid candidates. Rejected body
+evidence writes propagate through the executor wrapper, stop later admissions,
+and leave file/SQLite playback at the accepted nonterminal prefix; tests no
+longer expect a synthetic root failure after an ambiguous write rejection.
+Budget exhaustion uses the runtime's dedicated budget signal and retains its
+reserved failure settlement. The complete Agent Framework suite passes 933/933.
+This requalifies the proof harness only; it does not select production iterator
+ownership or close the architecture gate.
+
 ## Loop feedback pin contract re-review (2026-11-18)
 
 A separate proponent/opponent/adjudicator review compared two flat graph
