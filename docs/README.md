@@ -78,6 +78,7 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Typed arrays in pure graph functions](decisions/0069-typed-arrays-in-pure-graph-functions.md) — adds exact primitive-array ports, pure array operators, and bounded call evidence in schema 2.0.
 - [Bounded array iteration contract](decisions/0070-bounded-array-iteration-contract.md) — records the design-review findings and prerequisites before a sequential iterator can be implemented safely.
 - [Primitive array membership](decisions/0072-primitive-array-contains.md) — adds typed primitive Array Contains and records its equality semantics and JSON-array exclusion.
+- [Branchable Sequence output contract](decisions/0073-branchable-sequence-output-contract.md) — records the route-to-output settlement proof required before unified-schema Sequence paths can contain bounded decision regions.
 - [Direct MCP calls in current parallel branches](decisions/0071-direct-mcp-parallel-branches.md) — permits direct MCP nodes in unified-schema static branches, with host grants and all-or-nothing joins; historical schemas and branch-local approval remain unchanged or unsupported.
 - [Authoring-only graph clipboard](decisions/0038-authoring-only-graph-clipboard.md) — bounds the first pure-data clipboard fragment contract separately from templates and runtime packages.
 - [Static pin descriptor registry hardening](decisions/0024-static-pin-descriptor-registry-hardening.md) — validates the bounded non-serialized static pin descriptor subset and its drift boundary.

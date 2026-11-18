@@ -193,6 +193,14 @@ introduced.
   concurrency failure and subsequent stall. Playwright verified the editor
   adds the node, renders its typed operation, and leaves the graph with no
   reported issues. See [Decision 0072](decisions/0072-primitive-array-contains.md).
+- [ ] Prove bounded, branchable Sequence output regions in unified schema 2.0
+  before widening the current linear path contract. The three-role review
+  prefers composing existing Condition/BooleanBranch/ExclusiveMerge nodes, but
+  requires an explicit route-to-output activation settlement contract first.
+  Cover Break, failure/unknown/cancellation precedence, malformed region
+  rejection, file/SQLite playback, and unchanged linear Sequence behavior. This
+  is a prerequisite for the combined concurrent Sequence/Break iterator proof,
+  not a runtime architecture selection. See [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
   252/252 passed. The prior MCP suite result is 98 passed with 2 opt-in tests
@@ -256,10 +264,10 @@ introduced.
   The reviewed activation-local Break proof could not include a sibling Sequence
   continuation because current unified-schema Sequence outputs accept only bounded
   linear paths ending at Output; conditional routing is rejected by validation.
-  The combined case remains an open composition gap and needs its own reviewed
-  Sequence-path contract before it can be used as iteration-seam evidence. The
-  existing overlapping Break/Agent proof remains covered, but it does not close
-  that gap.
+  The combined case remains an open composition gap pending the
+  route-to-output settlement proof in [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
+  The existing overlapping Break/Agent proof remains covered, but it does not
+  close that gap.
   This remains a private proof path: the
   production guard, public schema, and Studio authoring remain unchanged. Prove
   one VAW owner for frames,
