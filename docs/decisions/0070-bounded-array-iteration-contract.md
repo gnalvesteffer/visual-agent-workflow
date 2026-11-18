@@ -3652,3 +3652,15 @@ and playback (2/2); the concurrent coordinator group passes 41/41. This
 verifies one model event shape under a bounded concurrent case, not all
 prompt/response sizes, delegated-call envelopes, production budget ownership,
 or uncontrolled scheduler races.
+
+### Integrated failure-reserve exhaustion (2026-11-17)
+
+`ConcurrentProductionBodyCoordinator_FailureReserveExhaustionLeavesRunNonterminal`
+sets the failure-byte reserve below the serialized Agent failure event size.
+One Agent fails while its admitted sibling succeeds. The failed iteration and
+successful iteration each persist a settlement, but the rejected body failure
+and root failure events do not appear; both file and SQLite stores reopen to
+the exact accepted prefix with status still `running` (2/2). This confirms
+failure-reserve exhaustion does not fabricate a terminal run outcome. It does
+not recover, retry, or repair the incomplete run; production ownership and
+operator recovery semantics remain outside this proof.

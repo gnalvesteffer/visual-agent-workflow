@@ -1059,6 +1059,13 @@ introduced.
         41/41). Other payload shapes and production budget ownership remain
         open. See [Decision
         0070](decisions/0070-bounded-array-iteration-contract.md).
+      - [x] Exhaust the failure-byte reserve after one integrated body Agent
+        fails while its admitted sibling succeeds. Both iterations settle, but
+        the rejected Agent/root failure evidence leaves the reopened run
+        nonterminal with its accepted prefix intact (2/2 file/SQLite cases).
+        This characterizes undersized-reserve behavior; it does not recover or
+        repair the incomplete run. See [Decision
+        0070](decisions/0070-bounded-array-iteration-contract.md).
       - [x] Verify reservation identity extraction for delegated model and
         production-MCP calls through the structured run context. Delegated
         evidence wraps the original call ID inside its `eventData` envelope;

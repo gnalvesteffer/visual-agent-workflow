@@ -7406,6 +7406,68 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_FailureReserveExhaustionLeavesRunNonterminal(bool sqlite)
+    {
+        const string input = "[\"first\",\"second\"]";
+        var providerId = "proof.concurrent-failure-reserve";
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "concurrent-array-failure-reserve-exhaustion", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("agent", new(NodeTypes.Agent, "1.0.0",
+                    Agent: new(providerId, null, "Echo the item.", [])))
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-agent", new(new("input", "out"), new("agent", "in"), "data"))
+                .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data")))
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-agent", Edge("input", "then", "agent", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "concurrent-array-failure-reserve-exhaustion-proof");
+        using var store = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        var agents = new EchoAgentExecutor(failInput: "first");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new WorkflowRunner(agents: agents)
+                .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(store.RunId, revision, input,
+                    "index", null, evt =>
+                    {
+                        recorder.Append(evt);
+                        return ValueTask.CompletedTask;
+                    }, runBudget: StructuredRunBudget(maximumToolDispatches: 1) with
+                    {
+                        ReservedFailureBytes = 1
+                    }));
+
+        var events = recorder.Snapshot();
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent"));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent" &&
+            evt.ScopeId == "array-loop/1");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/0" && evt.Data!.Contains("\"outcome\":\"failed\"", StringComparison.Ordinal));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/1" && evt.Data is null);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.AgentFailed or
+            ExecutionEventKinds.NodeFailed or ExecutionEventKinds.Failed or ExecutionEventKinds.Completed);
+        AssertPersistedSequence(store, events, "running");
+
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal("running", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains("Latest run status: running", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ConcurrentProductionBodyCoordinator_SharesModelDispatchBudget(bool sqlite)
     {
         var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
