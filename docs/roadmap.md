@@ -283,6 +283,10 @@ introduced.
   identity, and a monotonic event sequence; C must be recorded skipped. No code
   or shipped behavior changed in that review. See [Decision
   0070](decisions/0070-bounded-array-iteration-contract.md).
+  The current-checkout characterization plus Sequence composition and failure
+  proof filter passed 5/5, confirming the existing dispatch boundary and both
+  store variants of the recent proofs. It does not exercise the per-output
+  dispatch candidate or satisfy the A-active/B-Break gate.
   A synchronized two-Agent body now covers both a single outstanding model
   outcome reservation and a calibrated byte cap. In each case, the second
   `model.requested` is rejected before provider dispatch while both iteration

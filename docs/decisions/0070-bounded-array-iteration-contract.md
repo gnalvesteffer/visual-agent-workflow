@@ -3727,3 +3727,8 @@ unknown MCP outcome, and cancellation must retain their established precedence
 over successful Break. Any duplicate/missing settlement, identity mismatch,
 early root terminal, or failure to start B before A releases rejects this
 candidate. No code or shipped behavior changed for this review.
+
+On 2026-11-17, the focused current-checkout characterization and Sequence
+composition/failure cases passed 5/5, including both file/SQLite theory cases
+for each proof. This confirms the existing boundary and prior proofs still hold;
+it does not exercise the per-output dispatch candidate or close its first gate.
