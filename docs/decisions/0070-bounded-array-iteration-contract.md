@@ -3938,3 +3938,53 @@ draining, parent resumption, malformed topology, and failure/cancellation
 races. Passing would justify another architecture review, not automatic public
 admission or architecture selection. Do not weaken graph validation or hide
 unsupported body nodes to make this proof pass.
+
+### Proof-only settlement contract (adjudicated 2026-11-18)
+
+The follow-up three-role review returned **PROCEED** for a narrow prototype
+with the following contract. This is a test oracle, not a selected public
+runtime architecture, shipped Break node, or general authorization to compose
+every node family.
+
+- A Break request contains its source node and active execution scope, but no
+  caller-selected target. The VAW activation owner resolves the nearest active
+  frame. Correlate the request with the owning Sequence invocation, output ID,
+  ordinal, and output activation; record the resolved target when the frame
+  owner consumes it.
+- The frame owner serializes Break against iteration admission and the owning
+  Sequence invocation serializes it against Sequence-output admission. A
+  racing output is either admitted before Break and drained, or skipped after
+  Break; no output can be dispatched after its skip is recorded. The gate
+  closes fail-closed while the correlated Break-request event is appended.
+  Only an accepted append consumes Break. If the append is rejected, keep the
+  gate closed, stop new effects/admissions, do not claim Break, and preserve
+  the accepted prefix as incomplete.
+- The Break-containing output uses the existing `sequence.output.completed`
+  terminal only after its admitted descendants complete successfully. If
+  descendants fail or are cancelled, use the corresponding existing output
+  terminal. The correlated Break request plus the Sequence-level
+  `sequence.break_completed` terminal distinguish this control outcome; no
+  new per-output Break state is required. Break emits no workflow Output value
+  and no Merge arrival. Already-admitted outputs in that Sequence drain;
+  undispatched outputs in that same invocation are skipped. Already-admitted
+  sibling iterator frames remain independent and drain their own routes.
+- Resolve the root disposition globally after all admitted frames settle:
+  `outcome-unknown` > known `failed` > accepted host `cancelled` > consumed
+  Break > normal completion. Unknown external outcomes remain correlated in
+  tool and root evidence even if a Sequence output settles as failed. Host
+  cancellation counts when observed before root outcome finalization. Persisted
+  event order records accepted facts; it does not change this outcome priority.
+- Persistence rejection is not a workflow outcome in that ordering. Stop new
+  admissions and effects; drain only already-dispatched work as needed to
+  resolve and record it, without retrying external effects. If a required
+  request, settlement, or root-terminal append is rejected, emit no synthetic
+  settlement and leave the durable run at its accepted nonterminal prefix.
+  Playback must show that incomplete prefix, never a successful Break.
+
+The prototype must force rejection both before the Break-request append and
+during final settlement. It must also inject a known failure, an unresolved
+external outcome, and host cancellation during drain, including a failure in
+an already-admitted sibling frame. Test the exact two-activation graph through
+unified-schema validation and production body dispatch, reject malformed or
+multiply-owned topology, and reopen file and SQLite evidence into identical
+passive playback. Passing permits another architecture review only.

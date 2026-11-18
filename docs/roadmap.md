@@ -1361,11 +1361,18 @@ introduced.
     public authoring or architecture selection, prove which Sequence output
     owns Break, how queued and admitted siblings settle, and how failures,
     unknown outcomes, cancellation, and persistence rejection take precedence.
-    The proof must use public validation and production-body dispatch, with one
-    VAW lifecycle/reservation owner and identical file/SQLite passive playback.
-    Existing private Break projection and synthetic Output handoff do not meet
-    this gate. If the current topology cannot express the case, review the
-    smallest contract change before implementing it. Core confirms the current public boundary:
+    A follow-up three-role review returned PROCEED for a narrowly scoped
+    proof-only contract (Decision 0070): correlate Break with the exact
+    Sequence invocation/output/activation; serialize it against both item and
+    output admission; use existing output completion plus the Sequence-level
+    Break terminal, without a fake Output value or Merge arrival; and resolve
+    global outcomes as unknown > failure > accepted cancellation > Break >
+    success after admitted work settles. A rejected append leaves the gate
+    closed and the persisted prefix nonterminal. The proof must use public
+    unified validation and production-body dispatch, reject malformed topology,
+    and produce identical file/SQLite passive playback. Existing private Break
+    projection and synthetic Output handoff do not meet this gate. A pass
+    permits another architecture review only. Core confirms the current public boundary:
     a successful Terminate arm is rejected as `sequence.branch.nested`, and an
     arm that bypasses the required Merge is `sequence.branch.ambiguous-terminal`
     (SequenceGraphTests 41/41). Terminate cannot stand in for iterator Break,
