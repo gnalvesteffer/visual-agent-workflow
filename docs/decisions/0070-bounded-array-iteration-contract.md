@@ -4154,16 +4154,18 @@ proof now covers three nested loops and a multi-exit Sequence with one normal
 return and two terminal Break routes. Both pin candidates derive identical loop
 ownership and feedback edges. Migration preserves node, data-edge, and
 execution-edge identities while retargeting only feedback edges. Focused tests
-pass 32/32 and the full Core suite passes 681/681. Existing malformed-route,
-disconnected-loop, incomplete-draft, and ambiguous-migration cases remain
-rejected.
+pass 32/32. Serialized legacy single-loop definitions from schemas 1.17–1.22
+also round-trip, normalize to 2.0, and migrate without source mutation or loss
+of authored IDs (6/6 cases). The full Core suite passes 687/687. Existing
+malformed-route, disconnected-loop, incomplete-draft, and ambiguous-migration
+cases remain rejected.
 
-The following remain required before integration: fixtures from supported
-legacy serialized definitions; deterministic migration diagnostics for invalid
-or ambiguous graphs without partial source mutation; public and package
-validation; editor authoring and editing behavior; a single production runtime
-owner for loop entry, feedback, Break, and lifecycle; file/SQLite persistence
-and passive playback; and failure/cancellation/persistence-race coverage.
+The following remain required before integration: broader malformed and
+ambiguous legacy-migration diagnostics without partial source mutation; public
+and package validation; editor authoring and editing behavior; a single
+production runtime owner for loop entry, feedback, Break, and lifecycle;
+file/SQLite persistence and passive playback; and
+failure/cancellation/persistence-race coverage.
 Sequence/Break settlement remains independently gated and cannot be used as
 evidence for this pin choice. No schema capability gate should be introduced
 when the selected contract is integrated; supported old definitions must be

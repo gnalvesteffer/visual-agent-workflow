@@ -119,12 +119,14 @@ the historical promotion chain.
   The proof-only discriminator compares both pin shapes on identical graphs;
   three nested loops with a multi-exit Sequence now produce identical ownership,
   and migration preserves node, data-edge, and execution-edge IDs while only
-  retargeting return edges. Focused topology tests pass 32/32. The proof still
-  needs representative legacy serialized definitions and malformed/ambiguous
-  legacy-migration fixtures, plus integrated authoring, validation, package,
-  runtime, persistence, and playback evidence before public rollout. Sequence/Break
-  production settlement remains a separate gate and cannot be used to select
-  feedback-pin topology.
+  retargeting return edges. Focused topology tests pass 32/32. It now also covers
+  serialized legacy single-loop definitions from schemas 1.17–1.22:
+  each round-trips, normalizes to 2.0, then migrates to the explicit feedback
+  target with source bytes and authored identities preserved (6/6 cases).
+  Broader malformed/ambiguous legacy-migration fixtures and integrated
+  authoring, validation, package, runtime, persistence, and playback evidence
+  remain before public rollout. Sequence/Break production settlement remains a
+  separate gate and cannot be used to select feedback-pin topology.
   - [x] Add a non-authoritative Core topology/migration discriminator and run
     both feedback-pin shapes over shared nested-loop, Sequence, malformed-route,
     incomplete-draft, and migration cases. The expanded three-loop fixture has
@@ -133,10 +135,11 @@ the historical promotion chain.
     node, data-edge, and execution-edge IDs and changes only the return targets.
     Shared routes, fallthrough, cross-owner returns, unowned cycles, incomplete
     feedback, disconnected loops, and ambiguous migration are rejected.
-    Focused topology tests pass 32/32 and Core passes 681/681. Public/package
-    admission still reject the proof candidates; legacy-definition migration,
-    integrated runtime, persistence/playback, and full compatibility remain
-    open.
+    Focused topology tests pass 32/32; six serialized legacy schema variants
+    also pass normalization-plus-migration, and Core passes 687/687. Public/
+    package admission still reject the proof candidates; wider invalid-legacy
+    migration diagnostics, integrated runtime, persistence/playback, and full
+    compatibility remain open.
   Reject arbitrary cycles and accept only explicitly declared, bounded loop
   feedback. Exercise nested Sequence/loop/Break composition through public and
   package validation, production dispatch, file/SQLite reopen, passive playback,

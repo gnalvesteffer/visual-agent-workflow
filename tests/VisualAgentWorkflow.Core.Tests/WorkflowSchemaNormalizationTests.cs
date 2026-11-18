@@ -214,6 +214,44 @@ public class WorkflowSchemaNormalizationTests
         Assert.Empty(WorkflowValidator.Validate(normalized));
     }
 
+    [Theory]
+    [InlineData("1.17")]
+    [InlineData("1.18")]
+    [InlineData("1.19")]
+    [InlineData("1.20")]
+    [InlineData("1.21")]
+    [InlineData("1.22")]
+    public void Serialized_legacy_loop_variants_normalize_then_migrate_feedback_without_identity_loss(string schema)
+    {
+        var source = GraphEditing.InsertBoundedLoopAfter(Blank() with { SchemaVersion = schema }, "input", "out");
+        var anchorId = source.Nodes.Single(pair => pair.Value.Type == NodeTypes.LoopBody).Key;
+        source = GraphEditing.InsertNodeAfter(source, anchorId, "out", new(NodeTypes.Reverse, "1.0.0"));
+        var originalJson = WorkflowJson.Serialize(source);
+        var serializedSource = WorkflowJson.Deserialize(originalJson);
+
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(serializedSource);
+        var migrated = LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(normalized);
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(migrated,
+            LoopFeedbackPinShape.ExplicitFeedbackInput);
+
+        Assert.True(proof.IsValid, string.Join(Environment.NewLine, proof.Issues));
+        Assert.Equal(schema, serializedSource.SchemaVersion);
+        Assert.Equal(originalJson, WorkflowJson.Serialize(serializedSource));
+        Assert.Equal("2.0", normalized.SchemaVersion);
+        Assert.Equal(normalized.Nodes.Keys, migrated.Nodes.Keys);
+        Assert.Equal(normalized.Connections, migrated.Connections);
+        Assert.Equal(normalized.ExecutionConnections!.Keys, migrated.ExecutionConnections!.Keys);
+        var region = Assert.Single(proof.Regions);
+        Assert.Equal("normalize-loop-return", region.FeedbackConnectionId);
+        Assert.Equal(new PortReference(region.LoopNodeId, "feedback"),
+            migrated.ExecutionConnections[region.FeedbackConnectionId].Target);
+        Assert.Equal(new PortReference(region.LoopNodeId, "execute"),
+            migrated.ExecutionConnections[region.InitialConnectionId].Target);
+        Assert.Empty(WorkflowValidator.Validate(normalized));
+        Assert.Equal(WorkflowJson.Serialize(normalized),
+            WorkflowJson.Serialize(WorkflowSchemaNormalization.NormalizeForEditing(serializedSource)));
+    }
+
     [Fact]
     public void LegacyConditionalNormalizationPreservesPureTextPathsBeforeAndAfterTheRegion()
     {
