@@ -122,6 +122,93 @@ public sealed class LoopFeedbackTopologyProofTests
     [Theory]
     [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
     [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Nested_sequence_break_cross_owner_feedback_is_rejected(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopSequenceBreakCandidate();
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+        var feedbackPin = shape == LoopFeedbackPinShape.InferredFromBodyTopology ? "execute" : "feedback";
+        var crossOwner = candidate with
+        {
+            ExecutionConnections = candidate.ExecutionConnections!.SetItem("inner-return",
+                Edge("inner-step", "then", "outer-loop", feedbackPin))
+        };
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(crossOwner, shape);
+
+        Assert.False(proof.IsValid);
+        Assert.Contains(proof.Issues, issue => issue.Code == "loop.feedback.cross-owner");
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Nested_sequence_break_unowned_cycle_is_rejected(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopSequenceBreakCandidate();
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+        var cycle = candidate with
+        {
+            ExecutionConnections = candidate.ExecutionConnections!.SetItem("inner-return",
+                Edge("inner-step", "then", "inner-body", "execute"))
+        };
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(cycle, shape);
+
+        Assert.False(proof.IsValid);
+        Assert.Contains(proof.Issues, issue => issue.Code == "loop.feedback.cycle");
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Nested_sequence_break_incomplete_return_is_rejected(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopSequenceBreakCandidate();
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+        var incomplete = candidate with
+        {
+            ExecutionConnections = candidate.ExecutionConnections!.Remove("inner-return")
+        };
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(incomplete, shape);
+
+        Assert.False(proof.IsValid);
+        Assert.Contains(proof.Issues, issue => issue.Code is "loop.feedback.body-path" or
+            "loop.feedback.missing" or "loop.feedback.cardinality");
+        if (shape == LoopFeedbackPinShape.InferredFromBodyTopology)
+            Assert.Throws<ArgumentException>(() =>
+                LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(incomplete));
+    }
+
+    [Fact]
+    public void Nested_sequence_break_feedback_migration_preserves_authored_identities()
+    {
+        var source = NestedLoopSequenceBreakCandidate();
+        var migrated = LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(source);
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(migrated,
+            LoopFeedbackPinShape.ExplicitFeedbackInput);
+
+        Assert.True(proof.IsValid, string.Join(Environment.NewLine, proof.Issues));
+        Assert.Equal(source.Nodes.Keys, migrated.Nodes.Keys);
+        Assert.Equal(source.ExecutionConnections!.Keys, migrated.ExecutionConnections!.Keys);
+        Assert.Equal(source.Connections.Keys, migrated.Connections.Keys);
+        Assert.Equal(new PortReference("inner-loop", "feedback"), migrated.ExecutionConnections["inner-return"].Target);
+        Assert.Equal(new PortReference("outer-loop", "feedback"), migrated.ExecutionConnections["outer-return"].Target);
+        Assert.Equal(source.ExecutionConnections["inner-break"], migrated.ExecutionConnections["inner-break"]);
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
     public void Unowned_cycle_is_rejected_for_both_pin_shapes(string shapeName)
     {
         var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);

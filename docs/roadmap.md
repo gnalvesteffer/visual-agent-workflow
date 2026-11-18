@@ -132,10 +132,12 @@ the historical promotion chain.
     this remains proof-only. The topology fixture now includes a two-output
     Sequence with one inner-loop return and one terminal proof Break. Both pin
     shapes derive the same feedback and nearest-Break ownership; shared routes
-    and Break fallthrough are rejected. Focused topology tests pass 22/22 and
-    Core passes 671/671. Public/package admission still rejects the candidate;
-    runtime settlement, persistence/playback, and full compatibility remain
-    open.
+    and Break fallthrough are rejected. The same Sequence/Break fixture also
+    rejects cross-owner feedback, unowned cycles, and incomplete returns for
+    both candidates; identity-preserving migration changes only loop feedback
+    pins. Focused topology tests pass 29/29 and Core passes 678/678.
+    Public/package admission still rejects the candidate; runtime settlement,
+    persistence/playback, and full compatibility remain open.
   Reject arbitrary cycles and accept only explicitly declared, bounded loop
   feedback. Exercise nested Sequence/loop/Break composition through public and
   package validation, production dispatch, file/SQLite reopen, passive playback,
