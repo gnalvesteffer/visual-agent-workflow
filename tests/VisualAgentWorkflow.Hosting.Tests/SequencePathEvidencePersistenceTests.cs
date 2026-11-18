@@ -33,6 +33,85 @@ public sealed class SequencePathEvidencePersistenceTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void Settled_output_without_sequence_terminal_reopens_as_running_prefix(bool sqlite)
+    {
+        var store = CreateStore(sqlite);
+        var revision = WorkflowRevision.Create(Definition(), "sequence-incomplete-prefix");
+        var run = store.Create(revision, "research input");
+        var sequenceInvocationId = Guid.NewGuid();
+        var activationId = Guid.NewGuid();
+        var recordedAt = DateTimeOffset.UtcNow;
+
+        ExecutionEvent SequenceEvent(long sequence, string kind, SequenceLifecycleEvidence evidence) =>
+            new(run.Header.RunId, revision.RevisionId, sequence, recordedAt, kind, "sequence",
+                sequenceInvocationId, evidence.ConnectionId, SequenceEvidence.Serialize(evidence));
+
+        store.Append(run.Header.RunId, 0,
+        [
+            new(run.Header.RunId, revision.RevisionId, 1, recordedAt, ExecutionEventKinds.Started),
+            SequenceEvent(2, ExecutionEventKinds.SequenceStarted,
+                new(sequenceInvocationId, "sequence", null, null, null, null)),
+            SequenceEvent(3, ExecutionEventKinds.SequenceOutputDispatched,
+                new(sequenceInvocationId, "sequence", "inventory", 0, activationId, "sequence-inventory")),
+            SequenceEvent(4, ExecutionEventKinds.SequenceOutputCompleted,
+                new(sequenceInvocationId, "sequence", "inventory", 0, activationId, "sequence-inventory"))
+        ]);
+
+        var reopened = CreateStore(sqlite).Get(run.Header.RunId)!;
+
+        Assert.Equal("running", reopened.Status);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("running", playback!.Status);
+        var output = Assert.Single(playback.Outputs);
+        Assert.Equal("completed", output.State);
+        Assert.Equal(activationId, output.ActivationId);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Settlement_append_rejection_never_infers_sequence_completion(bool sqlite, bool commitBeforeRejecting)
+    {
+        var store = CreateStore(sqlite);
+        var revision = WorkflowRevision.Create(Definition(), "sequence-settlement-append-rejection");
+        var run = store.Create(revision, "research input");
+        var sequenceInvocationId = Guid.NewGuid();
+        var activationId = Guid.NewGuid();
+        var recordedAt = DateTimeOffset.UtcNow;
+        ExecutionEvent SequenceEvent(long sequence, string kind, SequenceLifecycleEvidence evidence) =>
+            new(run.Header.RunId, revision.RevisionId, sequence, recordedAt, kind, "sequence",
+                sequenceInvocationId, evidence.ConnectionId, SequenceEvidence.Serialize(evidence));
+
+        store.Append(run.Header.RunId, 0,
+        [
+            new(run.Header.RunId, revision.RevisionId, 1, recordedAt, ExecutionEventKinds.Started),
+            SequenceEvent(2, ExecutionEventKinds.SequenceStarted,
+                new(sequenceInvocationId, "sequence", null, null, null, null)),
+            SequenceEvent(3, ExecutionEventKinds.SequenceOutputDispatched,
+                new(sequenceInvocationId, "sequence", "inventory", 0, activationId, "sequence-inventory"))
+        ]);
+
+        var settlementEvent = SequenceEvent(4, ExecutionEventKinds.SequenceOutputCompleted,
+            new(sequenceInvocationId, "sequence", "inventory", 0, activationId, "sequence-inventory"));
+        var rejectingStore = new RejectingSettlementAppendStore(store, commitBeforeRejecting);
+        Assert.Throws<IOException>(() => rejectingStore.Append(run.Header.RunId, 3, [settlementEvent]));
+
+        var reopened = CreateStore(sqlite).Get(run.Header.RunId)!;
+
+        Assert.Equal("running", reopened.Status);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("running", playback!.Status);
+        Assert.Equal(commitBeforeRejecting ? "completed" : "dispatched", Assert.Single(playback.Outputs).State);
+        Assert.DoesNotContain(reopened.Events, evt => evt.Kind is ExecutionEventKinds.SequenceCompleted or
+            ExecutionEventKinds.SequenceBreakCompleted or ExecutionEventKinds.SequenceFailed or
+            ExecutionEventKinds.SequenceCancelled);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Schema_1_43_failure_survives_runtime_shutdown_and_replays_without_tool_calls(bool sqlite)
     {
         var store = CreateStore(sqlite);
@@ -190,6 +269,23 @@ public sealed class SequencePathEvidencePersistenceTests : IDisposable
     private IWorkflowRunStore CreateStore(bool sqlite) => sqlite
         ? new SqliteWorkflowRunStore(Database)
         : new FileRunJournal(directory);
+
+    private sealed class RejectingSettlementAppendStore(IWorkflowRunStore inner, bool commitBeforeRejecting) : IWorkflowRunStore
+    {
+        public RunSnapshot Create(WorkflowRevision revision, string input) => inner.Create(revision, input);
+
+        public RunSnapshot? Get(Guid runId) => inner.Get(runId);
+
+        public IReadOnlyList<RunSnapshot> List() => inner.List();
+
+        public RunSnapshot Append(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events)
+        {
+            if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted))
+                return inner.Append(runId, expectedSequence, events);
+            if (commitBeforeRejecting) inner.Append(runId, expectedSequence, events);
+            throw new IOException("Simulated ambiguous settlement append acknowledgement.");
+        }
+    }
 
     private static WorkflowDefinition Definition()
     {

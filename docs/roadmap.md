@@ -96,6 +96,12 @@ the historical promotion chain.
   aggregate signal; outcome precedence, sibling draining, persistence
   rejection, and playback without that signal remain unresolved in
   [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
+  Core playback now has a focused regression that treats a settled output with
+  no Sequence terminal as a running prefix; file/SQLite tests cover settlement
+  append rejection before commit and after a simulated commit with a lost
+  acknowledgement. Coordinator tests cover the Break/admission race and the
+  current failure cancellation of an active sibling. Mixed sibling outcomes
+  and production aggregate-signal behavior still need proof.
   As the first discriminator, compare a distinct Loop feedback input against
   topology-derived feedback on the same nested composition; the 2026-11-18
   review found neither persisted pin shape proven superior. Preserve authored

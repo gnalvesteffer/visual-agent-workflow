@@ -264,6 +264,30 @@ public sealed class SequenceEvidenceTests
     }
 
     [Fact]
+    public void Playback_keeps_completed_output_running_when_sequence_completion_event_is_missing()
+    {
+        var sequenceId = Guid.NewGuid();
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var activationId = Guid.NewGuid();
+        var events = new[]
+        {
+            Lifecycle(runId, revisionId, 1, ExecutionEventKinds.SequenceStarted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null)),
+            Lifecycle(runId, revisionId, 2, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+                new(sequenceId, "sequence", "only", 0, activationId, "connection-only")),
+            Lifecycle(runId, revisionId, 3, ExecutionEventKinds.SequenceOutputCompleted, sequenceId,
+                new(sequenceId, "sequence", "only", 0, activationId, "connection-only"))
+        };
+
+        Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var snapshot));
+        Assert.Equal("running", snapshot!.Status);
+        var output = Assert.Single(snapshot.Outputs);
+        Assert.Equal("completed", output.State);
+        Assert.Equal(activationId, output.ActivationId);
+    }
+
+    [Fact]
     public void Playback_reconstructs_overlapping_outputs_that_complete_out_of_order()
     {
         var sequenceId = Guid.NewGuid();

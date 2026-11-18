@@ -200,3 +200,20 @@ Existing coordinator tests already cover atomic Break/admission serialization
 and characterize failure cancellation of other active outputs. These tests do
 not settle the new aggregate contract, mixed-outcome precedence, persistence
 rejection, or playback with a missing aggregate event.
+
+### Proof progress (2026-11-18)
+
+Core passive-playback coverage now includes a complete output settlement with
+no Sequence terminal event. The reader reconstructs the accepted prefix as
+`running` and retains the output activation identity, rather than inferring
+Sequence completion. The focused regression passed (1/1). This establishes
+prefix behavior only; it does not qualify file/SQLite persistence rejection or
+the aggregate signal contract.
+
+File and SQLite store regressions now inject a rejected settlement append both
+before commit and after a simulated commit with a lost acknowledgement (4/4).
+After reopen, playback preserves `dispatched` for the uncommitted case and
+`completed` for the accepted case, while keeping the Sequence itself `running`
+because no aggregate terminal was accepted. This proves the reader does not
+invent completion across these append outcomes; it does not qualify production
+runtime retry behavior or mixed sibling outcomes.
