@@ -18942,6 +18942,168 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task SingleStreamSequenceProof_UnknownMcpOutcomeOverridesBreak(bool sqlite)
+    {
+        const string bindingId = "proof.single-stream-unknown-tool";
+        var body = SequenceBodyDefinition();
+        var nodes = body.Nodes
+            .SetItem("sequence", body.Nodes["sequence"] with
+            {
+                Sequence = new([new("inventory", "Inventory"), new("architecture", "Architecture"),
+                    new("quality", "Quality")])
+            })
+            .SetItem("inventory-tool", new NodeDefinition(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest(bindingId, new string('d', 64)))
+            { McpArgumentsJson = "{\"query\":\"research\"}" })
+            .SetItem("architecture-tool", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"))
+            .Add("quality-tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("proof.skipped-tool", new string('e', 64)))
+            { McpArgumentsJson = "{\"query\":\"must-not-run\"}" });
+        var definition = body with
+        {
+            Nodes = nodes,
+            ExecutionConnections = body.ExecutionConnections!
+                .SetItem("inventory-output", Edge("inventory-tool", "then", "output", "execute"))
+                .SetItem("architecture-output", Edge("architecture-tool", "out", "output", "execute"))
+                .Add("sequence-quality", Edge("sequence", "then.quality", "quality-tool", "execute"))
+                .Add("quality-output", Edge("quality-tool", "then", "output", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "single-stream-sequence-unknown-outcome-proof");
+        using var store = new ProofRunStore(revision, "research", sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        var tools = new ControlledUnknownOutcomeToolBroker(bindingId);
+        var suffixSkipped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+                SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "quality")
+                suffixSkipped.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(tools: tools)
+            .ExecuteSingleStreamSequenceBreakProofAsync(store.RunId, revision, "research", Record,
+                new HashSet<string>(["architecture-tool"], StringComparer.Ordinal),
+                cancellationToken: CancellationToken.None, maximumConcurrentOutputs: 2)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        try
+        {
+            await Task.WhenAll(tools.DispatchStarted.Task, suffixSkipped.Task).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted, "Break must drain the already authorized MCP call.");
+            tools.ReleaseOutcome.TrySetResult();
+            var result = await execution;
+            Assert.True(result.Failed);
+            Assert.True(result.OutcomeUnknown);
+        }
+        finally
+        {
+            tools.ReleaseOutcome.TrySetResult();
+            if (!execution.IsCompleted)
+            {
+                try { await execution.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (TimeoutException) { }
+            }
+        }
+
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(store, events, "outcome-unknown");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain && evt.NodeId == "inventory-tool");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+            SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "inventory");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+            SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "quality");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("failed", playback!.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SingleStreamSequenceProof_HostCancellationOverridesBreak(bool sqlite)
+    {
+        var body = SequenceBodyDefinition();
+        var nodes = body.Nodes
+            .SetItem("sequence", body.Nodes["sequence"] with
+            {
+                Sequence = new([new("inventory", "Inventory"), new("architecture", "Architecture"),
+                    new("quality", "Quality")])
+            })
+            .SetItem("inventory-tool", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new AgentConfiguration("proof.settlement", null, "Wait for host cancellation.", []) { MaxTurns = 1 }))
+            .SetItem("architecture-tool", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"))
+            .Add("quality-tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("proof.skipped-tool", new string('e', 64)))
+            { McpArgumentsJson = "{\"query\":\"must-not-run\"}" });
+        var definition = body with
+        {
+            Nodes = nodes,
+            ExecutionConnections = body.ExecutionConnections!
+                .SetItem("inventory-output", Edge("inventory-tool", "out", "output", "execute"))
+                .SetItem("architecture-output", Edge("architecture-tool", "out", "output", "execute"))
+                .Add("sequence-quality", Edge("sequence", "then.quality", "quality-tool", "execute"))
+                .Add("quality-output", Edge("quality-tool", "then", "output", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "single-stream-sequence-cancellation-proof");
+        using var store = new ProofRunStore(revision, "research", sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        var agents = new ControlledSettlementAgentExecutor("inventory-tool");
+        var suffixSkipped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+                SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "quality")
+                suffixSkipped.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        using var cancellation = new CancellationTokenSource();
+        var execution = new WorkflowRunner(tools: new EchoToolBroker(), agents: agents)
+            .ExecuteSingleStreamSequenceBreakProofAsync(store.RunId, revision, "research", Record,
+                new HashSet<string>(["architecture-tool"], StringComparer.Ordinal),
+                cancellationToken: cancellation.Token, maximumConcurrentOutputs: 2)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        try
+        {
+            await Task.WhenAll(agents.Started.Task, suffixSkipped.Task).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted, "Host cancellation begins only after Break, while admitted work is active.");
+            cancellation.Cancel();
+            var result = await execution;
+            Assert.True(result.Cancelled);
+        }
+        finally
+        {
+            agents.Release.TrySetResult();
+            if (!execution.IsCompleted)
+            {
+                try { await execution.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (TimeoutException) { }
+            }
+        }
+
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(store, events, "cancelled");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
+            SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "inventory");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+            SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "quality");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("cancelled", playback!.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_ExecuteSequenceOutputsPerActivation(bool sqlite)
     {
         var definition = SequenceBodyDefinition() with

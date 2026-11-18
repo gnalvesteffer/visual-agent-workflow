@@ -218,9 +218,10 @@ introduced.
   admitted-Agent failure case now also passes in file and SQLite stores (2/2):
   the failed admitted output overrides Break, the suffix remains skipped, and
   playback reconstructs failure. The Sequence production runner group passes
-  58/58. Unknown outcome and cancellation must still be exercised inside this
-  exact same-stream session, followed by the remaining shared-budget/race
-  matrix and a fresh review. See
+  58/58. The same-stream unresolved-MCP-outcome and host-cancellation cases now
+  pass through both stores (2/2 each), preserving root uncertainty/cancellation
+  separately from Sequence playback. Admission races, nested frames, shared
+  budgets, and the remaining matrix still need proof and a fresh review. See
   [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   This remains a private proof path: the
   production guard, public schema, and Studio authoring remain unchanged. Prove

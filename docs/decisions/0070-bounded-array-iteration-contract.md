@@ -3415,12 +3415,19 @@ recorded, and file/SQLite playback reconstructs `failed` (2/2). Existing
 structured activation Break/failure/unknown/cancellation regressions pass
 (28/28), and the Sequence production runner group passes (58/58).
 
+The exact same-stream session now also covers unresolved MCP outcome and host
+cancellation. An authorized call held across Break is released as
+`outcome-unknown`; the root preserves that disposition while Sequence playback
+records the failed output and skipped suffix. Cancelling the host after Break
+while the admitted Agent is held records a cancelled root and Sequence, one
+cancelled admitted output, and the skipped suffix. Both cases reopen and
+reconstruct through file and SQLite stores (2/2 each).
+
 This is evidence for the same-stream A-active/B-Break/C-skipped/drain gate, not
 an architecture selection or a public contract. The new session is reachable
-only through the internal proof method. Admission races, unknown outcomes
-inside this exact same-stream session, host cancellation, nested frames,
-shared budgets, and the complete production matrix still need proof and a
-fresh three-role review. During this experiment the lifecycle serializer
+only through the internal proof method. Admission races, nested frames,
+shared budgets, and the complete production matrix still need proof and a fresh
+three-role review. During this experiment the lifecycle serializer
 was found to omit the coordinator's Break reason; it now persists that reason,
 which is required for passive playback to validate the terminal. No public
 schema, production admission policy, or Studio authoring changes.
