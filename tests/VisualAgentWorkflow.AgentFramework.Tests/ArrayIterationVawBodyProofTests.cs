@@ -18787,6 +18787,85 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, true)]
+    [InlineData(false, false, true)]
+    [InlineData(true, true, true)]
+    [InlineData(true, false, true)]
+    public async Task SequenceBranchMergeToolOutcomesCannotBeHiddenByLaterRoute(bool sqlite, bool condition,
+        bool outcomeUnknown)
+    {
+        const string bindingId = "proof.sequence-branch-tool";
+        var revision = WorkflowRunner.CreateSequenceBranchDecisionToolOutcomeProofRevision(condition);
+        using var store = new ProofRunStore(revision, "route input", sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        var tools = new ControlledSettlementToolBroker(bindingId,
+            outcomeUnknown ? ControlledToolOutcome.Unknown : ControlledToolOutcome.Failure);
+        var execution = new WorkflowRunner(tools: tools).ExecuteSequenceBranchDecisionToolOutcomeProofAsync(
+            store.RunId, revision, "route input", evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }).WaitAsync(TimeSpan.FromSeconds(10));
+
+        WorkflowExecutionResult? result = null;
+        try
+        {
+            await tools.DispatchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            tools.ReleaseOutcome.TrySetResult();
+            try
+            {
+                result = await execution;
+            }
+            catch (InvalidOperationException exception) when (!outcomeUnknown &&
+                exception.Message == "Executor tool failed.")
+            {
+                // Agent Framework reports a fatal executor exception through the run stream.
+            }
+        }
+        finally
+        {
+            tools.ReleaseOutcome.TrySetResult();
+            if (!execution.IsCompleted)
+            {
+                try { await execution.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (TimeoutException) { }
+            }
+        }
+
+        var events = recorder.Snapshot();
+        var expectedRunStatus = outcomeUnknown ? "outcome-unknown" : "failed";
+        Assert.Equal(outcomeUnknown, result?.OutcomeUnknown == true);
+        Assert.Contains(events, evt => evt.Kind == (outcomeUnknown
+            ? ExecutionEventKinds.OutcomeUnknown
+            : ExecutionEventKinds.Failed) && evt.NodeId is null);
+        AssertPersistedSequence(store, events, expectedRunStatus);
+        Assert.Single(events, evt => evt.Kind == (outcomeUnknown
+            ? ExecutionEventKinds.ToolUncertain
+            : ExecutionEventKinds.ToolFailed) && evt.NodeId == "tool");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "branch");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "merge");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+            SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "decision");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+            SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "suffix");
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.SequenceOutputCompleted or
+            ExecutionEventKinds.SequenceBreakCompleted or ExecutionEventKinds.SequenceCompleted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId is "outcome" or "output" or "suffix-output");
+
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal(expectedRunStatus, reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("failed", playback!.Status);
+        Assert.Equal(["failed", "skipped"], playback.Outputs.Select(output => output.State));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task SingleStreamSequenceProof_AdmitsBreakWhileEarlierAgentIsActive(bool sqlite)

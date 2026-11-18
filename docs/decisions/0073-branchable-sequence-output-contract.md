@@ -103,9 +103,15 @@ special Output Break handoff into its collector, and explicit-graph Merge and
 Approval executors emitted `out` despite exposing `then` pins. These are
 internal proof changes plus a correction to explicit execution-pin dispatch.
 They do not admit conditional Sequence definitions in the public validator.
-The proof gate remains open: malformed-region validation, failure/unknown/
-cancel races after branch selection, and unchanged linear graph round trips
-still need coverage.
+The proof-only production runner now also routes the selected branch through a
+controlled MCP node after the exclusive merge. Fatal tool failure and an
+explicitly unknown tool outcome each settle the selected Sequence output as
+failed exactly once, skip the later suffix, and suppress the downstream
+completion/Break decision. Both branch choices and both outcomes reopen with
+identical file and SQLite event prefixes and failed passive playback (8/8).
+This verifies the post-merge failure and unknown-outcome path only. Host
+cancellation after branch selection, malformed-region validation, and
+unchanged linear graph round trips still need coverage.
 
 If the output-to-route mapping requires a second lifecycle/collector owner or
 cannot preserve these invariants, return the design for review rather than

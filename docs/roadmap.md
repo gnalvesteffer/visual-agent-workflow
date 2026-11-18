@@ -211,7 +211,11 @@ introduced.
   multi-arm proof passed 2/2; the broader Sequence/Merge suites passed 74/74 in
   the preceding increment. File and SQLite reopen preserve the exact prefix,
   and playback reconstructs normal completion and Break with suffix skipping
-  (4/4 store/outcome cases). Public validation remains unchanged; failure/race,
+  (4/4 store/outcome cases). A controlled MCP call after the merge now proves
+  fatal failure and unknown outcome each fail the selected output, skip the
+  suffix, and suppress downstream completion/Break. Both branch choices replay
+  from file and SQLite with identical event prefixes (8/8). Public validation
+  remains unchanged; host cancellation after branch selection,
   malformed-region, and compatibility proof remain open. See
   [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation

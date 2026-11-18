@@ -93,6 +93,21 @@ public sealed partial class WorkflowRunner
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(revision);
+        return ExecuteSequenceBranchDecisionProofAsync(runId, revision, input, record, cancellationToken);
+    }
+
+    internal Task<WorkflowExecutionResult> ExecuteSequenceBranchDecisionToolOutcomeProofAsync(Guid runId,
+        WorkflowRevision revision, string input, Func<ExecutionEvent, ValueTask> record,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        return ExecuteSequenceBranchDecisionProofAsync(runId, revision, input, record, cancellationToken);
+    }
+
+    private Task<WorkflowExecutionResult> ExecuteSequenceBranchDecisionProofAsync(Guid runId,
+        WorkflowRevision revision, string input, Func<ExecutionEvent, ValueTask> record,
+        CancellationToken cancellationToken)
+    {
         var plan = new SequenceProductionPlan("sequence", [
             new SequenceProductionOutput("decision", 0, "branch", "sequence", "then.decision", "sequence-branch"),
             new SequenceProductionOutput("suffix", 1, "suffix-output", "sequence", "then.suffix", "sequence-suffix")
@@ -108,7 +123,8 @@ public sealed partial class WorkflowRunner
         var breakNodeIds = ImmutableHashSet.Create(StringComparer.Ordinal, "break");
         var session = new SequenceProductionDispatchSession(coordinator, frame, breakNodeIds, maximumConcurrentOutputs: 1);
         return ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken,
-            rootRevision: revision, sequencePlan: plan, skipValidationForInternalProof: true,
+            rootRevision: revision, sequencePlan: plan, allowOutcomeUnknown: true,
+            skipValidationForInternalProof: true,
             activationFrame: frame, proofBreakNodeIds: breakNodeIds, sequenceDispatchSession: session,
             captureActivationBreak: _ => { });
     }
@@ -157,6 +173,26 @@ public sealed partial class WorkflowRunner
             }.ToImmutableSortedDictionary()
         };
         return WorkflowRevision.CreateProofOnly(definition, "sequence-branch-evidence-proof");
+    }
+
+    internal static WorkflowRevision CreateSequenceBranchDecisionToolOutcomeProofRevision(bool condition)
+    {
+        const string bindingId = "proof.sequence-branch-tool";
+        var definition = CreateSequenceBranchDecisionEvidenceProofRevision(condition).Definition;
+        var nodes = definition.Nodes.Add("tool", new NodeDefinition(NodeTypes.McpTool, "1.0.0",
+            new ToolBindingRequest(bindingId, new string('a', 64)))
+        {
+            McpArgumentsJson = "{}"
+        });
+        var executionConnections = definition.ExecutionConnections!
+            .Remove("merge-outcome")
+            .Add("merge-tool", new(new("merge", "then"), new("tool", "execute"), "execution"))
+            .Add("tool-outcome", new(new("tool", "then"), new("outcome", "execute"), "execution"));
+        return WorkflowRevision.CreateProofOnly(definition with
+        {
+            Nodes = nodes,
+            ExecutionConnections = executionConnections
+        }, "sequence-branch-tool-outcome-proof");
     }
 
     /// <summary>
