@@ -1925,6 +1925,14 @@ introduced.
       concurrent coordinator group passes 37/37. This is proof-only behavior;
       production budget ownership and interrupted-run recovery remain open.
       See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Treat rejected Break-request and final Break-settlement evidence as
+      interrupted writes: preserve the exact accepted prefix, leave the run
+      nonterminal, and do not synthesize Sequence skips or root failure events.
+      File and SQLite proofs cover both rejection points for structured
+      dispatch (4/4), plus concurrent production-body Break-request rejection
+      (2/2). The adjacent Sequence/coordinator regressions pass 87/87. This
+      does not prove process-loss recovery or select a production architecture.
+      See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [ ] Complete process-loss/interrupted-execution recovery and the
       remaining evidence matrix. Store reopening does not recover or resume
       execution; candidate reservations are not production budget ownership.

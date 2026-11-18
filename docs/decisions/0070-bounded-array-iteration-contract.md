@@ -4028,3 +4028,24 @@ capability gate. On failure, identify whether the topology contract or flat
 representation caused it; reconsider nested serialized regions only with that
 evidence. A pass permits another architecture review, not public Break
 admission or general runtime selection.
+
+## Evidence-write interruption proof (2026-11-18)
+
+The private structured dispatcher and concurrent production-body coordinator
+now distinguish a rejected Break event append from an accepted Break outcome.
+If the Break request append fails, the coordinator stops admission, drains
+already admitted bodies, and emits no synthetic iteration settlement. If the
+Break request is accepted but the final `sequence.break_completed` append is
+rejected, the already accepted Break node completion remains in the prefix but
+no Sequence skip or root terminal event is synthesized. File and SQLite
+reopen to the exact accepted prefix, with the run still nonterminal. Coverage
+is 4/4 structured request/final-settlement cases and 2/2 concurrent request
+cases; adjacent structured Sequence and concurrent coordinator regressions
+pass 87/87.
+
+This proof also classifies failure-evidence reserve exhaustion as a run-budget
+signal, preserving the existing bounded-settlement behavior instead of
+misclassifying it as a persistence failure. These are proof-only interruption
+semantics. They do not establish process-loss recovery, production ownership
+of atomic budgets, or the full candidate evidence matrix, and do not change
+the current **REVISE** architecture outcome.

@@ -7433,7 +7433,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var recorder = new ProofRecorder(store, startRoot: false);
         var agents = new EchoAgentExecutor(failInput: "first");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var failure = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             new WorkflowRunner(agents: agents)
                 .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(store.RunId, revision, input,
                     "index", null, evt =>
@@ -7451,8 +7451,9 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent"));
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent" &&
             evt.ScopeId == "array-loop/1");
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
-            evt.ScopeId == "array-loop/0" && evt.Data!.Contains("\"outcome\":\"failed\"", StringComparison.Ordinal));
+        Assert.True(events.Any(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/0" && evt.Data!.Contains("\"outcome\":\"failed\"", StringComparison.Ordinal)),
+            $"{failure}\n" + string.Join(" | ", events.Select(evt => $"{evt.Sequence}:{evt.Kind}:{evt.NodeId}:{evt.ScopeId}:{evt.Data}")));
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
             evt.ScopeId == "array-loop/1" && evt.Data is null);
         Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.AgentFailed or
@@ -9223,6 +9224,92 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.NodeId == "sequence");
         Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
         Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public async Task StructuredActivationSequenceProof_RejectedBreakEvidenceLeavesAcceptedPrefixIncomplete(
+        bool sqlite, bool rejectRequestAppend)
+    {
+        var definition = SequenceBodyDefinition();
+        var nodes = definition.Nodes.SetItem("inventory-tool",
+            new NodeDefinition(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"));
+        var revision = WorkflowRevision.CreateProofOnly(definition with
+        {
+            Nodes = nodes,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        }, "array-iteration-sequence-break-request-append-failure");
+        using var store = new ProofRunStore(revision, "[\"stop\",\"must-not-run\"]", sqlite,
+            rejectedAppendEventKinds: rejectRequestAppend ? null : [ExecutionEventKinds.SequenceBreakCompleted],
+            rejectedAppendPredicate: rejectRequestAppend
+                ? evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "inventory-tool"
+                : null);
+        var recorder = new ProofRecorder(store, startRoot: false);
+
+        var error = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => new WorkflowRunner()
+            .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision,
+                "[\"stop\",\"must-not-run\"]", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }));
+        Assert.Contains("Injected store append failure", error.ToString(), StringComparison.Ordinal);
+        var accepted = recorder.Snapshot();
+        AssertPersistedSequence(store, accepted, "running");
+        Assert.Contains(accepted, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "inventory-tool");
+        Assert.DoesNotContain(accepted, evt => evt.Kind is ExecutionEventKinds.SequenceBreakCompleted or
+            ExecutionEventKinds.Completed or ExecutionEventKinds.Failed);
+        if (rejectRequestAppend)
+        {
+            Assert.DoesNotContain(accepted, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "inventory-tool");
+            Assert.DoesNotContain(accepted, evt => evt.Kind is ExecutionEventKinds.SequenceOutputCompleted or
+                ExecutionEventKinds.SequenceOutputSkipped);
+        }
+        else
+        {
+            Assert.Contains(accepted, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "inventory-tool");
+        }
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal("running", reopened.Status);
+        Assert.Equal(accepted, reopened.Events);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_RejectedBreakRequestLeavesAcceptedPrefixIncomplete(bool sqlite)
+    {
+        var revision = WorkflowRevision.CreateProofOnly(StructuredBreakProofDefinition(),
+            "array-iteration-production-break-request-append-failure");
+        using var store = new ProofRunStore(revision, "[\"stop\"]", sqlite,
+            rejectedAppendPredicate: evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "proof-break");
+        var recorder = new ProofRecorder(store, startRoot: false);
+
+        var error = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => new WorkflowRunner()
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(store.RunId, revision, "[\"stop\"]",
+                "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item",
+                proofBreakNodeIds: new HashSet<string>(["proof-break"], StringComparer.Ordinal)));
+        Assert.Contains("Injected store append failure", error.ToString(), StringComparison.Ordinal);
+
+        var accepted = recorder.Snapshot();
+        AssertPersistedSequence(store, accepted, "running");
+        Assert.Contains(accepted, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "proof-break");
+        Assert.DoesNotContain(accepted, evt => evt.Kind is ExecutionEventKinds.LoopIterationCompleted or
+            ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal("running", reopened.Status);
+        Assert.Equal(accepted, reopened.Events);
     }
 
     [Theory]

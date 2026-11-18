@@ -316,7 +316,7 @@ public sealed partial class WorkflowRunner
             if (FailureKinds.Contains(evt.Kind))
             {
                 if (failureEvents >= reservedFailureEvents || failureBytes + bytes > reservedFailureBytes)
-                    throw new InvalidOperationException("The activation failure evidence exceeded its reserved budget.");
+                    throw new StructuredActivationBudgetExceededException();
                 return new(EventClass.Failure);
             }
 
@@ -588,9 +588,11 @@ public sealed partial class WorkflowRunner
                     case WorkflowBodyProofDisposition.Failed:
                     case WorkflowBodyProofDisposition.BudgetRejected:
                     case WorkflowBodyProofDisposition.TimedOut:
-                    case WorkflowBodyProofDisposition.EvidenceWriteFailed:
                     default:
                         return await FailRunAsync($"Activation ended with {bodyOutcome.Disposition} at index {index}.");
+                    case WorkflowBodyProofDisposition.EvidenceWriteFailed:
+                        throw bodyOutcome.EvidenceWriteError ??
+                            new InvalidOperationException("The activation proof could not persist body evidence.");
                 }
                 if (breakLoop) break;
             }
@@ -609,7 +611,8 @@ public sealed partial class WorkflowRunner
         {
             return await FailRunAsync();
         }
-        catch (Exception) when (rootStarted && !rootTerminalAppendAttempted)
+        catch (Exception exception) when (rootStarted && !rootTerminalAppendAttempted &&
+            !ContainsEvidenceWriteFailure(exception))
         {
             // A nonterminal append may fail before commit or after an
             // ambiguous acknowledgement. Try one terminal marker using only
@@ -872,6 +875,9 @@ public sealed partial class WorkflowRunner
                             settledFrame.Id, settledFrame.ScopeId, JsonSerializer.Serialize(new { outcome = "outcome-unknown" },
                                 new JsonSerializerOptions(JsonSerializerDefaults.Web)));
                         break;
+                    case WorkflowBodyProofDisposition.EvidenceWriteFailed:
+                        throw bodyOutcome.EvidenceWriteError ??
+                            new InvalidOperationException("The activation proof could not persist body evidence.");
                     default:
                         failureReason ??= $"Activation ended with {bodyOutcome.Disposition} at index {settledIndex}.";
                         StopAdmission();
@@ -953,6 +959,13 @@ public sealed partial class WorkflowRunner
             if (ownsRunContext)
                 await Emit(ExecutionEventKinds.Failed, data: "Workflow execution budget was exhausted.");
             return new(null, true, true, HasOutput: false);
+        }
+        catch (Exception exception) when (ContainsEvidenceWriteFailure(exception))
+        {
+            StopAdmission();
+            try { await Task.WhenAll(active.Values); }
+            catch (Exception) { }
+            throw;
         }
         catch (Exception) when (rootStarted && !rootTerminalAppendAttempted)
         {
@@ -1553,16 +1566,25 @@ public sealed partial class WorkflowRunner
             var sequenceInvocationId = Guid.NewGuid();
             var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, nodeId,
                 outputEdges.Select(output => output.OutputId).ToArray(), connectionIds);
+            var sequenceEventGate = new SemaphoreSlim(1, 1);
 
             async ValueTask FlushSequenceEvents()
             {
-                foreach (var runtimeEvent in coordinator.DrainEvents())
+                await sequenceEventGate.WaitAsync();
+                try
                 {
-                    var evidence = new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
-                        runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
-                        runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason);
-                    await Emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
-                        runtimeEvent.ConnectionId, SequenceEvidence.Serialize(evidence));
+                    foreach (var runtimeEvent in coordinator.DrainEvents())
+                    {
+                        var evidence = new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
+                            runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
+                            runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason);
+                        await Emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
+                            runtimeEvent.ConnectionId, SequenceEvidence.Serialize(evidence));
+                    }
+                }
+                finally
+                {
+                    sequenceEventGate.Release();
                 }
             }
 
@@ -1579,8 +1601,9 @@ public sealed partial class WorkflowRunner
                         : coordinator.DispatchNext(activationId);
                     if (activation is null)
                     {
-                        coordinator.StopAdmission();
-                        await FlushSequenceEvents();
+                        // A Break closes admission while its request event is being
+                        // persisted. Do not publish skipped-output settlement until
+                        // the Break request itself has been accepted.
                         return (ActivationId: activationId, OutputId: output.OutputId,
                             Result: (GraphMessage?)null, Error: (Exception?)null);
                     }
@@ -1600,7 +1623,16 @@ public sealed partial class WorkflowRunner
                         if (result is null)
                             return (ActivationId: activationId, OutputId: output.OutputId, Result: (GraphMessage?)null,
                                 Error: (Exception?)new InvalidOperationException($"Sequence output '{output.OutputId}' produced no result."));
+                        if (result.ActivationBreakRequest is not null)
+                        {
+                            coordinator.StopAdmission(successfulBreak: true);
+                            await FlushSequenceEvents();
+                        }
                         return (ActivationId: activationId, OutputId: output.OutputId, Result: result, Error: (Exception?)null);
+                    }
+                    catch (WorkflowBodyEvidenceWriteException)
+                    {
+                        throw;
                     }
                     catch (Exception error)
                     {
@@ -1655,6 +1687,10 @@ public sealed partial class WorkflowRunner
                 await FlushSequenceEvents();
                 await Emit(ExecutionEventKinds.NodeCancelled, nodeId, sequenceInvocationId,
                     data: "Sequence execution cancelled.");
+                throw;
+            }
+            catch (WorkflowBodyEvidenceWriteException)
+            {
                 throw;
             }
             catch
@@ -1714,9 +1750,22 @@ public sealed partial class WorkflowRunner
         var variableStores = new ConcurrentDictionary<Guid, WorkflowVariableStore>();
         var session = new StructuredProofSession(executorSetCreated);
         var runContext = new StructuredActivationRunContext(runId, bodyRevision.RevisionId, record, runBudget);
-        ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
-            string? scopeId = null, string? data = null, string? connectionId = null) =>
-            runContext.EmitAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
+        async ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
+            string? scopeId = null, string? data = null, string? connectionId = null)
+        {
+            try
+            {
+                await runContext.EmitAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
+            }
+            catch (StructuredActivationBudgetExceededException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                throw new WorkflowBodyEvidenceWriteException(exception);
+            }
+        }
 
         try
         {
@@ -1794,7 +1843,7 @@ public sealed partial class WorkflowRunner
             await Emit(ExecutionEventKinds.Cancelled);
             throw;
         }
-        catch
+        catch (Exception exception) when (!ContainsEvidenceWriteFailure(exception))
         {
             await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
             throw;

@@ -25,7 +25,8 @@ internal enum WorkflowBodyProofDisposition
 }
 
 internal sealed record WorkflowBodyProofOutcome(WorkflowBodyProofDisposition Disposition, string? Output = null,
-    string? TerminalNodeId = null, WorkflowRunner.StructuredActivationBreakRequest? BreakRequest = null);
+    string? TerminalNodeId = null, WorkflowRunner.StructuredActivationBreakRequest? BreakRequest = null,
+    Exception? EvidenceWriteError = null);
 
 /// <summary>Host-resolved defaults for bounded collaborative workflow regions.</summary>
 public sealed record ParallelCollaborationRuntimeOptions(TimeSpan? DefaultTimeout = null);
@@ -147,6 +148,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
             catch (Exception exception)
             {
+                if (FindBudgetExceededException(exception) is { } budgetException)
+                {
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(budgetException).Throw();
+                }
                 throw new WorkflowBodyEvidenceWriteException(exception);
             }
         }
@@ -187,7 +192,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         }
         catch (Exception exception) when (ContainsEvidenceWriteFailure(exception))
         {
-            return new(WorkflowBodyProofDisposition.EvidenceWriteFailed);
+            return new(WorkflowBodyProofDisposition.EvidenceWriteFailed, EvidenceWriteError: exception);
         }
         catch (Exception)
         {
@@ -205,6 +210,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (current is WorkflowBodyEvidenceWriteException)
                 return true;
         return false;
+    }
+
+    private static StructuredActivationBudgetExceededException? FindBudgetExceededException(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+            if (current is StructuredActivationBudgetExceededException budgetException)
+                return budgetException;
+        return null;
     }
 
     private sealed class WorkflowBodyEvidenceWriteException(Exception innerException)
@@ -2362,6 +2375,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 await Emit(ExecutionEventKinds.NodeFailed, exception.NodeId, invocation, null, exception.Message);
                 if (!string.Equals(exception.NodeId, Id, StringComparison.Ordinal))
                     await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Node execution failed while evaluating a connected data value.");
+                throw;
+            }
+            catch (WorkflowBodyEvidenceWriteException)
+            {
+                boundaryTracker?.AbortHandler();
                 throw;
             }
             catch
