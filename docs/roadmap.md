@@ -221,7 +221,12 @@ introduced.
   58/58. The same-stream unresolved-MCP-outcome and host-cancellation cases now
   pass through both stores (2/2 each), preserving root uncertainty/cancellation
   separately from Sequence playback. Admission races, nested frames, shared
-  budgets, and the remaining matrix still need proof and a fresh review. See
+  budgets, and the remaining matrix still need proof and a fresh review. A
+  128-iteration coordinator contention test now exercises
+  `TryDispatchNext` against `StopAdmission`: either the output dispatches
+  before Break and settles, or Break skips it; the suffix is skipped and no
+  dispatch follows a skip event. This is coordinator-level evidence only; an
+  end-to-end production-session admission/Break race remains open. See
   [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   This remains a private proof path: the
   production guard, public schema, and Studio authoring remain unchanged. Prove

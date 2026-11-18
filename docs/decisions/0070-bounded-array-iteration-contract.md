@@ -3423,6 +3423,15 @@ while the admitted Agent is held records a cancelled root and Sequence, one
 cancelled admitted output, and the skipped suffix. Both cases reopen and
 reconstruct through file and SQLite stores (2/2 each).
 
+A coordinator contention regression races `TryDispatchNext` against
+`StopAdmission(successfulBreak: true)` for 128 synchronized iterations. It
+accepts either legal winner: the racing output is dispatched before Break and
+must settle, or Break wins and that output is skipped. In both cases the suffix
+is skipped, no dispatch event occurs after the first skip, subsequent admission
+is rejected, and the Sequence reaches its Break terminal only after admitted
+outputs settle. This verifies the coordinator lock invariant; a race driven
+through the production session and graph-dispatched Break remains open.
+
 This is evidence for the same-stream A-active/B-Break/C-skipped/drain gate, not
 an architecture selection or a public contract. The new session is reachable
 only through the internal proof method. Admission races, nested frames,

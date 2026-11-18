@@ -74,6 +74,57 @@ public sealed class SequenceRuntimeCoordinatorTests
     }
 
     [Fact]
+    public async Task Admission_racing_with_break_is_atomic_and_cannot_dispatch_after_suffix_skip()
+    {
+        const int iterations = 128;
+        for (var iteration = 0; iteration < iterations; iteration++)
+        {
+            var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence",
+                ["first", "racing", "suffix"],
+                new Dictionary<string, string>
+                {
+                    ["first"] = "connection-a", ["racing"] = "connection-b", ["suffix"] = "connection-c"
+                });
+            var first = Guid.NewGuid();
+            coordinator.DispatchNext(first);
+            using var start = new Barrier(3);
+
+            var admission = Task.Run(() =>
+            {
+                start.SignalAndWait();
+                return coordinator.TryDispatchNext(Guid.NewGuid(), maximumActiveOutputs: 2);
+            });
+            var breakRequest = Task.Run(() =>
+            {
+                start.SignalAndWait();
+                coordinator.StopAdmission(successfulBreak: true);
+            });
+            start.SignalAndWait();
+            var admissionResult = await admission;
+            await breakRequest;
+
+            Assert.Null(coordinator.TryDispatchNext(Guid.NewGuid(), maximumActiveOutputs: 2));
+            var prefix = coordinator.Events;
+            var dispatched = prefix.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched).ToArray();
+            Assert.InRange(dispatched.Length, 1, 2);
+            Assert.Equal(dispatched.Length, dispatched.Select(evt => evt.OutputId).Distinct(StringComparer.Ordinal).Count());
+            var firstSkippedIndex = Array.FindIndex(prefix.ToArray(), evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped);
+            Assert.True(firstSkippedIndex >= 0);
+            Assert.DoesNotContain(prefix.Skip(firstSkippedIndex + 1),
+                evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched);
+            Assert.Equal(admissionResult is null ? ["racing", "suffix"] : ["suffix"], prefix
+                .Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped).Select(evt => evt.OutputId));
+            Assert.Equal(admissionResult is null, prefix.All(evt => evt.Kind != ExecutionEventKinds.SequenceOutputDispatched ||
+                evt.OutputId != "racing"));
+
+            coordinator.Complete(first, SequenceTerminalState.Completed);
+            if (admissionResult is { } racing)
+                coordinator.Complete(racing.ActivationId!.Value, SequenceTerminalState.Completed);
+            Assert.Equal(ExecutionEventKinds.SequenceBreakCompleted, coordinator.Events[^1].Kind);
+        }
+    }
+
+    [Fact]
     public void Failure_cancels_other_active_outputs_before_sequence_failure()
     {
         var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence",
