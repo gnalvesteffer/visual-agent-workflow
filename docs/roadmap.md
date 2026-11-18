@@ -269,10 +269,14 @@ introduced.
   matrix remain open. See
   [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   The reviewed activation-local Break proof could not include a sibling Sequence
-  continuation because current unified-schema Sequence outputs accept only bounded
-  linear paths ending at Output; conditional routing is rejected by validation.
-  The combined case remains an open composition gap pending the
-  route-to-output settlement proof in [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
+  continuation under the then-current linear Sequence validator. Unified schema
+  2.0 now admits one bounded decision region whose arms converge at Merge, but
+  that does not model a selected Break terminal alongside an output path that
+  continues through Sequence. The combined case remains an open composition
+  gap pending the route-to-output settlement proof in [Decision
+  0073](decisions/0073-branchable-sequence-output-contract.md) and the fresh
+  architecture review in [Decision
+  0070](decisions/0070-bounded-array-iteration-contract.md).
   The existing overlapping Break/Agent proof remains covered, but it does not
   close that gap.
   This remains a private proof path: the
@@ -1347,7 +1351,20 @@ introduced.
   - [ ] Compare the structured scheduler, fresh Agent Framework subworkflow,
     and newly added hybrid proof candidate on the same full capability and
     shared-budget matrix. The 2026-11-13 three-role review returned REVISE and
-    selected no production architecture; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    selected no production architecture. A fresh three-role review on
+    2026-11-18 prefers the hybrid as the next proof target, but does not select
+    it: production ownership of frames, lifecycle, and shared reservations is
+    still unproven. The adjudicator confirmed that commit `955151a` admits a
+    bounded Condition/BooleanBranch → Merge region, but does not represent a
+    selected Break arm while a sibling continues through Sequence. The next
+    gate is a validator-to-playback composition proof for that case; if the
+    current region cannot express it, review the smallest topology-contract
+    change before implementation. Core now confirms the current public boundary:
+    a successful Terminate arm is rejected as `sequence.branch.nested`, and an
+    arm that bypasses the required Merge is `sequence.branch.ambiguous-terminal`
+    (SequenceGraphTests 41/41). Terminate cannot stand in for iterator Break,
+    which must settle only its nearest activation and resume its parent. See
+    [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Run the same current-schema integer item/index data graph through all
       three candidates. Both values flow through typed `WorkflowValue` nodes,
       integer-to-string conversions, and the Agent input; outputs, activation
@@ -1492,7 +1509,9 @@ introduced.
       continue the hybrid comparison for broader external-outcome boundaries,
       other join/cancellation races, and complete evidence bounds. Keep
       production architecture unselected until the shared lifecycle and budget
-      owner is proven.
+      owner is proven. The 2026-11-18 review confirms the bounded Sequence
+      branch admission only covers arms that converge at Merge; it does not yet
+      model a Break terminal competing with continued sibling Sequence work.
     - [x] Run the same production nested body and private typed Break graph
       through the structured dispatcher, a fresh Agent Framework subworkflow
       per item, and the hybrid runner. Item and zero-based index values reach

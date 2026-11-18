@@ -3859,3 +3859,46 @@ store variants on this checkout. These facts do not establish conditional
 Sequence-path support or close the full iterator matrix. Revisit the combined
 scenario only after a separately reviewed Sequence-path contract can represent
 it without bypassing validation.
+
+## Fresh architecture review and next composition proof (2026-11-18)
+
+A new independent proponent/opponent/adjudicator review compared the structured
+scheduler, fresh-subworkflow, and hybrid candidates against current proof
+evidence. The proponent recommends the hybrid as the strongest target for the
+next proof: VAW would own frames, admission, Break targeting, root lifecycle,
+and shared reservations while the production Agent Framework dispatcher runs
+the admitted body and static joins. The opponent and adjudicator agree that it
+is not yet selected. The dispatcher/coordinator ownership split, complete
+shared-budget boundary, and production lifecycle remain proof-only and
+incomplete. This keeps the full body-composition target; it does not authorize
+a linear-only body or public iterator behavior.
+
+The adjudicator checked the new unified schema 2.0 Sequence branch admission
+from commit `955151a`. It removes the former rejection for a bounded
+Condition/BooleanBranch → exclusive Merge → linear suffix. It does not resolve
+the reported composition: one activation conditionally selects Break while a
+concurrent sibling continues through Sequence. The admitted region requires
+both arms to converge at Merge, and its topology analyzer rejects nested
+control nodes. Thus the Break terminal and sibling Sequence outcome are still
+not represented together by the public graph contract.
+
+The next falsifiable proof is validator-to-playback composition for that exact
+case. Construct one unified schema 2.0 graph with two concurrent activation
+frames: one takes a graph-dispatched nearest-frame Break and the other settles
+a bounded branchable Sequence. Require public validation and production-body
+dispatch, atomic Break/admission ordering, exactly-once sibling Sequence
+settlement, admitted-work drain, one root lifecycle and reservation owner, and
+matching file/SQLite reopen plus passive playback. If validation rejects the
+required terminal shape, record the precise rejection and review the smallest
+topology-contract change before implementing it. A passing case would justify
+another architecture readiness review but would not alone close the broader
+supported-body, race, shared-budget, failure, and playback matrix.
+
+The first public-topology probe confirms that an early route ending at the
+existing successful `Terminate` node is rejected as
+`sequence.branch.nested` at that node; a route that skips the required Merge is
+reported as `sequence.branch.ambiguous-terminal`. Neither node is a substitute
+for iterator Break: Terminate exits the workflow, while Break must settle only
+the nearest activation and resume its parent. Core SequenceGraphTests pass
+41/41. This records the present contract boundary; the validator-to-playback
+composition proof still requires a reviewed Break-terminal ownership rule.

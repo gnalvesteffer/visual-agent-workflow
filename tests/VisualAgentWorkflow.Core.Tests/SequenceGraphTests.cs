@@ -79,6 +79,28 @@ public sealed class SequenceGraphTests
         var analysis = SequenceBranchTopologyAnalyzer.Analyze(ambiguous);
 
         Assert.Contains(analysis.Issues, issue => issue.Code == "sequence.branch.ambiguous-terminal");
+        Assert.Contains(WorkflowValidator.Validate(ambiguous), issue => issue.Code == "sequence.branch.ambiguous-terminal");
+    }
+
+    [Fact]
+    public void Unified_sequence_does_not_treat_workflow_termination_as_iterator_break()
+    {
+        var candidate = BranchCandidate();
+        var terminatingArm = candidate with
+        {
+            Nodes = candidate.Nodes.Remove("reverse").Add("terminate", new(NodeTypes.Terminate, "1.0.0")
+            {
+                Termination = new(WorkflowTerminationOutcomes.Success)
+            }),
+            Connections = candidate.Connections.Remove("reverse-input").Remove("merge-reverse-input"),
+            ExecutionConnections = candidate.ExecutionConnections!
+                .Remove("branch-false")
+                .Remove("reverse-merge")
+                .Add("branch-false-terminate", new(new("branch", "false"), new("terminate", "execute"), "execution"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(terminatingArm), issue =>
+            issue.Code == "sequence.branch.nested" && issue.Path == "nodes.terminate");
     }
 
     [Fact]
