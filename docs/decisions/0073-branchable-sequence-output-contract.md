@@ -164,3 +164,39 @@ external effects, cancellation, persistence, and passive playback continue to
 be covered by the production-runner proof matrix; the separate integrated
 array-iteration architecture and its acceptance gate remain open. Historical
 schema behavior is unchanged.
+
+## Composed activation completion review (2026-11-18)
+
+A three-role review considered how Sequence completion could compose with an
+enclosing activation region. The adjudicator returned **REVISE**: reject
+topology-only completion inference, and do not add a separate public barrier
+node based on the current evidence. The only proof candidate is a typed
+aggregate completion signal owned by the existing Sequence collector, distinct
+from each output activation's settlement and carrying the Sequence/frame and
+activation lineage. This is not an approved public contract or runtime change.
+
+A follow-up three-role review returned **REVISE** again. Treat the aggregate
+signal as a testable provisional contract, while leaving its outcome semantics
+explicitly unresolved. Keep the existing exactly-once local output settlement
+and terminal categories; do not invent precedence among conflicting failure,
+unknown external effect, cancellation, success, or Break outcomes. Do not assume
+that admitted siblings drain, or that one activation's Break cannot affect
+another, until proved. Break-vs-next-admission ordering needs a demonstrated
+collector serialization point. Persistence rejection must not produce durable
+aggregate completion or trigger a duplicate retry without idempotency evidence.
+
+The next proof must race Break against next-item admission while another
+activation remains unsettled; exercise sibling failure, unknown outcome, and
+cancellation; inject persistence rejection before and after simulated durable
+commit; and verify the selected terminal or explicit unresolved disposition.
+It must also prove that playback handles a final output settlement with no
+aggregate event, and that file and SQLite histories reconstruct the same
+accepted prefix. If these cases cannot establish deterministic ownership,
+settlement, and replay semantics, retain this as an unresolved gate. No
+author-facing schema/capability gate is introduced, and legacy identity-
+preserving migration remains required.
+
+Existing coordinator tests already cover atomic Break/admission serialization
+and characterize failure cancellation of other active outputs. These tests do
+not settle the new aggregate contract, mixed-outcome precedence, persistence
+rejection, or playback with a missing aggregate event.

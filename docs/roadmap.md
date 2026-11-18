@@ -90,6 +90,12 @@ the historical promotion chain.
 - [ ] Prove a contract-derived bounded activation-region plan for composed
   current-schema graphs. Keep authored nodes, pins, and connections flat; derive
   ownership from node/pin contracts and topology without node-family allowlists.
+  The 2026-11-18 Sequence-completion reviews reject topology-only inference and
+  a separate public barrier node as unsupported choices. First prove whether
+  the existing Sequence collector can expose a typed, lineage-preserving
+  aggregate signal; outcome precedence, sibling draining, persistence
+  rejection, and playback without that signal remain unresolved in
+  [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
   As the first discriminator, compare a distinct Loop feedback input against
   topology-derived feedback on the same nested composition; the 2026-11-18
   review found neither persisted pin shape proven superior. Preserve authored
