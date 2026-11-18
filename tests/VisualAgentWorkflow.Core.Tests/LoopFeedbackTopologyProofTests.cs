@@ -57,6 +57,61 @@ public sealed class LoopFeedbackTopologyProofTests
     [Theory]
     [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
     [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Three_nested_loops_with_multi_exit_sequence_have_identical_ownership(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = ThreeNestedLoopsWithSequenceExitsCandidate();
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(candidate, shape);
+
+        Assert.True(proof.IsValid, string.Join(Environment.NewLine, proof.Issues));
+        var outer = Assert.Single(proof.Regions, region => region.LoopNodeId == "outer-loop");
+        var middle = Assert.Single(proof.Regions, region => region.LoopNodeId == "inner-loop");
+        var inner = Assert.Single(proof.Regions, region => region.LoopNodeId == "deep-loop");
+        Assert.Null(outer.ParentLoopNodeId);
+        Assert.Equal("outer-loop", middle.ParentLoopNodeId);
+        Assert.Equal("inner-loop", inner.ParentLoopNodeId);
+        Assert.Equal("outer-return", outer.FeedbackConnectionId);
+        Assert.Equal("inner-return", middle.FeedbackConnectionId);
+        Assert.Equal("deep-return", inner.FeedbackConnectionId);
+        Assert.Equal(["inner-abort", "inner-break"], middle.BreakNodeIds.Order(StringComparer.Ordinal).ToArray());
+        Assert.Empty(inner.BreakNodeIds);
+        Assert.Empty(outer.BreakNodeIds);
+    }
+
+    [Fact]
+    public void Three_nested_loop_migration_preserves_all_authored_identities_and_non_loop_edges()
+    {
+        var source = ThreeNestedLoopsWithSequenceExitsCandidate();
+        var migrated = LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(source);
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(migrated,
+            LoopFeedbackPinShape.ExplicitFeedbackInput);
+
+        Assert.True(proof.IsValid, string.Join(Environment.NewLine, proof.Issues));
+        Assert.Equal(source.Nodes.Keys, migrated.Nodes.Keys);
+        Assert.Equal(source.Connections.Keys, migrated.Connections.Keys);
+        Assert.Equal(source.ExecutionConnections!.Keys, migrated.ExecutionConnections!.Keys);
+        var feedbackConnections = proof.Regions
+            .Select(region => region.FeedbackConnectionId)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var (connectionId, sourceEdge) in source.ExecutionConnections)
+        {
+            var migratedEdge = migrated.ExecutionConnections[connectionId];
+            Assert.Equal(sourceEdge.Source, migratedEdge.Source);
+            Assert.Equal(feedbackConnections.Contains(connectionId)
+                    ? "feedback"
+                    : sourceEdge.Target.PortId,
+                migratedEdge.Target.PortId);
+            Assert.Equal(sourceEdge.Target.NodeId, migratedEdge.Target.NodeId);
+        }
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
     public void Sequence_break_topology_candidate_is_not_publicly_admitted(string shapeName)
     {
         var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
@@ -396,6 +451,37 @@ public sealed class LoopFeedbackTopologyProofTests
             .Add("inner-continue", Edge("inner-sequence", "then.continue", "inner-step", "execute"))
             .Add("inner-return", Edge("inner-step", "then", "inner-loop", "execute"))
             .Add("inner-break", Edge("inner-sequence", "then.break", "inner-break", "execute"));
+        return definition with { Nodes = nodes, ExecutionConnections = execution };
+    }
+
+    private static WorkflowDefinition ThreeNestedLoopsWithSequenceExitsCandidate()
+    {
+        var definition = NestedLoopSequenceBreakCandidate();
+        var nodes = definition.Nodes
+            .Add("deep-loop", new NodeDefinition(NodeTypes.Loop, "1.0.0")
+            { Loop = new(new("equals", "continue"), 2) })
+            .Add("deep-body", new(NodeTypes.LoopBody, "1.0.0"))
+            .Add("deep-step", new(NodeTypes.Reverse, "1.0.0"))
+            .Add("inner-abort", new("vaw.proof.array-break", "proof-only"));
+        var middleSequence = nodes["inner-sequence"] with
+        {
+            Sequence = new([
+                new("continue", "Continue inner loop"),
+                new("break", "Break inner loop"),
+                new("abort", "Abort inner loop")
+            ])
+        };
+        nodes = nodes.SetItem("inner-sequence", middleSequence);
+
+        var execution = definition.ExecutionConnections!
+            .Remove("inner-sequence-start")
+            .Add("deep-entry", Edge("inner-body", "then", "deep-loop", "execute"))
+            .Add("deep-body-start", Edge("deep-loop", "body", "deep-body", "execute"))
+            .Add("deep-step-start", Edge("deep-body", "then", "deep-step", "execute"))
+            .Add("deep-return", Edge("deep-step", "then", "deep-loop", "execute"))
+            .Add("deep-done", Edge("deep-loop", "done", "inner-sequence", "execute"))
+            .Add("inner-abort", Edge("inner-sequence", "then.abort", "inner-abort", "execute"));
+
         return definition with { Nodes = nodes, ExecutionConnections = execution };
     }
 

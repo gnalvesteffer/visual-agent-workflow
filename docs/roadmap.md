@@ -111,33 +111,32 @@ the historical promotion chain.
   missing terminal from a committed `break-completed` Sequence, while the
   enclosing run remains nonterminal after the lost acknowledgment. Other
   mixed-outcome combinations and enclosing-run recovery still need proof.
-  As the first discriminator, compare a distinct Loop feedback input against
-  topology-derived feedback on the same nested composition; the 2026-11-18
-  review found neither persisted pin shape proven superior. Preserve authored
-  node, pin, and edge identities through automatic migration, and diagnose any
-  legacy feedback mapping that cannot be inferred without guessing.
-  The 2026-11-18 three-role adjudication narrows the first discriminator to
-  topology and migration: run both feedback-pin candidates against identical
-  nested-loop, malformed-feedback, incomplete-draft, and migration fixtures.
-  Do not count unresolved Sequence/Break production settlement, persistence, or
-  playback as evidence for either pin shape; that remains a separate gate.
-  This narrower proof does not replace the full integrated runtime acceptance
-  matrix or select a public/runtime contract.
+  The 2026-11-18 three-role adjudication selects a distinct Loop feedback input
+  as the target authoring contract: initial entry and bounded body return have
+  separate pins, with deterministic automatic migration of valid existing
+  single-execute loops that preserves authored identities. This is a direction
+  for the unified graph contract, not yet public admission or runtime support.
+  The proof-only discriminator compares both pin shapes on identical graphs;
+  three nested loops with a multi-exit Sequence now produce identical ownership,
+  and migration preserves node, data-edge, and execution-edge IDs while only
+  retargeting return edges. Focused topology tests pass 32/32. The proof still
+  needs representative legacy serialized definitions and malformed/ambiguous
+  legacy-migration fixtures, plus integrated authoring, validation, package,
+  runtime, persistence, and playback evidence before public rollout. Sequence/Break
+  production settlement remains a separate gate and cannot be used to select
+  feedback-pin topology.
   - [x] Add a non-authoritative Core topology/migration discriminator and run
-    the same flat nested-loop graph under both feedback-pin shapes. Both derive
-    the same outer/inner ownership; cross-owner returns, unowned cycles,
-    incomplete feedback, and ambiguous migration are rejected. The candidate
-    migration preserves node and connection IDs while retargeting only the
-    return edges. Public and package validation still reject nested loops, so
-    this remains proof-only. The topology fixture now includes a two-output
-    Sequence with one inner-loop return and one terminal proof Break. Both pin
-    shapes derive the same feedback and nearest-Break ownership; shared routes
-    and Break fallthrough are rejected. The same Sequence/Break fixture also
-    rejects cross-owner feedback, unowned cycles, and incomplete returns for
-    both candidates; identity-preserving migration changes only loop feedback
-    pins. Focused topology tests pass 29/29 and Core passes 678/678.
-    Public/package admission still rejects the candidate; runtime settlement,
-    persistence/playback, and full compatibility remain open.
+    both feedback-pin shapes over shared nested-loop, Sequence, malformed-route,
+    incomplete-draft, and migration cases. The expanded three-loop fixture has
+    a Sequence with one normal return and two terminal Break exits; both pin
+    shapes derive the same parent ownership and feedback edges. Migration keeps
+    node, data-edge, and execution-edge IDs and changes only the return targets.
+    Shared routes, fallthrough, cross-owner returns, unowned cycles, incomplete
+    feedback, disconnected loops, and ambiguous migration are rejected.
+    Focused topology tests pass 32/32 and Core passes 681/681. Public/package
+    admission still reject the proof candidates; legacy-definition migration,
+    integrated runtime, persistence/playback, and full compatibility remain
+    open.
   Reject arbitrary cycles and accept only explicitly declared, bounded loop
   feedback. Exercise nested Sequence/loop/Break composition through public and
   package validation, production dispatch, file/SQLite reopen, passive playback,

@@ -4136,3 +4136,35 @@ This closes the controlled concurrent-parent-frame isolation case for the
 private proof coordinator. It does not establish an uncontrolled scheduler
 race, public Sequence/Break topology, production-owned scheduling or budgets,
 mixed-outcome precedence across sibling frames, or general Blueprint parity.
+
+### Explicit feedback target adjudication (2026-11-18)
+
+A new three-role review selected a distinct bounded-feedback input as the
+target graph contract. Initial entry and body return have separate roles; a
+valid existing loop whose two roles share `execute` is migrated deterministically
+by retargeting only its proven body-return edge. The user's parity objective
+governs this choice: preserving an inferred serialized shape solely to avoid
+schema migration would prioritize compatibility over the requested authoring
+semantics. This selects the target contract, but does not admit it to public
+validation or production execution yet.
+
+The adjudicator's exact next step was to broaden the non-public Core proof across
+representative graph shapes while leaving the public contract unchanged. The
+proof now covers three nested loops and a multi-exit Sequence with one normal
+return and two terminal Break routes. Both pin candidates derive identical loop
+ownership and feedback edges. Migration preserves node, data-edge, and
+execution-edge identities while retargeting only feedback edges. Focused tests
+pass 32/32 and the full Core suite passes 681/681. Existing malformed-route,
+disconnected-loop, incomplete-draft, and ambiguous-migration cases remain
+rejected.
+
+The following remain required before integration: fixtures from supported
+legacy serialized definitions; deterministic migration diagnostics for invalid
+or ambiguous graphs without partial source mutation; public and package
+validation; editor authoring and editing behavior; a single production runtime
+owner for loop entry, feedback, Break, and lifecycle; file/SQLite persistence
+and passive playback; and failure/cancellation/persistence-race coverage.
+Sequence/Break settlement remains independently gated and cannot be used as
+evidence for this pin choice. No schema capability gate should be introduced
+when the selected contract is integrated; supported old definitions must be
+normalized automatically or fail with actionable diagnostics.
