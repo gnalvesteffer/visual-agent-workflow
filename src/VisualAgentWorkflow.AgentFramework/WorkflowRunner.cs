@@ -2237,7 +2237,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) port = "then";
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.LoopBody) port = "then";
                 if (UsesConfigurableParallelGraph && node.Type == NodeTypes.ParallelBranch) port = "then";
-                if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) &&
                     node.Type is (NodeTypes.Merge or NodeTypes.Approval)) port = "then";
                 if (node.Type == NodeTypes.BooleanBranch)
                 {
@@ -2252,14 +2252,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                             forkNodeId = received.ParallelForkNodeId
                         })
                         : JsonSerializer.Serialize(new { port });
-                    await Emit(ExecutionEventKinds.BranchSelected, Id, invocation, null, decisionEvidence);
+                    await Emit(ExecutionEventKinds.BranchSelected, Id, invocation, null,
+                        AddSequenceLineage(decisionEvidence));
                 }
                 if (node.Type == NodeTypes.Condition)
                 {
                     port = node.Condition!.Evaluate(message) ? "true" : "false";
                     if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
                         dataEvaluator?.SetRuntimeOutput(Id, port, "string", result);
-                    await Emit(ExecutionEventKinds.BranchSelected, Id, invocation, null, JsonSerializer.Serialize(new { port }));
+                    await Emit(ExecutionEventKinds.BranchSelected, Id, invocation, null,
+                        AddSequenceLineage(JsonSerializer.Serialize(new { port })));
                 }
                 var nextLoopIteration = received.LoopIteration;
                 if (node.Type == NodeTypes.Loop)

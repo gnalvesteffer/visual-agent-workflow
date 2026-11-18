@@ -78,6 +78,65 @@ public sealed partial class WorkflowRunner
     }
 
     /// <summary>
+    /// Exercises decision-event correlation through the production Sequence runner. The
+    /// deliberately unvalidated graph is private proof input and does not enable branchable
+    /// Sequence graphs in persisted workflows.
+    /// </summary>
+    internal Task<WorkflowExecutionResult> ExecuteSequenceBranchDecisionEvidenceProofAsync(Guid runId,
+        string input, bool condition, Func<ExecutionEvent, ValueTask> record,
+        CancellationToken cancellationToken = default)
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "sequence-branch-evidence-proof", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
+                {
+                    Sequence = new([new("decision", "Decision")])
+                },
+                ["condition"] = new(NodeTypes.BooleanConstant, "1.0.0")
+                {
+                    BooleanConstant = new(condition)
+                },
+                ["branch"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+                ["merge"] = new(NodeTypes.Merge, "1.0.0"),
+                ["break"] = new(StructuredProofBreakNodeType, "proof-only"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["branch-condition"] = new(new("condition", "out"), new("branch", "condition"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-branch"] = new(new("sequence", "then.decision"), new("branch", "execute"), "execution"),
+                ["branch-true"] = new(new("branch", "true"), new("merge", "execute"), "execution"),
+                ["branch-false"] = new(new("branch", "false"), new("break", "execute"), "execution"),
+                ["merge-output"] = new(new("merge", "then"), new("output", "execute"), "execution"),
+                ["break-output"] = new(new("break", "out"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "sequence-branch-evidence-proof");
+        var plan = new SequenceProductionPlan("sequence", [
+            new SequenceProductionOutput("decision", 0, "branch", "sequence", "then.decision", "sequence-branch")
+        ], null, SequenceTerminalState.Completed, AllowSingleOutput: true);
+        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence", ["decision"],
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["decision"] = "sequence-branch" },
+            allowSingleOutput: true);
+        var frame = new StructuredActivationFrame(Guid.NewGuid(), null, "array-loop", 0, input,
+            ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal));
+        var breakNodeIds = ImmutableHashSet.Create(StringComparer.Ordinal, "break");
+        var session = new SequenceProductionDispatchSession(coordinator, frame, breakNodeIds, maximumConcurrentOutputs: 1);
+        return ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken,
+            rootRevision: revision, sequencePlan: plan, skipValidationForInternalProof: true,
+            activationFrame: frame, proofBreakNodeIds: breakNodeIds, sequenceDispatchSession: session,
+            captureActivationBreak: _ => { });
+    }
+
+    /// <summary>
     /// Runs the non-public Sequence-to-Agent lifecycle proof. This deliberately uses a
     /// validator-valid private definition and an injected host Agent executor; it is not
     /// reachable from persisted workflow schemas or Studio authoring.
@@ -370,7 +429,11 @@ public sealed partial class WorkflowRunner
                      : revision.Definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.Output).Select(entry => entry.Key))
         {
             builder.AddEdge<GraphMessage>(branches[outputNodeId], (ExecutorBinding)collector,
-                message => message?.SourceNode == outputNodeId && message.SourcePort == "out");
+                message => message?.SourceNode == outputNodeId &&
+                    message.SourcePort == "out" || sequenceDispatchSession is not null &&
+                    message?.ActivationBreakRequest is { } breakRequest &&
+                    message.SourceNode == breakRequest.SourceNodeId && message.SourcePort == "break" &&
+                    sequenceDispatchSession.BreakNodeIds.Contains(breakRequest.SourceNodeId));
         }
         foreach (var terminateNodeId in plan.BypassRevisionExecutionEdges ? [] : revision.Definition.Nodes
                      .Where(entry => entry.Value.Type == NodeTypes.Terminate)

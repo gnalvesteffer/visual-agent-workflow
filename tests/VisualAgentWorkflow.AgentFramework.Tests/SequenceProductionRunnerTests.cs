@@ -742,6 +742,52 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Theory]
+    [InlineData(true, "true", "branch-true")]
+    [InlineData(false, "false", "branch-false")]
+    public async Task Sequence_branch_decision_evidence_keeps_output_activation_identity(
+        bool condition, string expectedPort, string expectedConnection)
+    {
+        var runId = Guid.NewGuid();
+        var events = new List<ExecutionEvent>();
+        WorkflowExecutionResult result;
+        try
+        {
+            result = await new WorkflowRunner().ExecuteSequenceBranchDecisionEvidenceProofAsync(runId,
+                "route input", condition, evt => { events.Add(evt); return ValueTask.CompletedTask; });
+        }
+        catch (Exception exception)
+        {
+            throw new Xunit.Sdk.XunitException(exception.Message + Environment.NewLine +
+                string.Join(Environment.NewLine, events.Select(evt => $"{evt.Sequence}:{evt.Kind}:{evt.NodeId}:{evt.ConnectionId}:{evt.Data}")));
+        }
+
+        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+        Assert.Equal(condition, result.HasOutput);
+        Assert.Equal(condition ? string.Empty : null, result.Output);
+        var decision = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "branch");
+        using var evidence = JsonDocument.Parse(decision.Data!);
+        Assert.Equal(expectedPort, evidence.RootElement.GetProperty("port").GetString());
+        var lineage = evidence.RootElement.GetProperty("sequenceLineage");
+        Assert.Equal("sequence", lineage.GetProperty("SequenceNodeId").GetString());
+        Assert.Equal("decision", lineage.GetProperty("OutputId").GetString());
+        Assert.Equal(0, lineage.GetProperty("Ordinal").GetInt32());
+        Assert.NotEqual(Guid.Empty, lineage.GetProperty("OutputActivationId").GetGuid());
+
+        var selectedTransfer = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+            evt.ConnectionId == $"execution:{expectedConnection}");
+        using var transferEvidence = JsonDocument.Parse(selectedTransfer.Data!);
+        Assert.Equal(lineage.GetProperty("OutputActivationId").GetGuid(), transferEvidence.RootElement
+            .GetProperty("sequenceLineage").GetProperty("OutputActivationId").GetGuid());
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+            evt.ConnectionId == $"execution:{(expectedConnection == "branch-true" ? "branch-false" : "branch-true")}");
+        Assert.Equal(condition, events.Any(evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "merge"));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+            SequenceEvidence.TryRead(evt, out var output) && output?.OutputId == "decision");
+        Assert.Equal(!condition, events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "sequence-collector");
+    }
+
+    [Theory]
     [InlineData("Failed", ExecutionEventKinds.SequenceFailed, ExecutionEventKinds.SequenceOutputFailed)]
     [InlineData("Cancelled", ExecutionEventKinds.SequenceCancelled, ExecutionEventKinds.SequenceOutputCancelled)]
     public async Task Production_runner_preserves_distinct_sequence_failure_outcomes(

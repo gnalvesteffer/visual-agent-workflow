@@ -80,7 +80,32 @@ production body and Sequence path:
 6. File and SQLite histories reopen identically and passive playback shows the
    route and settlement without re-execution.
 
+## Proof progress (2026-11-17)
+
+The private production-runner proof now dispatches one Sequence output through
+both a normal Boolean Branch route and a private successful Break route. The
+normal route passes through one Merge node and reaches the collector through
+Output's ordinary result; the Break route uses Output's special `break`
+handoff and reaches the same collector. The coordinator records one completed
+output activation in both cases, and Break also records
+`sequence.break_completed`. The selected branch event carries the same
+Sequence invocation, output ID, ordinal, activation ID, and originating
+connection identity as its execution-transfer event; the unselected branch
+has no transfer event. A focused production-runner test passed both choices
+(2/2).
+
+This exposed and fixed three evidence/runtime gaps: branch-decision events had
+omitted Sequence lineage, the production Sequence builder did not route the
+special Output Break handoff into its collector, and explicit-graph Merge and
+Approval executors emitted `out` despite exposing `then` pins. These are
+internal proof changes plus a correction to explicit execution-pin dispatch.
+They do not admit conditional Sequence definitions in the public validator.
+The proof gate remains open: alternate selected arms converging at one
+multi-input Merge, malformed-region validation, failure/unknown/cancel races
+after branch selection, persisted file/SQLite replay, and unchanged linear
+graph round trips still need coverage.
+
 If the output-to-route mapping requires a second lifecycle/collector owner or
 cannot preserve these invariants, return the design for review rather than
-weakening the graph contract. No production behavior is changed by this
-decision.
+weakening the graph contract. This decision does not itself admit branchable
+Sequence graphs in public validation or Studio authoring.

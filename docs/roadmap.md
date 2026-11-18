@@ -200,7 +200,17 @@ introduced.
   Cover Break, failure/unknown/cancellation precedence, malformed region
   rejection, file/SQLite playback, and unchanged linear Sequence behavior. This
   is a prerequisite for the combined concurrent Sequence/Break iterator proof,
-  not a runtime architecture selection. See [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
+  not a runtime architecture selection. The private production-runner proof
+  now exercises a single output through normal and Break-selected Boolean
+  Branch routes: each settles the same output activation once, the unselected
+  arm is absent from transfer evidence, and both routes reach one collector.
+  The normal route crosses one Merge; the other uses the private Break handoff.
+  BranchSelected evidence now carries Sequence lineage, the Break handoff reaches
+  the collector, and explicit Merge/Approval executors emit their declared
+  `then` pin. Focused Sequence plus unified-graph coverage passed (8/8). Public
+  validation remains unchanged; multi-arm merge convergence, failure/race,
+  malformed-region, storage/replay, and compatibility proof remain open. See
+  [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
   252/252 passed. The prior MCP suite result is 98 passed with 2 opt-in tests
