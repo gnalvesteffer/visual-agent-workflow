@@ -46,6 +46,98 @@ public sealed class UnifiedGraphExecutionTests
         Assert.Equal(terminated ? null : value, result.Output);
         Assert.Equal(!terminated, events.Any(evt => evt.NodeId == "merge" && evt.Kind == ExecutionEventKinds.NodeStarted));
     }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    public async Task Unified_sequence_executes_one_selected_branch_arm_through_an_exclusive_merge(bool useStringCondition, bool selectedTrue)
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "unified-sequence-branch", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
+                {
+                    Sequence = new([new("decision", "Decision"), new("continuation", "Continuation")])
+                },
+                ["condition-value"] = new(NodeTypes.BooleanConstant, "1.0.0")
+                {
+                    BooleanConstant = new(selectedTrue)
+                },
+                ["branch"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+                ["uppercase"] = new(NodeTypes.SequenceUppercase, "1.0.0"),
+                ["reverse"] = new(NodeTypes.SequenceReverse, "1.0.0"),
+                ["merge"] = new(NodeTypes.Merge, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["branch-condition"] = new(new("condition-value", "out"), new("branch", "condition"), "data"),
+                ["uppercase-input"] = new(new("input", "out"), new("uppercase", "in"), "data"),
+                ["merge-uppercase"] = new(new("uppercase", "out"), new("merge", "in"), "data"),
+                ["reverse-input"] = new(new("input", "out"), new("reverse", "in"), "data"),
+                ["merge-input"] = new(new("input", "out"), new("merge", "in"), "data"),
+                ["merge-reverse"] = new(new("reverse", "out"), new("merge", "in"), "data"),
+                ["output-value"] = new(new("input", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["start"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-decision"] = new(new("sequence", "then.decision"), new("branch", "execute"), "execution"),
+                ["sequence-continuation"] = new(new("sequence", "then.continuation"), new("output", "execute"), "execution"),
+                ["branch-true"] = new(new("branch", "true"), new("uppercase", "execute"), "execution"),
+                ["uppercase-merge"] = new(new("uppercase", "then"), new("merge", "execute"), "execution"),
+                ["branch-false"] = new(new("branch", "false"), new("reverse", "execute"), "execution"),
+                ["reverse-merge"] = new(new("reverse", "then"), new("merge", "execute"), "execution"),
+                ["merge-output"] = new(new("merge", "then"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        if (useStringCondition)
+        {
+            definition = definition with
+            {
+                Nodes = definition.Nodes.Remove("condition-value").SetItem("branch", new(NodeTypes.Condition, "1.0.0")
+                {
+                    Condition = new("contains", selectedTrue ? "input" : "never")
+                }).Remove("uppercase").Remove("reverse"),
+                Connections = definition.Connections
+                    .Remove("branch-condition")
+                    .Remove("uppercase-input")
+                    .Remove("merge-uppercase")
+                    .Remove("reverse-input")
+                    .Remove("merge-input")
+                    .Remove("merge-reverse")
+                    .Add("condition-input", new(new("input", "out"), new("branch", "in"), "data"))
+                    .Add("condition-true-merge", new(new("branch", "true"), new("merge", "in"), "data"))
+                    .Add("condition-false-merge", new(new("branch", "false"), new("merge", "in"), "data")),
+                ExecutionConnections = definition.ExecutionConnections!
+                    .Remove("branch-true")
+                    .Remove("uppercase-merge")
+                    .Remove("branch-false")
+                    .Remove("reverse-merge")
+                    .Add("branch-true", new(new("branch", "true"), new("merge", "execute"), "execution"))
+                    .Add("branch-false", new(new("branch", "false"), new("merge", "execute"), "execution"))
+            };
+        }
+        var revision = WorkflowRevision.Create(definition, "test");
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "input", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("input", result.Output);
+        Assert.Single(events, evt => evt.NodeId == "branch" && evt.Kind == ExecutionEventKinds.BranchSelected);
+        Assert.Single(events, evt => evt.NodeId == "merge" && evt.Kind == ExecutionEventKinds.NodeStarted);
+        Assert.Equal(!useStringCondition && !selectedTrue,
+            events.Any(evt => evt.NodeId == "reverse" && evt.Kind == ExecutionEventKinds.NodeStarted));
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+    }
+
     [Fact]
     public async Task Agent_consumes_connected_data_and_commits_only_its_selected_route()
     {

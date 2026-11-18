@@ -42,20 +42,26 @@ public sealed class SequenceGraphTests
     }
 
     [Fact]
-    public void Unified_sequence_branch_candidate_is_well_formed_but_not_yet_admitted()
+    public void Unified_sequence_branch_candidate_is_admitted_and_round_trips_as_a_package()
     {
-        var issues = WorkflowValidator.Validate(BranchCandidate());
-        var topology = SequenceBranchTopologyAnalyzer.Analyze(BranchCandidate());
+        var candidate = BranchCandidate();
+        var issues = WorkflowValidator.Validate(candidate);
+        var topology = SequenceBranchTopologyAnalyzer.Analyze(candidate);
 
-        Assert.Contains(issues, issue => issue.Code == "sequence.path.node" && issue.Path == "nodes.branch");
-        Assert.DoesNotContain(issues, issue => issue.Code is "graph.degree" or "graph.cycle" or "graph.unreachable");
+        Assert.Empty(issues);
         Assert.True(topology.IsValid, string.Join(Environment.NewLine, topology.Issues.Select(issue => issue.Message)));
         var path = Assert.Single(topology.Paths);
         Assert.Equal("inventory", path.OutputId);
         Assert.Equal("branch", path.DecisionNodeId);
         Assert.Equal("merge", path.MergeNodeId);
-        Assert.Empty(path.TrueNodeIds);
+        Assert.Equal(["uppercase"], path.TrueNodeIds.ToArray());
         Assert.Equal(["reverse"], path.FalseNodeIds.ToArray());
+
+        var package = WorkflowPackageJson.Create(candidate, WorkflowLayout.Create(candidate));
+        var restored = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(candidate, package.Layout));
+        Assert.Equal(WorkflowJson.ComputeHash(candidate), restored.DefinitionHash);
+        Assert.Equal(candidate.ExecutionConnections, restored.Definition.ExecutionConnections);
+        Assert.Equal(candidate.Connections, restored.Definition.Connections);
     }
 
     [Fact]
@@ -103,6 +109,7 @@ public sealed class SequenceGraphTests
         var analysis = SequenceBranchTopologyAnalyzer.Analyze(shared);
 
         Assert.Contains(analysis.Issues, issue => issue.Code == "sequence.branch.shared" && issue.Path == "nodes.reverse");
+        Assert.Contains(WorkflowValidator.Validate(shared), issue => issue.Code == "sequence.branch.shared" && issue.Path == "nodes.reverse");
     }
 
     [Fact]
@@ -132,23 +139,50 @@ public sealed class SequenceGraphTests
         var candidate = BranchCandidate();
         var conditional = candidate with
         {
-            Nodes = candidate.Nodes.SetItem("branch", new NodeDefinition(NodeTypes.Condition, "1.0.0")
+            Nodes = candidate.Nodes.Remove("condition").Remove("uppercase").Remove("reverse").SetItem("branch", new NodeDefinition(NodeTypes.Condition, "1.0.0")
             {
                 Condition = new("contains", "research")
             }),
             Connections = candidate.Connections
                 .Remove("branch-condition")
                 .Remove("reverse-input")
-                .Remove("merge-direct-input")
+                .Remove("uppercase-input")
+                .Remove("merge-uppercase-input")
+                .Remove("merge-reverse-input")
                 .Add("condition-input", new(new("input", "out"), new("branch", "in"), "data"))
                 .Add("condition-true-merge", new(new("branch", "true"), new("merge", "in"), "data"))
-                .Add("condition-false-reverse", new(new("branch", "false"), new("reverse", "in"), "data")),
+                .Add("condition-false-merge", new(new("branch", "false"), new("merge", "in"), "data")),
+            ExecutionConnections = candidate.ExecutionConnections!
+                .Remove("branch-true")
+                .Remove("uppercase-merge")
+                .Remove("branch-false")
+                .Remove("reverse-merge")
+                .Add("branch-true", new(new("branch", "true"), new("merge", "execute"), "execution"))
+                .Add("branch-false", new(new("branch", "false"), new("merge", "execute"), "execution"))
         };
 
         var analysis = SequenceBranchTopologyAnalyzer.Analyze(conditional);
 
         Assert.True(analysis.IsValid, string.Join(Environment.NewLine, analysis.Issues.Select(issue => issue.Message)));
         Assert.Equal("branch", Assert.Single(analysis.Paths).DecisionNodeId);
+        Assert.Empty(WorkflowValidator.Validate(conditional));
+    }
+
+    [Fact]
+    public void Unified_boolean_branch_requires_data_producing_nodes_before_exclusive_merge()
+    {
+        var candidate = BranchCandidate();
+        var directArm = candidate with
+        {
+            Nodes = candidate.Nodes.Remove("uppercase"),
+            Connections = candidate.Connections.Remove("uppercase-input").Remove("merge-uppercase-input"),
+            ExecutionConnections = candidate.ExecutionConnections!
+                .Remove("branch-true")
+                .Remove("uppercase-merge")
+                .Add("branch-true", new(new("branch", "true"), new("merge", "execute"), "execution"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(directArm), issue => issue.Code == "sequence.branch.merge-data");
     }
 
     [Fact]
@@ -731,17 +765,20 @@ public sealed class SequenceGraphTests
                 BooleanConstant = new(true)
             })
             .Add("branch", new(NodeTypes.BooleanBranch, "1.0.0"))
+            .Add("uppercase", new(NodeTypes.SequenceUppercase, "1.0.0"))
             .Add("reverse", new(NodeTypes.SequenceReverse, "1.0.0"))
             .Add("merge", new(NodeTypes.Merge, "1.0.0"));
         var data = source.Connections
             .Add("branch-condition", new(new("condition", "out"), new("branch", "condition"), "data"))
+            .Add("uppercase-input", new(new("input", "out"), new("uppercase", "in"), "data"))
+            .Add("merge-uppercase-input", new(new("uppercase", "out"), new("merge", "in"), "data"))
             .Add("reverse-input", new(new("input", "out"), new("reverse", "in"), "data"))
-            .Add("merge-direct-input", new(new("input", "out"), new("merge", "in"), "data"))
             .Add("merge-reverse-input", new(new("reverse", "out"), new("merge", "in"), "data"));
         var execution = source.ExecutionConnections!
             .Remove("sequence-inventory")
             .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("branch", "execute"), "execution"))
-            .Add("branch-true", new(new("branch", "true"), new("merge", "execute"), "execution"))
+            .Add("branch-true", new(new("branch", "true"), new("uppercase", "execute"), "execution"))
+            .Add("uppercase-merge", new(new("uppercase", "then"), new("merge", "execute"), "execution"))
             .Add("branch-false", new(new("branch", "false"), new("reverse", "execute"), "execution"))
             .Add("reverse-merge", new(new("reverse", "then"), new("merge", "execute"), "execution"))
             .Add("merge-output", new(new("merge", "then"), new("output", "execute"), "execution"));

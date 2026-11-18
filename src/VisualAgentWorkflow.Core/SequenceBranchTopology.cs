@@ -115,6 +115,9 @@ public static class SequenceBranchTopologyAnalyzer
             var trueArm = WalkArm(trueEdges[0], descriptor.Id, "true", outgoing, owners, pathNodes, definition.Nodes, Issue);
             var falseArm = WalkArm(falseEdges[0], descriptor.Id, "false", outgoing, owners, pathNodes, definition.Nodes, Issue);
             if (trueArm is null || falseArm is null) continue;
+            if (branchNode.Type == NodeTypes.BooleanBranch &&
+                (trueArm.Value.Nodes.IsDefaultOrEmpty || falseArm.Value.Nodes.IsDefaultOrEmpty))
+                Issue("sequence.branch.merge-data", $"nodes.{branchId}", "Each Boolean Branch arm must pass through a data-producing execution node before the exclusive Merge; use Condition for direct string pass-through.");
             if (!StringComparer.Ordinal.Equals(trueArm.Value.MergeNodeId, falseArm.Value.MergeNodeId))
             {
                 Issue("sequence.branch.ambiguous-terminal", $"nodes.{branchId}", "The true and false routes must converge at the same exclusive Merge.");

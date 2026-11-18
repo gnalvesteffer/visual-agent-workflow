@@ -181,11 +181,15 @@ stable IDs. Each output starts a bounded, acyclic, disjoint processing path to
 the workflow Output barrier. Paths dispatch in order and may finish in a
 different order. The run waits for every admitted path.
 
-Current Sequence paths support direct MCP tools, Agents and deterministic
-text steps. Pure values and explicit conversions can supply typed data inputs.
-Pinned child-workflow paths also support the existing bounded JSON composition
-contracts. Shared processing nodes, incomplete routes, loops and arbitrary
-branching remain invalid inside these paths. Problems explains the offending
+Current Sequence paths support direct MCP tools, Agents, deterministic text
+steps, and pinned child-workflow paths with the existing bounded JSON
+composition contracts. In unified schema 2.0, one output path may also contain
+one bounded **Condition** or **Boolean Branch** decision. Its true and false
+routes must remain disjoint and converge at one **Merge**, then continue along
+one linear suffix to the Output barrier. Boolean Branch arms must each pass
+through a data-producing execution node before the Merge; a Condition can pass
+its selected string directly. Nested decisions, loops, shared nodes, incomplete
+routes, and ambiguous merges remain invalid. Problems explains the offending
 node or output; drafts remain saveable while publication and execution require
 valid topology.
 
@@ -201,7 +205,7 @@ Child-workflow paths retain their existing bounded transform-chain rules.
 Historical schemas retain their recorded interpretation; current authors
 configure nodes and wire paths directly without selecting a schema slice.
 
-When a path is invalid, the Problems tab names the ordered Sequence output and its stable `then.<outputId>` pin. It also identifies the unsupported path node or competing path owner and states the repair constraint, such as connecting exactly one direct MCP path, keeping paths disjoint, or giving each tool exactly one execution successor. These diagnostics are editor guidance only: saving preserves the draft for repair, while publish and run still require a valid schema 1.43 topology.
+When a path is invalid, the Problems tab names the ordered Sequence output and its stable `then.<outputId>` pin. It also identifies the unsupported path node or competing path owner and states the repair constraint, such as connecting exactly one direct MCP path, keeping paths disjoint, or giving each tool exactly one execution successor. These diagnostics are editor guidance only: saving preserves the draft for repair, while publish and run still require a valid current topology.
 
 Save the draft as usual. A valid graph can run and publish; disconnected or incorrectly typed pins remain editable but block both. In Run inspector, the recorded cursor highlights each evaluated data wire and the selected pure node shows its recorded value. Sequence path runs record the output identity and execution connection for each path; the Sequence node displays each path's recorded dispatched, completed, failed, cancelled, or skipped state, while the selected-node inspector also shows the connection identity. Playback reads the stored events without recalculating the graph. This remains a deliberately narrow explicit graph subset; richer Agent paths and general Blueprint control composition are still planned. See [deterministic visual programming](graph-values.md) for the planned expansion.
 

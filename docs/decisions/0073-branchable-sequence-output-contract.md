@@ -1,6 +1,6 @@
 # Decision 0073: Branchable Sequence output contract
 
-**Status:** Design direction accepted; route-to-output settlement proof required
+**Status:** Bounded Condition/Boolean Branch → Merge shape admitted in unified schema 2.0; broader Sequence/Break iterator gate remains open
 **Date:** 2026-11-17
 
 ## Context
@@ -144,3 +144,23 @@ If the output-to-route mapping requires a second lifecycle/collector owner or
 cannot preserve these invariants, return the design for review rather than
 weakening the graph contract. This decision does not itself admit branchable
 Sequence graphs in public validation or Studio authoring.
+
+## Public admission update (2026-11-18)
+
+The bounded single-decision region is now admitted by the unified schema 2.0
+validator. Public definitions use the existing Condition, BooleanBranch, and
+Merge nodes; no schema promotion or special Sequence node was added. Validation
+composes explicit-edge checks with the topology analyzer and rejects shared
+routes, incomplete or ambiguous regions, and Boolean Branch arms that cannot
+identify a selected Merge data input. String Condition and Boolean Branch
+forms both pass Core validation and package JSON round-trip coverage. Public
+runner tests exercise both choices for each decision form and confirm the
+unselected arm does not start and the Merge starts once. Focused Core tests
+passed 40/40 and runner cases passed 4/4.
+
+This admission closes the public bounded branch topology item, not the broader
+concurrent Sequence/Break iterator acceptance gate above. Failure, unknown
+external effects, cancellation, persistence, and passive playback continue to
+be covered by the production-runner proof matrix; the separate integrated
+array-iteration architecture and its acceptance gate remain open. Historical
+schema behavior is unchanged.

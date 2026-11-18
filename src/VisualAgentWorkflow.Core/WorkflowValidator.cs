@@ -1090,6 +1090,26 @@ public static class WorkflowValidator
     {
         ValidateExplicitBranchGraph(definition, error, allowBooleanTopology: true,
             allowGraphFunctions: true, allowAgentNodes: true, allowFiniteNumbers: true);
+        if (definition.Nodes.Values.Any(node => node?.Type is NodeTypes.Condition or NodeTypes.BooleanBranch))
+        {
+            var topology = SequenceBranchTopologyAnalyzer.Analyze(definition);
+            foreach (var issue in topology.Issues)
+                error(issue.Code, issue.Path, issue.Message);
+
+            var supportedPathNodes = new HashSet<string>(StringComparer.Ordinal)
+            {
+                NodeTypes.Input, NodeTypes.Sequence, NodeTypes.Output, NodeTypes.Condition,
+                NodeTypes.BooleanBranch, NodeTypes.Merge, NodeTypes.Agent, NodeTypes.McpTool,
+                NodeTypes.SequenceUppercase, NodeTypes.SequenceReverse, NodeTypes.WorkflowInterfaceCall
+            };
+            foreach (var (nodeId, node) in definition.Nodes)
+                if (node is not null &&
+                    (WorkflowPorts.ExplicitExecutionInputs(node).Length > 0 || WorkflowPorts.ExplicitExecutionOutputs(node).Length > 0) &&
+                    !supportedPathNodes.Contains(node.Type))
+                    error("sequence.path.node", $"nodes.{nodeId}", "A branchable Sequence path contains an unsupported execution node.");
+            return;
+        }
+
         var sequences = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.Sequence).ToArray();
         var outputs = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.Output).ToArray();
         if (sequences.Length != 1 || outputs.Length != 1 || definition.ExecutionConnections is not { } execution)

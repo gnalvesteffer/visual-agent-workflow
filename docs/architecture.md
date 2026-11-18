@@ -212,6 +212,19 @@ Schema 1.38 adds the first persisted Blueprint-style `core.sequence` contract: o
 
 Schema 1.49 extends the persisted Sequence path contract with zero or more direct MCP nodes followed by at most one `core.sequence.uppercase` and one `core.sequence.reverse` step in either order. Both remain typed execution/data nodes and the final transform must connect directly to Output; this is a bounded chain, not an expression system. Direct 1.47/1.48 promotion preserves stable node, port, edge, and layout identities while older schemas retain their prior terminal-only behavior. See [the transform-chain decision](decisions/0046-sequence-transform-chain.md).
 
+Unified schema 2.0 admits one bounded decision region inside a Sequence output:
+a Condition or Boolean Branch selects one of two disjoint arms, both arms
+converge at one exclusive Merge, and a linear suffix reaches the Output
+barrier. A Condition's selected string output can feed the Merge directly;
+Boolean Branch arms require a data-producing execution node before it so the
+Merge can resolve the selected value dependency unambiguously. Nested
+decisions, loops, cross-output sharing, cycles, unreachable nodes, and
+ambiguous or multiple merges remain invalid. The Sequence runtime uses the
+selected route to settle its output once and passive playback relies on the
+recorded decision, transfer, and settlement evidence. This is an additive
+schema 2.0 capability; historical 1.x contracts are unchanged. See
+[Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
+
 Schema 1.50 adds the bounded public WorkflowCall slice: a Sequence path may
 end in one exact pinned string child call after its direct MCP prefix, and the
 call must connect directly to Output. Ordinary direct-MCP paths remain valid,

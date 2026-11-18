@@ -193,46 +193,20 @@ introduced.
   concurrency failure and subsequent stall. Playwright verified the editor
   adds the node, renders its typed operation, and leaves the graph with no
   reported issues. See [Decision 0072](decisions/0072-primitive-array-contains.md).
-- [ ] Prove bounded, branchable Sequence output regions in unified schema 2.0
-  before widening the current linear path contract. The three-role review
-  prefers composing existing Condition/BooleanBranch/ExclusiveMerge nodes, but
-  requires an explicit route-to-output activation settlement contract first.
-  Cover Break, failure/unknown/cancellation precedence, malformed region
-  rejection, file/SQLite playback, and unchanged linear Sequence behavior. This
-  is a prerequisite for the combined concurrent Sequence/Break iterator proof,
-  not a runtime architecture selection. The private production-runner proof
-  now exercises a single output through normal and Break-selected Boolean
-  Branch routes: two mutually exclusive arms converge at one Merge, the
-  unselected arm has no transfer evidence, and each output activation settles
-  once. A downstream route proves normal completion and successful Break with
-  suffix skipping and in-memory passive playback. BranchSelected evidence now
-  carries Sequence lineage, the Break handoff reaches the collector, and
-  explicit Merge/Approval executors emit their declared `then` pin. The focused
-  multi-arm proof passed 2/2; the broader Sequence/Merge suites passed 74/74 in
-  the preceding increment. File and SQLite reopen preserve the exact prefix,
-  and playback reconstructs normal completion and Break with suffix skipping
-  (4/4 store/outcome cases). A controlled MCP call after the merge now proves
-  fatal failure and unknown outcome each fail the selected output, skip the
-  suffix, and suppress downstream completion/Break. Both branch choices replay
-  from file and SQLite with identical event prefixes (8/8). Public validation
-  remains unchanged. Deterministic host cancellation after branch selection
-  now cancels the selected output, skips the suffix, and suppresses the later
-  route with matching file/SQLite playback for both branch choices (4/4).
-  Existing linear unified-schema graphs now also preserve ordered output IDs,
-  execution connections, and hashes through JSON/package round trips (Core
-  SequenceGraphTests 30/30); production direct-MCP and Agent-transform tests
-  reconstruct completed playback (2/2). Malformed-region validation and
-  round trips for the future branched contract remain open. Core validator
-  characterization now proves a structurally valid one-branch/one-merge
-  candidate is still blocked by the current linear contract, and rejects cycle,
-  unreachable-node, and duplicate-settlement mutations with stable graph
-  diagnostics (4/4). A proof-only Core analyzer now recognizes the bounded
-  Condition/BooleanBranch → exclusive Merge shape, permits a disjoint linear
-  sibling output, and reports cross-output sharing and an arm that terminates
-  before its Merge. Draft JSON round-trip preserves the candidate bytes and
-  route identities. It remains outside public admission;
-  valid package serialization and full branch-specific malformed-topology
-  coverage remain open. See
+- [x] Admit bounded, branchable Sequence output regions in unified schema 2.0.
+  One bounded Condition or Boolean Branch owns two disjoint arms converging at
+  an exclusive Merge, followed by a linear suffix. Public validation rejects
+  shared, incomplete, ambiguous, cyclic, unreachable, and multiply-settled
+  shapes. Boolean Branch arms require a data-producing execution node before
+  Merge so the selected value dependency is unambiguous; a Condition can pass
+  its selected string directly. Core validation and package round-trip cover
+  both decision forms, and public runner tests exercise both choices while
+  confirming one Merge activation and no start on the unselected arm (Core
+  SequenceGraphTests 40/40; runner cases 4/4). Failure, unknown outcome,
+  cancellation, file/SQLite reopen, and passive playback remain covered by the
+  production-runner proof matrix. Historical schemas are unchanged. This closes
+  the bounded branch topology item; integrated concurrent Sequence/Break array
+  iteration remains a separate open gate. See
   [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
