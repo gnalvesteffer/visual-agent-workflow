@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using VisualAgentWorkflow.AgentFramework;
 using VisualAgentWorkflow.Core;
+using VisualAgentWorkflow.Hosting;
 using Xunit;
 
 namespace VisualAgentWorkflow.AgentFramework.Tests;
@@ -45,26 +47,49 @@ public sealed class WorkflowTypedArrayTests
         AssertDataEvidence(events, "get", "json", "{\"z\":1.00,\"a\":[null,true]}");
     }
 
-    [Fact]
-    public async Task Immutable_array_data_is_resolved_by_each_bounded_loop_body_activation()
+    [Theory]
+    [InlineData("file")]
+    [InlineData("sqlite")]
+    public async Task Immutable_array_data_is_resolved_by_each_bounded_loop_body_activation_and_reopens(string storeKind)
     {
         var graph = ArrayGetInsideExplicitLoopGraph();
         WorkflowValidator.ThrowIfInvalid(graph);
-        var events = new List<ExecutionEvent>();
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-typed-array-loop-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var revision = WorkflowRevision.Create(graph, "typed-array-loop-data");
+            IWorkflowRunStore store = storeKind == "sqlite"
+                ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
+                : new FileRunJournal(Path.Combine(directory, "runs"));
+            var created = store.Create(revision, "continue");
 
-        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
-            WorkflowRevision.Create(graph, "typed-array-loop-data"), "continue", null,
-            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+            var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(created.Header.RunId,
+                revision, "continue", null,
+                evt => { store.Append(evt); return ValueTask.CompletedTask; });
 
-        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
-        Assert.Equal("alpha", result.Output);
-        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
-        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "literal"));
-        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "item"));
-        Assert.Equal(3, events
-            .Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "item")
-            .Select(evt => evt.InvocationId).Distinct().Count());
-        AssertDataEvidence(events, "item", WorkflowDataTypes.String, "\"alpha\"");
+            Assert.False(result.Failed);
+            Assert.Equal("alpha", result.Output);
+
+            IWorkflowRunStore reopened = storeKind == "sqlite"
+                ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
+                : new FileRunJournal(Path.Combine(directory, "runs"));
+            var snapshot = reopened.Get(created.Header.RunId)!;
+            var events = snapshot.Events;
+
+            Assert.Equal("completed", snapshot.Status);
+            Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
+            Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "literal"));
+            Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "item"));
+            Assert.Equal(3, events
+                .Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "item")
+                .Select(evt => evt.InvocationId).Distinct().Count());
+            AssertDataEvidence(events, "item", WorkflowDataTypes.String, "\"alpha\"");
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
     }
 
     [Fact]

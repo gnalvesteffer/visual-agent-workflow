@@ -148,12 +148,12 @@ normalization remains explicit, deterministic, and provenance-preserving.
   node attribution, and data-evaluation evidence. The shared playback path reads
   these recorded events without evaluating nodes again.
 - A current-schema explicit bounded-loop proof feeds an immutable primitive
-  array through `ArrayGet` into a real loop-body variable write. It confirms the
-  array dependency is evaluated and recorded once per body activation. A second
-  proof exceeds the shared 65,536-byte array-evidence budget across loop passes
-  and confirms the fifth pass fails before its write or normal completion; the
-  four accepted passes remain recorded. This does not add array iteration or
-  loop-carried immutable values.
+  array through `ArrayGet` into a real loop-body variable write. File and SQLite
+  reopen preserve all three body activations and their distinct invocation
+  evidence. A second proof exceeds the shared 65,536-byte array-evidence budget
+  across loop passes and confirms the fifth pass fails before its write or
+  normal completion; the four accepted passes remain recorded. This does not
+  add array iteration or loop-carried immutable values.
 - Checkpoint admission continues to reject unsupported array-bearing shapes.
 - Historical 1.x fixtures and the existing JSON-array sequences preserve hashes,
   behavior, and playback.
