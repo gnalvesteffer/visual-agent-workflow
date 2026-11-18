@@ -3636,3 +3636,18 @@ both file and SQLite stores reopen the same failed history (2/2). The
 concurrent production-body coordinator group passes 39/39. This covers one
 direct-MCP event shape and bounded two-item race, not every payload envelope,
 production budget ownership, or general scheduler races.
+
+### Concurrent model outcome byte reservations (2026-11-17)
+
+`ConcurrentProductionBodyCoordinator_ReservesModelOutcomeBytesBeforeDispatch`
+uses a synchronized two-activation production Agent body to calibrate the
+serialized prefix through the competing `model.requested` event. The cap
+includes both pending iteration settlement slots, two bounded model outcomes,
+and the failure reserve. The second request is rejected before provider
+dispatch; the accepted provider is released after the sibling records its
+failure, the root fails, and the persisted prefix remains under the configured
+byte limit. Both file and SQLite histories reopen with the same events and
+playback (2/2); the concurrent production-body coordinator group passes 41/41.
+This verifies one model event shape under a bounded concurrent case, not all
+prompt/response sizes, delegated-call envelopes, production budget ownership,
+or uncontrolled scheduler races.

@@ -7448,6 +7448,103 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_ReservesModelOutcomeBytesBeforeDispatch(bool sqlite)
+    {
+        var baseline = await ExecuteAsync(maximumBytes: 4_000_000);
+        var requests = baseline.Events.Where(evt => evt.Kind == ExecutionEventKinds.ModelRequested)
+            .OrderBy(evt => evt.Sequence).ToArray();
+        Assert.False(baseline.Result.Failed);
+        Assert.Equal(2, requests.Length);
+        Assert.Equal(2, baseline.ProviderCalls);
+        Assert.Equal(2, baseline.Events.Count(evt => evt.Kind == ExecutionEventKinds.ModelResponded));
+        Assert.Single(baseline.Events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+
+        var secondRequest = requests[1];
+        var prefix = baseline.Events.Where(evt => evt.Sequence < secondRequest.Sequence).ToArray();
+        var prefixBytes = prefix.Sum(EventBytes);
+        var iterationReservationBytes = prefix
+            .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted)
+            .Where(start => !prefix.Any(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.NodeId == start.NodeId && evt.InvocationId == start.InvocationId &&
+                evt.ScopeId == start.ScopeId))
+            .Sum(IterationSettlementReservationBytes);
+        const long maximumOutcomeBytes = 32_000;
+        const long reservedFailureBytes = 64_000;
+        const long byteAdmissionMargin = 4_096;
+        var maximumBytes = checked(prefixBytes + EventBytes(secondRequest) +
+            (2 * maximumOutcomeBytes) + iterationReservationBytes + reservedFailureBytes - byteAdmissionMargin);
+
+        var limited = await ExecuteAsync(maximumBytes);
+        Assert.True(limited.Result.Failed);
+        Assert.Equal(1, limited.ProviderCalls);
+        Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent");
+        Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(limited.Events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        Assert.Equal(2, limited.Events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Contains("Latest run status: failed", limited.Playback, StringComparison.Ordinal);
+
+        async Task<(ExecutionEvent[] Events, int ProviderCalls, WorkflowExecutionResult Result, string Playback)>
+            ExecuteAsync(long maximumBytes)
+        {
+            const string providerId = "proof.concurrent-model-byte-budget";
+            const string input = "[\"first\",\"second\"]";
+            const string response = "done";
+            var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+                "concurrent-array-shared-model-byte-budget", "input",
+                ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                    .Add("input", new(NodeTypes.Input, "1.0.0"))
+                    .Add("agent", new(NodeTypes.Agent, "1.0.0",
+                        Agent: new(providerId, null, "Return a short result.", [])))
+                    .Add("output", new(NodeTypes.Output, "1.0.0")),
+                ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                    .Add("input-agent", new(new("input", "out"), new("agent", "in"), "data"))
+                    .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data")))
+            {
+                Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                    .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+                ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                    .Add("input-agent", Edge("input", "then", "agent", "execute"))
+                    .Add("agent-output", Edge("agent", "out", "output", "execute"))
+            };
+            var revision = WorkflowRevision.CreateProofOnly(definition,
+                "concurrent-array-shared-model-byte-budget-proof");
+            using var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ProofRecorder(store, startRoot: false);
+            var budgetRejected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var model = new ConcurrentPromptModel(expectedConcurrentCalls: 2,
+                releaseOnReservationRejected: budgetRejected.Task, responseText: response);
+            var provider = new AgentProviderDescriptor(providerId, "Model byte reservation proof", "proof-chat-v1", true);
+            var agents = new AgentNodeExecutor(
+                [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(model))],
+                new EchoToolBroker());
+
+            ValueTask Record(ExecutionEvent evt)
+            {
+                recorder.Append(evt);
+                if (evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent")
+                    budgetRejected.TrySetResult();
+                return ValueTask.CompletedTask;
+            }
+
+            var result = await new WorkflowRunner(agents: agents)
+                .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(store.RunId, revision, input,
+                    "index", null, Record, runBudget: StructuredRunBudget(maximumToolDispatches: 1) with
+                    {
+                        MaximumBytes = maximumBytes
+                    });
+            var events = recorder.Snapshot();
+            Assert.True(events.Sum(EventBytes) <= maximumBytes);
+            AssertPersistedSequence(store, events, result.Failed ? "failed" : "completed");
+            var reopened = store.ReopenStore().Get(store.RunId)!;
+            Assert.Equal(events, reopened.Events);
+            return (events, model.Calls.Length, result, await RenderPlayback(reopened));
+        }
+    }
+
+    [Theory]
     [InlineData(false, "events")]
     [InlineData(true, "events")]
     [InlineData(false, "bytes")]
@@ -22975,7 +23072,7 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private sealed class ConcurrentPromptModel(int expectedConcurrentCalls, bool failAfterStart = false,
-        Task? releaseOnReservationRejected = null)
+        Task? releaseOnReservationRejected = null, string responseText = "done")
     {
         private readonly ConcurrentQueue<PromptCall> calls = new();
         private readonly TaskCompletionSource bothStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -23002,7 +23099,7 @@ public sealed class ArrayIterationVawBodyProofTests
                     : Task.WhenAny(bothStarted.Task, releaseOnReservationRejected);
                 await release.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
                 if (failAfterStart) throw new InvalidOperationException("Deterministic model failure after request capture.");
-                return new ChatResponse(new ChatMessage(ChatRole.Assistant, "done"))
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant, responseText))
                 {
                     ModelId = "proof-chat-v1",
                     FinishReason = ChatFinishReason.Stop,

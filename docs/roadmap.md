@@ -266,6 +266,13 @@ introduced.
   direct-MCP body; broader concurrent payload shapes and production budget
   ownership remain open. See [Decision
   0070](decisions/0070-bounded-array-iteration-contract.md).
+  A synchronized two-Agent body also calibrates the competing
+  `model.requested` admission against both active iteration settlements and
+  two bounded model outcomes. The byte cap rejects the second provider request
+  before dispatch, preserves one failed root, and stays within the configured
+  serialized-event ceiling after file/SQLite reopen (2/2). Other payload shapes
+  and production budget ownership remain open; see [Decision
+  0070](decisions/0070-bounded-array-iteration-contract.md).
   A nested-frame production-body case now confirms that graph-dispatched Break
   targets the inner frame ID rather than its supplied outer frame, suppresses
   the remaining inner suffix, and reopens with matching Break playback through
@@ -1041,6 +1048,15 @@ introduced.
         history (2/2 focused cases; concurrent coordinator group 39/39). This
         does not establish limits for other payload shapes or a production-owned
         budget contract. See [Decision
+        0070](decisions/0070-bounded-array-iteration-contract.md).
+      - [x] Calibrate concurrent model-outcome byte reservations from a
+        synchronized two-activation baseline. The competing model request is
+        rejected before provider dispatch while the shared serialized-event
+        ceiling includes both active iteration settlements, outcome reserves,
+        and reserved failure evidence. The failed history stays within its cap
+        and reopens identically through file and SQLite (2/2 focused cases;
+        concurrent coordinator group 41/41). Other payload shapes and
+        production budget ownership remain open. See [Decision
         0070](decisions/0070-bounded-array-iteration-contract.md).
       - [x] Verify reservation identity extraction for delegated model and
         production-MCP calls through the structured run context. Delegated
