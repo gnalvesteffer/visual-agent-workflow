@@ -122,6 +122,16 @@ same completed Sequence playback (2/2). This covers the existing linear
 contract; malformed-region validation and round trips for the future branched
 contract remain open.
 
+The public validator remains linear-only. Core characterization tests now
+build a structurally valid one-branch/one-merge unified candidate and confirm
+that it is still rejected at `sequence.path.node`, while graph-level cycle,
+unreachable-node, and duplicate-branch-settlement mutations are rejected with
+stable `graph.cycle`, `graph.unreachable`, and `graph.degree` diagnostics
+(4/4). This demonstrates fail-closed admission for these malformed shapes; it
+does not implement the branched-region validator. Branch-specific
+cross-output-sharing and ambiguous-terminal diagnostics, plus serialization of
+a future valid branched definition, remain open.
+
 If the output-to-route mapping requires a second lifecycle/collector owner or
 cannot preserve these invariants, return the design for review rather than
 weakening the graph contract. This decision does not itself admit branchable

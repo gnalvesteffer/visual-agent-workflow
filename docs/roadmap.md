@@ -222,7 +222,12 @@ introduced.
   execution connections, and hashes through JSON/package round trips (Core
   SequenceGraphTests 30/30); production direct-MCP and Agent-transform tests
   reconstruct completed playback (2/2). Malformed-region validation and
-  round trips for the future branched contract remain open. See
+  round trips for the future branched contract remain open. Core validator
+  characterization now proves a structurally valid one-branch/one-merge
+  candidate is still blocked by the current linear contract, and rejects cycle,
+  unreachable-node, and duplicate-settlement mutations with stable graph
+  diagnostics (4/4). Branch-specific sharing/ambiguous-terminal diagnostics and
+  serialization of a future valid branch definition remain open. See
   [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework

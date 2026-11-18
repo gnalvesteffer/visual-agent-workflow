@@ -42,6 +42,55 @@ public sealed class SequenceGraphTests
     }
 
     [Fact]
+    public void Unified_sequence_branch_candidate_is_well_formed_but_not_yet_admitted()
+    {
+        var issues = WorkflowValidator.Validate(BranchCandidate());
+
+        Assert.Contains(issues, issue => issue.Code == "sequence.path.node" && issue.Path == "nodes.branch");
+        Assert.DoesNotContain(issues, issue => issue.Code is "graph.degree" or "graph.cycle" or "graph.unreachable");
+    }
+
+    [Fact]
+    public void Unified_sequence_branch_candidate_with_a_cycle_is_rejected_by_graph_validation()
+    {
+        var candidate = BranchCandidate();
+        var cyclic = candidate with
+        {
+            ExecutionConnections = candidate.ExecutionConnections!.SetItem("reverse-merge",
+                new(new("reverse", "then"), new("branch", "execute"), "execution"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(cyclic), issue => issue.Code == "graph.cycle");
+    }
+
+    [Fact]
+    public void Unified_sequence_branch_candidate_with_an_unreachable_step_is_rejected()
+    {
+        var candidate = BranchCandidate();
+        var disconnected = candidate with
+        {
+            Nodes = candidate.Nodes.Add("orphan", new(NodeTypes.SequenceUppercase, "1.0.0")),
+            Connections = candidate.Connections.Add("input-orphan", new(new("input", "out"), new("orphan", "in"), "data"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(disconnected), issue => issue.Code == "graph.unreachable");
+    }
+
+    [Fact]
+    public void Unified_sequence_branch_candidate_with_a_multi_settlement_arm_is_rejected()
+    {
+        var candidate = BranchCandidate();
+        var multiplySettled = candidate with
+        {
+            ExecutionConnections = candidate.ExecutionConnections!.Add("branch-true-output",
+                new(new("branch", "true"), new("output", "execute"), "execution"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(multiplySettled), issue =>
+            issue.Code == "graph.degree" && issue.Path == "nodes.branch.outputs.true");
+    }
+
+    [Fact]
     public void Sequence_requires_two_to_four_unique_bounded_outputs()
     {
         var invalid = Definition() with
@@ -570,6 +619,32 @@ public sealed class SequenceGraphTests
         {
             ExecutionConnections = execution
         };
+    }
+
+    private static WorkflowDefinition BranchCandidate()
+    {
+        var source = Definition() with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
+        var nodes = source.Nodes
+            .Add("condition", new NodeDefinition(NodeTypes.BooleanConstant, "1.0.0")
+            {
+                BooleanConstant = new(true)
+            })
+            .Add("branch", new(NodeTypes.BooleanBranch, "1.0.0"))
+            .Add("reverse", new(NodeTypes.SequenceReverse, "1.0.0"))
+            .Add("merge", new(NodeTypes.Merge, "1.0.0"));
+        var data = source.Connections
+            .Add("branch-condition", new(new("condition", "out"), new("branch", "condition"), "data"))
+            .Add("reverse-input", new(new("input", "out"), new("reverse", "in"), "data"))
+            .Add("merge-direct-input", new(new("input", "out"), new("merge", "in"), "data"))
+            .Add("merge-reverse-input", new(new("reverse", "out"), new("merge", "in"), "data"));
+        var execution = source.ExecutionConnections!
+            .Remove("sequence-inventory")
+            .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("branch", "execute"), "execution"))
+            .Add("branch-true", new(new("branch", "true"), new("merge", "execute"), "execution"))
+            .Add("branch-false", new(new("branch", "false"), new("reverse", "execute"), "execution"))
+            .Add("reverse-merge", new(new("reverse", "then"), new("merge", "execute"), "execution"))
+            .Add("merge-output", new(new("merge", "then"), new("output", "execute"), "execution"));
+        return source with { Nodes = nodes, Connections = data, ExecutionConnections = execution };
     }
 
     private static WorkflowDefinition PathDefinition()
