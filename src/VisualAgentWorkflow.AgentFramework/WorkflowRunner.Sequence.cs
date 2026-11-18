@@ -234,6 +234,7 @@ public sealed partial class WorkflowRunner
         IWorkflowExecutionGate? gate, WorkflowRevision rootRevision,
         ImmutableArray<WorkflowApprovalScope> workflowPath,
         Func<string, CancellationTokenSource?>? callScopeCancellation = null,
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
         SequenceProductionDispatchSession? sequenceDispatchSession = null)
     {
         var sequenceInvocationId = Guid.NewGuid();
@@ -329,6 +330,7 @@ public sealed partial class WorkflowRunner
                     coordinator.Complete(lineage.OutputActivationId, terminalState);
                     await FlushSequenceEvents();
                 }, null, callSettlements.GetValueOrDefault(outputNodeId), true, callScopeCancellation,
+                afterNodeStarted: afterNodeStarted,
                 activationBreakNode: sequenceDispatchSession?.BreakNodeIds.Contains(outputNodeId) == true,
                 proofBreakNodeIds: sequenceDispatchSession?.BreakNodeIds,
                 onSequenceBreakRequested: sequenceDispatchSession is null ? null : async (lineage, request) =>
@@ -568,13 +570,15 @@ public sealed partial class WorkflowRunner
         {
             lock (gate)
             {
-                if (ActivationFrame.BreakScope.Request is { } request)
+                if (breakRequest is not null) return null;
+                var activation = ActivationFrame.BreakScope.TryAdmit(() =>
+                    Coordinator.TryDispatchNext(Guid.NewGuid(), maximumConcurrentOutputs));
+                if (activation is null && ActivationFrame.BreakScope.Request is { } request)
                 {
                     breakRequest ??= request;
                     Coordinator.StopAdmission(successfulBreak: true);
-                    return null;
                 }
-                return Coordinator.TryDispatchNext(Guid.NewGuid(), maximumConcurrentOutputs);
+                return activation;
             }
         }
 

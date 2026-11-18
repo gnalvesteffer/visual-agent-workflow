@@ -18862,6 +18862,144 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task SingleStreamSequenceProof_AdmissionWinsAgainstGraphBreakAndDrains(bool sqlite)
+    {
+        var body = SequenceBodyDefinition();
+        var nodes = body.Nodes
+            .SetItem("sequence", body.Nodes["sequence"] with
+            {
+                Sequence = new([new("inventory", "Inventory"), new("architecture", "Architecture"),
+                    new("quality", "Quality"), new("archive", "Archive")])
+            })
+            .SetItem("inventory-tool", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new AgentConfiguration("proof.settlement", null, "Wait until released.", []) { MaxTurns = 1 }))
+            .SetItem("architecture-tool", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"))
+            .Add("quality-tool", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new AgentConfiguration("proof.settlement", null, "Wait until released.", []) { MaxTurns = 1 }))
+            .Add("archive-tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("proof.skipped-archive", new string('f', 64)))
+            { McpArgumentsJson = "{\"query\":\"must-not-run\"}" });
+        var definition = body with
+        {
+            Nodes = nodes,
+            ExecutionConnections = body.ExecutionConnections!
+                .SetItem("inventory-output", Edge("inventory-tool", "out", "output", "execute"))
+                .SetItem("architecture-output", Edge("architecture-tool", "out", "output", "execute"))
+                .Add("sequence-quality", Edge("sequence", "then.quality", "quality-tool", "execute"))
+                .Add("quality-output", Edge("quality-tool", "out", "output", "execute"))
+                .Add("sequence-archive", Edge("sequence", "then.archive", "archive-tool", "execute"))
+                .Add("archive-output", Edge("archive-tool", "then", "output", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "single-stream-sequence-admission-wins-break-proof");
+        using var store = new ProofRunStore(revision, "research", sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        var agents = new ControlledSequenceRaceAgentExecutor();
+        var breakNodeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var suffixSkipped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+                SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "archive")
+                suffixSkipped.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+        ValueTask GateBreak(string nodeId, CancellationToken cancellationToken)
+        {
+            if (nodeId != "architecture-tool") return ValueTask.CompletedTask;
+            breakNodeStarted.TrySetResult();
+            return new(agents.AllowBreak.Task.WaitAsync(cancellationToken));
+        }
+
+        var execution = new WorkflowRunner(tools: new EchoToolBroker(), agents: agents)
+            .ExecuteSingleStreamSequenceBreakProofAsync(store.RunId, revision, "research", Record,
+                new HashSet<string>(["architecture-tool"], StringComparer.Ordinal),
+                cancellationToken: CancellationToken.None, maximumConcurrentOutputs: 3,
+                afterNodeStarted: GateBreak)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        try
+        {
+            try { await agents.InventoryStarted.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException)
+            {
+                throw new Xunit.Sdk.XunitException("The initial Agent did not start. Execution completed: " +
+                    execution.IsCompleted + ". Fault: " + execution.Exception?.GetBaseException() + ". Events: " + string.Join(" | ", recorder.Snapshot()
+                        .Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+            }
+            try { await breakNodeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException)
+            {
+                throw new Xunit.Sdk.XunitException("The graph Break did not reach its pre-acceptance gate. Events: " +
+                    string.Join(" | ", recorder.Snapshot().Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+            }
+            try { await agents.QualityStarted.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException)
+            {
+                throw new Xunit.Sdk.XunitException("The later Agent was not admitted while Break acceptance was held. Execution completed: " +
+                    execution.IsCompleted + ". Fault: " + execution.Exception?.GetBaseException() + ". Events: " +
+                    string.Join(" | ", recorder.Snapshot().Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+            }
+            var beforeBreakAccepted = recorder.Snapshot();
+            Assert.Contains(beforeBreakAccepted, evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched &&
+                SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "quality");
+            Assert.DoesNotContain(beforeBreakAccepted, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+                SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "quality");
+            Assert.False(execution.IsCompleted, "The graph-dispatched Break is held before acceptance while admitted Agents are active.");
+
+            agents.AllowBreak.TrySetResult();
+            await suffixSkipped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var afterBreak = recorder.Snapshot();
+            var breakCompleted = Assert.Single(afterBreak, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "architecture-tool");
+            var qualityDispatch = Assert.Single(afterBreak, evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched &&
+                SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "quality");
+            Assert.True(qualityDispatch.Sequence < breakCompleted.Sequence,
+                "The racing output must be recorded as admitted before the Break request is accepted.");
+            Assert.DoesNotContain(afterBreak, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "archive-tool");
+            Assert.False(execution.IsCompleted, "Break must drain output work admitted before Break acceptance.");
+            Assert.DoesNotContain(afterBreak, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+                SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "quality");
+
+            agents.ReleaseInventory.TrySetResult();
+            agents.ReleaseQuality.TrySetResult();
+            var result = await execution;
+            Assert.False(result.Failed);
+        }
+        finally
+        {
+            agents.ReleaseInventory.TrySetResult();
+            agents.AllowBreak.TrySetResult();
+            agents.ReleaseQuality.TrySetResult();
+            if (!execution.IsCompleted)
+            {
+                try { await execution.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (TimeoutException) { }
+            }
+        }
+
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(store, events, "completed");
+        Assert.Equal(new[] { "architecture", "inventory", "quality" }.Order(StringComparer.Ordinal), events
+            .Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted)
+            .Select(evt => SequenceEvidence.TryRead(evt, out var evidence) ? evidence?.OutputId : null)
+            .Order(StringComparer.Ordinal));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+            SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "archive");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched &&
+            SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "archive");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("break-completed", playback!.Status);
+        Assert.Equal(["inventory", "architecture", "quality", "archive"],
+            playback.Outputs.Select(output => output.OutputId));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task SingleStreamSequenceProof_AdmittedAgentFailureOverridesBreak(bool sqlite)
     {
         var body = SequenceBodyDefinition();
@@ -22503,6 +22641,38 @@ public sealed class ArrayIterationVawBodyProofTests
             await Release.Task.WaitAsync(cancellationToken);
             if (failAfterRelease)
                 throw new InvalidOperationException("Controlled sibling failure after Break.");
+            return JsonSerializer.Serialize(new { query = input });
+        }
+    }
+
+    private sealed class ControlledSequenceRaceAgentExecutor : IAgentNodeExecutor
+    {
+        public TaskCompletionSource InventoryStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseInventory { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource QualityStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseQuality { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource AllowBreak { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.settlement", "Settlement proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            switch (invocation.NodeId)
+            {
+                case "inventory-tool":
+                    InventoryStarted.TrySetResult();
+                    await ReleaseInventory.Task.WaitAsync(cancellationToken);
+                    break;
+                case "quality-tool":
+                    QualityStarted.TrySetResult();
+                    await ReleaseQuality.Task.WaitAsync(cancellationToken);
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unexpected Sequence race Agent '{invocation.NodeId}'.");
+            }
             return JsonSerializer.Serialize(new { query = input });
         }
     }

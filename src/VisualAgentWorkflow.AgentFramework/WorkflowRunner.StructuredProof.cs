@@ -52,7 +52,8 @@ public sealed partial class WorkflowRunner
     internal async Task<WorkflowExecutionResult> ExecuteSingleStreamSequenceBreakProofAsync(
         Guid runId, WorkflowRevision revision, string input, Func<ExecutionEvent, ValueTask> record,
         IReadOnlySet<string> proofBreakNodeIds, CancellationToken cancellationToken = default,
-        int maximumConcurrentOutputs = 2)
+        int maximumConcurrentOutputs = 2,
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
@@ -94,6 +95,7 @@ public sealed partial class WorkflowRunner
         var outcome = await ExecuteBodyForActivationProofAsync(runId, revision, input, frame.Parameters,
             evt => Emit(evt.Kind, evt.NodeId, evt.InvocationId, evt.ScopeId ?? frame.ScopeId,
                 evt.Data, evt.ConnectionId), cancellationToken, activationFrame: frame,
+            afterNodeStarted: afterNodeStarted,
             proofBreakNodeIds: proofBreakNodeIds, sequencePlan: plan, sequenceDispatchSession: session);
         await FlushSequenceEvents();
 

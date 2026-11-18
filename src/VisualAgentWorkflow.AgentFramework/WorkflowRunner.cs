@@ -279,7 +279,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 collaborationRuntime, variableStore, afterNodeStarted: afterNodeStarted,
                 activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds)
             : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
-                callScopeCancellation, sequenceDispatchSession);
+                callScopeCancellation, afterNodeStarted, sequenceDispatchSession);
 
         if (emitRunLifecycle) await Emit(ExecutionEventKinds.Started);
         try
@@ -582,7 +582,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         public bool Matches(StructuredActivationBreakRequest value) =>
             Request == value;
 
-        public T? TryAdmit<T>(Func<T> admission) where T : class
+        public T? TryAdmit<T>(Func<T?> admission) where T : class
         {
             ArgumentNullException.ThrowIfNull(admission);
             lock (gate) return request is null ? admission() : null;

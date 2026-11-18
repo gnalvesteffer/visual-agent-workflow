@@ -3804,3 +3804,30 @@ lifecycle, and persisted evidence. The production graph may report descendant
 outcomes but must not independently settle the same output. This follow-up is
 only an experiment direction: no shipped behavior, public schema, or runtime
 architecture is selected.
+
+### Shared Break/admission linearization in the production dispatch session (2026-11-17)
+
+Following the three-role review's **REVISE** adjudication, the private
+`SequenceProductionDispatchSession.TryAdmit` now performs coordinator admission
+inside `ActivationAbortScope.TryAdmit`. The same scope lock guards
+`ActivationAbortScope.TryRequest`, so an admission cannot pass a stale
+`Request == null` check and dispatch after Break has been accepted. The
+session-local lock still serializes Sequence session state; it is not treated
+as the Break linearization point. No await occurs under either lock.
+
+The focused proof
+`SingleStreamSequenceProof_AdmissionWinsAgainstGraphBreakAndDrains` holds a
+real graph-dispatched Break before acceptance while already admitted Agent
+outputs are active, then accepts Break and verifies those outputs drain while
+the suffix stays undispatched. It reopens both file and SQLite histories and
+reconstructs `break-completed` playback (2/2). Together with
+`SingleStreamSequenceProof_AdmitsBreakWhileEarlierAgentIsActive`, this covers
+both observed orderings at the integrated graph boundary: an admitted prefix
+that drains after Break, and Break accepted before the next output so that the
+suffix is skipped. This is not a stress proof that races the exact lock
+instruction under arbitrary scheduling; the 128-schedule coordinator test
+remains the contention check.
+
+The wider iterator gate remains open. This change is proof-only and does not
+select production Sequence/Break support or public authoring. Nested frames,
+shared budgets, and the complete supported-body/runtime matrix remain pending.
