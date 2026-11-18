@@ -19533,6 +19533,9 @@ public sealed class ArrayIterationVawBodyProofTests
                 Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched));
                 Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
                 Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+                Assert.True(SequenceEvidence.TryReconstructPlayback(scoped, out var sequencePlayback));
+                Assert.Equal(scopeId, sequencePlayback!.ScopeId);
+                Assert.All(sequencePlayback.Outputs, output => Assert.NotNull(output.ActivationId));
                 Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
                     evt.NodeId is "inventory-tool" or "architecture-tool"));
                 Assert.Contains(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&

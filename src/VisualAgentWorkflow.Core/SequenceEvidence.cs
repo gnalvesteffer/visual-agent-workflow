@@ -67,6 +67,8 @@ public static class SequenceEvidence
         var outputs = new Dictionary<int, SequencePlaybackOutput>();
         var activeActivations = new Dictionary<Guid, int>();
         var nextDispatchOrdinal = 0;
+        string? scopeId = null;
+        var scopeInitialized = false;
         var started = false;
         var terminal = false;
         var status = "running";
@@ -80,6 +82,13 @@ public static class SequenceEvidence
             if (executionEvent.NodeId != evidence.SequenceNodeId ||
                 executionEvent.InvocationId != evidence.SequenceInvocationId ||
                 (evidence.ConnectionId is not null && executionEvent.ConnectionId != evidence.ConnectionId))
+                return false;
+            if (!scopeInitialized)
+            {
+                scopeId = executionEvent.ScopeId;
+                scopeInitialized = true;
+            }
+            else if (!string.Equals(scopeId, executionEvent.ScopeId, StringComparison.Ordinal))
                 return false;
             identity ??= evidence;
             if (identity.SequenceInvocationId != evidence.SequenceInvocationId || identity.SequenceNodeId != evidence.SequenceNodeId)
@@ -165,13 +174,17 @@ public static class SequenceEvidence
 
         if (identity is null) return false;
         snapshot = new(identity.SequenceInvocationId, identity.SequenceNodeId, status,
-            outputs.Values.OrderBy(output => output.Ordinal).ToArray());
+            outputs.Values.OrderBy(output => output.Ordinal).ToArray()) { ScopeId = scopeId };
         return true;
     }
 }
 
 public sealed record SequencePlaybackSnapshot(Guid SequenceInvocationId, string SequenceNodeId, string Status,
-    IReadOnlyList<SequencePlaybackOutput> Outputs);
+    IReadOnlyList<SequencePlaybackOutput> Outputs)
+{
+    /// <summary>The activation scope that owns this Sequence invocation, when recorded.</summary>
+    public string? ScopeId { get; init; }
+}
 
 public sealed record SequencePlaybackOutput(string OutputId, int Ordinal, Guid? ActivationId,
     string ConnectionId, string State);

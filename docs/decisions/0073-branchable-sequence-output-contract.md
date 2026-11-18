@@ -217,3 +217,13 @@ After reopen, playback preserves `dispatched` for the uncommitted case and
 because no aggregate terminal was accepted. This proves the reader does not
 invent completion across these append outcomes; it does not qualify production
 runtime retry behavior or mixed sibling outcomes.
+
+The typed playback projection now retains the event `ScopeId` for one Sequence
+invocation and rejects evidence that crosses activation scopes. The production
+structured-activation Sequence proof verifies this against persisted file and
+SQLite event streams: each nested activation reconstructs independently with
+its own scope and output activation IDs (4/4 store cases). This proves the
+existing aggregate lifecycle signal can be attributed to its owning activation
+in passive playback. It does not add a new aggregate event, prove nested
+Sequence/Break admission semantics, or settle outcome precedence, sibling
+draining, and persistence failure behavior in the production adapter.

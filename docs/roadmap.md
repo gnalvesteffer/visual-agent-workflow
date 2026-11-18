@@ -99,9 +99,12 @@ the historical promotion chain.
   Core playback now has a focused regression that treats a settled output with
   no Sequence terminal as a running prefix; file/SQLite tests cover settlement
   append rejection before commit and after a simulated commit with a lost
-  acknowledgement. Coordinator tests cover the Break/admission race and the
-  current failure cancellation of an active sibling. Mixed sibling outcomes
-  and production aggregate-signal behavior still need proof.
+  acknowledgement. Typed Sequence playback now retains and validates activation
+  scope, with production proof events independently reconstructed for nested
+  activations in both stores. Coordinator tests cover the Break/admission race
+  and current failure cancellation of an active sibling. Production aggregate
+  signal behavior under mixed sibling outcomes and persistence rejection still
+  needs proof.
   As the first discriminator, compare a distinct Loop feedback input against
   topology-derived feedback on the same nested composition; the 2026-11-18
   review found neither persisted pin shape proven superior. Preserve authored

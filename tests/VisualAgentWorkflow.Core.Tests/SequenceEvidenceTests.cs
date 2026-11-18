@@ -288,6 +288,32 @@ public sealed class SequenceEvidenceTests
     }
 
     [Fact]
+    public void Playback_preserves_activation_scope_and_rejects_mixed_scope_evidence()
+    {
+        var sequenceId = Guid.NewGuid();
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var activationId = Guid.NewGuid();
+        const string scopeId = "outer-loop/0/inner-loop/1";
+        var events = new[]
+        {
+            Lifecycle(runId, revisionId, 1, ExecutionEventKinds.SequenceStarted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null)) with { ScopeId = scopeId },
+            Lifecycle(runId, revisionId, 2, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+                new(sequenceId, "sequence", "only", 0, activationId, "connection-only")) with { ScopeId = scopeId },
+            Lifecycle(runId, revisionId, 3, ExecutionEventKinds.SequenceOutputCompleted, sequenceId,
+                new(sequenceId, "sequence", "only", 0, activationId, "connection-only")) with { ScopeId = scopeId },
+            Lifecycle(runId, revisionId, 4, ExecutionEventKinds.SequenceCompleted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null)) with { ScopeId = scopeId }
+        };
+
+        Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal(scopeId, playback!.ScopeId);
+        Assert.False(SequenceEvidence.TryReconstructPlayback(
+            [.. events[..^1], events[^1] with { ScopeId = "outer-loop/1/inner-loop/1" }], out _));
+    }
+
+    [Fact]
     public void Playback_reconstructs_overlapping_outputs_that_complete_out_of_order()
     {
         var sequenceId = Guid.NewGuid();
