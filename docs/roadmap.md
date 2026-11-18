@@ -190,8 +190,9 @@ introduced.
   `array<json>` because structural equality is not defined. Core passed 635/635
   tests and the focused Agent Framework tests passed 7/7 on 2026-11-17. The full
   Agent Framework suite remains incomplete due to an unrelated nested-Break
-  concurrency failure and subsequent stall. Browser authoring verification is
-  still pending. See [Decision 0072](decisions/0072-primitive-array-contains.md).
+  concurrency failure and subsequent stall. Playwright verified the editor
+  adds the node, renders its typed operation, and leaves the graph with no
+  reported issues. See [Decision 0072](decisions/0072-primitive-array-contains.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
   252/252 passed. The prior MCP suite result is 98 passed with 2 opt-in tests
@@ -252,6 +253,13 @@ introduced.
   the full iterator gate, nested frames, shared budgets, and supported-body
   matrix remain open. See
   [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  The reviewed activation-local Break proof could not include a sibling Sequence
+  continuation because current unified-schema Sequence outputs accept only bounded
+  linear paths ending at Output; conditional routing is rejected by validation.
+  The combined case remains an open composition gap and needs its own reviewed
+  Sequence-path contract before it can be used as iteration-seam evidence. The
+  existing overlapping Break/Agent proof remains covered, but it does not close
+  that gap.
   This remains a private proof path: the
   production guard, public schema, and Studio authoring remain unchanged. Prove
   one VAW owner for frames,

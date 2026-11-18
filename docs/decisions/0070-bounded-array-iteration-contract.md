@@ -3831,3 +3831,31 @@ remains the contention check.
 The wider iterator gate remains open. This change is proof-only and does not
 select production Sequence/Break support or public authoring. Nested frames,
 shared budgets, and the complete supported-body/runtime matrix remain pending.
+
+### Concurrent Break isolation meets the linear Sequence path contract (2026-11-17)
+
+A fresh proponent/opponent/adjudicator review recommended a private proof of
+activation-local Break while a sibling production-body activation is active,
+with a bounded Sequence continuation in that sibling. The adjudication was
+**REVISE**: retain the concurrent sibling boundary, but stop if the current
+graph contract cannot express the topology; a passing private proof would not
+select runtime architecture or public authoring.
+
+The candidate graph was rejected by unified-schema validation before runtime
+dispatch. The current Sequence path validator requires every output to follow
+a bounded, disjoint linear path ending at Output (`sequence.path.node`,
+`sequence.path.terminal`, `sequence.path.unreachable`, and
+`sequence.path.barrier`). It cannot conditionally choose Break for one
+activation while the sibling continues through a Sequence path. No runtime or
+schema change was retained from this experiment. This is evidence of a separate
+Blueprint composition gap, not a failing runtime proof.
+
+The narrower existing concurrent proof remains verified:
+`ConcurrentProductionBodyCoordinator_AdmitsBreakWhileEarlierAgentIsActive`
+shows a graph-dispatched Break in one activation while an Agent in another
+activation is held, with the admitted Agent drained before root completion and
+file/SQLite playback reopened. The isolated nearest-frame test also passed both
+store variants on this checkout. These facts do not establish conditional
+Sequence-path support or close the full iterator matrix. Revisit the combined
+scenario only after a separately reviewed Sequence-path contract can represent
+it without bypassing validation.

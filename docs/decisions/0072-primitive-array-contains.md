@@ -52,9 +52,9 @@ deferred until they have separately justified contracts.
   (`ConcurrentProductionBodyCoordinator_NestedBreakTargetsNearestFrame`,
   expected 2 and observed 3) and then stalled. This belongs to the separate
   Sequence/Break workstream.
-- Browser verification of graph authoring is pending because the existing
-  `graph_canvas_smoke.py` stopped earlier at its node-comment expansion
-  assertion. It did not reach the Array Contains controls.
+- The broad `graph_canvas_smoke.py` stopped earlier at its node-comment
+  expansion assertion. A focused Playwright browser check then added Array
+  Contains through the node library and observed no graph issues.
 
 ## Consequences
 
