@@ -7450,7 +7450,7 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ConcurrentProductionBodyCoordinator_ReservesModelOutcomeBytesBeforeDispatch(bool sqlite)
+    public async Task ConcurrentProductionBodyCoordinator_EnforcesModelOutcomeReservationsBeforeDispatch(bool sqlite)
     {
         var baseline = await ExecuteAsync(maximumBytes: 4_000_000);
         var requests = baseline.Events.Where(evt => evt.Kind == ExecutionEventKinds.ModelRequested)
@@ -7486,8 +7486,17 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(2, limited.Events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
         Assert.Contains("Latest run status: failed", limited.Playback, StringComparison.Ordinal);
 
+        var reservationLimited = await ExecuteAsync(maximumBytes: 4_000_000,
+            maximumConcurrentOutcomeReservations: 1);
+        Assert.True(reservationLimited.Result.Failed);
+        Assert.Equal(1, reservationLimited.ProviderCalls);
+        Assert.Single(reservationLimited.Events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.Single(reservationLimited.Events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent");
+        Assert.Single(reservationLimited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.Contains("Latest run status: failed", reservationLimited.Playback, StringComparison.Ordinal);
+
         async Task<(ExecutionEvent[] Events, int ProviderCalls, WorkflowExecutionResult Result, string Playback)>
-            ExecuteAsync(long maximumBytes)
+            ExecuteAsync(long maximumBytes, int maximumConcurrentOutcomeReservations = 2)
         {
             const string providerId = "proof.concurrent-model-byte-budget";
             const string input = "[\"first\",\"second\"]";
@@ -7533,7 +7542,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(store.RunId, revision, input,
                     "index", null, Record, runBudget: StructuredRunBudget(maximumToolDispatches: 1) with
                     {
-                        MaximumBytes = maximumBytes
+                        MaximumBytes = maximumBytes,
+                        MaximumConcurrentOutcomeReservations = maximumConcurrentOutcomeReservations
                     });
             var events = recorder.Snapshot();
             Assert.True(events.Sum(EventBytes) <= maximumBytes);

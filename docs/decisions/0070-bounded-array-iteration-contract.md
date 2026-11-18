@@ -3639,15 +3639,16 @@ production budget ownership, or general scheduler races.
 
 ### Concurrent model outcome byte reservations (2026-11-17)
 
-`ConcurrentProductionBodyCoordinator_ReservesModelOutcomeBytesBeforeDispatch`
-uses a synchronized two-activation production Agent body to calibrate the
-serialized prefix through the competing `model.requested` event. The cap
-includes both pending iteration settlement slots, two bounded model outcomes,
-and the failure reserve. The second request is rejected before provider
-dispatch; the accepted provider is released after the sibling records its
-failure, the root fails, and the persisted prefix remains under the configured
-byte limit. Both file and SQLite histories reopen with the same events and
-playback (2/2); the concurrent production-body coordinator group passes 41/41.
-This verifies one model event shape under a bounded concurrent case, not all
+`ConcurrentProductionBodyCoordinator_EnforcesModelOutcomeReservationsBeforeDispatch`
+uses a synchronized two-activation production Agent body to test both
+outstanding model-reservation count and byte limits. With one reservation, the
+competing `model.requested` event is rejected before provider dispatch. The
+byte-limited case calibrates the serialized prefix through the second request
+and includes both pending iteration settlement slots, two bounded model
+outcomes, and failure reserve; the resulting prefix remains under the
+configured ceiling. The accepted provider is released after its sibling
+records failure. Both file and SQLite histories reopen with matching events
+and playback (2/2); the concurrent coordinator group passes 41/41. This
+verifies one model event shape under a bounded concurrent case, not all
 prompt/response sizes, delegated-call envelopes, production budget ownership,
 or uncontrolled scheduler races.

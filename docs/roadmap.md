@@ -266,12 +266,12 @@ introduced.
   direct-MCP body; broader concurrent payload shapes and production budget
   ownership remain open. See [Decision
   0070](decisions/0070-bounded-array-iteration-contract.md).
-  A synchronized two-Agent body also calibrates the competing
-  `model.requested` admission against both active iteration settlements and
-  two bounded model outcomes. The byte cap rejects the second provider request
-  before dispatch, preserves one failed root, and stays within the configured
-  serialized-event ceiling after file/SQLite reopen (2/2). Other payload shapes
-  and production budget ownership remain open; see [Decision
+  A synchronized two-Agent body now covers both a single outstanding model
+  outcome reservation and a calibrated byte cap. In each case, the second
+  `model.requested` is rejected before provider dispatch while both iteration
+  settlement slots remain held; file/SQLite reopen matches, and the byte-limited
+  failed prefix remains within its serialized-event ceiling (2/2). Other
+  payload shapes and production budget ownership remain open; see [Decision
   0070](decisions/0070-bounded-array-iteration-contract.md).
   A nested-frame production-body case now confirms that graph-dispatched Break
   targets the inner frame ID rather than its supplied outer frame, suppresses
@@ -1049,14 +1049,15 @@ introduced.
         does not establish limits for other payload shapes or a production-owned
         budget contract. See [Decision
         0070](decisions/0070-bounded-array-iteration-contract.md).
-      - [x] Calibrate concurrent model-outcome byte reservations from a
-        synchronized two-activation baseline. The competing model request is
-        rejected before provider dispatch while the shared serialized-event
-        ceiling includes both active iteration settlements, outcome reserves,
-        and reserved failure evidence. The failed history stays within its cap
-        and reopens identically through file and SQLite (2/2 focused cases;
-        concurrent coordinator group 41/41). Other payload shapes and
-        production budget ownership remain open. See [Decision
+      - [x] Exercise concurrent model-outcome reservation-count exhaustion,
+        then calibrate byte exhaustion from a synchronized two-activation
+        baseline. Each competing request is rejected before provider dispatch
+        while both active iteration settlements remain reserved; the byte case
+        also includes bounded outcomes and failure evidence in its ceiling.
+        File/SQLite histories reopen identically and the byte-limited prefix
+        stays within its cap (2/2 focused cases; concurrent coordinator group
+        41/41). Other payload shapes and production budget ownership remain
+        open. See [Decision
         0070](decisions/0070-bounded-array-iteration-contract.md).
       - [x] Verify reservation identity extraction for delegated model and
         production-MCP calls through the structured run context. Delegated
