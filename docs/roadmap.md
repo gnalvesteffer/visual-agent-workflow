@@ -218,7 +218,11 @@ introduced.
   remains unchanged. Deterministic host cancellation after branch selection
   now cancels the selected output, skips the suffix, and suppresses the later
   route with matching file/SQLite playback for both branch choices (4/4).
-  Malformed-region and linear-compatibility proof remain open. See
+  Existing linear unified-schema graphs now also preserve ordered output IDs,
+  execution connections, and hashes through JSON/package round trips (Core
+  SequenceGraphTests 30/30); production direct-MCP and Agent-transform tests
+  reconstruct completed playback (2/2). Malformed-region validation and
+  round trips for the future branched contract remain open. See
   [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework

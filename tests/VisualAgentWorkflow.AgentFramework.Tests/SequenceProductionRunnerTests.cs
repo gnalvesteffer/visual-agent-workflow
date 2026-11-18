@@ -918,6 +918,10 @@ public sealed class SequenceProductionRunnerTests
         Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "sum"));
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is "sum" or "left" or "right");
         Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+        Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("completed", playback!.Status);
+        Assert.Equal(["inventory", "architecture"], playback.Outputs.Select(output => output.OutputId));
+        Assert.All(playback.Outputs, output => Assert.Equal("completed", output.State));
     }
 
     [Fact]
@@ -942,6 +946,9 @@ public sealed class SequenceProductionRunnerTests
         Assert.Equal("HELLO", result.Output);
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "uppercase" && evt.Data == "HELLO");
         Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+        Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("completed", playback!.Status);
+        Assert.All(playback.Outputs, output => Assert.Equal("completed", output.State));
     }
 
     [Fact]

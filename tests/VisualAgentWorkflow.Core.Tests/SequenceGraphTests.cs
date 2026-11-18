@@ -23,6 +23,25 @@ public sealed class SequenceGraphTests
     }
 
     [Fact]
+    public void Unified_linear_sequence_package_round_trip_preserves_definition_identity()
+    {
+        var definition = Definition() with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
+        var originalHash = WorkflowJson.ComputeHash(definition);
+        var serialized = WorkflowJson.Serialize(definition);
+        var restored = WorkflowJson.Deserialize(serialized);
+        var package = WorkflowPackageJson.Create(restored, WorkflowLayout.Create(restored));
+        var reopened = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(restored, package.Layout));
+
+        Assert.Empty(WorkflowValidator.Validate(restored));
+        Assert.Equal(definition.Nodes["sequence"].Sequence!.Outputs.ToArray(),
+            reopened.Definition.Nodes["sequence"].Sequence!.Outputs.ToArray());
+        Assert.Equal(definition.ExecutionConnections, reopened.Definition.ExecutionConnections);
+        Assert.Equal(originalHash, WorkflowJson.ComputeHash(restored));
+        Assert.Equal(originalHash, reopened.DefinitionHash);
+        Assert.Equal(originalHash, WorkflowJson.ComputeHash(reopened.Definition));
+    }
+
+    [Fact]
     public void Sequence_requires_two_to_four_unique_bounded_outputs()
     {
         var invalid = Definition() with

@@ -114,8 +114,13 @@ controlled Agent beyond the merge. The active output settles cancelled, the
 later suffix is skipped, no downstream completion/Break node starts, and file
 and SQLite playback reopen identically for both branch choices (4/4). This is
 deterministic executor evidence, not a live provider cancellation guarantee.
-Malformed-region validation and unchanged linear graph round trips still need
-coverage.
+The existing linear unified-schema compatibility path is also verified. A Core
+package/JSON round trip preserves ordered output IDs, execution connections,
+and definition hash (SequenceGraphTests 30/30). Production execution tests for
+typed direct-MCP arguments and Agent-to-transform paths now reconstruct the
+same completed Sequence playback (2/2). This covers the existing linear
+contract; malformed-region validation and round trips for the future branched
+contract remain open.
 
 If the output-to-route mapping requires a second lifecycle/collector owner or
 cannot preserve these invariants, return the design for review rather than
