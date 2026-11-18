@@ -215,8 +215,10 @@ introduced.
   fatal failure and unknown outcome each fail the selected output, skip the
   suffix, and suppress downstream completion/Break. Both branch choices replay
   from file and SQLite with identical event prefixes (8/8). Public validation
-  remains unchanged; host cancellation after branch selection,
-  malformed-region, and compatibility proof remain open. See
+  remains unchanged. Deterministic host cancellation after branch selection
+  now cancels the selected output, skips the suffix, and suppresses the later
+  route with matching file/SQLite playback for both branch choices (4/4).
+  Malformed-region and linear-compatibility proof remain open. See
   [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework

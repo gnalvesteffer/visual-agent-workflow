@@ -109,9 +109,13 @@ explicitly unknown tool outcome each settle the selected Sequence output as
 failed exactly once, skip the later suffix, and suppress the downstream
 completion/Break decision. Both branch choices and both outcomes reopen with
 identical file and SQLite event prefixes and failed passive playback (8/8).
-This verifies the post-merge failure and unknown-outcome path only. Host
-cancellation after branch selection, malformed-region validation, and
-unchanged linear graph round trips still need coverage.
+Host cancellation is now also injected after the selected branch has reached a
+controlled Agent beyond the merge. The active output settles cancelled, the
+later suffix is skipped, no downstream completion/Break node starts, and file
+and SQLite playback reopen identically for both branch choices (4/4). This is
+deterministic executor evidence, not a live provider cancellation guarantee.
+Malformed-region validation and unchanged linear graph round trips still need
+coverage.
 
 If the output-to-route mapping requires a second lifecycle/collector owner or
 cannot preserve these invariants, return the design for review rather than

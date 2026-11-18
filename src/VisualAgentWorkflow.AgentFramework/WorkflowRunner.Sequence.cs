@@ -104,6 +104,14 @@ public sealed partial class WorkflowRunner
         return ExecuteSequenceBranchDecisionProofAsync(runId, revision, input, record, cancellationToken);
     }
 
+    internal Task<WorkflowExecutionResult> ExecuteSequenceBranchDecisionCancellationProofAsync(Guid runId,
+        WorkflowRevision revision, string input, Func<ExecutionEvent, ValueTask> record,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        return ExecuteSequenceBranchDecisionProofAsync(runId, revision, input, record, cancellationToken);
+    }
+
     private Task<WorkflowExecutionResult> ExecuteSequenceBranchDecisionProofAsync(Guid runId,
         WorkflowRevision revision, string input, Func<ExecutionEvent, ValueTask> record,
         CancellationToken cancellationToken)
@@ -193,6 +201,25 @@ public sealed partial class WorkflowRunner
             Nodes = nodes,
             ExecutionConnections = executionConnections
         }, "sequence-branch-tool-outcome-proof");
+    }
+
+    internal static WorkflowRevision CreateSequenceBranchDecisionCancellationProofRevision(bool condition)
+    {
+        var definition = CreateSequenceBranchDecisionEvidenceProofRevision(condition).Definition;
+        var nodes = definition.Nodes.Add("agent", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+            Agent: new AgentConfiguration("proof.settlement", null, "Wait for host cancellation.", [])
+            {
+                MaxTurns = 1
+            }));
+        var executionConnections = definition.ExecutionConnections!
+            .Remove("merge-outcome")
+            .Add("merge-agent", new(new("merge", "then"), new("agent", "execute"), "execution"))
+            .Add("agent-outcome", new(new("agent", "then"), new("outcome", "execute"), "execution"));
+        return WorkflowRevision.CreateProofOnly(definition with
+        {
+            Nodes = nodes,
+            ExecutionConnections = executionConnections
+        }, "sequence-branch-cancellation-proof");
     }
 
     /// <summary>

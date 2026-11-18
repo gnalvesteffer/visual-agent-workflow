@@ -18866,6 +18866,67 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    public async Task SequenceBranchMergeHostCancellationCannotBeHiddenByLaterRoute(bool sqlite, bool condition)
+    {
+        var revision = WorkflowRunner.CreateSequenceBranchDecisionCancellationProofRevision(condition);
+        using var store = new ProofRunStore(revision, "route input", sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        var agents = new ControlledSettlementAgentExecutor("agent");
+        using var cancellation = new CancellationTokenSource();
+        var execution = new WorkflowRunner(agents: agents).ExecuteSequenceBranchDecisionCancellationProofAsync(
+            store.RunId, revision, "route input", evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }, cancellation.Token).WaitAsync(TimeSpan.FromSeconds(10));
+
+        try
+        {
+            await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var beforeCancellation = recorder.Snapshot();
+            Assert.Contains(beforeCancellation, evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "branch");
+            Assert.Contains(beforeCancellation, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "merge");
+            Assert.Contains(beforeCancellation, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent");
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await execution);
+        }
+        finally
+        {
+            agents.Release.TrySetResult();
+            if (!execution.IsCompleted)
+            {
+                try { await execution.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (OperationCanceledException) { }
+                catch (TimeoutException) { }
+            }
+        }
+
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(store, events, "cancelled");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "agent");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
+            SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "decision");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+            SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "suffix");
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.SequenceOutputCompleted or
+            ExecutionEventKinds.SequenceBreakCompleted or ExecutionEventKinds.SequenceCompleted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId is "outcome" or "output" or "suffix-output");
+
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal("cancelled", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("cancelled", playback!.Status);
+        Assert.Equal(["cancelled", "skipped"], playback.Outputs.Select(output => output.State));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task SingleStreamSequenceProof_AdmitsBreakWhileEarlierAgentIsActive(bool sqlite)
