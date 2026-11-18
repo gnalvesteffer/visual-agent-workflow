@@ -4156,9 +4156,11 @@ ownership and feedback edges. Migration preserves node, data-edge, and
 execution-edge identities while retargeting only feedback edges. Focused tests
 pass 32/32. Serialized legacy single-loop definitions from schemas 1.17–1.22
 also round-trip, normalize to 2.0, and migrate without source mutation or loss
-of authored IDs (6/6 cases). The full Core suite passes 687/687. Existing
-malformed-route, disconnected-loop, incomplete-draft, and ambiguous-migration
-cases remain rejected.
+of authored IDs (6/6 cases). Malformed duplicate-return imports from each
+legacy schema fail with no target/provenance and preserve every validator code,
+path, and full message, without changing source bytes (6/6 cases). The full Core
+suite passes 693/693. Existing malformed-route, disconnected-loop,
+incomplete-draft, and ambiguous-migration cases remain rejected.
 
 The following remain required before integration: broader malformed and
 ambiguous legacy-migration diagnostics without partial source mutation; public

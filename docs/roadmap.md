@@ -123,10 +123,13 @@ the historical promotion chain.
   serialized legacy single-loop definitions from schemas 1.17–1.22:
   each round-trips, normalizes to 2.0, then migrates to the explicit feedback
   target with source bytes and authored identities preserved (6/6 cases).
-  Broader malformed/ambiguous legacy-migration fixtures and integrated
-  authoring, validation, package, runtime, persistence, and playback evidence
-  remain before public rollout. Sequence/Break production settlement remains a
-  separate gate and cannot be used to select feedback-pin topology.
+  Malformed duplicate-return imports from each of schemas 1.17–1.22 now fail
+  without a target/provenance, preserve the serialized source, and retain every
+  validator code, path, and full message (6/6 cases). Core passes 693/693.
+  Other malformed/ambiguous legacy shapes and integrated authoring, validation,
+  package, runtime, persistence, and playback evidence remain before public
+  rollout. Sequence/Break production settlement remains a separate gate and
+  cannot be used to select feedback-pin topology.
   - [x] Add a non-authoritative Core topology/migration discriminator and run
     both feedback-pin shapes over shared nested-loop, Sequence, malformed-route,
     incomplete-draft, and migration cases. The expanded three-loop fixture has
@@ -136,10 +139,11 @@ the historical promotion chain.
     Shared routes, fallthrough, cross-owner returns, unowned cycles, incomplete
     feedback, disconnected loops, and ambiguous migration are rejected.
     Focused topology tests pass 32/32; six serialized legacy schema variants
-    also pass normalization-plus-migration, and Core passes 687/687. Public/
-    package admission still reject the proof candidates; wider invalid-legacy
-    migration diagnostics, integrated runtime, persistence/playback, and full
-    compatibility remain open.
+    also pass normalization-plus-migration. Duplicate-return serialized imports
+    for all six variants preserve exact validator diagnostics and source bytes;
+    Core passes 693/693. Public/package admission still reject the proof
+    candidates; additional invalid-legacy shapes, integrated runtime,
+    persistence/playback, and full compatibility remain open.
   Reject arbitrary cycles and accept only explicitly declared, bounded loop
   feedback. Exercise nested Sequence/loop/Break composition through public and
   package validation, production dispatch, file/SQLite reopen, passive playback,

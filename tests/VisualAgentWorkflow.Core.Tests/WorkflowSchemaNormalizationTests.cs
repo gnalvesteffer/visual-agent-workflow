@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using VisualAgentWorkflow.Core;
 using Xunit;
 
@@ -154,6 +155,42 @@ public class WorkflowSchemaNormalizationTests
         Assert.Null(result.Provenance);
         Assert.NotEmpty(result.Diagnostics);
         Assert.StartsWith("normalization.", result.Diagnostics[0].Code);
+    }
+
+    [Theory]
+    [InlineData("1.17")]
+    [InlineData("1.18")]
+    [InlineData("1.19")]
+    [InlineData("1.20")]
+    [InlineData("1.21")]
+    [InlineData("1.22")]
+    public void Ambiguous_serialized_legacy_loop_returns_precise_diagnostics_without_mutating_source(string schema)
+    {
+        var validLegacy = GraphEditing.InsertBoundedLoopAfter(Blank() with { SchemaVersion = schema }, "input", "out");
+        var loopId = validLegacy.Nodes.Single(pair => pair.Value.Type == NodeTypes.Loop).Key;
+        var bodyId = validLegacy.Nodes.Single(pair => pair.Value.Type == NodeTypes.LoopBody).Key;
+        var serializedSource = WorkflowJson.Serialize(validLegacy);
+        var imported = WorkflowJson.Deserialize(serializedSource);
+        var ambiguous = imported with
+        {
+            Connections = imported.Connections.Add("duplicate-return",
+                new(new(bodyId, "out"), new(loopId, "in"), "data"))
+        };
+        var malformedJson = JsonSerializer.Serialize(ambiguous);
+        var malformedImport = JsonSerializer.Deserialize<WorkflowDefinition>(malformedJson)!;
+        var issues = WorkflowValidator.Validate(malformedImport);
+
+        var result = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(malformedImport);
+
+        Assert.NotEmpty(issues);
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Definition);
+        Assert.Null(result.Provenance);
+        Assert.All(issues, issue => Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Code == $"normalization.{issue.Code}" && diagnostic.Path == issue.Path &&
+            diagnostic.Message == issue.Message));
+        Assert.Equal(malformedJson, JsonSerializer.Serialize(malformedImport));
+        Assert.Equal(serializedSource, WorkflowJson.Serialize(imported));
     }
 
     [Fact]

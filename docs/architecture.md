@@ -16,7 +16,10 @@ loops, and the legacy loop-carried string topology. Normalization of schema
 1.17–1.22 preserves the latter's data feedback edge and adds explicit
 activation edges only for a linear body of pure uppercase/reverse transforms.
 Runtime input selection is iteration-aware; effectful historical loop bodies
-are not silently converted.
+are not silently converted. Failed normalization returns validator issue codes,
+graph paths, and full messages rather than only a generic conversion failure;
+it returns no target draft or provenance, and the immutable source remains
+unchanged.
 
 Legacy conditional schemas 1.4–1.22 also normalize when they contain one
 Condition, at most one Merge, disjoint pure-text arms, and unambiguous

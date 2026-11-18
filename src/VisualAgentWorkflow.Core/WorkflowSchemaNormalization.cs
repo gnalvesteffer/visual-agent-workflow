@@ -25,14 +25,38 @@ public static class WorkflowSchemaNormalization
             return new(target, new WorkflowNormalizationProvenance(identity, sourceRevisionId, sourceHash,
                 definition.SchemaVersion, targetHash, target.SchemaVersion, NormalizerVersion, [], definition, target));
         }
+        catch (InvalidSourceDefinitionException exception)
+        {
+            return new(null, null, exception.Diagnostics);
+        }
         catch (ArgumentException exception)
         {
-            var message = exception.Message;
-            var separator = message.IndexOf(':');
-            var code = separator > 0 && message[..separator].StartsWith("normalization.", StringComparison.Ordinal)
-                ? message[..separator] : "normalization.failed";
-            return new(null, null, [new WorkflowNormalizationDiagnostic(code, "definition", message)]);
+            return new(null, null, CreateDiagnostics(exception));
         }
+    }
+
+    private static ImmutableArray<WorkflowNormalizationDiagnostic> CreateDiagnostics(ArgumentException exception)
+    {
+        var message = exception.Message;
+        var parameterSuffix = message.LastIndexOf(" (Parameter ", StringComparison.Ordinal);
+        if (parameterSuffix >= 0) message = message[..parameterSuffix];
+
+        var colon = message.IndexOf(':');
+        if (colon > 0 && message[..colon].StartsWith("normalization.", StringComparison.Ordinal))
+        {
+            return [new(message[..colon], "definition", message[(colon + 1)..].Trim())];
+        }
+
+        return [new("normalization.failed", "definition", message)];
+    }
+
+    private sealed class InvalidSourceDefinitionException(ImmutableArray<ValidationIssue> issues)
+        : ArgumentException(string.Join("; ", issues.Select(issue =>
+            $"{issue.Code} at {issue.Path}: {issue.Message}")), "definition")
+    {
+        public ImmutableArray<WorkflowNormalizationDiagnostic> Diagnostics { get; } =
+            issues.Select(issue => new WorkflowNormalizationDiagnostic(
+                $"normalization.{issue.Code}", issue.Path, issue.Message)).ToImmutableArray();
     }
 
     /// <summary>
@@ -51,7 +75,8 @@ public static class WorkflowSchemaNormalization
         }
         else
         {
-            WorkflowValidator.ThrowIfInvalid(definition);
+            var sourceIssues = WorkflowValidator.Validate(definition);
+            if (!sourceIssues.IsEmpty) throw new InvalidSourceDefinitionException(sourceIssues);
             if (definition.Nodes.Values.Any(node => node.Type == NodeTypes.Condition))
             {
                 candidate = NormalizeLegacyConditionalTextGraph(definition);
