@@ -85,47 +85,24 @@ public sealed partial class WorkflowRunner
     internal Task<WorkflowExecutionResult> ExecuteSequenceBranchDecisionEvidenceProofAsync(Guid runId,
         string input, bool condition, Func<ExecutionEvent, ValueTask> record,
         CancellationToken cancellationToken = default)
+        => ExecuteSequenceBranchDecisionEvidenceProofAsync(runId,
+            CreateSequenceBranchDecisionEvidenceProofRevision(condition), input, record, cancellationToken);
+
+    internal Task<WorkflowExecutionResult> ExecuteSequenceBranchDecisionEvidenceProofAsync(Guid runId,
+        WorkflowRevision revision, string input, Func<ExecutionEvent, ValueTask> record,
+        CancellationToken cancellationToken = default)
     {
-        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
-            "sequence-branch-evidence-proof", "input",
-            new Dictionary<string, NodeDefinition>
-            {
-                ["input"] = new(NodeTypes.Input, "1.0.0"),
-                ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
-                {
-                    Sequence = new([new("decision", "Decision")])
-                },
-                ["condition"] = new(NodeTypes.BooleanConstant, "1.0.0")
-                {
-                    BooleanConstant = new(condition)
-                },
-                ["branch"] = new(NodeTypes.BooleanBranch, "1.0.0"),
-                ["merge"] = new(NodeTypes.Merge, "1.0.0"),
-                ["break"] = new(StructuredProofBreakNodeType, "proof-only"),
-                ["output"] = new(NodeTypes.Output, "1.0.0")
-            }.ToImmutableSortedDictionary(),
-            new Dictionary<string, ConnectionDefinition>
-            {
-                ["branch-condition"] = new(new("condition", "out"), new("branch", "condition"), "data")
-            }.ToImmutableSortedDictionary())
-        {
-            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
-            {
-                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
-                ["sequence-branch"] = new(new("sequence", "then.decision"), new("branch", "execute"), "execution"),
-                ["branch-true"] = new(new("branch", "true"), new("merge", "execute"), "execution"),
-                ["branch-false"] = new(new("branch", "false"), new("break", "execute"), "execution"),
-                ["merge-output"] = new(new("merge", "then"), new("output", "execute"), "execution"),
-                ["break-output"] = new(new("break", "out"), new("output", "execute"), "execution")
-            }.ToImmutableSortedDictionary()
-        };
-        var revision = WorkflowRevision.CreateProofOnly(definition, "sequence-branch-evidence-proof");
+        ArgumentNullException.ThrowIfNull(revision);
         var plan = new SequenceProductionPlan("sequence", [
-            new SequenceProductionOutput("decision", 0, "branch", "sequence", "then.decision", "sequence-branch")
-        ], null, SequenceTerminalState.Completed, AllowSingleOutput: true);
-        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence", ["decision"],
-            new Dictionary<string, string>(StringComparer.Ordinal) { ["decision"] = "sequence-branch" },
-            allowSingleOutput: true);
+            new SequenceProductionOutput("decision", 0, "branch", "sequence", "then.decision", "sequence-branch"),
+            new SequenceProductionOutput("suffix", 1, "suffix-output", "sequence", "then.suffix", "sequence-suffix")
+        ], null, SequenceTerminalState.Completed);
+        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence", ["decision", "suffix"],
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["decision"] = "sequence-branch",
+                ["suffix"] = "sequence-suffix"
+            });
         var frame = new StructuredActivationFrame(Guid.NewGuid(), null, "array-loop", 0, input,
             ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal));
         var breakNodeIds = ImmutableHashSet.Create(StringComparer.Ordinal, "break");
@@ -134,6 +111,52 @@ public sealed partial class WorkflowRunner
             rootRevision: revision, sequencePlan: plan, skipValidationForInternalProof: true,
             activationFrame: frame, proofBreakNodeIds: breakNodeIds, sequenceDispatchSession: session,
             captureActivationBreak: _ => { });
+    }
+
+    internal static WorkflowRevision CreateSequenceBranchDecisionEvidenceProofRevision(bool condition)
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "sequence-branch-evidence-proof", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
+                {
+                    Sequence = new([new("decision", "Decision"), new("suffix", "After decision")])
+                },
+                ["condition"] = new(NodeTypes.BooleanConstant, "1.0.0")
+                {
+                    BooleanConstant = new(condition)
+                },
+                ["branch"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+                ["alternate"] = new(NodeTypes.SequenceUppercase, "1.0.0"),
+                ["merge"] = new(NodeTypes.Merge, "1.0.0"),
+                ["outcome"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+                ["break"] = new(StructuredProofBreakNodeType, "proof-only"),
+                ["output"] = new(NodeTypes.Output, "1.0.0"),
+                ["suffix-output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["branch-condition"] = new(new("condition", "out"), new("branch", "condition"), "data"),
+                ["outcome-condition"] = new(new("condition", "out"), new("outcome", "condition"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-branch"] = new(new("sequence", "then.decision"), new("branch", "execute"), "execution"),
+                ["sequence-suffix"] = new(new("sequence", "then.suffix"), new("suffix-output", "execute"), "execution"),
+                ["branch-true"] = new(new("branch", "true"), new("merge", "execute"), "execution"),
+                ["branch-false"] = new(new("branch", "false"), new("alternate", "execute"), "execution"),
+                ["alternate-merge"] = new(new("alternate", "then"), new("merge", "execute"), "execution"),
+                ["merge-outcome"] = new(new("merge", "then"), new("outcome", "execute"), "execution"),
+                ["outcome-true"] = new(new("outcome", "true"), new("output", "execute"), "execution"),
+                ["outcome-false"] = new(new("outcome", "false"), new("break", "execute"), "execution"),
+                ["break-output"] = new(new("break", "out"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        return WorkflowRevision.CreateProofOnly(definition, "sequence-branch-evidence-proof");
     }
 
     /// <summary>

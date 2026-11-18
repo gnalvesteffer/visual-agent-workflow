@@ -773,6 +773,12 @@ public sealed class SequenceProductionRunnerTests
         Assert.Equal(0, lineage.GetProperty("Ordinal").GetInt32());
         Assert.NotEqual(Guid.Empty, lineage.GetProperty("OutputActivationId").GetGuid());
 
+        var outcomeDecision = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "outcome");
+        using var outcomeEvidence = JsonDocument.Parse(outcomeDecision.Data!);
+        Assert.Equal(expectedPort, outcomeEvidence.RootElement.GetProperty("port").GetString());
+        Assert.Equal(lineage.GetProperty("OutputActivationId").GetGuid(), outcomeEvidence.RootElement
+            .GetProperty("sequenceLineage").GetProperty("OutputActivationId").GetGuid());
+
         var selectedTransfer = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
             evt.ConnectionId == $"execution:{expectedConnection}");
         using var transferEvidence = JsonDocument.Parse(selectedTransfer.Data!);
@@ -780,11 +786,26 @@ public sealed class SequenceProductionRunnerTests
             .GetProperty("sequenceLineage").GetProperty("OutputActivationId").GetGuid());
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
             evt.ConnectionId == $"execution:{(expectedConnection == "branch-true" ? "branch-false" : "branch-true")}");
-        Assert.Equal(condition, events.Any(evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "merge"));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "merge");
+        Assert.Equal(!condition, events.Any(evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "alternate"));
+        var selectedMergeArrival = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+            evt.ConnectionId == $"execution:{(condition ? "branch-true" : "alternate-merge")}");
+        using var mergeEvidence = JsonDocument.Parse(selectedMergeArrival.Data!);
+        Assert.Equal(lineage.GetProperty("OutputActivationId").GetGuid(), mergeEvidence.RootElement
+            .GetProperty("sequenceLineage").GetProperty("OutputActivationId").GetGuid());
+        Assert.Equal(condition ? 2 : 1, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
             SequenceEvidence.TryRead(evt, out var output) && output?.OutputId == "decision");
+        Assert.Equal(!condition, events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+            SequenceEvidence.TryRead(evt, out var output) && output?.OutputId == "suffix"));
         Assert.Equal(!condition, events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted));
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "sequence-collector");
+        Assert.Equal(condition ? 2 : 1, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "sequence-collector"));
+        Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal(condition ? "completed" : "break-completed", playback!.Status);
+        Assert.Equal(["decision", "suffix"], playback.Outputs.Select(output => output.OutputId));
+        var expectedStates = condition ? new[] { "completed", "completed" } : ["completed", "skipped"];
+        Assert.Equal(expectedStates, playback.Outputs.Select(output => output.State));
     }
 
     [Theory]

@@ -83,16 +83,19 @@ production body and Sequence path:
 ## Proof progress (2026-11-17)
 
 The private production-runner proof now dispatches one Sequence output through
-both a normal Boolean Branch route and a private successful Break route. The
-normal route passes through one Merge node and reaches the collector through
-Output's ordinary result; the Break route uses Output's special `break`
-handoff and reaches the same collector. The coordinator records one completed
-output activation in both cases, and Break also records
-`sequence.break_completed`. The selected branch event carries the same
-Sequence invocation, output ID, ordinal, activation ID, and originating
-connection identity as its execution-transfer event; the unselected branch
-has no transfer event. A focused production-runner test passed both choices
-(2/2).
+both inputs of one Merge: one arm connects directly, and the other passes
+through a deterministic text node. Either selection reaches Merge exactly once;
+the other arm has no transfer or node-start evidence. A downstream decision
+then selects normal completion or a private successful Break route. The normal
+route completes the next Sequence output; Break uses Output's special `break`
+handoff, completes the active output once, and skips the suffix. Both routes
+reach the same collector. The selected branch events carry the same Sequence
+invocation, output ID, ordinal, activation ID, and originating connection
+identity as their execution-transfer events. In-memory passive playback
+reconstructs both `completed` and `break-completed` positions. File and SQLite
+reopen preserve the exact event prefix, and passive playback reconstructs the
+same states from each reopened store (4/4 store/outcome cases). Focused
+production-runner coverage passed both alternatives (2/2).
 
 This exposed and fixed three evidence/runtime gaps: branch-decision events had
 omitted Sequence lineage, the production Sequence builder did not route the
@@ -100,10 +103,9 @@ special Output Break handoff into its collector, and explicit-graph Merge and
 Approval executors emitted `out` despite exposing `then` pins. These are
 internal proof changes plus a correction to explicit execution-pin dispatch.
 They do not admit conditional Sequence definitions in the public validator.
-The proof gate remains open: alternate selected arms converging at one
-multi-input Merge, malformed-region validation, failure/unknown/cancel races
-after branch selection, persisted file/SQLite replay, and unchanged linear
-graph round trips still need coverage.
+The proof gate remains open: malformed-region validation, failure/unknown/
+cancel races after branch selection, and unchanged linear graph round trips
+still need coverage.
 
 If the output-to-route mapping requires a second lifecycle/collector owner or
 cannot preserve these invariants, return the design for review rather than

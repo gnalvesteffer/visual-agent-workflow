@@ -18754,6 +18754,39 @@ public sealed class ArrayIterationVawBodyProofTests
         string[] ToolQueries, bool WorkLimitRejected);
 
     [Theory]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    public async Task SequenceBranchMergeBreakPlayback_ReopensSamePrefix(bool sqlite, bool condition)
+    {
+        var revision = WorkflowRunner.CreateSequenceBranchDecisionEvidenceProofRevision(condition);
+        using var store = new ProofRunStore(revision, "route input", sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+
+        var result = await new WorkflowRunner().ExecuteSequenceBranchDecisionEvidenceProofAsync(
+            store.RunId, revision, "route input", evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.False(result.Failed);
+        if (recorder.Snapshot().Last().Kind != ExecutionEventKinds.Completed)
+            recorder.CompleteRoot();
+        var events = recorder.Snapshot();
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal("completed", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal(Enumerable.Range(1, events.Length).Select(index => (long)index),
+            events.Select(evt => evt.Sequence));
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal(condition ? "completed" : "break-completed", playback!.Status);
+        var expectedStates = condition ? new[] { "completed", "completed" } : ["completed", "skipped"];
+        Assert.Equal(expectedStates, playback.Outputs.Select(output => output.State));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task SingleStreamSequenceProof_AdmitsBreakWhileEarlierAgentIsActive(bool sqlite)
