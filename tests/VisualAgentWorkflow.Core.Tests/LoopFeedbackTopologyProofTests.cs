@@ -1,0 +1,219 @@
+using System.Collections.Immutable;
+using VisualAgentWorkflow.Core;
+using Xunit;
+
+namespace VisualAgentWorkflow.Core.Tests;
+
+public sealed class LoopFeedbackTopologyProofTests
+{
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Nested_loop_feedback_candidates_have_the_same_ownership(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? NestedLoopCandidate()
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(NestedLoopCandidate());
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(candidate, shape);
+
+        Assert.True(proof.IsValid, string.Join(Environment.NewLine, proof.Issues));
+        var outer = Assert.Single(proof.Regions, region => region.LoopNodeId == "outer-loop");
+        var inner = Assert.Single(proof.Regions, region => region.LoopNodeId == "inner-loop");
+        Assert.Null(outer.ParentLoopNodeId);
+        Assert.Equal("outer-loop", inner.ParentLoopNodeId);
+        Assert.Equal("outer-body", outer.BodyAnchorNodeId);
+        Assert.Equal("inner-body", inner.BodyAnchorNodeId);
+        Assert.Equal("outer-return", outer.FeedbackConnectionId);
+        Assert.Equal("inner-return", inner.FeedbackConnectionId);
+        Assert.Equal("start-outer", outer.InitialConnectionId);
+        Assert.Equal("outer-inner", inner.InitialConnectionId);
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Unowned_cycle_is_rejected_for_both_pin_shapes(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? NestedLoopCandidate()
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(NestedLoopCandidate());
+        var cycle = candidate with
+        {
+            ExecutionConnections = candidate.ExecutionConnections!.SetItem("inner-return",
+                new(new("inner-step", "then"), new("inner-body", "execute"), "execution"))
+        };
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(cycle, shape);
+
+        Assert.False(proof.IsValid);
+        Assert.Contains(proof.Issues, issue => issue.Code is "loop.feedback.cycle" or "loop.feedback.missing");
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Cross_owner_feedback_is_rejected_for_both_pin_shapes(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? NestedLoopCandidate()
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(NestedLoopCandidate());
+        var wrongOwnerPort = shape == LoopFeedbackPinShape.InferredFromBodyTopology ? "execute" : "feedback";
+        var crossOwner = candidate with
+        {
+            ExecutionConnections = candidate.ExecutionConnections!.SetItem("inner-return",
+                new(new("inner-step", "then"), new("outer-loop", wrongOwnerPort), "execution"))
+        };
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(crossOwner, shape);
+
+        Assert.False(proof.IsValid);
+        Assert.Contains(proof.Issues, issue => issue.Code == "loop.feedback.cross-owner");
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Incomplete_feedback_draft_is_diagnostic_and_cannot_be_migrated(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopCandidate();
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+        var incomplete = candidate with
+        {
+            ExecutionConnections = candidate.ExecutionConnections!.Remove("inner-return")
+        };
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(incomplete, shape);
+
+        Assert.False(proof.IsValid);
+        Assert.Contains(proof.Issues, issue => issue.Code is "loop.feedback.body-path" or
+            "loop.feedback.missing" or "loop.feedback.cardinality");
+        Assert.Throws<ArgumentException>(() =>
+            LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(incomplete));
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Candidate_shapes_remain_rejected_by_public_and_package_validation(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopCandidate();
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+
+        Assert.Contains(WorkflowValidator.Validate(candidate), issue => issue.Code == "loop.count");
+        Assert.Throws<ArgumentException>(() =>
+            WorkflowPackageJson.Create(candidate, WorkflowLayout.Create(candidate)));
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Disconnected_loop_region_is_rejected_for_both_pin_shapes(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopCandidate();
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+        candidate = AddDisconnectedLoop(candidate, shape);
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(candidate, shape);
+
+        Assert.False(proof.IsValid);
+        Assert.Contains(proof.Issues, issue => issue.Code == "loop.feedback.unreachable");
+    }
+
+    [Fact]
+    public void Inferred_feedback_migration_preserves_node_and_connection_ids()
+    {
+        var source = NestedLoopCandidate();
+        var sourceNodes = source.Nodes;
+        var sourceExecution = source.ExecutionConnections;
+        var migrated = LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(source);
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(migrated,
+            LoopFeedbackPinShape.ExplicitFeedbackInput);
+
+        Assert.True(proof.IsValid, string.Join(Environment.NewLine, proof.Issues));
+        Assert.Equal(source.Nodes.Keys, migrated.Nodes.Keys);
+        Assert.Equal(source.ExecutionConnections!.Keys, migrated.ExecutionConnections!.Keys);
+        Assert.Equal(source.Connections.Keys, migrated.Connections.Keys);
+        Assert.Equal(new PortReference("inner-loop", "feedback"), migrated.ExecutionConnections["inner-return"].Target);
+        Assert.Equal(new PortReference("outer-loop", "feedback"), migrated.ExecutionConnections["outer-return"].Target);
+        Assert.Equal(new PortReference("inner-loop", "execute"), migrated.ExecutionConnections["outer-inner"].Target);
+        Assert.Same(sourceNodes, source.Nodes);
+        Assert.Same(sourceExecution, source.ExecutionConnections);
+    }
+
+    [Fact]
+    public void Ambiguous_feedback_migration_fails_without_mutating_source()
+    {
+        var source = NestedLoopCandidate() with
+        {
+            ExecutionConnections = NestedLoopCandidate().ExecutionConnections!
+                .Add("second-inner-return", new(new("outer-body", "then"), new("inner-loop", "execute"), "execution"))
+        };
+        var sourceNodes = source.Nodes;
+        var sourceExecution = source.ExecutionConnections;
+
+        Assert.Throws<ArgumentException>(() =>
+            LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(source));
+        Assert.Same(sourceNodes, source.Nodes);
+        Assert.Same(sourceExecution, source.ExecutionConnections);
+    }
+
+    private static WorkflowDefinition NestedLoopCandidate()
+    {
+        var nodes = new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["outer-loop"] = new(NodeTypes.Loop, "1.0.0") { Loop = new(new("equals", "continue"), 3) },
+            ["outer-body"] = new(NodeTypes.LoopBody, "1.0.0"),
+            ["inner-loop"] = new(NodeTypes.Loop, "1.0.0") { Loop = new(new("equals", "continue"), 2) },
+            ["inner-body"] = new(NodeTypes.LoopBody, "1.0.0"),
+            ["inner-step"] = new(NodeTypes.Reverse, "1.0.0"),
+            ["output"] = new(NodeTypes.Output, "1.0.0")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-value", new(new("input", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("start-outer", Edge("input", "then", "outer-loop", "execute"))
+            .Add("outer-body-start", Edge("outer-loop", "body", "outer-body", "execute"))
+            .Add("outer-inner", Edge("outer-body", "then", "inner-loop", "execute"))
+            .Add("inner-body-start", Edge("inner-loop", "body", "inner-body", "execute"))
+            .Add("inner-step-start", Edge("inner-body", "then", "inner-step", "execute"))
+            .Add("inner-return", Edge("inner-step", "then", "inner-loop", "execute"))
+            .Add("outer-return", Edge("inner-loop", "done", "outer-loop", "execute"))
+            .Add("outer-done", Edge("outer-loop", "done", "output", "execute"));
+
+        return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "nested-loop-feedback-proof", "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition AddDisconnectedLoop(WorkflowDefinition definition, LoopFeedbackPinShape shape)
+    {
+        var nodes = definition.Nodes
+            .Add("detached-loop", new(NodeTypes.Loop, "1.0.0")
+            { Loop = new(new("equals", "continue"), 2) })
+            .Add("detached-body", new(NodeTypes.LoopBody, "1.0.0"));
+        var feedbackPort = shape == LoopFeedbackPinShape.InferredFromBodyTopology ? "execute" : "feedback";
+        var execution = definition.ExecutionConnections!
+            .Add("detached-body-start", Edge("detached-loop", "body", "detached-body", "execute"))
+            .Add("detached-return", Edge("detached-body", "then", "detached-loop", feedbackPort))
+            .Add("detached-done", Edge("detached-loop", "done", "output", "execute"));
+        return definition with { Nodes = nodes, ExecutionConnections = execution };
+    }
+
+    private static ConnectionDefinition Edge(string source, string sourcePort, string target, string targetPort) =>
+        new(new(source, sourcePort), new(target, targetPort), "execution");
+}

@@ -107,6 +107,22 @@ the historical promotion chain.
   review found neither persisted pin shape proven superior. Preserve authored
   node, pin, and edge identities through automatic migration, and diagnose any
   legacy feedback mapping that cannot be inferred without guessing.
+  The 2026-11-18 three-role adjudication narrows the first discriminator to
+  topology and migration: run both feedback-pin candidates against identical
+  nested-loop, malformed-feedback, incomplete-draft, and migration fixtures.
+  Do not count unresolved Sequence/Break production settlement, persistence, or
+  playback as evidence for either pin shape; that remains a separate gate.
+  This narrower proof does not replace the full integrated runtime acceptance
+  matrix or select a public/runtime contract.
+  - [x] Add a non-authoritative Core topology/migration discriminator and run
+    the same flat nested-loop graph under both feedback-pin shapes. Both derive
+    the same outer/inner ownership; cross-owner returns, unowned cycles,
+    incomplete feedback, and ambiguous migration are rejected. The candidate
+    migration preserves node and connection IDs while retargeting only the
+    return edges. Public and package validation still reject nested loops, so
+    this remains proof-only. Focused cases pass 14/14 and Core passes 662/662.
+    Sequence/Break topology, package round-trip of admitted candidates, runtime
+    settlement, persistence/playback, and full compatibility remain open.
   Reject arbitrary cycles and accept only explicitly declared, bounded loop
   feedback. Exercise nested Sequence/loop/Break composition through public and
   package validation, production dispatch, file/SQLite reopen, passive playback,

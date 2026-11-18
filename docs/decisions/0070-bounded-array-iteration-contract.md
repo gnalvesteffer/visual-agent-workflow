@@ -4081,3 +4081,34 @@ connection identities wherever feedback can be mapped unambiguously; an
 ambiguous mapping must produce a diagnostic rather than guess. This review
 does not add a schema/capability gate, select production runtime ownership, or
 authorize public Break.
+
+### Topology discriminator scope adjudication (2026-11-18)
+
+A fresh three-role review recommends proceeding with a same-graph comparison of
+the inferred-feedback and explicit-feedback pin candidates, with the next
+increment limited to topology and migration evidence. Run the same nested-loop,
+malformed-feedback, incomplete-draft, and legacy-migration fixtures through
+both candidates so differences are attributable to pin shape. Public/package
+validation should agree on each candidate's topology result, and migration
+must preserve existing node, pin, and connection identities whenever the
+mapping is unambiguous.
+
+Keep Sequence/Break production execution, persistence, and playback outside
+this discriminator's acceptance criteria wherever the Sequence output
+settlement contract in [Decision 0073](0073-branchable-sequence-output-contract.md)
+remains unresolved. A failure at that boundary cannot distinguish the
+feedback-pin candidates. This narrower proof does not replace Decision 0070's
+broader integrated runtime gate, select production ownership, authorize public
+Break, or reduce the full Blueprint-parity objective.
+
+The first discriminator increment is implemented as an internal, non-authoritative
+Core analyzer. Its shared flat nested-loop fixture produces the same outer/inner
+ownership under both pin shapes (14/14 focused cases). It rejects a cross-owner
+return, an unowned cycle, an unreachable loop, an incomplete return, and an
+ambiguous migration. The candidate migration preserves node and connection
+IDs while changing only the target pin on the two established feedback edges.
+Current public and package validation still reject nested loops. The complete
+Core suite passes 662/662. This does not yet include Sequence or Break in the
+topology fixture, nor does it prove package round-trip of a newly admitted
+shape, production execution, or runtime migration. The feedback-pin choice
+remains unresolved.
