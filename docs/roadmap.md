@@ -1724,6 +1724,14 @@ introduced.
       Framework suite 372/372). Production broker publication races and crash
       recovery remain open. See [Decision
       0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Reject concurrent production-body iteration settlement appends in
+      both file and SQLite stores while one sibling Agent completes and another
+      is cancelled during drain. The run fails without inventing completion
+      evidence; reopening preserves the exact event prefix and playback marks
+      both started iterations incomplete. Focused cases pass 2/2 and the
+      concurrent coordinator group passes 37/37. This is proof-only behavior;
+      production budget ownership and interrupted-run recovery remain open.
+      See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [ ] Complete process-loss/interrupted-execution recovery and the
       remaining evidence matrix. Store reopening does not recover or resume
       execution; candidate reservations are not production budget ownership.

@@ -7337,6 +7337,75 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ConcurrentProductionBodyCoordinator_IterationSettlementAppendFailureDrainsSibling(bool sqlite)
+    {
+        var definition = StructuredBreakProofDefinition();
+        var body = definition with
+        {
+            Nodes = definition.Nodes.Add("agent", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.settlement", null, "Hold the first activation while the next settles", [])))
+                .SetItem("condition", definition.Nodes["condition"] with
+                    { Condition = new("contains", "continue") }),
+            Connections = definition.Connections.Add("input-agent",
+                new ConnectionDefinition(new("input", "out"), new("agent", "in"), "data")),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("condition-output")
+                .Add("condition-agent", Edge("condition", "true", "agent", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(body,
+            "concurrent-production-array-iteration-settlement-append-failure-proof");
+        const string input = "[\"continue-first\",\"continue-fast\",\"continue-third\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.LoopIterationCompleted]);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new FirstActivationHeldAgentExecutor("agent", "continue-first");
+
+        var execution = new WorkflowRunner(agents: agents)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision, input,
+                "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item");
+        try
+        {
+            await Task.WhenAll(agents.FirstActivationStarted.Task, agents.LaterActivationReturned.Task)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            var failure = await Record.ExceptionAsync(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.IsType<IOException>(failure);
+        }
+        finally
+        {
+            agents.ReleaseFirstActivation.TrySetResult();
+        }
+
+        var events = recorder.Snapshot();
+        Assert.True(agents.FirstActivationCancelled.Task.IsCompleted);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent" &&
+            evt.ScopeId == "array-loop/1");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "agent" &&
+            evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Cancelled);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal("failed", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.Contains("Iteration 2 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iteration 1 · Completed", playback, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iteration 2 · Completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ConcurrentProductionBodyCoordinator_SharesModelDispatchBudget(bool sqlite)
     {
         var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
@@ -21148,9 +21217,11 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             lock (gate)
             {
-                var persisted = evt with { Sequence = ++sequence };
-                store.Store.Append(store.RunId, sequence - 1, [persisted]);
+                var nextSequence = sequence + 1;
+                var persisted = evt with { Sequence = nextSequence };
+                store.Store.Append(store.RunId, sequence, [persisted]);
                 events.Add(persisted);
+                sequence = nextSequence;
             }
         }
 
@@ -21603,6 +21674,44 @@ public sealed class ArrayIterationVawBodyProofTests
             RightStarted.TrySetResult();
             await ReleaseRight.Task.WaitAsync(cancellationToken);
             return JsonSerializer.Serialize(new { query = input });
+        }
+    }
+
+    private sealed class FirstActivationHeldAgentExecutor(string blockedNodeId, string heldInput) : IAgentNodeExecutor
+    {
+        public TaskCompletionSource FirstActivationStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource LaterActivationReturned { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource FirstActivationCancelled { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseFirstActivation { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.settlement", "Settlement proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId != blockedNodeId)
+                throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
+            if (input == heldInput)
+            {
+                FirstActivationStarted.TrySetResult();
+                try { await ReleaseFirstActivation.Task.WaitAsync(cancellationToken); }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    FirstActivationCancelled.TrySetResult();
+                    throw;
+                }
+            }
+            else
+            {
+                LaterActivationReturned.TrySetResult();
+            }
+            return input;
         }
     }
 

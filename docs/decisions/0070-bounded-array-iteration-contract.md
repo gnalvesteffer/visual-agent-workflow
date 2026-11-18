@@ -3615,3 +3615,13 @@ evidence only: it does not establish a production-owned iterator budget,
 arbitrary nested contention, general scheduler races, or public iterator
 support. Architecture and user-guide behavior remain unchanged because no
 shipped workflow runtime path uses this proof coordinator.
+
+`ConcurrentProductionBodyCoordinator_IterationSettlementAppendFailureDrainsSibling`
+rejects every `loop.iteration.completed` append in both stores. The second
+parallel Agent completes before the first is cancelled during failure drain;
+the coordinator stops admission, records root failure, and does not fabricate
+either settlement. Reopened file and SQLite histories equal the accepted
+prefix, and passive playback marks both started iterations incomplete after
+run end (2/2). The concurrent coordinator group passes 37/37. This characterizes
+store rejection after successful reservation; it does not establish recovery
+from process loss or a production scheduler contract.
