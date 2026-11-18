@@ -236,6 +236,12 @@ tool identities. This is recorded for both stores and both event orderings
 (4/4), and does not define precedence for other mixed outcomes or authorize
 continuing the enclosing iterator.
 
+The regression now derives both projections from the same reopened histories:
+Sequence playback reports the failed activation and its `array-loop/0` scope,
+while run reconciliation reports the correlated unresolved MCP calls. File
+and SQLite stores pass under both outcome orders (4/4); root-disposition
+precedence remains deliberately unresolved by this assertion.
+
 For the successful Break terminal, an injected lost acknowledgment after the
 store append proves a distinct accepted-prefix case in both file and SQLite
 (2/2): the Sequence terminal is durable exactly once and passive playback
