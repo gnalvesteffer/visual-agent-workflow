@@ -46,6 +46,38 @@ public sealed class WorkflowArrayLiteralTests
     }
 
     [Fact]
+    public void Array_contains_uses_the_shared_primitive_equality_contract()
+    {
+        Assert.True(WorkflowPrimitiveValueEquality.AreEqual(WorkflowDataTypes.String, "café", "café"));
+        Assert.False(WorkflowPrimitiveValueEquality.AreEqual(WorkflowDataTypes.String, "A", "a"));
+        Assert.True(WorkflowPrimitiveValueEquality.AreEqual(WorkflowDataTypes.Boolean, true, true));
+        Assert.False(WorkflowPrimitiveValueEquality.AreEqual(WorkflowDataTypes.Boolean, true, false));
+        Assert.True(WorkflowPrimitiveValueEquality.AreEqual(WorkflowDataTypes.Integer, long.MinValue, long.MinValue));
+        Assert.True(WorkflowPrimitiveValueEquality.AreEqual(WorkflowDataTypes.Number, -0d, 0d));
+        Assert.True(WorkflowPrimitiveValueEquality.AreEqual(WorkflowDataTypes.Number, 0.1d, 0.10000000000000001d));
+        Assert.False(WorkflowPrimitiveValueEquality.AreEqual(WorkflowDataTypes.Number, 0.1d, 0.10000000000000002d));
+        Assert.Throws<ArgumentException>(() => WorkflowPrimitiveValueEquality.AreEqual(WorkflowDataTypes.Number, double.NaN, 0d));
+    }
+
+    [Fact]
+    public void Array_contains_exposes_exact_typed_inputs_and_rejects_json_structural_equality()
+    {
+        var contains = new NodeDefinition(NodeTypes.ArrayContains, "1.0.0")
+        { ArrayElementType = WorkflowDataTypes.Number };
+
+        Assert.Collection(WorkflowPorts.ExplicitDataInputs(contains),
+            port => Assert.Equal("array<number>", port.DataType),
+            port => Assert.Equal(WorkflowDataTypes.Number, port.DataType));
+        Assert.Equal(WorkflowDataTypes.Boolean, Assert.Single(WorkflowPorts.ExplicitDataOutputs(contains)).DataType);
+
+        var graph = ArrayGraph() with
+        {
+            Nodes = ArrayGraph().Nodes.SetItem("contains", contains with { ArrayElementType = WorkflowDataTypes.Json })
+        };
+        Assert.Contains(WorkflowValidator.Validate(graph), issue => issue.Code == "array.contains.type");
+    }
+
+    [Fact]
     public void Typed_array_schema_admits_typed_workflow_input_and_output_boundaries()
     {
         var graph = ArrayGraph();

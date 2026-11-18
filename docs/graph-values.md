@@ -25,6 +25,13 @@ passive playback. **Append**, **Insert**, **Replace**, **Remove**, and
 and never update state themselves. Indexes are zero-based; Insert accepts the
 end index, while Replace and Remove require an existing item.
 
+**Array contains** accepts an `array<T>` and a matching `T`, returning a
+Boolean. It supports the four primitive element types: strings compare
+ordinally, booleans and Int64 values compare by value, and finite doubles
+compare numerically (including positive and negative zero). Empty arrays return
+false. JSON-array membership is unsupported because structural equality is not
+defined. See [Decision 0072](decisions/0072-primitive-array-contains.md).
+
 Schema 2.0 Input and Output nodes may declare these exact primitive array
 types. A caller supplies one JSON array through the existing string input field
 and receives the workflow result as JSON text. The workflow validates the

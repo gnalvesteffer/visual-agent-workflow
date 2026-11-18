@@ -1154,8 +1154,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.Uppercase when outputPort == "out" => new ExplicitGraphValue("string", ResolveStringInput(nodeId, "in", evaluated, cache, active).ToUpperInvariant()),
                     NodeTypes.Reverse when outputPort == "out" => new ExplicitGraphValue("string", string.Concat(ResolveStringInput(nodeId, "in", evaluated, cache, active).EnumerateRunes().Reverse())),
                     NodeTypes.StringEquals when outputPort == "out" => new ExplicitGraphValue("boolean",
-                        string.Equals(ResolveStringInput(nodeId, "left", evaluated, cache, active),
-                            ResolveStringInput(nodeId, "right", evaluated, cache, active), StringComparison.Ordinal)),
+                        WorkflowPrimitiveValueEquality.AreEqual(WorkflowDataTypes.String,
+                            ResolveStringInput(nodeId, "left", evaluated, cache, active),
+                            ResolveStringInput(nodeId, "right", evaluated, cache, active))),
                     NodeTypes.IntegerConstant when outputPort == "out" => new ExplicitGraphValue("integer", node.IntegerConstant!.Value),
                     NodeTypes.NumberConstant when outputPort == "out" && node.NumberConstant is { Value: var value } && double.IsFinite(value) => new ExplicitGraphValue("number", value),
                     NodeTypes.NumberAdd when outputPort == "out" => new ExplicitGraphValue("number", AddNumbers(nodeId, evaluated, cache, active)),
@@ -1186,6 +1187,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.ArrayReplace when outputPort == "out" => TransformArrayIndexed(nodeId, node.ArrayElementType!, false, true, evaluated, cache, active),
                     NodeTypes.ArrayRemove when outputPort == "out" => TransformArrayIndexed(nodeId, node.ArrayElementType!, false, false, evaluated, cache, active),
                     NodeTypes.ArrayConcatenate when outputPort == "out" => TransformArrayConcatenate(nodeId, node.ArrayElementType!, evaluated, cache, active),
+                    NodeTypes.ArrayContains when outputPort == "out" => ArrayContains(nodeId, node.ArrayElementType!, evaluated, cache, active),
                     NodeTypes.FunctionCall when node.GraphFunction is { } function && function.Definition.Outputs.TryGetValue(outputPort, out var output) =>
                         EvaluateFunction(nodeId, outputPort, output.DataType, function, evaluated, cache, active),
                         _ => throw new InvalidOperationException("The data source is not a supported pure value node.")
@@ -1347,8 +1349,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             ImmutableArray<EvaluatedDataValue>.Builder evaluated,
             Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
             HashSet<(string NodeId, string PortId)> active) =>
-            ResolveIntegerInput(nodeId, "left", evaluated, cache, active) ==
-            ResolveIntegerInput(nodeId, "right", evaluated, cache, active);
+            WorkflowPrimitiveValueEquality.AreEqual(WorkflowDataTypes.Integer,
+                ResolveIntegerInput(nodeId, "left", evaluated, cache, active),
+                ResolveIntegerInput(nodeId, "right", evaluated, cache, active));
 
         private long ResolveIntegerInput(string nodeId, string inputPort,
             ImmutableArray<EvaluatedDataValue>.Builder evaluated,
@@ -1528,6 +1531,24 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 return TransformArray(nodeId, elementType, WorkflowTypedArrayOperations.Concatenate(elementType,
                     ResolveArrayInput(nodeId, "left", elementType, evaluated, cache, active),
                     ResolveArrayInput(nodeId, "right", elementType, evaluated, cache, active)));
+            }
+            catch (ArgumentException exception)
+            {
+                throw new GraphDataEvaluationException(nodeId, exception.Message, exception);
+            }
+        }
+
+        private ExplicitGraphValue ArrayContains(string nodeId, string elementType,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            try
+            {
+                var result = WorkflowTypedArrayOperations.Contains(elementType,
+                    ResolveArrayInput(nodeId, "array", elementType, evaluated, cache, active),
+                    ResolveTypedArrayItem(nodeId, "item", elementType, evaluated, cache, active));
+                return new ExplicitGraphValue(WorkflowDataTypes.Boolean, result);
             }
             catch (ArgumentException exception)
             {

@@ -66,11 +66,11 @@ public static class WorkflowJson
 
     private static bool IsDraftableIssue(WorkflowDefinition definition, ValidationIssue issue) =>
         definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
-        (issue.Code is "array.literal" or "array.element-type" ||
+        (issue.Code is "array.literal" or "array.element-type" or "array.contains.type" ||
          issue.Code == "variable.definition" ||
          issue.Code == "node.descriptor" && issue.Path.StartsWith("nodes.", StringComparison.Ordinal) &&
          definition.Nodes.TryGetValue(issue.Path["nodes.".Length..].Split('.')[0], out var arrayNode) &&
-         arrayNode?.Type is NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate) ||
+         arrayNode?.Type is NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains) ||
         definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
         issue.Code.StartsWith("unified.json-array.", StringComparison.Ordinal) && issue.Code != "unified.json-array.schema" ||
         definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&

@@ -58,6 +58,7 @@
             <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.ArrayReplace)">Array replace</button>
             <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.ArrayRemove)">Array remove</button>
             <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.ArrayConcatenate)">Concatenate arrays</button>
+            <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.ArrayContains)">Array contains</button>
         </NodeLibrary>
         <NodeContent Context="nodeId">
             @if (editor.Nodes.TryGetValue(nodeId, out var node) && node.Type == NodeTypes.StringConstant) { <span>@(node.StringConstant?.Value ?? "")</span> }
@@ -80,8 +81,8 @@
                     { <label>Constant value <input type="number" step="any" value="@node.NumberConstant?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)" @onchange="args => SetNumberConstant(nodeId, args)" /></label> }
             else if (node?.Type == NodeTypes.ArrayLiteral)
             { <label>Element type <select value="@node.ArrayLiteral?.ElementType" @onchange="args => SetArrayLiteralType(nodeId, args)"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option><option value="json">JSON value</option></select></label><label>Array values (JSON) <textarea rows="4" value="@node.ArrayLiteral?.ValuesJson" @onchange="args => SetArrayLiteral(nodeId, args)" /></label><p class="vaw-help">Primitive arrays contain up to 64 typed values. JSON arrays allow mixed values, null, and nesting (depth 32). All arrays are limited to 16 KiB.</p> }
-            else if (node?.Type is NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate)
-            { <label>Element type <select value="@node.ArrayElementType" @onchange="args => SetArrayElementType(nodeId, args)"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option><option value="json">JSON value</option></select></label><p class="vaw-help">@ArrayOperationHelp(node.Type)</p> }
+            else if (node?.Type is NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains)
+            { <label>Element type <select value="@node.ArrayElementType" @onchange="args => SetArrayElementType(nodeId, args)"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option>@if (node.Type != NodeTypes.ArrayContains) { <option value="json">JSON value</option> }</select></label><p class="vaw-help">@ArrayOperationHelp(node.Type)</p> }
             else if (node?.Type is NodeTypes.FunctionInput or NodeTypes.FunctionOutput)
             { <p class="vaw-help">This boundary is part of the function's declared interface. Change its name or type above.</p> }
             else { <p class="vaw-help">This node is deterministic and has no additional settings.</p> }
@@ -218,7 +219,7 @@
             NodeTypes.IntegerConstant => new NodeDefinition(type, "1.0.0") { IntegerConstant = new(0) },
             NodeTypes.NumberConstant => new NodeDefinition(type, "1.0.0") { NumberConstant = new(0d) },
             NodeTypes.ArrayLiteral => new NodeDefinition(type, "1.0.0") { ArrayLiteral = new("string", "[]") },
-            NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate => new NodeDefinition(type, "1.0.0") { ArrayElementType = "string" },
+            NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains => new NodeDefinition(type, "1.0.0") { ArrayElementType = "string" },
             _ => new NodeDefinition(type, "1.0.0")
         };
         var previousNodeIds = editor.Nodes.Keys.ToHashSet(StringComparer.Ordinal);
@@ -401,6 +402,7 @@
         NodeTypes.ArrayReplace => "Replaces an existing item at a zero-based index.",
         NodeTypes.ArrayRemove => "Removes an existing item at a zero-based index.",
         NodeTypes.ArrayConcatenate => "Returns left items followed by right items.",
+        NodeTypes.ArrayContains => "Checks primitive values using ordinal string, Boolean, signed integer, or finite number equality.",
         _ => "Deterministic bounded array operation."
     };
 

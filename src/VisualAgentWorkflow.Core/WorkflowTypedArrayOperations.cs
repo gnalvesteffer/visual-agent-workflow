@@ -6,6 +6,16 @@ namespace VisualAgentWorkflow.Core;
 /// <summary>Deterministic immutable operations over bounded typed arrays.</summary>
 public static class WorkflowTypedArrayOperations
 {
+    public static bool Contains(string elementType, JsonElement array, object item)
+    {
+        if (!WorkflowDataTypes.IsPrimitiveArrayType(WorkflowDataTypes.ArrayOf(elementType)))
+            throw new ArgumentException("Array membership supports only primitive element types.", nameof(elementType));
+        EnsureArray(elementType, array);
+        WorkflowPrimitiveValueEquality.EnsureValue(elementType, item);
+        return array.EnumerateArray().Any(value => WorkflowPrimitiveValueEquality.AreEqual(elementType,
+            WorkflowPrimitiveValueEquality.FromJson(elementType, value), item));
+    }
+
     public static JsonElement Append(string elementType, JsonElement array, object item)
     {
         EnsureArray(elementType, array);

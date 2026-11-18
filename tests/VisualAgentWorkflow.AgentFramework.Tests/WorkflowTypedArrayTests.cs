@@ -221,6 +221,45 @@ public sealed class WorkflowTypedArrayTests
         AssertDataEvidence(events, "length", "integer", "1");
     }
 
+    [Theory]
+    [InlineData("string", "[\"alpha\",\"ALPHA\"]", "alpha", true)]
+    [InlineData("string", "[\"alpha\"]", "ALPHA", false)]
+    [InlineData("boolean", "[false,true]", "true", true)]
+    [InlineData("integer", "[-9223372036854775808,42]", "-9223372036854775808", true)]
+    [InlineData("number", "[-0.0,1.5]", "0", true)]
+    [InlineData("number", "[]", "1", false)]
+    public async Task Array_contains_uses_primitive_equality_and_records_boolean_evidence(
+        string elementType, string arrayValues, string itemValue, bool expected)
+    {
+        var graph = ArrayContainsGraph(elementType, arrayValues, itemValue);
+        WorkflowValidator.ThrowIfInvalid(graph);
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(graph, "typed-array-contains"), "ignored", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+        Assert.Equal(expected ? "true" : "false", result.Output);
+        AssertDataEvidence(events, "contains", WorkflowDataTypes.Boolean, expected ? "true" : "false");
+    }
+
+    [Fact]
+    public async Task Array_contains_searches_the_last_item_in_a_maximum_sized_array()
+    {
+        var values = Enumerable.Range(0, WorkflowJsonArrayLimits.MaximumItems)
+            .Select(index => $"\"item-{index}\"");
+        var graph = ArrayContainsGraph(WorkflowDataTypes.String, $"[{string.Join(',', values)}]", $"item-{WorkflowJsonArrayLimits.MaximumItems - 1}");
+        WorkflowValidator.ThrowIfInvalid(graph);
+
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(graph, "typed-array-contains-max-items"), "ignored", null,
+            _ => ValueTask.CompletedTask);
+
+        Assert.False(result.Failed);
+        Assert.Equal("true", result.Output);
+    }
+
     [Fact]
     public async Task Typed_array_index_failure_is_attributed_to_array_get()
     {
@@ -292,6 +331,36 @@ public sealed class WorkflowTypedArrayTests
             ["input-output"] = new(new("input", "then"), new("output", "execute"), "execution")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal);
         return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "typed-array-primitive", "input", nodes, data)
+        { ExecutionConnections = execution };
+    }
+
+    private static WorkflowDefinition ArrayContainsGraph(string elementType, string arrayValues, string itemValue)
+    {
+        NodeDefinition itemNode = elementType switch
+        {
+            WorkflowDataTypes.String => new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new(itemValue) },
+            WorkflowDataTypes.Boolean => new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = new(bool.Parse(itemValue)) },
+            WorkflowDataTypes.Integer => new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(long.Parse(itemValue, System.Globalization.CultureInfo.InvariantCulture)) },
+            WorkflowDataTypes.Number => new(NodeTypes.NumberConstant, "1.0.0") { NumberConstant = new(double.Parse(itemValue, System.Globalization.CultureInfo.InvariantCulture)) },
+            _ => throw new ArgumentOutOfRangeException(nameof(elementType))
+        };
+        var nodes = new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["array"] = new(NodeTypes.ArrayLiteral, "1.0.0") { ArrayLiteral = new(elementType, arrayValues) },
+            ["item"] = itemNode,
+            ["contains"] = new(NodeTypes.ArrayContains, "1.0.0") { ArrayElementType = elementType },
+            ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.Boolean }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var data = new Dictionary<string, ConnectionDefinition>
+        {
+            ["array-contains"] = new(new("array", "out"), new("contains", "array"), "data"),
+            ["item-contains"] = new(new("item", "out"), new("contains", "item"), "data"),
+            ["contains-output"] = new(new("contains", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("activate-output", new(new("input", "then"), new("output", "execute"), "execution"));
+        return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "typed-array-contains", "input", nodes, data)
         { ExecutionConnections = execution };
     }
 

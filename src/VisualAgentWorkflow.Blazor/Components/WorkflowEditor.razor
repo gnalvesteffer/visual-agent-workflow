@@ -663,13 +663,14 @@
                         }
                         <p>Counts a bounded immutable array without changing it.</p>
                     }
-                    else if (node.Type is NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate)
+                    else if (node.Type is NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains)
                     {
                         @if (!ReadOnly)
                         {
                             <label>Array element type
                                 <select aria-label="Array element type for @id" value="@(node.ArrayElementType ?? WorkflowDataTypes.String)" @onchange="args => ChangeArrayElementType(id, args)" disabled="@Disabled">
-                                    @foreach (var type in ArrayElementTypes) { <option value="@type">@type</option> }
+                                    @foreach (var type in ArrayElementTypes.Where(type => node.Type != NodeTypes.ArrayContains || type != WorkflowDataTypes.Json)) { <option value="@type">@type</option> }
+                                    @if (node.Type == NodeTypes.ArrayContains && node.ArrayElementType == WorkflowDataTypes.Json) { <option value="json" disabled>json (unsupported)</option> }
                                 </select>
                             </label>
                         }
@@ -1046,6 +1047,7 @@
         NodeTypes.ArrayReplace => $"Replace array<{node.ArrayElementType ?? WorkflowDataTypes.String}>",
         NodeTypes.ArrayRemove => $"Remove array<{node.ArrayElementType ?? WorkflowDataTypes.String}>",
         NodeTypes.ArrayConcatenate => $"Concatenate array<{node.ArrayElementType ?? WorkflowDataTypes.String}>",
+        NodeTypes.ArrayContains => $"Search array<{node.ArrayElementType ?? WorkflowDataTypes.String}>",
         NodeTypes.TextTemplate => $"Template · {PromptTemplateCodec.Format(node.TextTemplate)}",
         NodeTypes.StringConstant => node.StringConstant?.Value ?? "Empty text constant",
         NodeTypes.TextConcat => "Join left + right",
@@ -1493,7 +1495,7 @@
             return new(NodeTypes.JsonProject, "1.0.0") { JsonProjection = existing?.JsonProjection ?? new([new("name", "/name")]) };
         if (value == NodeTypes.ArrayLiteral)
             return new(value, "1.0.0") { ArrayLiteral = existing?.ArrayLiteral ?? new(WorkflowDataTypes.String, "[]") };
-        if (value is NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate)
+        if (value is NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains)
             return new(value, "1.0.0") { ArrayElementType = existing?.ArrayElementType ?? WorkflowDataTypes.String };
         if (value == NodeTypes.JsonToArray) return new(value, "1.0.0");
         if (value == NodeTypes.TextTemplate)
@@ -1617,6 +1619,7 @@
         NodeTypes.ArrayReplace => "Returns a new array with the selected item replaced. Index must identify an existing item.",
         NodeTypes.ArrayRemove => "Returns a new array with the selected item removed. Index must identify an existing item.",
         NodeTypes.ArrayConcatenate => "Returns a new array containing the left items followed by the right items. Connect the result to Set variable to store it.",
+        NodeTypes.ArrayContains => "Returns true when a primitive array contains an equal item. Strings compare ordinally; numbers compare as finite IEEE-754 values. JSON-array membership is not supported.",
         _ => "Returns a new immutable array value."
     };
 

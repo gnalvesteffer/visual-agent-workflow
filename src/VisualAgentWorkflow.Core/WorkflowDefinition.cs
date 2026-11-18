@@ -150,6 +150,7 @@ public static class NodeTypes
     public const string ArrayReplace = "core.array.replace";
     public const string ArrayRemove = "core.array.remove";
     public const string ArrayConcatenate = "core.array.concatenate";
+    public const string ArrayContains = "core.array.contains";
     public const string TextTemplate = "core.text.template";
     public const string ParallelFork = "core.parallel.fork";
     public const string ParallelBranch = "core.parallel.branch";

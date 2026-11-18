@@ -440,7 +440,7 @@ public static class WorkflowValidator
                 Error("json.projection.unexpected", $"nodes.{id}.jsonProjection", "Only JSON projection nodes may declare JSON field mappings.");
             if (node.Type == NodeTypes.JsonMerge && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph))
                 Error("node.schema", $"nodes.{id}", "JSON merge nodes require schema 1.55 or later.");
-            if (node.Type is NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate && definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
+            if (node.Type is NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains && definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
                 Error("node.schema", $"nodes.{id}", "Typed array transformation nodes require unified schema 2.0.");
             if (node.Type is NodeTypes.JsonToArray or NodeTypes.ArrayLength && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph))
                 Error("node.schema", $"nodes.{id}", "Typed JSON-array nodes require schema 1.56 or later.");
@@ -568,11 +568,14 @@ public static class WorkflowValidator
             else if (node.ArrayLiteral is not null)
                 Error("array.literal.unexpected", $"nodes.{id}.arrayLiteral", "Only Array literal nodes may declare literal values.");
             if (node.ArrayElementType is not null &&
-                (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate) ||
+                (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains) ||
                  definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph ||
                  !WorkflowDataTypes.IsArrayType(node.ArrayElementType is null ? null : $"array<{node.ArrayElementType}>")))
                 Error("array.element-type", $"nodes.{id}.arrayElementType", "Typed array operations require a supported element type in unified schema 2.0; legacy JSON array nodes omit this field.");
-            if (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate) && node.ArrayElementType is not null)
+            if (node.Type == NodeTypes.ArrayContains && !WorkflowDataTypes.IsPrimitiveArrayType(
+                    node.ArrayElementType is null ? null : $"array<{node.ArrayElementType}>"))
+                Error("array.contains.type", $"nodes.{id}.arrayElementType", "Array contains requires a primitive element type; JSON structural equality is not defined.");
+            if (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains) && node.ArrayElementType is not null)
                 Error("array.element-type.unexpected", $"nodes.{id}.arrayElementType", "Only array operations may declare an array element type.");
             if (node.Type is NodeTypes.IntegerAdd or NodeTypes.IntegerEquals && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.IntegerStringConversionGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph))
                 Error("node.schema", $"nodes.{id}", "Integer arithmetic nodes require schema 1.31.");
@@ -2196,7 +2199,7 @@ public static class WorkflowValidator
                     error("graph.degree", $"nodes.{id}.outputs.{port.Id}", "Every execution output pin must connect exactly once.");
             if (unified && node.Type == NodeTypes.McpTool)
                 ValidateUnifiedMcpInputs(definition, id, node, dataIncoming, error);
-            if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.NumberConstant or NodeTypes.WorkflowValue or NodeTypes.FunctionCall or NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.JsonToArray &&
+            if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.NumberConstant or NodeTypes.WorkflowValue or NodeTypes.FunctionCall or NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayContains or NodeTypes.JsonToArray &&
                 WorkflowPorts.ExplicitDataOutputs(node).Length > 0 && !definition.Connections.Values.Any(edge => edge.Source.NodeId == id))
                 error("data.unused", $"nodes.{id}", "Every pure data node must contribute to a Branch condition or Output value.");
             if (node.Type == NodeTypes.Terminate && node.Termination is { Outcome: not (WorkflowTerminationOutcomes.Success or WorkflowTerminationOutcomes.Failure) })
@@ -2253,7 +2256,7 @@ public static class WorkflowValidator
             foreach (var dependency in dataDependencies.GetValueOrDefault(current) ?? []) pendingData.Push(dependency);
         }
         foreach (var (id, node) in definition.Nodes)
-            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.NumberConstant or NodeTypes.StringToInteger or NodeTypes.WorkflowValue or NodeTypes.FunctionCall or NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.JsonToArray && !reachedData.Contains(id))
+            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.NumberConstant or NodeTypes.StringToInteger or NodeTypes.WorkflowValue or NodeTypes.FunctionCall or NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayContains or NodeTypes.JsonToArray && !reachedData.Contains(id))
                 error("graph.unreachable", $"nodes.{id}", "Every pure data node must contribute to a Branch condition or Output value.");
     }
 

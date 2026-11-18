@@ -57,6 +57,7 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.ArrayInsert or NodeTypes.ArrayReplace => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String)), new("index", WorkflowDataTypes.Integer), new("item", node.ArrayElementType ?? WorkflowDataTypes.String)],
         NodeTypes.ArrayRemove => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String)), new("index", WorkflowDataTypes.Integer)],
         NodeTypes.ArrayConcatenate => [new("left", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String)), new("right", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String))],
+        NodeTypes.ArrayContains => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String)), new("item", node.ArrayElementType ?? WorkflowDataTypes.String)],
         _ => []
     };
 
@@ -76,6 +77,7 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.ArrayLength => [new("out", WorkflowDataTypes.Integer)],
         NodeTypes.ArrayGet => [new("item", node.ArrayElementType ?? WorkflowDataTypes.Json)],
         NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate => [new("out", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String))],
+        NodeTypes.ArrayContains => [new("out", WorkflowDataTypes.Boolean)],
         _ => []
     };
 

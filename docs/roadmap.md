@@ -183,6 +183,15 @@ introduced.
   budgeting. Folder-editor browser coverage checks JSON pin and literal
   controls. Iterator readiness remains governed by [Decision
   0070](decisions/0070-bounded-array-iteration-contract.md).
+- [x] Add typed **Array Contains** for `array<string>`, `array<boolean>`,
+  `array<integer>`, and `array<number>` in workflow graphs and pure graph
+  functions. Share scalar equality with existing string/integer comparison
+  nodes; define finite IEEE-754 numeric equality including signed zero. Reject
+  `array<json>` because structural equality is not defined. Core passed 635/635
+  tests and the focused Agent Framework tests passed 7/7 on 2026-11-17. The full
+  Agent Framework suite remains incomplete due to an unrelated nested-Break
+  concurrency failure and subsequent stall. Browser authoring verification is
+  still pending. See [Decision 0072](decisions/0072-primitive-array-contains.md).
 - [x] Revalidate the current typed-array and direct parallel-MCP implementation
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
   252/252 passed. The prior MCP suite result is 98 passed with 2 opt-in tests

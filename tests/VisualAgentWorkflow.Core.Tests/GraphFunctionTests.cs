@@ -85,6 +85,50 @@ public sealed class GraphFunctionTests
     }
 
     [Fact]
+    public void Array_contains_composes_inside_a_pure_graph_function()
+    {
+        var inputs = ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("items", new("Items", "array<number>"))
+            .Add("item", new("Item", "number"));
+        var outputs = ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("contains", new("Contains", WorkflowDataTypes.Boolean));
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("items", new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "items", OutputDataType = "array<number>" })
+            .Add("item", new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "item", OutputDataType = WorkflowDataTypes.Number })
+            .Add("contains", new(NodeTypes.ArrayContains, "1.0.0") { ArrayElementType = WorkflowDataTypes.Number })
+            .Add("output", new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "contains", InputDataType = WorkflowDataTypes.Boolean });
+        var connections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("array", new(new("items", "out"), new("contains", "array"), "data"))
+            .Add("item", new(new("item", "out"), new("contains", "item"), "data"))
+            .Add("result", new(new("contains", "out"), new("output", "in"), "data"));
+        var function = new GraphFunctionDefinition("array.contains", 1, "Array contains", "Checks membership in a primitive array.",
+            inputs, outputs, nodes, connections);
+
+        Assert.Empty(GraphFunctionJson.Validate(function, allowNumber: true, allowNumberAdd: false, allowPrimitiveArrays: true));
+        var result = GraphFunctionJson.Evaluate(function,
+            new Dictionary<string, GraphFunctionEvaluation>
+            {
+                ["items"] = new("array<number>", ParseArray("[-0,2.5]"), []),
+                ["item"] = new(WorkflowDataTypes.Number, 0d, [])
+            }, "contains", () => 1);
+
+        Assert.Equal(WorkflowDataTypes.Boolean, result.DataType);
+        Assert.Equal(true, result.Value);
+        Assert.Contains(result.Values, value => value.NodeId == "contains" && value.DataType == WorkflowDataTypes.Boolean);
+
+        var jsonArrayFunction = function with
+        {
+            Inputs = inputs.SetItem("items", new("Items", WorkflowDataTypes.JsonArray)),
+            Nodes = nodes
+                .SetItem("items", nodes["items"] with { OutputDataType = WorkflowDataTypes.JsonArray })
+                .SetItem("contains", nodes["contains"] with { ArrayElementType = WorkflowDataTypes.Json })
+        };
+        Assert.Contains(GraphFunctionJson.Validate(jsonArrayFunction,
+                allowNumber: true, allowNumberAdd: false, allowPrimitiveArrays: true, allowJsonArrays: true),
+            issue => issue.Code == "function.array.contains.type");
+    }
+
+    [Fact]
     public void Function_hash_mismatch_and_unsupported_effect_nodes_are_rejected()
     {
         var function = AppendSuffixFunction();

@@ -278,6 +278,7 @@ public partial class WorkflowEditor
             ContractEntry(NodeTypes.ArrayReplace, canAdd, "Replace one item at a zero-based index."),
             ContractEntry(NodeTypes.ArrayRemove, canAdd, "Remove one item at a zero-based index."),
             ContractEntry(NodeTypes.ArrayConcatenate, canAdd, "Combine two arrays with the same element type."),
+            ContractEntry(NodeTypes.ArrayContains, canAdd, "Check whether a primitive array contains a matching typed value."),
             ContractEntry(NodeTypes.Sequence, canAdd, "Fan out ordered execution pins; each output must be connected exactly once."),
             ContractEntry(NodeTypes.SequenceUppercase, canAdd),
             ContractEntry(NodeTypes.SequenceReverse, canAdd),

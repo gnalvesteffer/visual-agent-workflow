@@ -196,6 +196,13 @@ A usable visual language needs operations over its types, not just a type picker
 | Object, class, interface | References to instances, types to instantiate, or instances supporting a common interface. | Keep definition references, run handles, schemas, and host capability bindings distinct; a reference never manufactures an instance or grants access. |
 | Spatial and engine values | Vectors, rotations, transforms, colors, and engine-specific handles. | Use domain-specific types only where agent use cases require them; allow approved extensions to expose bounded structured equivalents. |
 
+Current VAW array support in unified schema 2.0 includes typed primitive Array
+Contains over `string`, `boolean`, `integer`, and `number`; JSON-array structural
+membership is undefined and rejected. Equality semantics and test evidence are
+recorded in [Decision 0072](decisions/0072-primitive-array-contains.md). Array
+iteration and the broader type/container system remain open parity work tracked
+in the [roadmap](roadmap.md).
+
 Wildcard pins describe unresolved types during authoring. Connecting a concrete value or selecting a type may specialize a node and its other related pins. Disconnecting a pin must follow an explicit rule about whether specialization remains or resets. Dynamic pin counts, such as adding switch cases or formatting arguments, require stable port IDs so existing wires survive reordering and renaming. Split struct pins need field identities and schema compatibility checks, rather than deriving persisted port IDs from the current displayed text.
 
 ### Pure evaluation and execution order
