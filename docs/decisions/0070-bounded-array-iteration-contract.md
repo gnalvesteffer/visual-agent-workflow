@@ -3408,15 +3408,19 @@ until previously admitted work settles. The file and SQLite regression holds
 the first Agent active while the second admitted output requests Break; the
 third output never starts, both admitted outputs settle, the root completes
 once, and reopened passive playback reconstructs `break-completed` (2/2).
-Existing structured activation Break/failure/unknown/cancellation regressions
-also pass (28/28).
+The matching admitted-Agent failure case also passes through this exact
+single-stream session: after Break closes admission, the first Agent is
+released to fail, the suffix remains skipped, no successful Break terminal is
+recorded, and file/SQLite playback reconstructs `failed` (2/2). Existing
+structured activation Break/failure/unknown/cancellation regressions pass
+(28/28), and the Sequence production runner group passes (58/58).
 
 This is evidence for the same-stream A-active/B-Break/C-skipped/drain gate, not
 an architecture selection or a public contract. The new session is reachable
-only through the internal proof method. Admission races, failure and unknown
-outcomes inside this exact same-stream session, host cancellation, nested
-frames, shared budgets, and the complete production matrix still need proof
-and a fresh three-role review. During this experiment the lifecycle serializer
+only through the internal proof method. Admission races, unknown outcomes
+inside this exact same-stream session, host cancellation, nested frames,
+shared budgets, and the complete production matrix still need proof and a
+fresh three-role review. During this experiment the lifecycle serializer
 was found to omit the coordinator's Break reason; it now persists that reason,
 which is required for passive playback to validate the terminal. No public
 schema, production admission policy, or Studio authoring changes.

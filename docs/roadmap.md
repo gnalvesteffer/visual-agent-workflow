@@ -214,9 +214,13 @@ introduced.
   through both stores (2/2); the existing structured activation
   Break/failure/unknown/cancellation matrix passes 28/28. The serializer now
   retains the Break reason required by playback. This does not broaden the
-  production admission policy or select an architecture; failure/unknown and
-  cancellation must still be exercised inside this exact same-stream session,
-  followed by the remaining shared-budget/race matrix and a fresh review. See
+  production admission policy or select an architecture. The same-stream
+  admitted-Agent failure case now also passes in file and SQLite stores (2/2):
+  the failed admitted output overrides Break, the suffix remains skipped, and
+  playback reconstructs failure. The Sequence production runner group passes
+  58/58. Unknown outcome and cancellation must still be exercised inside this
+  exact same-stream session, followed by the remaining shared-budget/race
+  matrix and a fresh review. See
   [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   This remains a private proof path: the
   production guard, public schema, and Studio authoring remain unchanged. Prove
