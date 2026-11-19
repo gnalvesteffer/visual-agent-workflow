@@ -474,6 +474,12 @@ introduced.
   evidence, not public topology, uncontrolled scheduler-race, or production
   ownership proof. See [Decision
   0070](decisions/0070-bounded-array-iteration-contract.md).
+  A paired file/SQLite proof now makes the second parent frame fail after the
+  first frame has consumed Break. The sibling failure overrides Break for the
+  root, and reopened passive playback retains both outcomes (2/2). Other
+  cross-frame unknown-outcome/cancellation and persistence-interruption cases
+  remain open; this does not select public topology or runtime ownership. See
+  [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   At that proof stage, byte/event contention, tool/outcome reservation
   races, host-control pause-event integration, uncontrolled production races,
   and the full body compatibility matrix remained open. The proof coordinator

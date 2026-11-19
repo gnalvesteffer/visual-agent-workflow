@@ -8223,6 +8223,85 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task NestedConcurrentProductionCoordinator_SiblingFrameFailureOverridesBreak(bool sqlite)
+    {
+        var definition = NestedConcurrentBreakProofDefinition();
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "nested-concurrent-production-sibling-failure-overrides-break-proof");
+        using var runStore = new ProofRunStore(revision, "[\"outer-a\",\"outer-b\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agent = new FirstSucceedsSecondFailsAgentExecutor("agent");
+        var secondParentAdmitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSecondParent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstBreakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.LoopIterationCompleted && evt.NodeId == "inner-loop" &&
+                evt.ScopeId == "outer-loop/0/inner-loop/1")
+                firstBreakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask AfterOuterItemAdmitted(int index, CancellationToken cancellationToken)
+        {
+            if (index != 1) return ValueTask.CompletedTask;
+            secondParentAdmitted.TrySetResult();
+            return new(releaseSecondParent.Task.WaitAsync(cancellationToken));
+        }
+
+        var execution = new WorkflowRunner(agents: agent)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                "[\"outer-a\",\"outer-b\"]", "index", null, Record,
+                itemParameterId: "item", activationLoopNodeId: "outer-loop",
+                nestedItemsJson: "[\"continue\",\"stop\",\"must-not-run\"]",
+                nestedIndexParameterId: "innerIndex", nestedActivationLoopNodeId: "inner-loop",
+                maximumConcurrentBodies: 2, afterItemAdmitted: AfterOuterItemAdmitted);
+        try
+        {
+            await agent.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await secondParentAdmitted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            agent.ReleaseFirst.TrySetResult();
+            await firstBreakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.False(execution.IsCompleted,
+                "One frame's Break must not settle the root while a different admitted parent frame remains active.");
+            releaseSecondParent.TrySetResult();
+            await agent.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            agent.ReleaseSecond.TrySetResult();
+        }
+        finally
+        {
+            releaseSecondParent.TrySetResult();
+            agent.ReleaseFirst.TrySetResult();
+            agent.ReleaseSecond.TrySetResult();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "inner-loop" && evt.ScopeId == "outer-loop/0/inner-loop/1");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent" &&
+            evt.ScopeId == "outer-loop/1/inner-loop/0");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderLoopActivations(reopened.Events, reopened.Status);
+        Assert.Contains("inner-loop · Iteration 2 · Break", playback, StringComparison.Ordinal);
+        var runPlayback = await RenderPlayback(reopened);
+        Assert.Contains("agent · node.failed", runPlayback, StringComparison.Ordinal);
+        Assert.Contains("Latest run status: failed", runPlayback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task NestedConcurrentProductionCoordinator_PropagatesChildFailureAfterBreakDrain(bool sqlite)
     {
         var definition = NestedConcurrentBreakProofDefinition();
@@ -23087,6 +23166,38 @@ public sealed class ArrayIterationVawBodyProofTests
             if (failAfterRelease)
                 throw new InvalidOperationException("Controlled sibling failure after Break.");
             return JsonSerializer.Serialize(new { query = input });
+        }
+    }
+
+    private sealed class FirstSucceedsSecondFailsAgentExecutor(string blockedNodeId) : IAgentNodeExecutor
+    {
+        private int invocationCount;
+
+        public TaskCompletionSource FirstStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseFirst { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource SecondStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseSecond { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.settlement", "Settlement proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId != blockedNodeId)
+                throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
+
+            if (Interlocked.Increment(ref invocationCount) == 1)
+            {
+                FirstStarted.TrySetResult();
+                await ReleaseFirst.Task.WaitAsync(cancellationToken);
+                return JsonSerializer.Serialize(new { query = input });
+            }
+
+            SecondStarted.TrySetResult();
+            await ReleaseSecond.Task.WaitAsync(cancellationToken);
+            throw new InvalidOperationException("Controlled sibling-frame failure after another frame's Break.");
         }
     }
 

@@ -4135,7 +4135,22 @@ the same event stream and passive playback identifies both nested Break scopes
 This closes the controlled concurrent-parent-frame isolation case for the
 private proof coordinator. It does not establish an uncontrolled scheduler
 race, public Sequence/Break topology, production-owned scheduling or budgets,
-mixed-outcome precedence across sibling frames, or general Blueprint parity.
+unknown-outcome or cancellation precedence across sibling frames, or general
+Blueprint parity. A known sibling-failure ordering is covered in the following
+proof.
+
+### Sibling-frame failure precedence proof (2026-11-18)
+
+The concurrent nested production-body proof now holds two parent frames open,
+lets the first frame consume its inner Break, then releases the second frame's
+Agent to fail. The Break does not settle the root early; the independent
+sibling failure wins the root disposition. File and SQLite reopen preserve the
+same ordered Break/failure prefix, with one failed root terminal and passive
+playback showing both the inner Break and Agent failure (2/2 focused cases).
+This adds one controlled known-failure ordering only. Unknown outcome and host
+cancellation precedence across sibling parent frames, persistence interruption
+at this exact boundary, public graph validation, and production ownership
+remain open; the architecture gate remains **REVISE**.
 
 ### Explicit feedback target adjudication (2026-11-18)
 
