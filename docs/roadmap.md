@@ -399,6 +399,12 @@ introduced.
   (2/2). A known MCP failure followed by rejection of root `run.failed` keeps
   the root running and the Sequence output failed/completed without retrying
   the append (2/2). Process loss remains open.
+  A pinned WorkflowCall with a production Agent Framework parallel fork inside
+  the nested activation now holds one child Agent after its sibling completes.
+  Neither child-call completion nor loop-item completion is emitted until the
+  held Agent settles; both stores reopen with matching completed call playback
+  (2/2). Parallel-child failure/cancellation and the wider supported-body
+  matrix remain open.
   Host cancellation after Break is requested while an Agent is admitted stays
   a cancelled root and Sequence through both stores and playback (2/2).
   A new proof-scoped single-stream dispatch session now passes the central

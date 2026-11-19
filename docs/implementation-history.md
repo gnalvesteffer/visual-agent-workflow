@@ -928,3 +928,14 @@ outputs (2 focused cases). Focused nested production-body tests pass 12/12.
 This corrects the earlier proof interpretations above; process loss and the
 remaining runtime matrix are still open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: parallel pinned child settlement (2026-11-19)
+
+A production-body nested activation now calls an exact pinned child whose
+Agent Framework graph has a parallel fork. One child Agent completes while its
+sibling remains held; the child call and enclosing loop activation stay open
+until the sibling settles. File and SQLite reopen preserve completed child
+playback and the nested scope (2 focused cases). This covers successful
+parallel-child drain only; child failure/cancellation and public iterator
+admission remain open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

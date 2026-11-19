@@ -4459,3 +4459,14 @@ When a known MCP failure is recorded in the nested body but root `run.failed`
 is rejected, the nested proof propagates the root-terminal `IOException`
 without retrying. File and SQLite reopen retain the running root prefix and
 the failed/completed Sequence output states (2/2). Process loss remains open.
+
+`ProductionBodyNestedCoordinator_SettlesParallelPinnedChildPerActivation`
+places a real Agent Framework parallel fork inside the exact pinned child
+workflow invoked from a nested activation. One child Agent completes while its
+parallel sibling is held; the child call and enclosing iteration remain
+unsettled until that sibling is released. Both Agents and the child call then
+complete, and file/SQLite reopen plus passive WorkflowCall playback preserve
+the same nested scope and outcome (2/2). This proves successful parallel-child
+drain for this graph shape only; parallel-child failure/cancellation and the
+remaining supported-body matrix are still open. Public iterator/Break
+admission and architecture selection remain gated.
