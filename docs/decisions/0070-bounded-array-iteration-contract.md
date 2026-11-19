@@ -4486,10 +4486,11 @@ focused cases). This closes those three outcomes for this interface graph
 shape; other child topologies, crash recovery, and the full iterator gate
 remain open.
 
-A subprocess proof now exercises actual writer process loss immediately after
-`sequence.break_accepted` is committed. The parent terminates the child process
-before Sequence/root settlement, reopens the file and SQLite stores, and
-verifies that root and Sequence playback remain running with exactly the
-accepted dispatched/completed output prefix (2 cases). This proves durable
-prefix reconstruction at this boundary; it does not recover or resume the
-interrupted workflow, and other process-loss cut points remain open.
+Subprocess proofs now exercise actual writer process loss immediately after
+either `sequence.break_accepted` or `sequence.break_completed` is committed.
+The parent terminates the child before root settlement and reopens both file
+and SQLite stores. Playback preserves a running Sequence at the accepted prefix
+or `break-completed` at the terminal prefix, while the root remains running
+(4 cases). This proves durable reconstruction at those two boundaries; it does
+not recover or resume the interrupted workflow, and other process-loss cut
+points remain open.

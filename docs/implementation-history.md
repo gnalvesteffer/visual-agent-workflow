@@ -954,12 +954,12 @@ the matching call playback state (6 focused cases). Other child topologies,
 process-loss recovery, and public iterator admission remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
-## Typed-array iteration proof: process loss after Break acceptance (2026-11-19)
+## Typed-array iteration proof: process loss at Break boundaries (2026-11-19)
 
-A separate test process now commits `sequence.break_accepted` and is terminated
-before Sequence/root settlement. Reopening file and SQLite stores preserves a
-running root and Sequence with the accepted dispatched/completed output prefix
-(2 focused cases). This proves the persisted prefix at one exact process-loss
-boundary, not automatic recovery or resumption; other cut points and the full
-iterator gate remain open. See
+A separate test process now commits either `sequence.break_accepted` or
+`sequence.break_completed` and is terminated before root settlement. Reopening
+file and SQLite stores preserves the running root and corresponding running
+or `break-completed` Sequence playback state (4 focused cases). This proves
+persisted prefixes at these two process-loss boundaries, not automatic recovery
+or resumption; other cut points and the full iterator gate remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
