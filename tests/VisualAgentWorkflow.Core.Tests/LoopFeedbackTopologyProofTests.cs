@@ -183,6 +183,43 @@ public sealed class LoopFeedbackTopologyProofTests
     [Theory]
     [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
     [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Multiple_sequence_breaks_retain_distinct_output_owners(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopSequenceBreakCandidate();
+        var sequence = inferred.Nodes["inner-sequence"];
+        var nodes = inferred.Nodes.SetItem("inner-sequence", sequence with
+        {
+            Sequence = sequence.Sequence! with
+            {
+                Outputs = sequence.Sequence.Outputs.Add(new("break-again", "Break again"))
+            }
+        }).Add("inner-break-again", new NodeDefinition("vaw.proof.array-break", "proof-only"));
+        var extended = inferred with
+        {
+            Nodes = nodes,
+            ExecutionConnections = inferred.ExecutionConnections!.Add("inner-break-again",
+                Edge("inner-sequence", "then.break-again", "inner-break-again", "execute"))
+        };
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? extended
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(extended);
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(candidate, shape);
+
+        Assert.True(proof.IsValid, string.Join(Environment.NewLine, proof.Issues));
+        var inner = Assert.Single(proof.Regions.Where(region => region.LoopNodeId == "inner-loop"));
+        Assert.Equal(["inner-break", "inner-break-again"], inner.BreakRoutes
+            .Select(route => route.BreakNodeId).Order(StringComparer.Ordinal).ToArray());
+        Assert.Equal("then.break", inner.BreakRoutes
+            .Single(route => route.BreakNodeId == "inner-break").SequenceOutputPinId);
+        Assert.Equal("then.break-again", inner.BreakRoutes
+            .Single(route => route.BreakNodeId == "inner-break-again").SequenceOutputPinId);
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
     public void Shared_sequence_output_routes_are_rejected(string shapeName)
     {
         var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);

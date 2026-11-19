@@ -334,7 +334,8 @@ introduced.
   pin for each proof Break; the conditional fixture identifies
   `inner-sequence` / `then.route` as the nearest-loop Break route under both
   feedback-pin projections; a Break without this provenance is rejected
-  (focused topology tests 36/36, Core 701/701).
+  and two distinct Sequence outputs retain separate Break ownership
+  (focused topology tests 38/38, Core 703/703).
   This is proof metadata only and does not enable public authoring or runtime
   dispatch. The
   production Sequence path queues configured outputs through a separate

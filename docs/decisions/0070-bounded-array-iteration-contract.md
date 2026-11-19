@@ -4343,6 +4343,8 @@ fan-out and alternative routes and survives ordinary continuations and nested
 loop completion. The conditional fixture proves `inner-break` belongs to
 `inner-loop` through `inner-sequence` pin `then.route` under both feedback-pin
 projections, and a Break without Sequence-output provenance is rejected.
-Focused topology tests pass 36/36 and the Core suite passes 701/701. This
-remains non-authoritative proof metadata; it does not change
-public validation, package admission, runtime dispatch, or playback.
+Two distinct Sequence outputs now retain their respective Break-node ownership
+under both feedback-pin projections. Focused topology tests pass 38/38 and the
+Core suite passes 703/703. This remains non-authoritative proof metadata; it
+does not change public validation, package admission, runtime dispatch, or
+playback.
