@@ -4386,12 +4386,15 @@ Sequence outputs (2/2).
 
 This proves failure before Break on the composed nested route; it does not prove
 that an already-admitted sibling's late failure overrides a concurrently
-reached Break. A reshaped held-Agent overlap fixture reached the fake Agent
-executor and selected the conditional Branch route, but timed out before the
-Break node started; releasing the held Agent first caused its failure to
-settle before the Break. This shows the composed overlap proof is still
-inconclusive and does not identify whether the cause is fixture topology,
-framework scheduling, or a runtime defect. Keep the architecture unselected
-and debug the scheduling boundary before asserting outcome precedence. Unknown
-external outcome, cancellation, pause/stop races, append-rejection cases, and
-public admission remain open.
+reached Break. A held-Agent overlap fixture now isolates the scheduling boundary
+with a successful release. The conditional Branch completes while the sibling
+Agent is held, but the downstream Break does not start until that Agent is
+released and completes. The focused proof passes against both file and SQLite
+stores; it also confirms the enclosing nested-Sequence behavior reaches two
+Break completions across the two outer items. This establishes the observed
+ordering for this production-body fixture only. It does not establish a general
+Agent Framework scheduling rule, compare the fresh-subworkflow candidate, or
+show whether this ordering meets Blueprint parity. Keep the architecture
+unselected and compare the exact graph against the fresh-subworkflow candidate
+before drawing that conclusion. Unknown external outcome, cancellation,
+pause/stop races, append-rejection cases, and public admission remain open.

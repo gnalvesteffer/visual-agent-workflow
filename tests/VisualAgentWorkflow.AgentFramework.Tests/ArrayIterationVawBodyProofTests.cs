@@ -6449,6 +6449,78 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyNestedConditionalBreak_RecordsSchedulingBoundaryWithHeldAgent(bool sqlite)
+    {
+        var revision = NestedConditionalSequenceBreakWithHeldAgent();
+        using var runStore = new ProofRunStore(revision, "[\"outer-a\",\"outer-b\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new ControlledSettlementAgentExecutor("agent");
+        var branchCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var breakStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var breakSettled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sequencePlan = new WorkflowRunner.SequenceProductionPlan("sequence", [
+            new("decision", 0, "branch", "sequence", "then.decision", "sequence-break"),
+            new("sibling", 1, "agent", "sequence", "then.sibling", "sequence-sibling")
+        ], null, SequenceTerminalState.Completed);
+        var execution = new WorkflowRunner(agents: agents).ExecuteProductionNestedBodyBreakSequenceProofAsync(
+            runStore.RunId, revision, "[\"outer-a\",\"outer-b\"]", "[\"inner\"]", "outerIndex", "index", null,
+            evt =>
+            {
+                recorder.Append(evt);
+                if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "branch")
+                    branchCompleted.TrySetResult();
+                if (evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "break")
+                    breakStarted.TrySetResult();
+                if (evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+                    SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "decision")
+                    breakSettled.TrySetResult();
+                return ValueTask.CompletedTask;
+            }, itemParameterId: "item", proofBreakNodeIds: new HashSet<string>(["break"], StringComparer.Ordinal),
+            sequencePlan: sequencePlan, maximumConcurrentSequenceOutputs: 2)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        try
+        {
+            await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await branchCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(ReferenceEquals(breakStarted.Task,
+                await Task.WhenAny(breakStarted.Task, Task.Delay(TimeSpan.FromSeconds(1)))),
+                "Break should remain unobserved before the held sibling is released in this diagnostic fixture.");
+            agents.Release.TrySetResult();
+            try
+            {
+                await breakStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await breakSettled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (TimeoutException)
+            {
+                throw new Xunit.Sdk.XunitException("Conditional Branch Break did not progress after Agent release. Events: " +
+                    string.Join(" | ", recorder.Snapshot().Select(evt =>
+                        $"{evt.Sequence}:{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+            }
+            var result = await execution;
+            var events = recorder.Snapshot();
+            Assert.False(result.Failed);
+            Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted));
+            var firstAgentCompleted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "agent" && evt.ScopeId == "outer-loop/0/inner-loop/0");
+            var firstBreakStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "break" && evt.ScopeId == "outer-loop/0/inner-loop/0");
+            Assert.True(firstAgentCompleted.Sequence < firstBreakStarted.Sequence,
+                "The queued Branch-to-Break hop should become runnable only after the sibling settles.");
+            AssertPersistedSequence(runStore, events, "completed");
+            var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+            Assert.Equal(events, reopened.Events);
+        }
+        finally
+        {
+            agents.Release.TrySetResult();
+            if (!execution.IsCompleted) await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
     private static WorkflowRevision NestedBranchSequenceBreakDefinition()
     {
         var definition = WorkflowRunner.CreateSequenceBranchDecisionEvidenceProofRevision(true).Definition;
@@ -6491,6 +6563,56 @@ public sealed class ArrayIterationVawBodyProofTests
             Connections = connections,
             ExecutionConnections = execution
         }, "nested-branch-sequence-break-tool-failure-proof");
+    }
+
+    private static WorkflowRevision NestedConditionalSequenceBreakWithHeldAgent()
+    {
+        var nodes = new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
+            {
+                Sequence = new([new("decision", "Break"), new("sibling", "Held sibling")])
+            },
+            ["condition"] = new(NodeTypes.BooleanConstant, "1.0.0")
+            {
+                BooleanConstant = new(true)
+            },
+            ["branch"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+            ["break"] = new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"),
+            ["item"] = new(NodeTypes.WorkflowValue, "1.0.0")
+            {
+                ParameterId = "item", OutputDataType = WorkflowDataTypes.String
+            },
+            ["agent"] = new(NodeTypes.Agent, "1.0.0",
+                Agent: new AgentConfiguration("proof.settlement", null, "Wait for release.", []) { MaxTurns = 1 }),
+            ["output"] = new(NodeTypes.Output, "1.0.0")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "nested-conditional-sequence-break-held-agent-proof", "input", nodes,
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["branch-condition"] = new(new("condition", "out"), new("branch", "condition"), "data"),
+                ["item-agent"] = new(new("item", "out"), new("agent", "in"), "data"),
+                ["item-output"] = new(new("item", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Item", "") { Type = WorkflowDataTypes.String })
+                .Add("outerIndex", new("Outer index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Inner index", "0") { Type = WorkflowDataTypes.Integer }),
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = Edge("input", "then", "sequence", "execute"),
+                ["sequence-break"] = Edge("sequence", "then.decision", "branch", "execute"),
+                ["branch-true"] = Edge("branch", "true", "break", "execute"),
+                ["branch-false"] = Edge("branch", "false", "output", "execute"),
+                ["break-output"] = Edge("break", "out", "output", "execute"),
+                ["sequence-sibling"] = Edge("sequence", "then.sibling", "agent", "execute"),
+                ["agent-output"] = Edge("agent", "out", "output", "execute")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+        };
+        return WorkflowRevision.CreateProofOnly(definition, "nested-conditional-sequence-break-held-agent-proof");
     }
 
     [Theory]

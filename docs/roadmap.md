@@ -150,7 +150,11 @@ the historical promotion chain.
   Other malformed/ambiguous legacy shapes and nested production authoring,
   validation, runtime, persistence, and playback evidence remain open.
   Sequence/Break production settlement remains a separate gate and cannot be
-  inferred from the feedback-pin contract.
+  inferred from the feedback-pin contract. The nested held-Agent scheduling
+  probe now confirms Branch completion while the Agent is held and observes
+  Break start only after the Agent releases; it passes for file and SQLite.
+  This fixture-level result still needs an identical fresh-subworkflow
+  candidate comparison and does not settle runtime ownership or public support.
   - [x] Declare routing roles on static and configuration-derived execution
     pins and consume them in the non-public topology experiment.
   - [x] Add conformance tests for role direction, dynamic role resolution, and
