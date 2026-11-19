@@ -913,3 +913,18 @@ without retrying. File and SQLite reopen preserve the running root prefix,
 Break acceptance, and nonterminal Sequence playback (2 focused cases). Process
 loss remains open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: evidence-write settlement correction (2026-11-19)
+
+Review against the adjudicated Decision 0070 contract found that nested-body
+evidence append failures were falling through to synthetic node/root failure
+events. The contract requires propagation without fabricating settlement, so
+an append rejection or lost acknowledgment at `sequence.break_accepted` or
+`sequence.break_completed` now leaves the accepted root and Sequence prefixes
+running in both file and SQLite stores (6 focused cases). Root `run.failed`
+append rejection is tested separately after a known MCP failure; it preserves
+the running root prefix while Sequence playback records its failed/completed
+outputs (2 focused cases). Focused nested production-body tests pass 12/12.
+This corrects the earlier proof interpretations above; process loss and the
+remaining runtime matrix are still open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

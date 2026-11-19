@@ -6603,7 +6603,7 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ProductionBodyNestedConditionalBreak_AcceptanceAppendFailureFailsRunWithoutSequenceTerminal(bool sqlite)
+    public async Task ProductionBodyNestedConditionalBreak_AcceptanceAppendFailurePreservesNonterminalPrefix(bool sqlite)
     {
         var revision = NestedBranchSequenceBreakDefinition();
         using var runStore = new ProofRunStore(revision, "[\"outer-a\"]", sqlite,
@@ -6614,27 +6614,26 @@ public sealed class ArrayIterationVawBodyProofTests
             new("suffix", 1, "suffix-output", "sequence", "then.suffix", "sequence-suffix")
         ], null, SequenceTerminalState.Completed);
 
-        var result = await new WorkflowRunner()
+        var failure = await Xunit.Record.ExceptionAsync(() => new WorkflowRunner()
             .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
                 "[\"outer-a\"]", "[\"break\"]", "outerIndex", "index", null, evt =>
                 {
                     recorder.Append(evt);
                     return ValueTask.CompletedTask;
                 }, itemParameterId: "item", proofBreakNodeIds: new HashSet<string>(["break"], StringComparer.Ordinal),
-                sequencePlan: sequencePlan, maximumConcurrentSequenceOutputs: 2);
+                sequencePlan: sequencePlan, maximumConcurrentSequenceOutputs: 2));
 
         var accepted = recorder.Snapshot();
-        Assert.True(result.Failed);
-        Assert.False(result.Cancelled);
-        AssertPersistedSequence(runStore, accepted, "failed");
+        Assert.True(HasExceptionInChain<IOException>(failure), failure?.ToString());
+        AssertPersistedSequence(runStore, accepted, "running");
         Assert.Contains(accepted, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "break");
-        Assert.Single(accepted, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
         Assert.DoesNotContain(accepted, evt => evt.Kind is ExecutionEventKinds.SequenceBreakAccepted or
             ExecutionEventKinds.SequenceOutputSkipped or ExecutionEventKinds.SequenceBreakCompleted or
             ExecutionEventKinds.SequenceCompleted or ExecutionEventKinds.Completed);
+        Assert.DoesNotContain(accepted, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
 
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
-        Assert.Equal("failed", reopened.Status);
+        Assert.Equal("running", reopened.Status);
         Assert.Equal(accepted, reopened.Events);
         var sequenceEvents = reopened.Events.Where(evt => SequenceEvidence.IsLifecycleEvent(evt.Kind));
         Assert.True(SequenceEvidence.TryReconstructPlayback(sequenceEvents, out var playback));
@@ -6666,27 +6665,25 @@ public sealed class ArrayIterationVawBodyProofTests
             return ValueTask.CompletedTask;
         }
 
-        var result = await new WorkflowRunner()
+        var failure = await Xunit.Record.ExceptionAsync(() => new WorkflowRunner()
             .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
                 "[\"outer-a\"]", "[\"break\"]", "outerIndex", "index", null,
                 AppendThenLoseAcknowledgment, itemParameterId: "item",
                 proofBreakNodeIds: new HashSet<string>(["break"], StringComparer.Ordinal),
-                sequencePlan: sequencePlan, maximumConcurrentSequenceOutputs: 2);
+                sequencePlan: sequencePlan, maximumConcurrentSequenceOutputs: 2));
         var events = recorder.Snapshot();
 
-        Assert.True(result.Failed);
-        Assert.False(result.Cancelled);
+        Assert.True(HasExceptionInChain<IOException>(failure), failure?.ToString());
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
         Assert.Equal(1, attemptedKinds.Count(kind => kind == ExecutionEventKinds.SequenceBreakAccepted));
         Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.SequenceOutputSkipped or
             ExecutionEventKinds.SequenceBreakCompleted or ExecutionEventKinds.SequenceCompleted or
-            ExecutionEventKinds.Completed);
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
-        AssertPersistedSequence(runStore, events, "failed");
+            ExecutionEventKinds.Completed or ExecutionEventKinds.Failed);
+        AssertPersistedSequence(runStore, events, "running");
 
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(events, reopened.Events);
-        Assert.Equal("failed", reopened.Status);
+        Assert.Equal("running", reopened.Status);
         var sequenceEvents = reopened.Events.Where(evt => SequenceEvidence.IsLifecycleEvent(evt.Kind));
         Assert.True(SequenceEvidence.TryReconstructPlayback(sequenceEvents, out var playback));
         Assert.Equal("running", playback!.Status);
@@ -6709,23 +6706,21 @@ public sealed class ArrayIterationVawBodyProofTests
             new("suffix", 1, "suffix-output", "sequence", "then.suffix", "sequence-suffix")
         ], null, SequenceTerminalState.Completed);
 
-        var result = await new WorkflowRunner()
+        var failure = await Xunit.Record.ExceptionAsync(() => new WorkflowRunner()
             .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
                 "[\"outer-a\"]", "[\"break\"]", "outerIndex", "index", null, evt =>
                 {
                     recorder.Append(evt);
                     return ValueTask.CompletedTask;
                 }, itemParameterId: "item", proofBreakNodeIds: new HashSet<string>(["break"], StringComparer.Ordinal),
-                sequencePlan: sequencePlan, maximumConcurrentSequenceOutputs: 2);
+                sequencePlan: sequencePlan, maximumConcurrentSequenceOutputs: 2));
         var events = recorder.Snapshot();
 
-        Assert.True(result.Failed);
-        Assert.False(result.Cancelled);
+        Assert.True(HasExceptionInChain<IOException>(failure), failure?.ToString());
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
-        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
-        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
-        AssertPersistedSequence(runStore, events, "failed");
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.SequenceBreakCompleted or
+            ExecutionEventKinds.SequenceCompleted or ExecutionEventKinds.Failed);
+        AssertPersistedSequence(runStore, events, "running");
 
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
         Assert.Equal(events, reopened.Events);
@@ -6739,32 +6734,47 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ProductionBodyNestedConditionalBreak_RootFailureAppendRejectionKeepsRunningPrefix(bool sqlite)
+    public async Task ProductionBodyNestedConditionalBreak_RootFailureAppendRejectionKeepsAcceptedPrefix(bool sqlite)
     {
-        var revision = NestedBranchSequenceBreakDefinition();
+        const string bindingId = "proof.sequence-branch-tool";
+        var revision = NestedBranchSequenceBreakWithFailingToolDefinition(bindingId);
         using var runStore = new ProofRunStore(revision, "[\"outer-a\"]", sqlite,
-            rejectedAppendEventKinds: [ExecutionEventKinds.SequenceBreakCompleted, ExecutionEventKinds.Failed]);
+            rejectedAppendEventKinds: [ExecutionEventKinds.Failed]);
         var recorder = new ProofRecorder(runStore, startRoot: false);
+        var tools = new ControlledSettlementToolBroker(bindingId, ControlledToolOutcome.Failure);
         var sequencePlan = new WorkflowRunner.SequenceProductionPlan("sequence", [
             new("decision", 0, "branch", "sequence", "then.decision", "sequence-branch"),
             new("suffix", 1, "suffix-output", "sequence", "then.suffix", "sequence-suffix")
         ], null, SequenceTerminalState.Completed);
 
-        var failure = await Xunit.Record.ExceptionAsync(() => new WorkflowRunner()
+        var execution = new WorkflowRunner(tools: tools)
             .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
                 "[\"outer-a\"]", "[\"break\"]", "outerIndex", "index", null, evt =>
                 {
                     recorder.Append(evt);
                     return ValueTask.CompletedTask;
                 }, itemParameterId: "item", proofBreakNodeIds: new HashSet<string>(["break"], StringComparer.Ordinal),
-                sequencePlan: sequencePlan, maximumConcurrentSequenceOutputs: 2));
+                sequencePlan: sequencePlan, maximumConcurrentSequenceOutputs: 2);
+        Exception? failure;
+        try
+        {
+            await tools.DispatchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            tools.ReleaseOutcome.TrySetResult();
+            failure = await Xunit.Record.ExceptionAsync(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            tools.ReleaseOutcome.TrySetResult();
+        }
         var events = recorder.Snapshot();
 
         Assert.IsType<IOException>(failure);
         Assert.Contains(ExecutionEventKinds.Failed, failure!.Message, StringComparison.Ordinal);
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
-        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.SequenceBreakCompleted or
-            ExecutionEventKinds.SequenceCompleted or ExecutionEventKinds.Completed or ExecutionEventKinds.Failed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed && evt.NodeId == "tool");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+            evt.NodeId == "sequence" && SequenceEvidence.TryRead(evt, out var evidence) &&
+            evidence?.OutputId == "decision");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
         AssertPersistedSequence(runStore, events, "running");
 
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
@@ -6772,8 +6782,8 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal("running", reopened.Status);
         var sequenceEvents = reopened.Events.Where(evt => SequenceEvidence.IsLifecycleEvent(evt.Kind));
         Assert.True(SequenceEvidence.TryReconstructPlayback(sequenceEvents, out var playback));
-        Assert.Equal("running", playback!.Status);
-        Assert.NotNull(playback.BreakAcceptance);
+        Assert.Equal("failed", playback!.Status);
+        Assert.Equal(["failed", "completed"], playback.Outputs.Select(output => output.State));
     }
 
     [Theory]

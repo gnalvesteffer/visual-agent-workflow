@@ -4433,31 +4433,29 @@ contract or runtime architecture is selected.
 
 The same nested production-body fixture now rejects the persisted
 `sequence.break_accepted` append in both file and SQLite stores. The Break node
-completion remains in the accepted event prefix, the production-body wrapper
-fails the root run, and no Sequence Break acceptance, skipped suffix, or
-Sequence terminal is fabricated. On reopen, root playback is failed while
-Sequence playback remains running with its previously completed suffix and
-still-dispatched decision output (2/2). This qualifies the append-rejection
-boundary for this candidate; it does not prove lost acknowledgment, process
-loss, or other append sites in this composition.
+completion remains in the accepted event prefix, and the production-body
+coordinator propagates the evidence-write failure without emitting a root
+terminal. On reopen, root and Sequence playback remain running; no Break
+acceptance, skipped suffix, or Sequence terminal is fabricated (2/2). This
+qualifies the append-rejection boundary for this candidate; it does not prove
+process loss or other append sites in this composition.
 
 The nested production-body proof also commits `sequence.break_accepted` and
 then loses the writer acknowledgment. Across file and SQLite reopen, the
-acceptance appears exactly once, the root is failed, and Sequence playback
-remains running with the acceptance and dispatched/completed output prefix;
-no skipped suffix or Sequence terminal is added (2/2). This qualifies
-ambiguous acknowledgment at Break acceptance for this candidate, not process
-loss or other append boundaries.
+acceptance appears exactly once, and root and Sequence playback remain
+running with the acceptance and dispatched/completed output prefix;
+no skipped suffix, Sequence terminal, or root terminal is added (2/2). This
+qualifies ambiguous acknowledgment at Break acceptance for this candidate,
+not process loss or other append boundaries.
 
 Rejecting `sequence.break_completed` after Break acceptance now has matching
-nested production-body coverage in both stores. The root fails, the accepted
-Break prefix reopens with Sequence playback still running, and no Break or
-normal Sequence terminal is fabricated (2/2). This qualifies rejection of
-the Break terminal append only; process loss and later root-terminal append
-failure were a separate gate, now covered below.
+nested production-body coverage in both stores. The root remains running, and
+the accepted Break prefix reopens with root and Sequence playback still
+running. No Break, normal Sequence, or root terminal is fabricated (2/2).
+This qualifies rejection of the Break terminal append only; root-terminal
+append failure is covered separately below.
 
-When both `sequence.break_completed` and root `run.failed` appends are rejected,
-the nested proof propagates the root-terminal `IOException` without retrying.
-File and SQLite reopen retain the running root prefix, exactly one Break
-acceptance, and nonterminal Sequence playback (2/2). This covers those two
-consecutive append rejections; process loss remains open.
+When a known MCP failure is recorded in the nested body but root `run.failed`
+is rejected, the nested proof propagates the root-terminal `IOException`
+without retrying. File and SQLite reopen retain the running root prefix and
+the failed/completed Sequence output states (2/2). Process loss remains open.

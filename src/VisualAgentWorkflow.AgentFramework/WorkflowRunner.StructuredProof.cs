@@ -1134,6 +1134,9 @@ public sealed partial class WorkflowRunner
                             await Emit(ExecutionEventKinds.OutcomeUnknown,
                                 data: "Nested activation ended with an unresolved external outcome.");
                             return new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false);
+                        case WorkflowBodyProofDisposition.EvidenceWriteFailed:
+                            throw bodyOutcome.EvidenceWriteError ??
+                                new InvalidOperationException("The nested activation could not persist evidence.");
                         default:
                             await Emit(ExecutionEventKinds.NodeFailed, innerLoopNodeId, innerFrame.Id,
                                 innerFrame.ScopeId, $"Nested activation ended with {bodyOutcome.Disposition}.");
