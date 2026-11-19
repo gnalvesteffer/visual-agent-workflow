@@ -1,6 +1,6 @@
 # Decision 0074: Bounded proof for nested MCP argument pins
 
-**Status:** REVISE; proof-only work may proceed, authoring and runtime admission remain unchanged
+**Status:** REVISE; bounded non-approval evidence redaction is implemented, nested pin proof and authoring remain gated
 
 **Date:** 2026-11-19
 
@@ -56,9 +56,15 @@ Before enabling nested pins in authoring or runtime admission:
    contracts, invalid live schemas, and missing node grants.
 4. Define and test redaction before nested values can be persisted in
    `data.evaluated` or exposed in run details, playback, diagnostics, or error
-   messages. The definition must cover connected and static values, nested
-   paths, and bounded correlation metadata without recording raw sensitive
-   values.
+   messages. The bounded direct-MCP slice now redacts values in direct-node
+   `data.evaluated`, `tool.authorized`, `tool.completed`, direct MCP
+   `node.completed`, and a directly sourced Output completion. It retains type,
+   event identity, and character-count metadata without plain hashes. This is
+   not an end-to-end confidentiality guarantee: arbitrary downstream nodes can
+   still record derived values; static literals remain in workflow definitions;
+   approval events retain exact plaintext input under Decision 0075; agent-loop
+   tool evidence and old histories keep their existing shape. Nested pin proof
+   must still cover nested path metadata and these residual boundaries.
 5. Define explicit migration and schema-drift behavior. Existing top-level
    pin IDs, definitions, hashes, package behavior, and old-reader interpretation
    must remain stable; no discovery refresh may silently rewrite authored pins
@@ -79,6 +85,6 @@ Schema support, or Blueprint parity.
 
 The current implementation already supports nested MCP values on JSON pins and
 retains normalized nested schema metadata. It does not yet provide the
-path-level pin contract or the redaction and migration guarantees above. Track
-the implementation and verification gates in the [Blueprint parity matrix](../blueprint-capability-matrix.md)
+path-level pin contract, end-to-end evidence privacy, or migration guarantees
+above. Track the implementation and verification gates in the [Blueprint parity matrix](../blueprint-capability-matrix.md)
 and [roadmap](../roadmap.md#planned-phase-blueprint-inspired-authoring-contracts-and-ergonomics).

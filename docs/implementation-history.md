@@ -1,5 +1,18 @@
 # Implementation history
 
+## Bounded direct-MCP event payload redaction (2026-11-19)
+
+Direct MCP nodes now keep resolved arguments and results in runtime memory while
+redacting them from new broker authorization/completion events, MCP-node
+completion events, and direct data-evaluation/output evidence. Events retain
+payload state and character counts without storing plain hashes. This does not
+provide end-to-end confidentiality: arbitrary downstream node outputs, static
+workflow literals, approval payloads, Agent-loop tool events, and historical
+records remain outside the redaction boundary. Both affected projects compile
+without warnings; behavior regression tests were not run in this increment, so
+the parity gate remains open. See [Decision 0074](decisions/0074-nested-mcp-argument-pins.md)
+and [Decision 0075](decisions/0075-approval-payload-privacy.md).
+
 ## Typed array values in current-schema Sequence MCP calls (2026-11-18)
 
 Schema 2.0 now accepts bounded typed-array values on direct MCP argument pins,

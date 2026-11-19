@@ -170,6 +170,8 @@ public sealed class McpToolBroker : INodeToolBroker
         public async Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments, CancellationToken cancellationToken = default)
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+            var directMcpNode = invocation.Revision.Definition.Nodes.TryGetValue(invocation.NodeId, out var node) &&
+                node?.Type == NodeTypes.McpTool;
             var toolCallId = Guid.NewGuid();
             await Record(ExecutionEventKinds.ToolRequested, new { toolCallId, parentToolCallId = invocation.ParentToolCallId, bindingId });
             if (!Allowed(bindingId))
@@ -203,17 +205,30 @@ public sealed class McpToolBroker : INodeToolBroker
                 var schema = McpInputSchema.Validate(tool.JsonSchema);
                 var callArguments = schema.ToCallArguments(arguments);
                 if (!Allowed(bindingId)) throw new ToolAccessDeniedException();
-                await Record(ExecutionEventKinds.ToolAuthorized, new
-                {
-                    toolCallId,
-                    parentToolCallId = invocation.ParentToolCallId,
-                    bindingId,
-                    registration.ServerId,
-                    registration.ToolName,
-                    requirement.ContractHash,
-                    requirement.DescriptionHash,
-                    input = arguments
-                });
+                await Record(ExecutionEventKinds.ToolAuthorized, directMcpNode
+                    ? new
+                    {
+                        toolCallId,
+                        parentToolCallId = invocation.ParentToolCallId,
+                        bindingId,
+                        registration.ServerId,
+                        registration.ToolName,
+                        requirement.ContractHash,
+                        requirement.DescriptionHash,
+                        payloadState = "redacted",
+                        inputCharacters = arguments.GetRawText().Length
+                    }
+                    : new
+                    {
+                        toolCallId,
+                        parentToolCallId = invocation.ParentToolCallId,
+                        bindingId,
+                        registration.ServerId,
+                        registration.ToolName,
+                        requirement.ContractHash,
+                        requirement.DescriptionHash,
+                        input = arguments
+                    });
                 dispatched = true;
                 var result = await client.CallToolAsync(registration.ToolName, callArguments, cancellationToken: deadline.Token);
                 if (result.IsError == true)
@@ -228,7 +243,22 @@ public sealed class McpToolBroker : INodeToolBroker
                 var output = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(c => c.Text));
                 if (result.Content.Any(c => c is not TextContentBlock)) throw new ToolInvocationException("The tool returned unsupported non-text content.");
                 if (output.Length > 16_384) throw new ToolInvocationException("Tool output exceeds the workflow limit.");
-                await Record(ExecutionEventKinds.ToolCompleted, new { toolCallId, parentToolCallId = invocation.ParentToolCallId, bindingId, output });
+                await Record(ExecutionEventKinds.ToolCompleted, directMcpNode
+                    ? new
+                    {
+                        toolCallId,
+                        parentToolCallId = invocation.ParentToolCallId,
+                        bindingId,
+                        payloadState = "redacted",
+                        outputCharacters = output.Length
+                    }
+                    : new
+                    {
+                        toolCallId,
+                        parentToolCallId = invocation.ParentToolCallId,
+                        bindingId,
+                        output
+                    });
                 return output;
             }
             catch (OperationCanceledException)

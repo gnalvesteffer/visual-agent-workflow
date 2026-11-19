@@ -1710,18 +1710,35 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             public void Dispose() => Interlocked.Exchange(ref restore, null)?.Invoke();
         }
 
-        private static string SerializeDataEvidence(string activatedByNodeId, EvaluatedDataValue value)
+        private static string SerializeDataEvidence(string activatedByNodeId, EvaluatedDataValue value, bool redactValue = false)
         {
             var evidence = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["activatedByNodeId"] = activatedByNodeId,
                 ["port"] = value.PortId,
-                ["dataType"] = value.DataType,
-                ["value"] = value.Value
+                ["dataType"] = value.DataType
             };
-            if (value.FunctionEvidence is not null) evidence["function"] = value.FunctionEvidence;
+            if (redactValue)
+            {
+                evidence["payloadState"] = "redacted";
+                evidence["valueCharacters"] = value.Value switch
+                {
+                    string text => text.Length,
+                    JsonElement json => json.GetRawText().Length,
+                    _ => JsonSerializer.Serialize(value.Value).Length
+                };
+            }
+            else
+            {
+                evidence["value"] = value.Value;
+                if (value.FunctionEvidence is not null) evidence["function"] = value.FunctionEvidence;
+            }
             return JsonSerializer.Serialize(evidence, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         }
+
+        private bool ShouldRedactMcpDataEvidence(string consumerNodeId, EvaluatedDataValue value) =>
+            revision.Definition.Nodes.TryGetValue(consumerNodeId, out var consumer) && consumer?.Type == NodeTypes.McpTool ||
+            revision.Definition.Nodes.TryGetValue(value.NodeId, out var producer) && producer?.Type == NodeTypes.McpTool;
 
         private sealed class JsonProjectionContractException(string message) : InvalidOperationException(message) { }
 
@@ -1975,7 +1992,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     dataEvaluator!.RecordEvidenceBudget(value);
                     await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
-                        value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
+                        value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value, ShouldRedactMcpDataEvidence(Id, value)));
                 }
                 if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
                     node.Type is NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Agent or NodeTypes.WorkflowCall or
@@ -1996,7 +2013,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     {
                         dataEvaluator!.RecordEvidenceBudget(value);
                         await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
-                            value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
+                            value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value, ShouldRedactMcpDataEvidence(Id, value)));
                     }
                 }
                 var isInterfaceCall = node.Type == NodeTypes.WorkflowInterfaceCall;
@@ -2015,7 +2032,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         {
                             dataEvaluator!.RecordEvidenceBudget(value);
                             await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
-                                value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
+                                value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value, ShouldRedactMcpDataEvidence(Id, value)));
                         }
                     }
                     message = WorkflowInterfaceFields.PackInputs(interfaceOperation.Signature, interfaceInputValues);
@@ -2176,7 +2193,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     dataEvaluator!.RecordEvidenceBudget(evaluation);
                     await Emit(ExecutionEventKinds.DataEvaluated, evaluation.NodeId, invocation,
-                        evaluation.ConnectionId is null ? null : $"data:{evaluation.ConnectionId}", SerializeDataEvidence(Id, evaluation));
+                        evaluation.ConnectionId is null ? null : $"data:{evaluation.ConnectionId}", SerializeDataEvidence(Id, evaluation, ShouldRedactMcpDataEvidence(Id, evaluation)));
                 }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Agent)
                 {
@@ -2226,7 +2243,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         {
                             dataEvaluator!.RecordEvidenceBudget(evaluation);
                             await Emit(ExecutionEventKinds.DataEvaluated, evaluation.NodeId, invocation,
-                                evaluation.ConnectionId is null ? null : $"data:{evaluation.ConnectionId}", SerializeDataEvidence(Id, evaluation));
+                            evaluation.ConnectionId is null ? null : $"data:{evaluation.ConnectionId}", SerializeDataEvidence(Id, evaluation, ShouldRedactMcpDataEvidence(Id, evaluation)));
                         }
                     }
                     var action = new WorkflowApprovalAction(runId, rootRevision.RevisionId, rootRevision.ContentHash, Id, invocation,
@@ -2304,6 +2321,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         dataEvaluator?.SetRuntimeOutput(Id, port, "string", result);
                 }
                 if (!internalTerminationHandoff)
+                {
+                    var outputContainsMcpValue = outputEvaluation?.Evaluations.Any(value =>
+                        revision.Definition.Nodes.TryGetValue(value.NodeId, out var producer) && producer?.Type == NodeTypes.McpTool) == true;
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
                         routeSelection is not null ? JsonSerializer.Serialize(new { routeId = agentRouteId, port }) :
                         node.Type == NodeTypes.Loop ? JsonSerializer.Serialize(new { port, iteration = received.LoopIteration, maximumIterations = node.Loop!.MaximumIterations }) :
@@ -2311,7 +2331,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall && childOutcome!.Failed ? "Nested workflow ended at a failure termination." :
                         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall && childOutcome!.Terminated ? "Nested workflow terminated successfully." :
                         node.Type == NodeTypes.Terminate && node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure ? "Workflow ended at a failure termination." :
-                        node.Type == NodeTypes.Terminate || received.TerminationSignal ? "Workflow terminated without returning a value." : result);
+                        node.Type == NodeTypes.Terminate || received.TerminationSignal ? "Workflow terminated without returning a value." :
+                        node.Type == NodeTypes.McpTool || node.Type == NodeTypes.Output && outputContainsMcpValue
+                            ? JsonSerializer.Serialize(new { payloadState = "redacted", outputCharacters = result.Length }) : result);
+                }
                 if (node.Type == NodeTypes.ParallelFork)
                 {
                     var configurable = UsesConfigurableParallelGraph;

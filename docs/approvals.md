@@ -45,7 +45,7 @@ This milestone guards explicit `core.mcp-tool` nodes. It does not intercept tool
 4. Review **Recorded action approval**: tool binding/contract, target node, action/input fingerprints and **Exact tool input**. Select **Approve recorded action** or **Reject recorded action** through a control-enabled client.
 5. Approval continues the same run. Rejection records the decision and fails the run before the guarded call. The unchosen conditional arm never requests approval.
 
-The input/payload is recorded plaintext in this prototype. Prompts and inputs are rendered as text, not trusted HTML. Remove the approval step before deleting the guarded tool or replacing it with a non-tool operation. New nodes/conditionals cannot be spliced between an approval and its target. Tools can still be changed to another approved binding in a draft, but that produces different content for future publications; it does not alter an active request.
+Approval action input remains plaintext in run evidence and the pending reviewer path. Ordinary direct-MCP invocation evidence now redacts argument/result content, but that does not protect approval requests. Prompts and inputs are rendered as text, not trusted HTML. Remove the approval step before deleting the guarded tool or replacing it with a non-tool operation. New nodes/conditionals cannot be spliced between an approval and its target. Tools can still be changed to another approved binding in a draft, but that produces different content for future publications; it does not alter an active request.
 
 Approval request payload privacy is an open architecture gate. Exact action input
 is currently stored in `approval.requested` because the pending reader and
