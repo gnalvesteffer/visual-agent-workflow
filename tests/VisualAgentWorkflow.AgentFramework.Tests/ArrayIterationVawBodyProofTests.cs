@@ -21600,6 +21600,9 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             await Task.WhenAll(tools.DispatchStarted.Task, suffixSkipped.Task).WaitAsync(TimeSpan.FromSeconds(5));
             Assert.False(execution.IsCompleted, "Break must drain the already authorized MCP call.");
+            var acceptedPrefix = recorder.Snapshot();
+            Assert.Single(acceptedPrefix, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
+            Assert.DoesNotContain(acceptedPrefix, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
             tools.ReleaseOutcome.TrySetResult();
             var result = await execution;
             Assert.True(result.Failed);
@@ -21628,6 +21631,7 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(events, reopened.Events);
         Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
         Assert.Equal("failed", playback!.Status);
+        Assert.NotNull(playback.BreakAcceptance);
     }
 
     [Theory]
@@ -21681,6 +21685,9 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             await Task.WhenAll(agents.Started.Task, suffixSkipped.Task).WaitAsync(TimeSpan.FromSeconds(5));
             Assert.False(execution.IsCompleted, "Host cancellation begins only after Break, while admitted work is active.");
+            var acceptedPrefix = recorder.Snapshot();
+            Assert.Single(acceptedPrefix, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
+            Assert.DoesNotContain(acceptedPrefix, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
             cancellation.Cancel();
             var result = await execution;
             Assert.True(result.Cancelled);
@@ -21708,6 +21715,7 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(events, reopened.Events);
         Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
         Assert.Equal("cancelled", playback!.Status);
+        Assert.NotNull(playback.BreakAcceptance);
     }
 
     [Theory]

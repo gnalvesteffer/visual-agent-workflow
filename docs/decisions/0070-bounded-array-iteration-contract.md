@@ -4504,3 +4504,12 @@ Break attribution, and emits no `sequence.break_completed`; file and SQLite
 reopen reconstruct the same failed playback (2 cases). This closes that
 ordering for this single-stream proof shape only. Cross-frame failure races
 and broader concurrent drain remain open.
+
+The same persisted-acceptance checkpoint now covers an authorized MCP call
+that settles `outcome-unknown` and an Agent still active when the host cancels.
+In each case the accepted Break attribution is already durable before the
+outcome is released; uncertainty or cancellation wins root settlement, no
+Break terminal is emitted, and both stores reopen with matching playback (4
+cases). This completes the single-stream failure/unknown/cancellation
+precedence cases after accepted Break; cross-frame races and broader concurrent
+drain remain open.

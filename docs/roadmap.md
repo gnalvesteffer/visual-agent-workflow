@@ -435,7 +435,10 @@ introduced.
   playback reconstructs failure. The Sequence production runner group passes
   58/58. The same-stream unresolved-MCP-outcome and host-cancellation cases now
   pass through both stores (2/2 each), preserving root uncertainty/cancellation
-  separately from Sequence playback. Admission races, nested frames, shared
+  separately from Sequence playback. New assertions observe persisted
+  `sequence.break_accepted` while each MCP call or Agent remains unsettled;
+  after release/cancellation, the root disposition overrides Break and the
+  accepted attribution remains in playback (4/4). Admission races, nested frames, shared
   budgets, and the remaining matrix still need proof and a fresh review. A
   128-iteration coordinator contention test now exercises
   `TryDispatchNext` against `StopAdmission`: either the output dispatches

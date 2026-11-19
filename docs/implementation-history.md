@@ -972,3 +972,13 @@ then makes the root fail without a Break terminal; file and SQLite reopen
 preserve the attributed Break and failed playback (2 focused cases). This
 qualifies one ordering, not cross-frame races or general concurrent drain. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: unknown outcome and cancellation after Break acceptance (2026-11-19)
+
+Single-stream production-dispatch tests now assert that Break acceptance is
+persisted while an authorized MCP call remains unsettled or an Agent remains
+active. Releasing the MCP call as unknown or cancelling the host overrides
+Break; the acceptance remains recorded and no Break terminal is fabricated.
+File and SQLite cases pass for both outcomes (4 focused cases). Cross-frame
+races and general concurrent drain remain open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
