@@ -4386,10 +4386,12 @@ Sequence outputs (2/2).
 
 This proves failure before Break on the composed nested route; it does not prove
 that an already-admitted sibling's late failure overrides a concurrently
-reached Break. An attempted held-Agent overlap fixture timed out after the
-Sequence reported both outputs dispatched; its trace reached held-Agent node
-start and input evaluation but did not reach the fake executor or Break
-completion. That ambiguous fixture result is not evidence for an architecture
-limit. Keep the architecture unselected and debug or reshape that overlap
-proof separately. Unknown external outcome, cancellation, pause/stop races,
-append-rejection cases, and public admission remain open.
+reached Break. A reshaped held-Agent overlap fixture reached the fake Agent
+executor and selected the conditional Branch route, but timed out before the
+Break node started; releasing the held Agent first caused its failure to
+settle before the Break. This shows the composed overlap proof is still
+inconclusive and does not identify whether the cause is fixture topology,
+framework scheduling, or a runtime defect. Keep the architecture unselected
+and debug the scheduling boundary before asserting outcome precedence. Unknown
+external outcome, cancellation, pause/stop races, append-rejection cases, and
+public admission remain open.

@@ -324,10 +324,11 @@ same event prefix and passive playback reconstructs `failed` with one failed
 and one skipped Sequence output (2/2).
 
 This proves one composed failure path, not late failure during concurrent
-drain. The held-Agent overlap attempt timed out before observing the fake
-executor start or the Break completion; the event prefix alone does not
-distinguish a dispatch deadlock from a fixture scheduling issue. Keep this
-uncertainty explicit, debug or reshape that proof separately, and do not infer
-an architecture limit. Concurrent admitted-sibling failure, unknown MCP
-outcome, cancellation, append rejection, and public validation/runtime remain
-open.
+drain. A reshaped held-Agent overlap fixture reached the fake Agent executor
+and selected the conditional Branch route, then timed out before the Break
+node started. Releasing the held Agent first caused its failure to settle
+before Break. This event prefix does not distinguish a dispatch deadlock, a
+framework scheduling boundary, or fixture topology. Keep this uncertainty
+explicit and do not infer an architecture limit. Concurrent admitted-sibling
+failure precedence, unknown MCP outcome, cancellation, append rejection, and
+public validation/runtime remain open.

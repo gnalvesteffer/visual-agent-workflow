@@ -349,11 +349,13 @@ introduced.
   but before Break: the decision output fails, its Sequence suffix is skipped,
   and no later inner or outer item starts; file/SQLite reopen and passive
   playback match (2/2). This is one failure-before-Break path, not late failure
-  during concurrent drain. A held-Agent overlap attempt timed out before
-  executor entry or Break completion; that trace is inconclusive and does not
-  establish an architecture limitation. Concurrent admitted-sibling failure,
-  unknown outcome, cancellation, append rejection, shared-budget races, and
-  public admission remain open. The runtime/settlement gate remains open and
+  during concurrent drain. A reshaped held-Agent overlap attempt reached the
+  Agent executor and selected the conditional Branch route, then timed out
+  before the Break node started; releasing the Agent first settled its failure
+  before Break. This is inconclusive about whether the boundary is framework
+  scheduling, fixture topology, or a runtime defect. Concurrent
+  admitted-sibling failure, unknown outcome, cancellation, append rejection,
+  shared-budget races, and public admission remain open. The runtime/settlement gate remains open and
   requires a fresh architecture review before public support. See [Decision
   0073](decisions/0073-branchable-sequence-output-contract.md).
   This is proof metadata only and does not enable public authoring or runtime
