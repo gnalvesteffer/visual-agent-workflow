@@ -4176,6 +4176,17 @@ cross-frame host-cancellation ordering. Persistence interruption at this
 boundary, public topology, uncontrolled scheduler races, and production
 ownership remain open; architecture readiness remains **REVISE**.
 
+### Sibling-frame cancellation terminal-append interruption proof (2026-11-18)
+
+The same synchronized two-frame cancellation now rejects the root
+`run.cancelled` append after both Agent nodes have recorded cancellation. The
+coordinator propagates the storage failure without synthesizing another
+terminal outcome. Each store reopens to its accepted nonterminal prefix: the
+first frame's Break and both cancelled Agent events are present, while the run
+remains `running` (2/2 focused cases). This covers root terminal-append
+rejection only; interruption during node or loop settlement, process loss,
+public topology, and production ownership remain open.
+
 ### Explicit feedback target adjudication (2026-11-18)
 
 A new three-role review selected a distinct bounded-feedback input as the

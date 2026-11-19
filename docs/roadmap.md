@@ -490,6 +490,10 @@ introduced.
   SQLite playback preserves the Break and one cancelled root terminal (2/2).
   This closes only that controlled cancellation ordering; interruption races
   remain open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  Rejecting the root cancellation append after both Agent cancellations leaves
+  each store at its accepted nonterminal prefix, with no fabricated root
+  terminal (2/2). Node/loop settlement-append rejection and process-loss
+  recovery at this boundary remain open.
   Other remaining gates include byte/event contention, tool/outcome reservation
   races, host-control pause-event integration, uncontrolled production races,
   and the full body compatibility matrix. The proof coordinator
