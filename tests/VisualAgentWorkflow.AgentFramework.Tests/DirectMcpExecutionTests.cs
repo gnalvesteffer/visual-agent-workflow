@@ -21,7 +21,12 @@ public sealed class DirectMcpExecutionTests
         Assert.False(result.Failed);
         Assert.Equal("tool-result", result.Output);
         Assert.Equal("{\"text\":\"hello\"}", broker.Input);
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool" && evt.Data == "tool-result");
+        AssertRedacted(events.Single(evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "tool"));
+        AssertRedacted(events.Single(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool"));
+        AssertRedacted(events.Single(evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "output"));
+        AssertRedacted(events.Single(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output"));
+        Assert.All(events.Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated), AssertRedacted);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "input" && evt.Data == "{\"text\":\"hello\"}");
     }
 
     [Fact]
@@ -112,7 +117,10 @@ public sealed class DirectMcpExecutionTests
         Assert.False(result.Failed);
         using var arguments = JsonDocument.Parse(broker.Input!);
         Assert.Equal(5.75d, arguments.RootElement.GetProperty("amount").GetDouble());
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "sum" && evt.Data?.Contains("5.75", StringComparison.Ordinal) == true);
+        var sumEvidence = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "sum");
+        using var recordedSum = JsonDocument.Parse(sumEvidence.Data!);
+        Assert.Equal("redacted", recordedSum.RootElement.GetProperty("payloadState").GetString());
+        Assert.Equal("number", recordedSum.RootElement.GetProperty("dataType").GetString());
     }
 
     private static WorkflowDefinition Definition() => new(
@@ -135,6 +143,20 @@ public sealed class DirectMcpExecutionTests
             ["complete"] = new(new("tool", "then"), new("output", "execute"), "execution")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal)
     };
+
+    private static void AssertRedacted(ExecutionEvent evt)
+    {
+        using var evidence = JsonDocument.Parse(evt.Data!);
+        Assert.Equal("redacted", evidence.RootElement.GetProperty("payloadState").GetString());
+        var size = evidence.RootElement.TryGetProperty("valueCharacters", out var valueCharacters)
+            ? valueCharacters.GetInt32()
+            : evidence.RootElement.TryGetProperty("outputCharacters", out var outputCharacters)
+                ? outputCharacters.GetInt32()
+                : evidence.RootElement.GetProperty("inputCharacters").GetInt32();
+        Assert.True(size >= 0);
+        Assert.DoesNotContain("hello", evt.Data, StringComparison.Ordinal);
+        Assert.DoesNotContain("tool-result", evt.Data, StringComparison.Ordinal);
+    }
 
     [Fact]
     public async Task Unified_approval_captures_typed_arguments_and_dispatches_the_approved_snapshot()

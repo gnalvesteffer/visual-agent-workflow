@@ -45,7 +45,10 @@ public sealed class BlueprintParityProofTests
         Assert.False(result.Failed);
         Assert.Equal("tool result", result.Output);
         Assert.Equal("{\"query\":\"blueprint\"}", broker.Input);
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool" && evt.Data == "tool result");
+        var completion = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool");
+        using var evidence = JsonDocument.Parse(completion.Data!);
+        Assert.Equal("redacted", evidence.RootElement.GetProperty("payloadState").GetString());
+        Assert.DoesNotContain("tool result", completion.Data, StringComparison.Ordinal);
     }
 
     [Theory]

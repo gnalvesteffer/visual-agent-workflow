@@ -4219,9 +4219,10 @@ public sealed class ArrayIterationVawBodyProofTests
                     evt.NodeId == nodeId && evt.InvocationId == started.InvocationId);
                 using var authorizationPayload = JsonDocument.Parse(authorized.Data!);
                 using var completionPayload = JsonDocument.Parse(completed.Data!);
-                Assert.Equal(item, authorizationPayload.RootElement.GetProperty("input")
-                    .GetProperty("text").GetString());
-                Assert.Equal(item.ToUpperInvariant(), completionPayload.RootElement.GetProperty("output").GetString());
+                Assert.Equal("redacted", authorizationPayload.RootElement.GetProperty("payloadState").GetString());
+                Assert.Equal("redacted", completionPayload.RootElement.GetProperty("payloadState").GetString());
+                Assert.True(authorizationPayload.RootElement.GetProperty("inputCharacters").GetInt32() > 0);
+                Assert.True(completionPayload.RootElement.GetProperty("outputCharacters").GetInt32() > 0);
                 Assert.Equal(authorized.InvocationId, completed.InvocationId);
             }
 
@@ -4318,20 +4319,31 @@ public sealed class ArrayIterationVawBodyProofTests
             using (var argument = JsonDocument.Parse(evaluated.Data!))
             {
                 Assert.Equal("tool-left", argument.RootElement.GetProperty("activatedByNodeId").GetString());
-                Assert.Equal(item, argument.RootElement.GetProperty("value").GetString());
+                Assert.Equal("redacted", argument.RootElement.GetProperty("payloadState").GetString());
+                Assert.True(argument.RootElement.GetProperty("valueCharacters").GetInt32() > 0);
             }
 
             var toolStarted = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
                 evt.NodeId == "tool-left");
+            using (var startedPayload = JsonDocument.Parse(toolStarted.Data!))
+            {
+                Assert.Equal("redacted", startedPayload.RootElement.GetProperty("payloadState").GetString());
+                Assert.True(startedPayload.RootElement.GetProperty("valueCharacters").GetInt32() > 0);
+            }
             var authorized = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
                 evt.NodeId == "tool-left" && evt.InvocationId == toolStarted.InvocationId);
             var toolCompleted = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.ToolCompleted &&
                 evt.NodeId == "tool-left" && evt.InvocationId == toolStarted.InvocationId);
             using (var authorization = JsonDocument.Parse(authorized.Data!))
-                Assert.Equal(item, authorization.RootElement.GetProperty("input")
-                    .GetProperty("text").GetString());
+            {
+                Assert.Equal("redacted", authorization.RootElement.GetProperty("payloadState").GetString());
+                Assert.True(authorization.RootElement.GetProperty("inputCharacters").GetInt32() > 0);
+            }
             using (var toolOutput = JsonDocument.Parse(toolCompleted.Data!))
-                Assert.Equal(item.ToUpperInvariant(), toolOutput.RootElement.GetProperty("output").GetString());
+            {
+                Assert.Equal("redacted", toolOutput.RootElement.GetProperty("payloadState").GetString());
+                Assert.True(toolOutput.RootElement.GetProperty("outputCharacters").GetInt32() > 0);
+            }
 
             var agentStarted = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
                 evt.NodeId == "agent-right");
@@ -12089,9 +12101,6 @@ public sealed class ArrayIterationVawBodyProofTests
             AssertPersistedSequence(store, events, "completed");
             Assert.Equal(events, store.ReopenStore().Get(store.RunId)!.Events);
         }
-        Assert.Equal(McpOutputEvidence(structuredEvents), McpOutputEvidence(subworkflowEvents));
-        Assert.Equal(McpOutputEvidence(structuredEvents), McpOutputEvidence(hybridEvents));
-
         foreach (var (events, item, index) in new[]
         {
             (structuredEvents, "alpha", 0), (structuredEvents, "beta", 1), (structuredEvents, "gamma", 2),
@@ -12103,22 +12112,14 @@ public sealed class ArrayIterationVawBodyProofTests
             var toolEvent = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted &&
                 evt.NodeId == "tool" && evt.ScopeId == scope);
             using var toolPayload = JsonDocument.Parse(toolEvent.Data!);
-            var toolOutput = toolPayload.RootElement.GetProperty("output").GetString();
-            Assert.NotNull(toolOutput);
+            Assert.Contains(item, toolPayload.RootElement.GetProperty("output").GetString(), StringComparison.Ordinal);
             var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
                 evt.NodeId == "tool" && evt.ScopeId == scope && evt.ConnectionId == "data:tool-right");
             using var payload = JsonDocument.Parse(evaluated.Data!);
             Assert.Equal("agent-right", payload.RootElement.GetProperty("activatedByNodeId").GetString());
-            Assert.Equal(toolOutput, payload.RootElement.GetProperty("value").GetString());
-            Assert.Contains(item, toolOutput, StringComparison.Ordinal);
+            Assert.Equal("redacted", payload.RootElement.GetProperty("payloadState").GetString());
+            Assert.True(payload.RootElement.GetProperty("valueCharacters").GetInt32() > 0);
         }
-
-        static (string? NodeId, string? ScopeId, string? ConnectionId, string? Data)[] McpOutputEvidence(
-            IEnumerable<ExecutionEvent> events) => events
-            .Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "tool")
-            .Select(evt => (evt.NodeId, evt.ScopeId, evt.ConnectionId, evt.Data))
-            .OrderBy(evt => evt.ScopeId, StringComparer.Ordinal)
-            .ToArray();
     }
 
     [Theory]
@@ -14523,7 +14524,8 @@ public sealed class ArrayIterationVawBodyProofTests
                         evt.NodeId == "input" && evt.ScopeId == scopeId && evt.ConnectionId == connectionId);
                     using var argument = JsonDocument.Parse(evaluated.Data!);
                     Assert.Equal(toolId, argument.RootElement.GetProperty("activatedByNodeId").GetString());
-                    Assert.Equal(expectedItems[index], argument.RootElement.GetProperty("value").GetString());
+                    Assert.Equal("redacted", argument.RootElement.GetProperty("payloadState").GetString());
+                    Assert.True(argument.RootElement.GetProperty("valueCharacters").GetInt32() > 0);
 
                     var completed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted &&
                         evt.NodeId == toolId && evt.ScopeId == scopeId);

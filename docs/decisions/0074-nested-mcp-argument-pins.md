@@ -58,10 +58,19 @@ Before enabling nested pins in authoring or runtime admission:
    `data.evaluated` or exposed in run details, playback, diagnostics, or error
    messages. The bounded direct-MCP slice now redacts values in direct-node
    `data.evaluated`, `tool.authorized`, `tool.completed`, direct MCP
-   `node.completed`, and a directly sourced Output completion. It retains type,
-   event identity, and character-count metadata without plain hashes. This is
-   not an end-to-end confidentiality guarantee: arbitrary downstream nodes can
-   still record derived values; static literals remain in workflow definitions;
+   `node.started`/`node.completed`, and directly sourced Output lifecycle
+   events. It retains event/invocation identity, sequence lineage when
+   present, type, and character-count metadata without plain hashes. Explicit
+   graph schemas separate control transfers from data dependencies and do not
+   emit `connection.received` events for direct-MCP data wires. Redaction
+   happens before observation/persistence and does not change runtime values.
+   Focused runner and broker regressions verify the actual argument/result
+   flow. File/SQLite reopen tests preserve redacted broker outcomes, while
+   lifecycle and data-evaluation redaction are checked at the runner callback;
+   rendered playback is not yet directly asserted. This is
+   not an end-to-end confidentiality guarantee: arbitrary
+   downstream nodes and Sequence aggregation events can still record derived
+   values; static literals remain in workflow definitions;
    approval events retain exact plaintext input under Decision 0075; agent-loop
    tool evidence and old histories keep their existing shape. Nested pin proof
    must still cover nested path metadata and these residual boundaries.

@@ -27,6 +27,18 @@ Attribute definition changes, publication, permissions, controls, approvals, and
 
 Review payload authorization, redaction before persistence, encryption, size bounds, artifact references, and retention. Test separate actors/workspaces for sensitive run data. Report precisely which behavior was exercised; static event examples alone do not validate the live recording path.
 
+For direct MCP nodes, redact argument/result payloads at the supported broker,
+data-evaluation, and node-lifecycle capture points before observation or
+persistence; keep the values intact in runtime memory. Preserve invocation,
+scope, connection, and Sequence lineage metadata when available. Keep this
+boundary distinct from Agent-selected tool evidence, approvals, arbitrary
+downstream transforms, Sequence aggregation, static workflow literals, and
+legacy history. Explicit graph schemas separate control activations from data
+dependencies, so a direct MCP data wire does not produce a `connection.received`
+event. Test the real broker path and runner capture separately, and describe
+unverified playback rendering or storage behavior accurately. See [Decision
+0074](../../../docs/decisions/0074-nested-mcp-argument-pins.md).
+
 For run control, sequence pause/resume records and executor evidence through one writer. A model/node event arriving after a pause request must not reset `pausing`; only later control or terminal transitions do. Derive playback status from the recorded prefix, display latest status separately, and verify scrubbing leaves stored evidence unchanged. Development actors are placeholders, not authenticated attribution.
 
 For consumer observation use the read-only `IWorkflowRunObserver`, not mutation-capable clients. Snapshot reads and cursor pages must preserve run/revision identity and monotonic sequences. Summary lists contain no payloads. Endpoint mapping is opt-in and requires a host policy; authorization must also govern guessed-ID lookup and any host-specific tenant filtering. Observing/scrubbing/disconnecting must leave journal evidence unchanged. Do not confuse authenticated reads with automatic administrative access auditing.

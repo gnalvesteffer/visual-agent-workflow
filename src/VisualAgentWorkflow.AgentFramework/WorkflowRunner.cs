@@ -1737,8 +1737,37 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         }
 
         private bool ShouldRedactMcpDataEvidence(string consumerNodeId, EvaluatedDataValue value) =>
-            revision.Definition.Nodes.TryGetValue(consumerNodeId, out var consumer) && consumer?.Type == NodeTypes.McpTool ||
-            revision.Definition.Nodes.TryGetValue(value.NodeId, out var producer) && producer?.Type == NodeTypes.McpTool;
+            IsDirectMcpNode(consumerNodeId) || IsDirectMcpNode(value.NodeId);
+
+        private bool IsDirectMcpNode(string? nodeId) => nodeId is not null &&
+            revision.Definition.Nodes.TryGetValue(nodeId, out var node) && node?.Type == NodeTypes.McpTool;
+
+        private static string SerializeRedactedPayload(string? value)
+        {
+            var evidence = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["payloadState"] = "redacted",
+                ["valueCharacters"] = value?.Length ?? 0
+            };
+            return JsonSerializer.Serialize(evidence, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        }
+
+        private static string? AppendSequenceLineage(string? data, SequenceMessageLineage? sequenceLineage)
+        {
+            if (sequenceLineage is null) return data;
+            if (string.IsNullOrWhiteSpace(data))
+                return JsonSerializer.Serialize(new { eventData = data, sequenceLineage });
+            try
+            {
+                if (JsonNode.Parse(data) is JsonObject payload)
+                {
+                    payload["sequenceLineage"] = JsonSerializer.SerializeToNode(sequenceLineage);
+                    return payload.ToJsonString();
+                }
+            }
+            catch (JsonException) { }
+            return JsonSerializer.Serialize(new { eventData = data, sequenceLineage });
+        }
 
         private sealed class JsonProjectionContractException(string message) : InvalidOperationException(message) { }
 
@@ -1827,21 +1856,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 ? new AgentRouteSelectionState(routes)
                 : null;
             string? agentRouteId = null;
-            string? AddSequenceLineage(string? data)
+            string? AddSequenceLineage(string? data) => AppendSequenceLineage(data, received.SequenceLineage);
+            string SerializeDataEventEvidence(EvaluatedDataValue value)
             {
-                if (received.SequenceLineage is not { } sequenceLineage) return data;
-                if (string.IsNullOrWhiteSpace(data))
-                    return JsonSerializer.Serialize(new { eventData = data, sequenceLineage });
-                try
-                {
-                    if (JsonNode.Parse(data) is JsonObject payload)
-                    {
-                        payload["sequenceLineage"] = JsonSerializer.SerializeToNode(sequenceLineage);
-                        return payload.ToJsonString();
-                    }
-                }
-                catch (JsonException) { }
-                return JsonSerializer.Serialize(new { eventData = data, sequenceLineage });
+                var redactsValue = ShouldRedactMcpDataEvidence(Id, value);
+                var evidence = SerializeDataEvidence(Id, value, redactsValue);
+                return redactsValue ? AddSequenceLineage(evidence)! : evidence;
             }
             if (received.SourceNode is not null && received.TerminationSignal)
             {
@@ -1925,7 +1945,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 }
                 finally { joinActivation!.Execution.Release(); }
             }
-            if (!internalTerminationHandoff) await Emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
+            if (!internalTerminationHandoff)
+            {
+                var nodeStartData = IsDirectMcpNode(Id) || IsDirectMcpNode(received.SourceNode)
+                    ? AddSequenceLineage(SerializeRedactedPayload(message))
+                    : message;
+                await Emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, nodeStartData);
+            }
             boundaryTracker?.BeginHandler(Id, received.SourceNode, received.SourcePort, received.LoopIteration);
             try
             {
@@ -1992,7 +2018,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     dataEvaluator!.RecordEvidenceBudget(value);
                     await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
-                        value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value, ShouldRedactMcpDataEvidence(Id, value)));
+                        value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEventEvidence(value));
                 }
                 if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
                     node.Type is NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Agent or NodeTypes.WorkflowCall or
@@ -2013,7 +2039,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     {
                         dataEvaluator!.RecordEvidenceBudget(value);
                         await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
-                            value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value, ShouldRedactMcpDataEvidence(Id, value)));
+                            value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEventEvidence(value));
                     }
                 }
                 var isInterfaceCall = node.Type == NodeTypes.WorkflowInterfaceCall;
@@ -2032,7 +2058,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         {
                             dataEvaluator!.RecordEvidenceBudget(value);
                             await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
-                                value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value, ShouldRedactMcpDataEvidence(Id, value)));
+                                value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEventEvidence(value));
                         }
                     }
                     message = WorkflowInterfaceFields.PackInputs(interfaceOperation.Signature, interfaceInputValues);
@@ -2155,7 +2181,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.SequenceReverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
-                        ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, received.Approval is not null, cancellationToken)
+                        ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, received.Approval is not null,
+                            received.SequenceLineage, cancellationToken)
                         : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,
                     NodeTypes.WorkflowInterfaceCall => childOutcome?.Output ?? string.Empty,
@@ -2193,7 +2220,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     dataEvaluator!.RecordEvidenceBudget(evaluation);
                     await Emit(ExecutionEventKinds.DataEvaluated, evaluation.NodeId, invocation,
-                        evaluation.ConnectionId is null ? null : $"data:{evaluation.ConnectionId}", SerializeDataEvidence(Id, evaluation, ShouldRedactMcpDataEvidence(Id, evaluation)));
+                        evaluation.ConnectionId is null ? null : $"data:{evaluation.ConnectionId}", SerializeDataEventEvidence(evaluation));
                 }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Agent)
                 {
@@ -2243,7 +2270,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         {
                             dataEvaluator!.RecordEvidenceBudget(evaluation);
                             await Emit(ExecutionEventKinds.DataEvaluated, evaluation.NodeId, invocation,
-                            evaluation.ConnectionId is null ? null : $"data:{evaluation.ConnectionId}", SerializeDataEvidence(Id, evaluation, ShouldRedactMcpDataEvidence(Id, evaluation)));
+                            evaluation.ConnectionId is null ? null : $"data:{evaluation.ConnectionId}", SerializeDataEventEvidence(evaluation));
                         }
                     }
                     var action = new WorkflowApprovalAction(runId, rootRevision.RevisionId, rootRevision.ContentHash, Id, invocation,
@@ -2324,6 +2351,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     var outputContainsMcpValue = outputEvaluation?.Evaluations.Any(value =>
                         revision.Definition.Nodes.TryGetValue(value.NodeId, out var producer) && producer?.Type == NodeTypes.McpTool) == true;
+                    var completedWithMcpPayload = node.Type == NodeTypes.McpTool ||
+                        node.Type == NodeTypes.Output && outputContainsMcpValue;
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
                         routeSelection is not null ? JsonSerializer.Serialize(new { routeId = agentRouteId, port }) :
                         node.Type == NodeTypes.Loop ? JsonSerializer.Serialize(new { port, iteration = received.LoopIteration, maximumIterations = node.Loop!.MaximumIterations }) :
@@ -2332,8 +2361,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall && childOutcome!.Terminated ? "Nested workflow terminated successfully." :
                         node.Type == NodeTypes.Terminate && node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure ? "Workflow ended at a failure termination." :
                         node.Type == NodeTypes.Terminate || received.TerminationSignal ? "Workflow terminated without returning a value." :
-                        node.Type == NodeTypes.McpTool || node.Type == NodeTypes.Output && outputContainsMcpValue
-                            ? JsonSerializer.Serialize(new { payloadState = "redacted", outputCharacters = result.Length }) : result);
+                        completedWithMcpPayload
+                            ? AddSequenceLineage(JsonSerializer.Serialize(new { payloadState = "redacted", outputCharacters = result.Length }))
+                            : result);
                 }
                 if (node.Type == NodeTypes.ParallelFork)
                 {
@@ -2601,13 +2631,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         }
 
         private async Task<string> InvokeDirectMcpTool(string input, Guid invocation, List<DataInputEvaluation> evaluations,
-            bool approved, CancellationToken cancellationToken)
+            bool approved, SequenceMessageLineage? sequenceLineage, CancellationToken cancellationToken)
         {
             if (tools is null) throw new InvalidOperationException("No tool broker is configured.");
             using var approvedDocument = approved ? JsonDocument.Parse(input) : null;
             var json = approvedDocument?.RootElement.Clone() ?? ResolveDirectMcpArguments(node, Id, input, evaluations);
             await using var scope = tools.OpenScope(new(runId, revision, Id, invocation,
-                (kind, data) => Emit(kind, Id, invocation, null, data)));
+                (kind, data) => Emit(kind, Id, invocation, null, AppendSequenceLineage(data, sequenceLineage))));
             return await scope.InvokeJsonAsync(node.Tool!.BindingId, json, cancellationToken);
         }
 

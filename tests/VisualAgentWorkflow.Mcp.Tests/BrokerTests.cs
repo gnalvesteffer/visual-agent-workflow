@@ -67,6 +67,41 @@ public class BrokerTests
     }
 
     [Fact]
+    public async Task DirectMcpInvocationRedactsPersistedArgumentsAndResultsButReturnsTheResult()
+    {
+        const string sensitiveInput = "private-mcp-input";
+        var binding = (await CreateBroker(policy: new DemoToolPolicy()).ListBindingsAsync())
+            .Single(item => item.BindingId == "demo.reverse");
+        var events = new List<(string Kind, string? Data)>();
+        var revision = Revision(binding);
+        var invocation = new NodeInvocationContext(Guid.NewGuid(), revision, "step-1", Guid.NewGuid(),
+            (kind, data) => { events.Add((kind, data)); return ValueTask.CompletedTask; });
+        var broker = CreateBroker(policy: new DemoToolPolicy());
+        await using var scope = broker.OpenScope(invocation);
+
+        var output = await scope.InvokeAsync(binding.BindingId, sensitiveInput);
+
+        Assert.Equal("tupni-pcm-etavirp", output);
+        var authorized = Assert.Single(events, item => item.Kind == ExecutionEventKinds.ToolAuthorized);
+        using (var evidence = JsonDocument.Parse(authorized.Data!))
+        {
+            Assert.Equal("redacted", evidence.RootElement.GetProperty("payloadState").GetString());
+            Assert.Equal(JsonSerializer.Serialize(new { text = sensitiveInput }).Length,
+                evidence.RootElement.GetProperty("inputCharacters").GetInt32());
+            Assert.False(evidence.RootElement.TryGetProperty("input", out _));
+        }
+        var completed = Assert.Single(events, item => item.Kind == ExecutionEventKinds.ToolCompleted);
+        using (var evidence = JsonDocument.Parse(completed.Data!))
+        {
+            Assert.Equal("redacted", evidence.RootElement.GetProperty("payloadState").GetString());
+            Assert.Equal(output.Length, evidence.RootElement.GetProperty("outputCharacters").GetInt32());
+            Assert.False(evidence.RootElement.TryGetProperty("output", out _));
+        }
+        Assert.DoesNotContain(events, item => item.Data?.Contains(sensitiveInput, StringComparison.Ordinal) == true);
+        Assert.DoesNotContain(events, item => item.Data?.Contains(output, StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
     public async Task ListingManyToolsUsesOneConnectionAndOneToolDiscoveryPerServer()
     {
         var connectionCount = 0;

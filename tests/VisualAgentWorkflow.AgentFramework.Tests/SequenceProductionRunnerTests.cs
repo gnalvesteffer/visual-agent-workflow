@@ -915,7 +915,21 @@ public sealed class SequenceProductionRunnerTests
         Assert.Equal("tool-result", result.Output);
         Assert.Equal(2, broker.Arguments.Count);
         Assert.All(broker.Arguments, arguments => Assert.Equal(42, arguments.GetProperty("count").GetInt64()));
-        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "sum"));
+        var sumEvidence = events.Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "sum").ToArray();
+        Assert.Equal(2, sumEvidence.Length);
+        foreach (var evt in sumEvidence)
+        {
+            using var evidence = JsonDocument.Parse(evt.Data!);
+            Assert.Equal("redacted", evidence.RootElement.GetProperty("payloadState").GetString());
+            var expectedOutputId = evidence.RootElement.GetProperty("activatedByNodeId").GetString() switch
+            {
+                "inventory-tool" => "inventory",
+                "architecture-tool" => "architecture",
+                _ => throw new Xunit.Sdk.XunitException("Unexpected direct MCP consumer in data evidence.")
+            };
+            Assert.Equal(expectedOutputId, evidence.RootElement.GetProperty("sequenceLineage")
+                .GetProperty("OutputId").GetString());
+        }
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is "sum" or "left" or "right");
         Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
         Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var playback));
@@ -1007,8 +1021,23 @@ public sealed class SequenceProductionRunnerTests
 
         Assert.False(result.Failed);
         Assert.Equal("tool-result", result.Output);
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "inventory-tool");
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "architecture-tool");
+        foreach (var (nodeId, outputId) in new[]
+        {
+            ("inventory-tool", "inventory"), ("architecture-tool", "architecture")
+        })
+        {
+            var started = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == nodeId);
+            var completed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == nodeId);
+            Assert.Equal(started.InvocationId, completed.InvocationId);
+            foreach (var evt in new[] { started, completed })
+            {
+                using var evidence = JsonDocument.Parse(evt.Data!);
+                Assert.Equal("redacted", evidence.RootElement.GetProperty("payloadState").GetString());
+                var lineage = evidence.RootElement.GetProperty("sequenceLineage");
+                Assert.Equal("sequence", lineage.GetProperty("SequenceNodeId").GetString());
+                Assert.Equal(outputId, lineage.GetProperty("OutputId").GetString());
+            }
+        }
         Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
     }
 
