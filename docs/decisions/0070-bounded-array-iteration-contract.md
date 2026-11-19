@@ -4430,3 +4430,13 @@ Break route from an accepted Break and proves that an admitted sibling failure
 is not masked in this scheduling shape. It does not prove a late failure
 after Break acceptance or concurrent branch draining. No public iterator
 contract or runtime architecture is selected.
+
+The same nested production-body fixture now rejects the persisted
+`sequence.break_accepted` append in both file and SQLite stores. The Break node
+completion remains in the accepted event prefix, the production-body wrapper
+fails the root run, and no Sequence Break acceptance, skipped suffix, or
+Sequence terminal is fabricated. On reopen, root playback is failed while
+Sequence playback remains running with its previously completed suffix and
+still-dispatched decision output (2/2). This qualifies the append-rejection
+boundary for this candidate; it does not prove lost acknowledgment, process
+loss, or other append sites in this composition.

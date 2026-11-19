@@ -876,3 +876,13 @@ preserves cancelled/failed Sequence outputs (2 focused cases). This qualifies
 the current scheduling shape only; it does not prove late failure after Break
 acceptance or general concurrent draining. Public iterator support remains
 gated by [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: nested Break acceptance append rejection (2026-11-19)
+
+Rejecting `sequence.break_accepted` in the nested production-body proof fails
+the root run without fabricating a Sequence terminal. File and SQLite reopen
+retain the Break node completion, omit Break acceptance and suffix skipping,
+and reconstruct root status as failed while Sequence playback remains
+nonterminal (2 focused cases). Lost acknowledgment and other append boundaries
+remain unqualified. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

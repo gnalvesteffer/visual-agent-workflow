@@ -386,6 +386,11 @@ introduced.
   outputs, with no Break acceptance fabricated (2/2). This only qualifies the
   queued-Break scheduling shape; late failure after Break acceptance and
   general concurrent drain remain open.
+  Rejecting the nested production-body `sequence.break_accepted` append now
+  also fails the root run while preserving a nonterminal Sequence playback
+  prefix: no acceptance, skipped suffix, or Sequence terminal is fabricated,
+  and file/SQLite reopen agree (2/2). Lost acknowledgment and other append
+  boundaries remain open.
   Host cancellation after Break is requested while an Agent is admitted stays
   a cancelled root and Sequence through both stores and playback (2/2).
   A new proof-scoped single-stream dispatch session now passes the central

@@ -6603,6 +6603,49 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyNestedConditionalBreak_AcceptanceAppendFailureFailsRunWithoutSequenceTerminal(bool sqlite)
+    {
+        var revision = NestedBranchSequenceBreakDefinition();
+        using var runStore = new ProofRunStore(revision, "[\"outer-a\"]", sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.SequenceBreakAccepted]);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var sequencePlan = new WorkflowRunner.SequenceProductionPlan("sequence", [
+            new("decision", 0, "branch", "sequence", "then.decision", "sequence-branch"),
+            new("suffix", 1, "suffix-output", "sequence", "then.suffix", "sequence-suffix")
+        ], null, SequenceTerminalState.Completed);
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                "[\"outer-a\"]", "[\"break\"]", "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item", proofBreakNodeIds: new HashSet<string>(["break"], StringComparer.Ordinal),
+                sequencePlan: sequencePlan, maximumConcurrentSequenceOutputs: 2);
+
+        var accepted = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.False(result.Cancelled);
+        AssertPersistedSequence(runStore, accepted, "failed");
+        Assert.Contains(accepted, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "break");
+        Assert.Single(accepted, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(accepted, evt => evt.Kind is ExecutionEventKinds.SequenceBreakAccepted or
+            ExecutionEventKinds.SequenceOutputSkipped or ExecutionEventKinds.SequenceBreakCompleted or
+            ExecutionEventKinds.SequenceCompleted or ExecutionEventKinds.Completed);
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal("failed", reopened.Status);
+        Assert.Equal(accepted, reopened.Events);
+        var sequenceEvents = reopened.Events.Where(evt => SequenceEvidence.IsLifecycleEvent(evt.Kind));
+        Assert.True(SequenceEvidence.TryReconstructPlayback(sequenceEvents, out var playback));
+        Assert.Equal("running", playback!.Status);
+        Assert.Null(playback.BreakAcceptance);
+        Assert.Equal(["dispatched", "completed"], playback.Outputs.Select(output => output.State));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_NestedConditionalBreakSchedulingMatchesFreshSubworkflow(bool sqlite)
     {
         var revision = NestedConditionalSequenceBreakWithHeldAgent();
