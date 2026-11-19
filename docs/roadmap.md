@@ -429,8 +429,10 @@ introduced.
   accepted prefix without a terminal remains running. This closes the exact
   comparison gap only. File/SQLite tests now reject the acceptance-event append
   and confirm the persisted prefix contains the completed Break node but no
-  accepted Break, skipped suffix, or Sequence terminal (2/2). Other append
-  interruption points, broad scheduler ownership, admission races, failure /
+  accepted Break, skipped suffix, or Sequence terminal (2/2). Tests also commit
+  the acceptance event and lose its acknowledgment; reopen preserves a valid
+  running prefix with Break attribution and no skipped suffix or terminal (2/2).
+  Other append interruption points, broad scheduler ownership, admission races, failure /
   uncertainty / cancellation precedence, and public admission remain open.
   This remains a private proof path: the
   production guard, public schema, and Studio authoring remain unchanged. Prove

@@ -4409,8 +4409,11 @@ accepted prefix without a terminal remains running, and malformed, mismatched,
 duplicate, late, or normally completed-after-Break histories fail closed.
 Rejecting the `sequence.break_accepted` append in either file or SQLite leaves
 the Break node completion as the final accepted prefix; no suffix skip or
-Sequence terminal is recorded (2/2). This tests rejection before acceptance is
-committed, not an ambiguous commit acknowledgment.
+Sequence terminal is recorded (2/2). A second file/SQLite proof commits the
+acceptance event and loses the writer acknowledgment; reopen reconstructs an
+attributed `running` prefix with no skipped output or terminal (2/2). These
+tests cover rejection and ambiguous acknowledgment at this event, not process
+loss or other append boundaries.
 Focused Core evidence tests pass 16/16, coordinator tests pass 8/8, and the
 paired file/SQLite candidate test passes 2/2. Unknown external outcome,
 cancellation, pause/stop races, broader append-rejection cases, the complete
