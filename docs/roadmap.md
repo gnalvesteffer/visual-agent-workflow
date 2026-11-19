@@ -407,6 +407,11 @@ introduced.
   playback preserves the failed/cancelled child call (6 cases across all three
   outcomes). This closes those outcomes for this pinned-child shape; the wider
   supported-body matrix remains open.
+  A parallel WorkflowInterfaceCall implementation now has the same
+  success/failure/cancellation coverage: its typed input and output projection
+  pass through both child Agents, the held sibling prevents premature
+  interface/iteration settlement, and file/SQLite playback retains all three
+  outcomes (6 cases). Other child graph shapes and crash recovery remain open.
   Host cancellation after Break is requested while an Agent is admitted stays
   a cancelled root and Sequence through both stores and playback (2/2).
   A new proof-scoped single-stream dispatch session now passes the central

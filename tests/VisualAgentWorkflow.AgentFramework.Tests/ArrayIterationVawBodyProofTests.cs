@@ -7455,6 +7455,84 @@ public sealed class ArrayIterationVawBodyProofTests
             "nested-array-parallel-workflow-call-proof");
     }
 
+    private static WorkflowRevision NestedParallelWorkflowInterfaceCallRevision()
+    {
+        var childBody = ParallelBodyDefinition();
+        var childNodes = childBody.Nodes
+            .SetItem("input", childBody.Nodes["input"] with { InputDataType = WorkflowDataTypes.Json })
+            .Add("select-left", new NodeDefinition(NodeTypes.JsonSelectString, "1.0.0")
+                { JsonPropertySelection = new("/value") })
+            .Add("select-right", new NodeDefinition(NodeTypes.JsonSelectString, "1.0.0")
+                { JsonPropertySelection = new("/value") })
+            .Add("project", new NodeDefinition(NodeTypes.JsonProject, "1.0.0")
+            {
+                JsonProjection = new([new JsonProjectionField("value", "/left")
+                    { ValueType = WorkflowDataTypes.String }])
+            });
+        var childData = childBody.Connections
+            .Remove("input-left")
+            .Remove("input-right")
+            .Remove("join-output")
+            .Add("input-select-left", new(new("input", "out"), new("select-left", "in"), "data"))
+            .Add("input-select-right", new(new("input", "out"), new("select-right", "in"), "data"))
+            .Add("select-left-agent", new(new("select-left", "out"), new("agent-left", "in"), "data"))
+            .Add("select-right-agent", new(new("select-right", "out"), new("agent-right", "in"), "data"))
+            .Add("join-project", new(new("join", "out"), new("project", "in"), "data"))
+            .Add("project-output", new(new("project", "out"), new("output", "in"), "data"));
+        var childExecution = childBody.ExecutionConnections!;
+        var childDefinition = childBody with
+        {
+            WorkflowId = "nested-array-parallel-interface-child",
+            Nodes = childNodes,
+            Connections = childData,
+            ExecutionConnections = childExecution
+        };
+        WorkflowValidator.ThrowIfInvalid(childDefinition);
+        var child = WorkflowRevision.Create(childDefinition, "nested-array-parallel-interface-child-proof");
+        var operation = new WorkflowInterfaceOperation("Echo", WorkflowDataTypes.Json,
+            WorkflowDataTypes.Json)
+        {
+            Inputs = [new("value", "Value", WorkflowDataTypes.String)],
+            Outputs = [new("value", "Value", WorkflowDataTypes.String)]
+        };
+        var contract = WorkflowInterfaceRevision.Create(new WorkflowInterfaceDefinition(
+            "array-iteration.parallel-echo", "Parallel echo", "Runs both parallel echo branches.",
+            ImmutableSortedDictionary<string, WorkflowInterfaceOperation>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("echo", operation))
+        { SchemaVersion = WorkflowInterfaceJson.FieldContractSchemaVersion });
+        var implementation = WorkflowInterfaceImplementationRevision.Create(new WorkflowInterfaceImplementation(
+            "array-iteration.parallel-echo-implementation", contract,
+            ImmutableSortedDictionary<string, WorkflowInterfaceWorkflowPin>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("echo", WorkflowInterfaceWorkflowPin.From(new PublishedWorkflowRevision(1, child)))));
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("call", new NodeDefinition(NodeTypes.WorkflowInterfaceCall, "1.0.0")
+            {
+                WorkflowInterfaceCall = new(implementation, "echo")
+            })
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.String });
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "nested-array-parallel-interface-call-proof", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input-call", new(new("input", "out"), new("call", "value"), "data"))
+                .Add("call-output", new(new("call", "value"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .WithComparers(StringComparer.Ordinal)
+                .Add("input-call", Edge("input", "then", "call", "execute"))
+                .Add("call-output", Edge("call", "then", "output", "execute")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .WithComparers(StringComparer.Ordinal)
+                .Add("item", new("Array item", string.Empty) { Type = WorkflowDataTypes.String })
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Inner array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return WorkflowRevision.CreateProofOnly(definition,
+            "nested-array-parallel-interface-call-proof");
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -7524,6 +7602,175 @@ public sealed class ArrayIterationVawBodyProofTests
             await agents.RightStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.False(execution.IsCompleted,
                 "The nested call must remain active while its parallel child Agent is held.");
+            cancellation.Cancel();
+            var result = await execution;
+            Assert.True(result.Cancelled);
+            Assert.False(result.Failed);
+        }
+        finally
+        {
+            agents.ReleaseRight.TrySetResult();
+            if (!execution.IsCompleted)
+                await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        var events = recorder.Snapshot();
+        const string childScope = "outer-loop/0/inner-loop/0/call";
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCancelled &&
+            evt.ScopeId == childScope);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted &&
+            evt.ScopeId == childScope);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "outer-loop/0/inner-loop/1" ||
+            evt.ScopeId?.StartsWith("outer-loop/0/inner-loop/1/", StringComparison.Ordinal) == true ||
+            evt.ScopeId == "outer-loop/1" ||
+            evt.ScopeId?.StartsWith("outer-loop/1/", StringComparison.Ordinal) == true);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "cancelled");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(reopened.Events, out var calls));
+        Assert.Equal("cancelled", calls!.Status);
+        Assert.Equal("cancelled", Assert.Single(calls.Calls).State);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyNestedCoordinator_SettlesParallelWorkflowInterfaceChildPerActivation(bool sqlite)
+    {
+        var revision = NestedParallelWorkflowInterfaceCallRevision();
+        const string outerItems = "[\"outer-a\"]";
+        const string innerItems = "[\"one\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new ControlledForkPathAgentExecutor();
+        var leftAgentCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var execution = new WorkflowRunner(agents: agents)
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                outerItems, innerItems, "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-left")
+                        leftAgentCompleted.TrySetResult();
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item",
+                proofBreakNodeIds: new HashSet<string>(StringComparer.Ordinal));
+        try
+        {
+            await Task.WhenAll(agents.RightStarted.Task, leftAgentCompleted.Task)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "The nested interface call must remain open until its parallel implementation settles.");
+            const string callScope = "outer-loop/0/inner-loop/0/call";
+            Assert.DoesNotContain(recorder.Snapshot(), evt =>
+                evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.ScopeId == callScope);
+            Assert.DoesNotContain(recorder.Snapshot(), evt =>
+                evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.ScopeId == "outer-loop/0/inner-loop/0");
+            agents.ReleaseRight.TrySetResult();
+            var result = await execution;
+            Assert.False(result.Failed, string.Join("\n", recorder.Snapshot().Select(evt =>
+                $"{evt.Sequence} {evt.Kind} {evt.NodeId} {evt.ScopeId} {evt.Data}")));
+        }
+        finally
+        {
+            agents.ReleaseRight.TrySetResult();
+            if (!execution.IsCompleted)
+                await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        var events = recorder.Snapshot();
+        const string activationScope = "outer-loop/0/inner-loop/0";
+        const string childScope = activationScope + "/call";
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowStarted &&
+            evt.ScopeId == childScope);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted &&
+            evt.ScopeId == childScope);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "agent-left" && evt.ScopeId == childScope);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "agent-right" && evt.ScopeId == childScope);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "inner-loop" && evt.ScopeId == activationScope);
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(reopened.Events, out var calls));
+        Assert.Equal("completed", Assert.Single(calls!.Calls).State);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyNestedCoordinator_ParallelWorkflowInterfaceChildFailureStopsLaterActivations(bool sqlite)
+    {
+        var revision = NestedParallelWorkflowInterfaceCallRevision();
+        const string outerItems = "[\"outer-a\",\"outer-b\"]";
+        const string innerItems = "[\"one\",\"two\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+
+        var result = await new WorkflowRunner(agents: new EchoAgentExecutor(failNodeId: "agent-right"))
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                outerItems, innerItems, "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item",
+                proofBreakNodeIds: new HashSet<string>(StringComparer.Ordinal));
+
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.False(result.Cancelled);
+        const string childScope = "outer-loop/0/inner-loop/0/call";
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed &&
+            evt.ScopeId == childScope);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "agent-right" && evt.ScopeId == childScope);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted &&
+            evt.ScopeId == childScope);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "outer-loop/0/inner-loop/1" ||
+            evt.ScopeId?.StartsWith("outer-loop/0/inner-loop/1/", StringComparison.Ordinal) == true ||
+            evt.ScopeId == "outer-loop/1" ||
+            evt.ScopeId?.StartsWith("outer-loop/1/", StringComparison.Ordinal) == true);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(reopened.Events, out var calls));
+        Assert.Equal("failed", calls!.Status);
+        Assert.Equal("failed", Assert.Single(calls.Calls).State);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyNestedCoordinator_ParallelWorkflowInterfaceChildCancellationStopsLaterActivations(bool sqlite)
+    {
+        var revision = NestedParallelWorkflowInterfaceCallRevision();
+        const string outerItems = "[\"outer-a\",\"outer-b\"]";
+        const string innerItems = "[\"one\",\"two\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new ControlledForkPathAgentExecutor();
+        using var cancellation = new CancellationTokenSource();
+        var execution = new WorkflowRunner(agents: agents)
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                outerItems, innerItems, "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, cancellation.Token, itemParameterId: "item",
+                proofBreakNodeIds: new HashSet<string>(StringComparer.Ordinal));
+        try
+        {
+            await agents.RightStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "The nested interface call must remain active while its parallel implementation is held.");
             cancellation.Cancel();
             var result = await execution;
             Assert.True(result.Cancelled);

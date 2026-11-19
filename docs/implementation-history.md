@@ -942,3 +942,14 @@ failed/cancelled WorkflowCall playback (6 focused cases across the three
 outcomes). Other parallel descendants and public iterator admission remain
 open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: parallel interface child settlement (2026-11-19)
+
+A nested `WorkflowInterfaceCall` now invokes a pinned implementation with a
+parallel Agent Framework fork. The schema-1.1 JSON boundary packs the string
+input and projects the joined child output through the declared interface
+field. A held child Agent keeps the interface call and loop activation open;
+success, failure, and host cancellation reopen through file and SQLite with
+the matching call playback state (6 focused cases). Other child topologies,
+process-loss recovery, and public iterator admission remain open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

@@ -4474,3 +4474,14 @@ total). This closes parallel-child success/failure/cancellation for this
 specific nested pinned-call shape. Other parallel descendants and the
 remaining supported-body matrix are still open. Public iterator/Break
 admission and architecture selection remain gated.
+
+The same nested parallel settlement matrix now covers a pinned
+`WorkflowInterfaceCall` implementation. The child interface contract packs a
+typed string input into JSON, dispatches both parallel Agents, and projects the
+joined result back through its declared output field. A held sibling keeps the
+interface call and loop activation unsettled; success, child-Agent failure,
+and host cancellation each reopen through file and SQLite with matching
+WorkflowCall playback and no later activation after failure/cancellation (6
+focused cases). This closes those three outcomes for this interface graph
+shape; other child topologies, crash recovery, and the full iterator gate
+remain open.
