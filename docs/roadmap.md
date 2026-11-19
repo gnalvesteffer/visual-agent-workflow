@@ -383,9 +383,14 @@ introduced.
   The production-body nested conditional fixture also holds an admitted Agent
   after its sibling Branch selects Break, then injects Agent failure; file and
   SQLite reopen preserve failed root playback and cancelled/failed Sequence
-  outputs, with no Break acceptance fabricated (2/2). This only qualifies the
-  queued-Break scheduling shape; late failure after Break acceptance and
-  general concurrent drain remain open.
+  outputs, with no Break acceptance fabricated (2/2). This qualifies the
+  queued-Break scheduling shape. A separate single-stream production-dispatch
+  proof now observes persisted `sequence.break_accepted` while an admitted
+  Agent is still held, then releases that Agent with failure; failure wins,
+  Break has no terminal, and both stores reopen with failed playback and the
+  accepted Break attribution (2/2). This closes late failure after accepted
+  Break for that single-stream shape; cross-frame and general concurrent drain
+  remain open.
   Rejecting the nested production-body `sequence.break_accepted` append now
   propagates the evidence-write failure without synthesizing a root terminal.
   Root and Sequence playback remain running; no acceptance, skipped suffix, or

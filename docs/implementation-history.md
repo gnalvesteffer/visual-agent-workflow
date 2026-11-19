@@ -963,3 +963,12 @@ or `break-completed` Sequence playback (6 focused cases). This proves persisted
 prefixes at these three process-loss boundaries, not automatic recovery or
 resumption; other cut points and the full iterator gate remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: late failure after Break acceptance (2026-11-19)
+
+The production-dispatch single-stream test now verifies that an admitted Agent
+is still active after `sequence.break_accepted` is persisted. Injecting failure
+then makes the root fail without a Break terminal; file and SQLite reopen
+preserve the attributed Break and failed playback (2 focused cases). This
+qualifies one ordering, not cross-frame races or general concurrent drain. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

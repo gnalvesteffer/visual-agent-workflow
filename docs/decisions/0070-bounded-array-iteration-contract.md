@@ -4495,3 +4495,12 @@ completed while Sequence playback remains `break-completed` (6 cases). This
 proves durable reconstruction at these three boundaries; it does not recover
 or resume an interrupted workflow, and other process-loss cut points remain
 open.
+
+The single-stream production-dispatch proof now checks the late-failure
+ordering explicitly. While an admitted Agent remains held, the test observes
+the persisted `sequence.break_accepted` and confirms the run has not settled.
+Releasing the Agent with a known failure makes the root fail, preserves the
+Break attribution, and emits no `sequence.break_completed`; file and SQLite
+reopen reconstruct the same failed playback (2 cases). This closes that
+ordering for this single-stream proof shape only. Cross-frame failure races
+and broader concurrent drain remain open.

@@ -21514,6 +21514,9 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             await Task.WhenAll(agents.Started.Task, suffixSkipped.Task).WaitAsync(TimeSpan.FromSeconds(5));
             Assert.False(execution.IsCompleted, "The run must drain the admitted Agent after Break." );
+            var acceptedPrefix = recorder.Snapshot();
+            Assert.Single(acceptedPrefix, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
+            Assert.DoesNotContain(acceptedPrefix, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
             agents.Release.TrySetResult();
             var result = await execution;
             Assert.True(result.Failed);
@@ -21542,6 +21545,7 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(events, reopened.Events);
         Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
         Assert.Equal("failed", playback!.Status);
+        Assert.NotNull(playback.BreakAcceptance);
     }
 
     [Theory]
