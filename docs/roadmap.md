@@ -427,9 +427,11 @@ introduced.
   Sequence identity, and enclosing scope. Zero-skipped Break terminals require
   that attribution; legacy skipped-suffix evidence remains readable, and an
   accepted prefix without a terminal remains running. This closes the exact
-  comparison gap only; broad scheduler ownership, admission races, failure /
-  uncertainty / cancellation precedence, append interruption, and public
-  admission remain open.
+  comparison gap only. File/SQLite tests now reject the acceptance-event append
+  and confirm the persisted prefix contains the completed Break node but no
+  accepted Break, skipped suffix, or Sequence terminal (2/2). Other append
+  interruption points, broad scheduler ownership, admission races, failure /
+  uncertainty / cancellation precedence, and public admission remain open.
   This remains a private proof path: the
   production guard, public schema, and Studio authoring remain unchanged. Prove
   one VAW owner for frames,

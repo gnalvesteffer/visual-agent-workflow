@@ -10481,6 +10481,45 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task StructuredActivationSequenceProof_RejectedBreakAcceptanceLeavesAcceptedPrefixIncomplete(bool sqlite)
+    {
+        var definition = SequenceBodyDefinition();
+        var nodes = definition.Nodes.SetItem("inventory-tool",
+            new NodeDefinition(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"));
+        var revision = WorkflowRevision.CreateProofOnly(definition with
+        {
+            Nodes = nodes,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        }, "array-iteration-sequence-break-acceptance-append-failure");
+        using var store = new ProofRunStore(revision, "[\"stop\"]", sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.SequenceBreakAccepted]);
+        var recorder = new ProofRecorder(store, startRoot: false);
+
+        var error = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => new WorkflowRunner()
+            .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision,
+                "[\"stop\"]", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }));
+
+        Assert.Contains("Injected store append failure", error.ToString(), StringComparison.Ordinal);
+        var accepted = recorder.Snapshot();
+        AssertPersistedSequence(store, accepted, "running");
+        Assert.Contains(accepted, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "inventory-tool");
+        Assert.DoesNotContain(accepted, evt => evt.Kind is ExecutionEventKinds.SequenceBreakAccepted or
+            ExecutionEventKinds.SequenceOutputSkipped or ExecutionEventKinds.SequenceBreakCompleted or
+            ExecutionEventKinds.Completed or ExecutionEventKinds.Failed);
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal("running", reopened.Status);
+        Assert.Equal(accepted, reopened.Events);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task StructuredActivationSequenceProof_LostBreakTerminalAcknowledgmentKeepsCommittedPrefix(bool sqlite)
     {
         var definition = SequenceBodyDefinition();
