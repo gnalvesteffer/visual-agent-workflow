@@ -865,3 +865,14 @@ scope, the root fails, no subsequent item is admitted, and playback reopens
 with the same event prefix (2 focused cases). Child cancellation and the
 broader proof/architecture gates remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: queued conditional Break and Agent failure (2026-11-19)
+
+A production-body proof holds an admitted Agent while a sibling Branch selects
+the nested loop's Break route, then releases the Agent with a deterministic
+failure. In file and SQLite stores, the Agent failure remains the root outcome;
+the queued Break never starts or records acceptance, and reopened playback
+preserves cancelled/failed Sequence outputs (2 focused cases). This qualifies
+the current scheduling shape only; it does not prove late failure after Break
+acceptance or general concurrent draining. Public iterator support remains
+gated by [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

@@ -4419,3 +4419,14 @@ paired file/SQLite candidate test passes 2/2. Unknown external outcome,
 cancellation, pause/stop races, broader append-rejection cases, the complete
 body matrix, and public admission remain open. This proof does not establish
 Blueprint parity or authorize public Break support.
+
+The nested production-body conditional Break fixture now also holds its
+admitted Agent sibling after the Branch selects the Break route, then releases
+the Agent with a deterministic failure. In both file and SQLite stores, the
+failure remains the root outcome; the queued Break never starts or records
+acceptance, playback reconstructs the Sequence outputs as cancelled/failed,
+and reopen preserves the same event prefix (2/2). This distinguishes a queued
+Break route from an accepted Break and proves that an admitted sibling failure
+is not masked in this scheduling shape. It does not prove a late failure
+after Break acceptance or concurrent branch draining. No public iterator
+contract or runtime architecture is selected.

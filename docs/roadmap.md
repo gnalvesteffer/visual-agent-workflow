@@ -380,6 +380,12 @@ introduced.
   failed through file/SQLite reopen and passive playback (2/2). An admitted
   direct MCP call with an unresolved external outcome also overrides Break and
   retains root `outcome-unknown` through both stores and passive playback (2/2).
+  The production-body nested conditional fixture also holds an admitted Agent
+  after its sibling Branch selects Break, then injects Agent failure; file and
+  SQLite reopen preserve failed root playback and cancelled/failed Sequence
+  outputs, with no Break acceptance fabricated (2/2). This only qualifies the
+  queued-Break scheduling shape; late failure after Break acceptance and
+  general concurrent drain remain open.
   Host cancellation after Break is requested while an Agent is admitted stays
   a cancelled root and Sequence through both stores and playback (2/2).
   A new proof-scoped single-stream dispatch session now passes the central
