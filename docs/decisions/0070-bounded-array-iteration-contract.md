@@ -4487,14 +4487,15 @@ shape; other child topologies, crash recovery, and the full iterator gate
 remain open.
 
 Subprocess proofs now exercise actual writer process loss immediately after
-`sequence.break_accepted`, `sequence.break_completed`, and root `run.completed`
-are committed. The parent terminates the child at each boundary and reopens
-both file and SQLite stores. Playback preserves the running accepted prefix or
-`break-completed` Sequence state; after root completion, the run remains
-completed while Sequence playback remains `break-completed` (6 cases). This
-proves durable reconstruction at these three boundaries; it does not recover
-or resume an interrupted workflow, and other process-loss cut points remain
-open.
+the Break node's `node.completed`, `sequence.break_accepted`,
+`sequence.break_completed`, and root `run.completed` are committed. The parent
+terminates the child at each boundary and reopens both file and SQLite stores.
+After Break-node completion, playback remains running with no fabricated
+acceptance; later prefixes preserve the accepted-running or
+`break-completed` Sequence state, and root completion remains terminal (8
+cases). This proves durable reconstruction at these four boundaries; it does
+not recover or resume an interrupted workflow, and other process-loss cut
+points remain open.
 
 The single-stream production-dispatch proof now checks the late-failure
 ordering explicitly. While an admitted Agent remains held, the test observes

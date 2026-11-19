@@ -404,11 +404,13 @@ introduced.
   (2/2). A known MCP failure followed by rejection of root `run.failed` keeps
   the root running and the Sequence output failed/completed without retrying
   the append (2/2). Fresh-process proofs now terminate the writer immediately
-  after `sequence.break_accepted`, `sequence.break_completed`, and root
-  `run.completed` in both stores (6 cases). Reopen preserves the appropriate
-  running or terminal root status and running or `break-completed` Sequence
-  playback. These are three exact boundaries only; other process-loss cut
-  points and recovery/resume remain open.
+  after Break-node `node.completed`, `sequence.break_accepted`,
+  `sequence.break_completed`, and root `run.completed` in both stores (8
+  cases). Reopen preserves the running prefix without fabricating acceptance
+  after Break-node completion, then the appropriate running or terminal root
+  status and running or `break-completed` Sequence playback at later boundaries.
+  These are four exact boundaries only; other process-loss cut points and
+  recovery/resume remain open.
   A pinned WorkflowCall with a production Agent Framework parallel fork inside
   the nested activation now holds one child Agent after its sibling completes.
   Neither child-call completion nor loop-item completion is emitted until the

@@ -6788,14 +6788,16 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
-    [InlineData(false, ExecutionEventKinds.SequenceBreakAccepted)]
-    [InlineData(true, ExecutionEventKinds.SequenceBreakAccepted)]
-    [InlineData(false, ExecutionEventKinds.SequenceBreakCompleted)]
-    [InlineData(true, ExecutionEventKinds.SequenceBreakCompleted)]
-    [InlineData(false, ExecutionEventKinds.Completed)]
-    [InlineData(true, ExecutionEventKinds.Completed)]
+    [InlineData(false, ExecutionEventKinds.SequenceBreakAccepted, "")]
+    [InlineData(true, ExecutionEventKinds.SequenceBreakAccepted, "")]
+    [InlineData(false, ExecutionEventKinds.SequenceBreakCompleted, "")]
+    [InlineData(true, ExecutionEventKinds.SequenceBreakCompleted, "")]
+    [InlineData(false, ExecutionEventKinds.Completed, "")]
+    [InlineData(true, ExecutionEventKinds.Completed, "")]
+    [InlineData(false, ExecutionEventKinds.NodeCompleted, "break")]
+    [InlineData(true, ExecutionEventKinds.NodeCompleted, "break")]
     public async Task ProductionBodyNestedConditionalBreak_ProcessLossPreservesCommittedPrefix(bool sqlite,
-        string stopAfterEvent)
+        string stopAfterEvent, string stopAfterNodeId)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"vaw-array-break-process-loss-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -6804,7 +6806,7 @@ public sealed class ArrayIterationVawBodyProofTests
         try
         {
             using var process = Process.Start(CreateNestedBreakProcessProbeStartInfo(storePath, readyPath, sqlite,
-                stopAfterEvent))!;
+                stopAfterEvent, stopAfterNodeId))!;
             var stdoutTask = process.StandardOutput.ReadToEndAsync();
             var stderrTask = process.StandardError.ReadToEndAsync();
             for (var attempt = 0; attempt < 250 && !File.Exists(readyPath) && !process.HasExited; attempt++)
@@ -6830,14 +6832,23 @@ public sealed class ArrayIterationVawBodyProofTests
                 ? new SqliteWorkflowRunStore(storePath)
                 : new FileRunJournal(storePath);
             var reopened = reopenedStore.Get(runId)!;
-            Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
             Assert.DoesNotContain(reopened.Events, evt => evt.Kind is ExecutionEventKinds.SequenceCompleted or
                 ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
             Assert.True(SequenceEvidence.TryReconstructPlayback(
                 reopened.Events.Where(evt => SequenceEvidence.IsLifecycleEvent(evt.Kind)), out var playback));
-            Assert.NotNull(playback!.BreakAcceptance);
-            if (stopAfterEvent == ExecutionEventKinds.SequenceBreakAccepted)
+            if (stopAfterEvent == ExecutionEventKinds.NodeCompleted)
             {
+                Assert.Equal("running", reopened.Status);
+                Assert.Single(reopened.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                    evt.NodeId == "break");
+                Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
+                Assert.Equal("running", playback!.Status);
+                Assert.Null(playback.BreakAcceptance);
+            }
+            else if (stopAfterEvent == ExecutionEventKinds.SequenceBreakAccepted)
+            {
+                Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
+                Assert.NotNull(playback!.BreakAcceptance);
                 Assert.Equal("running", reopened.Status);
                 Assert.Equal("running", playback.Status);
                 Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
@@ -6845,6 +6856,8 @@ public sealed class ArrayIterationVawBodyProofTests
             }
             else if (stopAfterEvent == ExecutionEventKinds.SequenceBreakCompleted)
             {
+                Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
+                Assert.NotNull(playback!.BreakAcceptance);
                 Assert.Equal("running", reopened.Status);
                 Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
                 Assert.Equal("break-completed", playback.Status);
@@ -6852,6 +6865,8 @@ public sealed class ArrayIterationVawBodyProofTests
             }
             else
             {
+                Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
+                Assert.NotNull(playback!.BreakAcceptance);
                 Assert.Equal(ExecutionEventKinds.Completed, stopAfterEvent);
                 Assert.Equal("completed", reopened.Status);
                 Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.Completed);
@@ -6872,6 +6887,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var sqlite = Environment.GetEnvironmentVariable("VAW_ARRAY_BREAK_PROBE_SQLITE") == "1";
         var readyPath = Environment.GetEnvironmentVariable("VAW_ARRAY_BREAK_PROBE_READY")!;
         var stopAfterEvent = Environment.GetEnvironmentVariable("VAW_ARRAY_BREAK_PROBE_STOP_AFTER")!;
+        var stopAfterNodeId = Environment.GetEnvironmentVariable("VAW_ARRAY_BREAK_PROBE_STOP_NODE");
         IWorkflowRunStore store = sqlite
             ? new SqliteWorkflowRunStore(storePath)
             : new FileRunJournal(storePath);
@@ -6889,7 +6905,8 @@ public sealed class ArrayIterationVawBodyProofTests
             {
                 var persisted = evt with { Sequence = ++expectedSequence };
                 store.Append(run.Header.RunId, expectedSequence - 1, [persisted]);
-                if (evt.Kind == stopAfterEvent)
+                if (evt.Kind == stopAfterEvent &&
+                    (string.IsNullOrEmpty(stopAfterNodeId) || evt.NodeId == stopAfterNodeId))
                 {
                     await File.WriteAllTextAsync(readyPath,
                         JsonSerializer.Serialize(new { runId = run.Header.RunId }));
@@ -6901,7 +6918,7 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private static ProcessStartInfo CreateNestedBreakProcessProbeStartInfo(string storePath, string readyPath,
-        bool sqlite, string stopAfterEvent)
+        bool sqlite, string stopAfterEvent, string stopAfterNodeId)
     {
         var project = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
             "../../../../VisualAgentWorkflow.AgentFramework.Tests/VisualAgentWorkflow.AgentFramework.Tests.csproj"));
@@ -6922,6 +6939,7 @@ public sealed class ArrayIterationVawBodyProofTests
         startInfo.Environment["VAW_ARRAY_BREAK_PROBE_SQLITE"] = sqlite ? "1" : "0";
         startInfo.Environment["VAW_ARRAY_BREAK_PROBE_READY"] = readyPath;
         startInfo.Environment["VAW_ARRAY_BREAK_PROBE_STOP_AFTER"] = stopAfterEvent;
+        startInfo.Environment["VAW_ARRAY_BREAK_PROBE_STOP_NODE"] = stopAfterNodeId;
         return startInfo;
     }
 
