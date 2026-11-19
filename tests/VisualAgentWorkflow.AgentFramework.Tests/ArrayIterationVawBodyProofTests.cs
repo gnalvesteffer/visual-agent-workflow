@@ -8302,6 +8302,95 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task NestedConcurrentProductionCoordinator_SiblingFrameUnknownToolOutcomeOverridesBreak(bool sqlite)
+    {
+        var definition = NestedConcurrentBreakProofDefinition(includeMcp: true);
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "nested-concurrent-production-sibling-unknown-overrides-break-proof");
+        using var runStore = new ProofRunStore(revision, "[\"outer-a\",\"outer-b\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agent = new ControlledSettlementAgentExecutor("agent");
+        var tools = new FirstSuccessSecondUnknownToolBroker("proof.parallel-tool");
+        var secondParentAdmitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSecondParent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstBreakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.LoopIterationCompleted && evt.NodeId == "inner-loop" &&
+                evt.ScopeId == "outer-loop/0/inner-loop/1")
+                firstBreakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask AfterOuterItemAdmitted(int index, CancellationToken cancellationToken)
+        {
+            if (index != 1) return ValueTask.CompletedTask;
+            secondParentAdmitted.TrySetResult();
+            return new(releaseSecondParent.Task.WaitAsync(cancellationToken));
+        }
+
+        var execution = new WorkflowRunner(agents: agent, tools: tools)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                "[\"outer-a\",\"outer-b\"]", "index", null, Record,
+                itemParameterId: "item", activationLoopNodeId: "outer-loop",
+                nestedItemsJson: "[\"continue\",\"stop\",\"must-not-run\"]",
+                nestedIndexParameterId: "innerIndex", nestedActivationLoopNodeId: "inner-loop",
+                maximumConcurrentBodies: 2, afterItemAdmitted: AfterOuterItemAdmitted);
+        try
+        {
+            await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await secondParentAdmitted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await firstBreakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "A frame's Break must not settle the root while an admitted sibling parent frame is waiting.");
+
+            agent.Release.TrySetResult();
+            await tools.FirstCallCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            releaseSecondParent.TrySetResult();
+            await tools.SecondCallStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "The root must remain unsettled until the sibling frame's external outcome is known.");
+            tools.ReleaseSecondCall.TrySetResult();
+        }
+        finally
+        {
+            releaseSecondParent.TrySetResult();
+            agent.Release.TrySetResult();
+            tools.ReleaseSecondCall.TrySetResult();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.True(result.OutcomeUnknown);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "inner-loop" && evt.ScopeId == "outer-loop/0/inner-loop/1");
+        var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+            evt.NodeId == "tool" && evt.ScopeId == "outer-loop/1/inner-loop/0");
+        var uncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            evt.NodeId == "tool" && evt.ScopeId == "outer-loop/1/inner-loop/0");
+        using var authorizedData = JsonDocument.Parse(authorized.Data!);
+        using var uncertainData = JsonDocument.Parse(uncertain.Data!);
+        Assert.Equal(authorizedData.RootElement.GetProperty("toolCallId").GetGuid(),
+            uncertainData.RootElement.GetProperty("toolCallId").GetGuid());
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "outcome-unknown");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var loopPlayback = await RenderLoopActivations(reopened.Events, reopened.Status);
+        Assert.Contains("inner-loop · Iteration 2 · Break", loopPlayback, StringComparison.Ordinal);
+        var runPlayback = await RenderPlayback(reopened);
+        Assert.Contains(ExecutionEventKinds.ToolUncertain, runPlayback, StringComparison.Ordinal);
+        Assert.Contains("Latest run status: outcome-unknown", runPlayback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task NestedConcurrentProductionCoordinator_PropagatesChildFailureAfterBreakDrain(bool sqlite)
     {
         var definition = NestedConcurrentBreakProofDefinition();
@@ -23292,6 +23381,66 @@ public sealed class ArrayIterationVawBodyProofTests
                 owner.DispatchStarted.TrySetResult();
                 await owner.ReleaseOutcome.Task.WaitAsync(cancellationToken);
                 const string reason = "The controlled MCP dispatch has an unknown outcome.";
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolUncertain, JsonSerializer.Serialize(new
+                {
+                    toolCallId,
+                    bindingId,
+                    failureCode = "tool.outcome_unknown",
+                    disposition = ToolInvocationFailureDisposition.OutcomeUnknown.ToString(),
+                    reason
+                }));
+                throw new ToolInvocationException(reason, ToolInvocationFailureDisposition.OutcomeUnknown);
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FirstSuccessSecondUnknownToolBroker(string expectedBindingId) : INodeToolBroker
+    {
+        private readonly string registeredBindingId = expectedBindingId;
+        private int invocationCount;
+
+        public TaskCompletionSource FirstCallCompleted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource SecondCallStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseSecondCall { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(this, invocation);
+
+        private sealed class Scope(FirstSuccessSecondUnknownToolBroker owner, NodeInvocationContext invocation)
+            : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string bindingId, string input, CancellationToken cancellationToken = default) =>
+                Task.FromException<string>(new NotSupportedException("The proof expects structured MCP arguments."));
+
+            public async Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments,
+                CancellationToken cancellationToken = default)
+            {
+                if (bindingId != owner.registeredBindingId)
+                    throw new InvalidOperationException("The workflow requested an unexpected MCP binding.");
+
+                var callNumber = Interlocked.Increment(ref owner.invocationCount);
+                var toolCallId = Guid.NewGuid();
+                var requested = JsonSerializer.Serialize(new { toolCallId, bindingId });
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolRequested, requested);
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolAuthorized,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId, input = arguments }));
+
+                if (callNumber == 1)
+                {
+                    owner.FirstCallCompleted.TrySetResult();
+                    return arguments.GetRawText();
+                }
+
+                owner.SecondCallStarted.TrySetResult();
+                await owner.ReleaseSecondCall.Task.WaitAsync(cancellationToken);
+                const string reason = "The controlled sibling MCP dispatch has an unknown outcome.";
                 await invocation.RecordEventAsync(ExecutionEventKinds.ToolUncertain, JsonSerializer.Serialize(new
                 {
                     toolCallId,

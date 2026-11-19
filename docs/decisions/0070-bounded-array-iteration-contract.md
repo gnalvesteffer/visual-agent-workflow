@@ -4152,6 +4152,18 @@ cancellation precedence across sibling parent frames, persistence interruption
 at this exact boundary, public graph validation, and production ownership
 remain open; the architecture gate remains **REVISE**.
 
+### Sibling-frame unknown-tool precedence proof (2026-11-18)
+
+The same two-parent production-body setup now completes the first frame's MCP
+call and consumes its inner Break, then admits the second frame and holds its
+MCP call until the broker reports an unknown external outcome. The run remains
+active until that outcome settles, then ends `outcome-unknown`; correlated
+authorization/uncertainty evidence belongs to the second frame. File and SQLite
+reopen preserve the Break and uncertain tool call, and passive playback shows
+both (2/2 focused cases). This is controlled proof-only evidence; sibling
+cancellation precedence, persistence interruption at this boundary, public
+topology, and production ownership remain open.
+
 ### Explicit feedback target adjudication (2026-11-18)
 
 A new three-role review selected a distinct bounded-feedback input as the
