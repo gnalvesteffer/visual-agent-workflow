@@ -389,8 +389,10 @@ introduced.
   Rejecting the nested production-body `sequence.break_accepted` append now
   also fails the root run while preserving a nonterminal Sequence playback
   prefix: no acceptance, skipped suffix, or Sequence terminal is fabricated,
-  and file/SQLite reopen agree (2/2). Lost acknowledgment and other append
-  boundaries remain open.
+  and file/SQLite reopen agree (2/2). Other append boundaries remain open. A
+  lost acknowledgment after the acceptance was
+  committed now also reopens consistently: acceptance appears once, root is
+  failed, and Sequence playback stays running without a terminal (2/2).
   Host cancellation after Break is requested while an Agent is admitted stays
   a cancelled root and Sequence through both stores and playback (2/2).
   A new proof-scoped single-stream dispatch session now passes the central

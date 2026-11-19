@@ -886,3 +886,13 @@ and reconstruct root status as failed while Sequence playback remains
 nonterminal (2 focused cases). Lost acknowledgment and other append boundaries
 remain unqualified. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: nested Break acceptance acknowledgment loss (2026-11-19)
+
+The nested production-body proof commits `sequence.break_accepted`, then loses
+the writer acknowledgment. In file and SQLite stores, reopen retains exactly
+one acceptance, a failed root, and nonterminal Sequence playback with no
+skipped suffix or Sequence terminal (2 focused cases). This covers ambiguous
+acknowledgment at this event only; process loss and other append sites remain
+open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

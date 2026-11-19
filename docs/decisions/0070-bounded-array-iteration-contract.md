@@ -4440,3 +4440,11 @@ Sequence playback remains running with its previously completed suffix and
 still-dispatched decision output (2/2). This qualifies the append-rejection
 boundary for this candidate; it does not prove lost acknowledgment, process
 loss, or other append sites in this composition.
+
+The nested production-body proof also commits `sequence.break_accepted` and
+then loses the writer acknowledgment. Across file and SQLite reopen, the
+acceptance appears exactly once, the root is failed, and Sequence playback
+remains running with the acceptance and dispatched/completed output prefix;
+no skipped suffix or Sequence terminal is added (2/2). This qualifies
+ambiguous acknowledgment at Break acceptance for this candidate, not process
+loss or other append boundaries.
