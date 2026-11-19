@@ -4466,7 +4466,11 @@ workflow invoked from a nested activation. One child Agent completes while its
 parallel sibling is held; the child call and enclosing iteration remain
 unsettled until that sibling is released. Both Agents and the child call then
 complete, and file/SQLite reopen plus passive WorkflowCall playback preserve
-the same nested scope and outcome (2/2). This proves successful parallel-child
-drain for this graph shape only; parallel-child failure/cancellation and the
+the same nested scope and outcome. Matching file/SQLite cases inject failure
+from one child Agent or cancel the host while the sibling is held; the child
+call and root settle failed/cancelled, later inner and outer activations do
+not start, and passive playback reconstructs the call outcome (6 focused cases
+total). This closes parallel-child success/failure/cancellation for this
+specific nested pinned-call shape. Other parallel descendants and the
 remaining supported-body matrix are still open. Public iterator/Break
 admission and architecture selection remain gated.

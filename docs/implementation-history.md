@@ -935,7 +935,10 @@ A production-body nested activation now calls an exact pinned child whose
 Agent Framework graph has a parallel fork. One child Agent completes while its
 sibling remains held; the child call and enclosing loop activation stay open
 until the sibling settles. File and SQLite reopen preserve completed child
-playback and the nested scope (2 focused cases). This covers successful
-parallel-child drain only; child failure/cancellation and public iterator
-admission remain open. See
+playback and the nested scope. The corresponding file/SQLite cases inject a
+parallel child Agent failure or cancel the host while the sibling is held;
+both terminal paths suppress later nested activations and reopen with matching
+failed/cancelled WorkflowCall playback (6 focused cases across the three
+outcomes). Other parallel descendants and public iterator admission remain
+open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

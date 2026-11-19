@@ -402,9 +402,11 @@ introduced.
   A pinned WorkflowCall with a production Agent Framework parallel fork inside
   the nested activation now holds one child Agent after its sibling completes.
   Neither child-call completion nor loop-item completion is emitted until the
-  held Agent settles; both stores reopen with matching completed call playback
-  (2/2). Parallel-child failure/cancellation and the wider supported-body
-  matrix remain open.
+  held Agent settles. Matching file/SQLite cases inject child Agent failure and
+  host cancellation; neither case advances to later nested activations, and
+  playback preserves the failed/cancelled child call (6 cases across all three
+  outcomes). This closes those outcomes for this pinned-child shape; the wider
+  supported-body matrix remains open.
   Host cancellation after Break is requested while an Agent is admitted stays
   a cancelled root and Sequence through both stores and playback (2/2).
   A new proof-scoped single-stream dispatch session now passes the central
