@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.AspNetCore.Components;
@@ -6784,6 +6785,119 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.True(SequenceEvidence.TryReconstructPlayback(sequenceEvents, out var playback));
         Assert.Equal("failed", playback!.Status);
         Assert.Equal(["failed", "completed"], playback.Outputs.Select(output => output.State));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyNestedConditionalBreak_ProcessLossAfterAcceptancePreservesRunningPrefix(bool sqlite)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"vaw-array-break-process-loss-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var storePath = sqlite ? Path.Combine(directory, "runs.sqlite3") : Path.Combine(directory, "runs");
+        var readyPath = Path.Combine(directory, "break-accepted.json");
+        try
+        {
+            using var process = Process.Start(CreateNestedBreakProcessProbeStartInfo(storePath, readyPath, sqlite))!;
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            for (var attempt = 0; attempt < 250 && !File.Exists(readyPath) && !process.HasExited; attempt++)
+                await Task.Delay(20);
+
+            if (!File.Exists(readyPath))
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+                }
+                Assert.Fail($"The child process did not commit Break acceptance. stdout={await stdoutTask}; stderr={await stderrTask}");
+            }
+            var runId = Guid.Parse(JsonDocument.Parse(await File.ReadAllTextAsync(readyPath))
+                .RootElement.GetProperty("runId").GetString()!);
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            await stdoutTask;
+            await stderrTask;
+
+            IWorkflowRunStore reopenedStore = sqlite
+                ? new SqliteWorkflowRunStore(storePath)
+                : new FileRunJournal(storePath);
+            var reopened = reopenedStore.Get(runId)!;
+            Assert.Equal("running", reopened.Status);
+            Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
+            Assert.DoesNotContain(reopened.Events, evt => evt.Kind is ExecutionEventKinds.SequenceBreakCompleted or
+                ExecutionEventKinds.SequenceCompleted or ExecutionEventKinds.Completed or
+                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
+            Assert.True(SequenceEvidence.TryReconstructPlayback(
+                reopened.Events.Where(evt => SequenceEvidence.IsLifecycleEvent(evt.Kind)), out var playback));
+            Assert.Equal("running", playback!.Status);
+            Assert.NotNull(playback.BreakAcceptance);
+            Assert.Equal(["dispatched", "completed"], playback.Outputs.Select(output => output.State));
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Fresh_process_nested_array_break_probe()
+    {
+        var storePath = Environment.GetEnvironmentVariable("VAW_ARRAY_BREAK_PROBE_STORE");
+        if (string.IsNullOrWhiteSpace(storePath)) return;
+        var sqlite = Environment.GetEnvironmentVariable("VAW_ARRAY_BREAK_PROBE_SQLITE") == "1";
+        var readyPath = Environment.GetEnvironmentVariable("VAW_ARRAY_BREAK_PROBE_READY")!;
+        IWorkflowRunStore store = sqlite
+            ? new SqliteWorkflowRunStore(storePath)
+            : new FileRunJournal(storePath);
+        var revision = NestedBranchSequenceBreakDefinition();
+        var run = store.Create(revision, "[\"outer-a\"]");
+        long expectedSequence = 0;
+        var sequencePlan = new WorkflowRunner.SequenceProductionPlan("sequence", [
+            new("decision", 0, "branch", "sequence", "then.decision", "sequence-branch"),
+            new("suffix", 1, "suffix-output", "sequence", "then.suffix", "sequence-suffix")
+        ], null, SequenceTerminalState.Completed);
+
+        await new WorkflowRunner().ExecuteProductionNestedBodyBreakSequenceProofAsync(run.Header.RunId,
+            revision, "[\"outer-a\"]", "[\"break\"]", "outerIndex", "index", null,
+            async evt =>
+            {
+                var persisted = evt with { Sequence = ++expectedSequence };
+                store.Append(run.Header.RunId, expectedSequence - 1, [persisted]);
+                if (evt.Kind == ExecutionEventKinds.SequenceBreakAccepted)
+                {
+                    await File.WriteAllTextAsync(readyPath,
+                        JsonSerializer.Serialize(new { runId = run.Header.RunId }));
+                    await Task.Delay(Timeout.InfiniteTimeSpan);
+                }
+            }, itemParameterId: "item",
+            proofBreakNodeIds: new HashSet<string>(["break"], StringComparer.Ordinal),
+            sequencePlan: sequencePlan, maximumConcurrentSequenceOutputs: 2);
+    }
+
+    private static ProcessStartInfo CreateNestedBreakProcessProbeStartInfo(string storePath, string readyPath,
+        bool sqlite)
+    {
+        var project = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+            "../../../../VisualAgentWorkflow.AgentFramework.Tests/VisualAgentWorkflow.AgentFramework.Tests.csproj"));
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = Directory.GetCurrentDirectory(),
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        startInfo.ArgumentList.Add("test");
+        startInfo.ArgumentList.Add(project);
+        startInfo.ArgumentList.Add("--no-build");
+        startInfo.ArgumentList.Add("--no-restore");
+        startInfo.ArgumentList.Add("--filter");
+        startInfo.ArgumentList.Add("FullyQualifiedName~Fresh_process_nested_array_break_probe");
+        startInfo.Environment["VAW_ARRAY_BREAK_PROBE_STORE"] = storePath;
+        startInfo.Environment["VAW_ARRAY_BREAK_PROBE_SQLITE"] = sqlite ? "1" : "0";
+        startInfo.Environment["VAW_ARRAY_BREAK_PROBE_READY"] = readyPath;
+        return startInfo;
     }
 
     [Theory]

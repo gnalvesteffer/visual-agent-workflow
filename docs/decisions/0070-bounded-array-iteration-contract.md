@@ -4485,3 +4485,11 @@ WorkflowCall playback and no later activation after failure/cancellation (6
 focused cases). This closes those three outcomes for this interface graph
 shape; other child topologies, crash recovery, and the full iterator gate
 remain open.
+
+A subprocess proof now exercises actual writer process loss immediately after
+`sequence.break_accepted` is committed. The parent terminates the child process
+before Sequence/root settlement, reopens the file and SQLite stores, and
+verifies that root and Sequence playback remain running with exactly the
+accepted dispatched/completed output prefix (2 cases). This proves durable
+prefix reconstruction at this boundary; it does not recover or resume the
+interrupted workflow, and other process-loss cut points remain open.

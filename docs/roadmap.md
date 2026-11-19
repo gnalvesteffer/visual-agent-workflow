@@ -398,7 +398,12 @@ introduced.
   accepted nonterminal Sequence prefix and root prefix after file/SQLite reopen
   (2/2). A known MCP failure followed by rejection of root `run.failed` keeps
   the root running and the Sequence output failed/completed without retrying
-  the append (2/2). Process loss remains open.
+  the append (2/2). A fresh-process proof now commits
+  `sequence.break_accepted`, terminates the writer before Sequence/root
+  settlement, then reopens both stores with the root and Sequence still
+  running and the accepted dispatched/completed prefix intact (2/2). This
+  covers process loss at that exact boundary only; other process-loss cut
+  points and recovery/resume remain open.
   A pinned WorkflowCall with a production Agent Framework parallel fork inside
   the nested activation now holds one child Agent after its sibling completes.
   Neither child-call completion nor loop-item completion is emitted until the
