@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.AgentFramework;
@@ -52,6 +53,24 @@ internal sealed class SequenceRuntimeCoordinator
     public SequenceTerminalState? TerminalState
     {
         get { lock (gate) return terminalState; }
+    }
+
+    public string? AggregateTerminalEventKind
+    {
+        get
+        {
+            lock (gate)
+                return terminalEventRecorded
+                    ? events.LastOrDefault(runtimeEvent => runtimeEvent.Kind is
+                        ExecutionEventKinds.SequenceCompleted or ExecutionEventKinds.SequenceBreakCompleted or
+                        ExecutionEventKinds.SequenceFailed or ExecutionEventKinds.SequenceCancelled)?.Kind
+                    : null;
+        }
+    }
+
+    public ImmutableArray<SequenceActivationSnapshot> OutputActivations
+    {
+        get { lock (gate) return [.. ledger.Snapshot]; }
     }
 
     private int emittedEventCount;
@@ -273,6 +292,50 @@ internal sealed class SequenceRuntimeCoordinator
         };
     }
 }
+
+/// <summary>Private typed collector handoff for one terminal Sequence activation region.</summary>
+internal sealed record SequenceAggregateCompletionSignal(
+    Guid SequenceInvocationId,
+    string SequenceNodeId,
+    string? ScopeId,
+    Guid? FrameId,
+    string TerminalEventKind,
+    SequenceOutputActivationLineage LastSettledOutput,
+    ImmutableArray<SequenceActivationSnapshot> OutputActivations)
+{
+    public static SequenceAggregateCompletionSignal? Create(SequenceRuntimeCoordinator coordinator,
+        SequenceOutputActivationLineage lastSettledOutput, Guid? frameId)
+    {
+        ArgumentNullException.ThrowIfNull(coordinator);
+        ArgumentNullException.ThrowIfNull(lastSettledOutput);
+        if (string.IsNullOrWhiteSpace(lastSettledOutput.OutputId) ||
+            string.IsNullOrWhiteSpace(lastSettledOutput.ConnectionId) ||
+            lastSettledOutput.ActivationId == Guid.Empty || lastSettledOutput.Ordinal < 0)
+            throw new ArgumentException("The aggregate completion signal must retain a settled output lineage.", nameof(lastSettledOutput));
+        if (lastSettledOutput.SequenceInvocationId != coordinator.SequenceInvocationId ||
+            lastSettledOutput.SequenceNodeId != coordinator.SequenceNodeId)
+            throw new InvalidOperationException("The aggregate output lineage belongs to a different Sequence invocation.");
+
+        var terminalKind = coordinator.AggregateTerminalEventKind;
+        if (terminalKind is null) return null;
+        var outputs = coordinator.OutputActivations;
+        if (!outputs.Any(item => item.OutputId == lastSettledOutput.OutputId && item.Ordinal == lastSettledOutput.Ordinal &&
+                item.ActivationId == lastSettledOutput.ActivationId))
+            throw new InvalidOperationException("The aggregate completion lineage is absent from the settled Sequence snapshot.");
+
+        return new(coordinator.SequenceInvocationId, coordinator.SequenceNodeId, lastSettledOutput.ScopeId,
+            frameId, terminalKind, lastSettledOutput, outputs);
+    }
+}
+
+internal sealed record SequenceOutputActivationLineage(
+    Guid SequenceInvocationId,
+    string SequenceNodeId,
+    string OutputId,
+    int Ordinal,
+    Guid ActivationId,
+    string ConnectionId,
+    string? ScopeId);
 
 internal sealed record SequenceRuntimeEvent(
     string Kind,

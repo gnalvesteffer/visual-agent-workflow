@@ -201,6 +201,29 @@ and characterize failure cancellation of other active outputs. These tests do
 not settle the new aggregate contract, mixed-outcome precedence, persistence
 rejection, or playback with a missing aggregate event.
 
+### Typed aggregate signal proof (2026-11-19)
+
+The existing production collector now attaches a provisional typed aggregate
+completion signal to its internal handoff to the Sequence source only after
+the accepted ledger records a terminal event. The signal includes Sequence
+invocation and node identity, the output's activation scope and frame, the last
+settled output's ID/ordinal/activation/connection identity, the existing
+terminal event kind, and the settled/skipped output snapshots. The source uses
+the signal carried by that message rather than re-reading mutable coordinator
+state, since another collector can settle a sibling between message creation
+and source scheduling. Persisted event formats and terminal outcome rules are
+unchanged.
+
+Focused coordinator, dispatch, and production Sequence runner tests pass 78/78.
+The full Agent Framework suite did not complete: 489 tests passed, two
+process-loss checkpoint probes failed to reach their expected boundary, then
+the test host aborted during an injected SQLite checkpoint-commit failure.
+That suite result is not a pass and requires independent environment/test
+triage. This signal proof does not resolve outcome precedence, complete
+admitted-sibling draining, persistence rejection semantics, or playback when
+no aggregate event was accepted. No public schema or new barrier node is
+introduced.
+
 ### Proof progress (2026-11-18)
 
 Core passive-playback coverage now includes a complete output settlement with

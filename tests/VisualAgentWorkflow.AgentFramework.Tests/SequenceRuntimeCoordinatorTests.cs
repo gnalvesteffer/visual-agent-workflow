@@ -74,6 +74,46 @@ public sealed class SequenceRuntimeCoordinatorTests
     }
 
     [Fact]
+    public void Terminal_sequence_exposes_typed_aggregate_signal_with_frame_and_output_lineage()
+    {
+        var sequenceInvocationId = Guid.NewGuid();
+        var frameId = Guid.NewGuid();
+        var firstActivation = Guid.NewGuid();
+        var secondActivation = Guid.NewGuid();
+        var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, "sequence",
+            ["first", "second", "suffix"],
+            new Dictionary<string, string>
+            {
+                ["first"] = "connection-a", ["second"] = "connection-b", ["suffix"] = "connection-c"
+            });
+
+        coordinator.DispatchNext(firstActivation);
+        coordinator.DispatchNext(secondActivation);
+        coordinator.Complete(firstActivation, SequenceTerminalState.Completed);
+        coordinator.StopAdmission(successfulBreak: true);
+        Assert.Null(SequenceAggregateCompletionSignal.Create(coordinator,
+            new(sequenceInvocationId, "sequence", "first", 0, firstActivation, "connection-a", "array-loop/0"), frameId));
+
+        coordinator.Complete(secondActivation, SequenceTerminalState.Completed);
+        var signal = SequenceAggregateCompletionSignal.Create(coordinator,
+            new(sequenceInvocationId, "sequence", "second", 1, secondActivation, "connection-b", "array-loop/0"), frameId);
+
+        Assert.NotNull(signal);
+        Assert.Equal(sequenceInvocationId, signal.SequenceInvocationId);
+        Assert.Equal("sequence", signal.SequenceNodeId);
+        Assert.Equal("array-loop/0", signal.ScopeId);
+        Assert.Equal(frameId, signal.FrameId);
+        Assert.Equal(ExecutionEventKinds.SequenceBreakCompleted, signal.TerminalEventKind);
+        Assert.Equal(new SequenceOutputActivationLineage(sequenceInvocationId, "sequence", "second", 1,
+                secondActivation, "connection-b", "array-loop/0"),
+            signal.LastSettledOutput);
+        Assert.Equal([SequenceActivationState.Completed, SequenceActivationState.Completed, SequenceActivationState.Skipped],
+            signal.OutputActivations.Select(output => output.State));
+        Assert.Throws<InvalidOperationException>(() => SequenceAggregateCompletionSignal.Create(coordinator,
+            new(Guid.NewGuid(), "other-sequence", "second", 1, secondActivation, "connection-b", "array-loop/0"), frameId));
+    }
+
+    [Fact]
     public async Task Admission_racing_with_break_is_atomic_and_cannot_dispatch_after_suffix_skip()
     {
         const int iterations = 128;

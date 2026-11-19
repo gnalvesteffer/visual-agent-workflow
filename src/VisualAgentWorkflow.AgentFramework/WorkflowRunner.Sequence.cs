@@ -760,6 +760,11 @@ public sealed partial class WorkflowRunner
                 {
                     if (message.SequenceLineage is not { } completedLineage)
                         throw new InvalidOperationException("A Sequence completion is missing its lineage.");
+                    var aggregateCompletion = message.SequenceAggregateCompletion;
+                    if (aggregateCompletion is not null &&
+                        (aggregateCompletion.SequenceInvocationId != coordinator.SequenceInvocationId ||
+                         aggregateCompletion.SequenceNodeId != coordinator.SequenceNodeId))
+                        throw new InvalidOperationException("The aggregate completion signal belongs to a different Sequence invocation.");
                     await flushSequenceEvents();
                     var nextActivation = sequenceDispatchSession?.TryAdmit();
                     if (nextActivation is { } admitted)
@@ -775,7 +780,7 @@ public sealed partial class WorkflowRunner
                             ActivationFrame: sequenceDispatchSession!.ActivationFrame), nextOutput.OutputNodeId,
                             cancellationToken);
                     }
-                    var terminal = coordinator.IsTerminal;
+                    var terminal = aggregateCompletion is not null;
                     await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
                         terminal ? "All Sequence outputs completed." : "Waiting for remaining Sequence outputs.",
                         null);
@@ -784,7 +789,8 @@ public sealed partial class WorkflowRunner
                         Text = terminal ? coordinator.DeterministicResult ?? message.Text : message.Text,
                         SourceNode = Id,
                         SourcePort = terminal ? "terminal" : "continue",
-                        FailureSignal = terminal && coordinator.TerminalState is not null,
+                        FailureSignal = terminal && aggregateCompletion!.TerminalEventKind is
+                            ExecutionEventKinds.SequenceFailed or ExecutionEventKinds.SequenceCancelled,
                         ActivationBreakRequest = terminal ? sequenceDispatchSession?.BreakRequest : null
                     };
                 }
@@ -869,10 +875,19 @@ public sealed partial class WorkflowRunner
                 coordinator.Complete(lineage.OutputActivationId, terminalState,
                     terminalState == SequenceTerminalState.Completed && message.HasValue && !message.TerminationSignal ? message.Text : null);
                 await flushSequenceEvents();
+                var aggregateCompletion = SequenceAggregateCompletionSignal.Create(coordinator,
+                    new(lineage.SequenceInvocationId, lineage.SequenceNodeId, lineage.OutputId, lineage.Ordinal,
+                        lineage.OutputActivationId, lineage.ConnectionId,
+                        lineage.DescendantScopeId), message.ActivationFrame?.Id);
                 await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, lineage.ConnectionId,
                     terminalState == SequenceTerminalState.Completed ? "Sequence output completed." :
                     $"Sequence output ended with {terminalState}.", lineage.DescendantScopeId);
-                return message with { SourceNode = Id, SourcePort = "completed" };
+                return message with
+                {
+                    SourceNode = Id,
+                    SourcePort = "completed",
+                    SequenceAggregateCompletion = aggregateCompletion
+                };
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

@@ -571,7 +571,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         SequenceMessageLineage? SequenceLineage = null, bool HasValue = true,
         StructuredActivationFrame? ActivationFrame = null,
         ParallelCollaborationRuntime? CollaborationRuntime = null,
-        StructuredActivationBreakRequest? ActivationBreakRequest = null);
+        StructuredActivationBreakRequest? ActivationBreakRequest = null,
+        SequenceAggregateCompletionSignal? SequenceAggregateCompletion = null);
 
     internal sealed class ActivationAbortScope
     {

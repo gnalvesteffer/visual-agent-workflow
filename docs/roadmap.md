@@ -91,11 +91,15 @@ the historical promotion chain.
   current-schema graphs. Keep authored nodes, pins, and connections flat; derive
   ownership from node/pin contracts and topology without node-family allowlists.
   The 2026-11-18 Sequence-completion reviews reject topology-only inference and
-  a separate public barrier node as unsupported choices. First prove whether
-  the existing Sequence collector can expose a typed, lineage-preserving
-  aggregate signal; outcome precedence, sibling draining, persistence
-  rejection, and playback without that signal remain unresolved in
-  [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
+  a separate public barrier node as unsupported choices. A provisional typed
+  aggregate signal now passes from the existing collector to its source with
+  Sequence invocation/node, activation scope/frame, last output connection and
+  activation lineage, terminal event kind, and settled output snapshots.
+  Focused coordinator/dispatch/production tests pass 78/78; the full Agent
+  Framework run was aborted after 489 passed, two process-loss checkpoint
+  failures, and an injected SQLite fault. Outcome precedence,
+  sibling draining, persistence rejection, and playback without this signal
+  remain unresolved in [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
   Core playback now has a focused regression that treats a settled output with
   no Sequence terminal as a running prefix; file/SQLite tests cover settlement
   append rejection before commit and after a simulated commit with a lost
