@@ -273,3 +273,13 @@ because its root completion was not recorded. The existing pre-commit
 rejection cases still leave the Sequence terminal absent and the accepted run
 prefix incomplete (4/4). This characterizes persistence and playback only; it
 does not authorize automatic retry or resolve recovery of the enclosing run.
+
+The typed aggregate handoff also validates its last-output connection identity
+against the coordinator's pinned output contract. A fail-first coordinator
+regression showed that a matching output activation could otherwise carry a
+fabricated connection ID; the focused coordinator, dispatch, and production
+Sequence suites pass 78/78 after the check. This is lineage-integrity evidence
+only and does not resolve terminal outcome precedence or enclosing-run recovery.
+The complete Agent Framework suite subsequently passed 954/954, including the
+process-loss and injected SQLite checkpoint-fault probes that interrupted the
+previous run.

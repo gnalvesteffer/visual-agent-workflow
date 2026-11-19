@@ -111,6 +111,8 @@ public sealed class SequenceRuntimeCoordinatorTests
             signal.OutputActivations.Select(output => output.State));
         Assert.Throws<InvalidOperationException>(() => SequenceAggregateCompletionSignal.Create(coordinator,
             new(Guid.NewGuid(), "other-sequence", "second", 1, secondActivation, "connection-b", "array-loop/0"), frameId));
+        Assert.Throws<InvalidOperationException>(() => SequenceAggregateCompletionSignal.Create(coordinator,
+            new(sequenceInvocationId, "sequence", "second", 1, secondActivation, "wrong-connection", "array-loop/0"), frameId));
     }
 
     [Fact]

@@ -95,9 +95,13 @@ the historical promotion chain.
   aggregate signal now passes from the existing collector to its source with
   Sequence invocation/node, activation scope/frame, last output connection and
   activation lineage, terminal event kind, and settled output snapshots.
-  Focused coordinator/dispatch/production tests pass 78/78; the full Agent
-  Framework run was aborted after 489 passed, two process-loss checkpoint
-  failures, and an injected SQLite fault. Outcome precedence,
+  Focused coordinator/dispatch/production tests pass 78/78. Aggregate signal
+  construction now rejects a last-output lineage whose connection ID differs
+  from the coordinator's pinned output contract; a fail-first regression covers
+  this identity check. Both process-loss checkpoint probes that failed during
+  the prior run pass individually, and the complete Agent Framework suite now
+  passes 954/954, including the injected SQLite checkpoint fault cases.
+  Outcome precedence,
   sibling draining, persistence rejection, and playback without this signal
   remain unresolved in [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
   Core playback now has a focused regression that treats a settled output with

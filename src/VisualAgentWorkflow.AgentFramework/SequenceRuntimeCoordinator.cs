@@ -73,6 +73,10 @@ internal sealed class SequenceRuntimeCoordinator
         get { lock (gate) return [.. ledger.Snapshot]; }
     }
 
+    internal bool MatchesOutputConnection(string outputId, string connectionId) =>
+        connectionIds.TryGetValue(outputId, out var expectedConnectionId) &&
+        string.Equals(expectedConnectionId, connectionId, StringComparison.Ordinal);
+
     private int emittedEventCount;
 
     /// <summary>Returns lifecycle facts not yet sent through the production recorder.</summary>
@@ -319,7 +323,8 @@ internal sealed record SequenceAggregateCompletionSignal(
         var terminalKind = coordinator.AggregateTerminalEventKind;
         if (terminalKind is null) return null;
         var outputs = coordinator.OutputActivations;
-        if (!outputs.Any(item => item.OutputId == lastSettledOutput.OutputId && item.Ordinal == lastSettledOutput.Ordinal &&
+        if (!coordinator.MatchesOutputConnection(lastSettledOutput.OutputId, lastSettledOutput.ConnectionId) ||
+            !outputs.Any(item => item.OutputId == lastSettledOutput.OutputId && item.Ordinal == lastSettledOutput.Ordinal &&
                 item.ActivationId == lastSettledOutput.ActivationId))
             throw new InvalidOperationException("The aggregate completion lineage is absent from the settled Sequence snapshot.");
 
