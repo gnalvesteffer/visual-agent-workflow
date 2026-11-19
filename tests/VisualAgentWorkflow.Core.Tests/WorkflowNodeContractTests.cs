@@ -391,6 +391,66 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Execution_pin_roles_are_directional_and_derived_from_dynamic_configuration()
+    {
+        var invalid = WorkflowNodeDescriptorRegistry.Get(NodeTypes.SequenceUppercase) with
+        {
+            Ports = [new("then", WorkflowPortDirection.Output, WorkflowPortKind.Execution)
+            {
+                ExecutionRole = WorkflowExecutionPinRole.ActivationInput
+            }]
+        };
+        Assert.Contains(WorkflowNodeDescriptorConformance.Validate(invalid), issue => issue.Code == "execution-role-direction");
+
+        var agent = WorkflowNodeDescriptorResolver.Resolve(new NodeDefinition(NodeTypes.Agent, "1.0.0",
+            Agent: new("demo.scripted", null, "", [new("approved", "Approved")] )));
+        var sequence = WorkflowNodeDescriptorResolver.Resolve(new NodeDefinition(NodeTypes.Sequence, "1.0.0")
+        {
+            Sequence = new([new("first", "First"), new("second", "Second")])
+        });
+        var loop = WorkflowNodeDescriptorRegistry.Get(NodeTypes.Loop);
+
+        Assert.All(agent.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Execution),
+            port => Assert.Equal(WorkflowExecutionPinRole.AlternativeOutput, port.ExecutionRole));
+        Assert.All(sequence.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Execution),
+            port => Assert.Equal(WorkflowExecutionPinRole.FanOutOutput, port.ExecutionRole));
+        Assert.Equal(WorkflowExecutionPinRole.LoopInitialInput, Assert.Single(loop.Ports, port => port.Id == "execute" && port.Kind == WorkflowPortKind.Execution).ExecutionRole);
+        Assert.Equal(WorkflowExecutionPinRole.LoopFeedbackInput, Assert.Single(loop.Ports, port => port.Id == "feedback" && port.Kind == WorkflowPortKind.Execution).ExecutionRole);
+        Assert.Empty(WorkflowNodeDescriptorConformance.ValidateResolved(new NodeDefinition(NodeTypes.Sequence, "1.0.0")
+        {
+            Sequence = new([new("first", "First"), new("second", "Second")])
+        }));
+    }
+
+    [Fact]
+    public void Execution_pin_roles_are_descriptor_metadata_not_workflow_serialization()
+    {
+        var workflow = new WorkflowDefinition(WorkflowSchemaVersions.ExplicitGraph, "pin-role-metadata", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["value"] = new(new("input", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["activation"] = new(new("input", "then"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+        };
+
+        var json = WorkflowJson.Serialize(workflow);
+        Assert.DoesNotContain("ExecutionRole", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("LoopInitialInput", json, StringComparison.Ordinal);
+        Assert.Equal(WorkflowExecutionPinRole.LoopInitialInput,
+            Assert.Single(WorkflowPorts.Explicit(new NodeDefinition(NodeTypes.Loop, "1.0.0")),
+                port => port.Id == "execute" && port.Kind == WorkflowPortKind.Execution).ExecutionRole);
+    }
+
+    [Fact]
     public void Descriptor_resolver_covers_every_canonical_node_family_with_default_configuration()
     {
         foreach (var contract in WorkflowNodeContractCatalog.All)

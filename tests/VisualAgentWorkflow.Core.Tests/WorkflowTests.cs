@@ -167,7 +167,8 @@ public class WorkflowTests
             port => Assert.Equal(new WorkflowPortDescriptor("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution)
             {
                 Required = true,
-                Cardinality = WorkflowPortCardinality.ExactlyOne
+                Cardinality = WorkflowPortCardinality.ExactlyOne,
+                ExecutionRole = WorkflowExecutionPinRole.TerminalInput
             }, port));
     }
 
@@ -188,17 +189,20 @@ public class WorkflowTests
             port => Assert.Equal(new WorkflowPortDescriptor("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution)
             {
                 Required = true,
-                Cardinality = WorkflowPortCardinality.ExactlyOne
+                Cardinality = WorkflowPortCardinality.ExactlyOne,
+                ExecutionRole = WorkflowExecutionPinRole.ActivationInput
             }, port),
             port => Assert.Equal(new WorkflowPortDescriptor("true", WorkflowPortDirection.Output, WorkflowPortKind.Execution)
             {
                 Required = true,
-                Cardinality = WorkflowPortCardinality.ExactlyOne
+                Cardinality = WorkflowPortCardinality.ExactlyOne,
+                ExecutionRole = WorkflowExecutionPinRole.AlternativeOutput
             }, port),
             port => Assert.Equal(new WorkflowPortDescriptor("false", WorkflowPortDirection.Output, WorkflowPortKind.Execution)
             {
                 Required = true,
-                Cardinality = WorkflowPortCardinality.ExactlyOne
+                Cardinality = WorkflowPortCardinality.ExactlyOne,
+                ExecutionRole = WorkflowExecutionPinRole.AlternativeOutput
             }, port));
 
         var mismatchedType = definition with

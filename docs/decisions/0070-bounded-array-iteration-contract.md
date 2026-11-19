@@ -4302,7 +4302,8 @@ longer assumes that an ordinary continuation is named `then`.
 
 This is still proof scaffolding only. The routing roles are not serialized and
 do not authorize schema validation, package admission, production dispatch,
-host access, or playback. The Core project builds without warnings; focused
-topology and Core tests have not yet been rerun. Descriptor role conformance,
-non-serialization coverage, production proof derivation, public/package
-validation, persistence, and playback remain open gates.
+host access, or playback. Descriptor role direction, dynamic resolution, and
+non-serialization are covered. Focused topology/descriptor tests pass 82/82,
+the Core suite passes 697/697, and the Core project builds without warnings.
+Production proof derivation, public/package validation, persistence, and
+playback remain open gates.

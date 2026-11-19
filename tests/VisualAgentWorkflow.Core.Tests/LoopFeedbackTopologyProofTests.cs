@@ -409,7 +409,7 @@ public sealed class LoopFeedbackTopologyProofTests
             ["outer-body"] = new(NodeTypes.LoopBody, "1.0.0"),
             ["inner-loop"] = new(NodeTypes.Loop, "1.0.0") { Loop = new(new("equals", "continue"), 2) },
             ["inner-body"] = new(NodeTypes.LoopBody, "1.0.0"),
-            ["inner-step"] = new(NodeTypes.Reverse, "1.0.0"),
+            ["inner-step"] = new(NodeTypes.SequenceReverse, "1.0.0"),
             ["output"] = new(NodeTypes.Output, "1.0.0")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal);
         var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
@@ -442,7 +442,7 @@ public sealed class LoopFeedbackTopologyProofTests
                     new("break", "Break inner loop")
                 ])
             })
-            .Add("inner-step", new(NodeTypes.Reverse, "1.0.0"))
+            .Add("inner-step", new(NodeTypes.SequenceReverse, "1.0.0"))
             .Add("inner-break", new("vaw.proof.array-break", "proof-only"));
         var execution = definition.ExecutionConnections!
             .Remove("inner-step-start")
@@ -461,7 +461,7 @@ public sealed class LoopFeedbackTopologyProofTests
             .Add("deep-loop", new NodeDefinition(NodeTypes.Loop, "1.0.0")
             { Loop = new(new("equals", "continue"), 2) })
             .Add("deep-body", new(NodeTypes.LoopBody, "1.0.0"))
-            .Add("deep-step", new(NodeTypes.Reverse, "1.0.0"))
+            .Add("deep-step", new(NodeTypes.SequenceReverse, "1.0.0"))
             .Add("inner-abort", new("vaw.proof.array-break", "proof-only"));
         var middleSequence = nodes["inner-sequence"] with
         {
