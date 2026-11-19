@@ -4220,6 +4220,18 @@ settlement-append rejection at one nested Break boundary, not process loss,
 arbitrary interruptions, sibling-frame settlement races, public topology, or
 production loop ownership; the architecture gate remains **REVISE**.
 
+### Sibling drain after Break-node completion append rejection (2026-11-18)
+
+The proof rejects `node.completed` for the first frame's Break node while a
+sibling parent frame remains admitted. The coordinator waits for that sibling
+to finish and records its known Agent failure, but does not record the rejected
+Break completion, inner iteration settlement, or a synthetic root terminal.
+Both stores reopen to the same `running` prefix, and passive playback shows the
+started-but-incomplete Break node alongside the sibling failure (2/2 focused
+cases). This is one node-evidence rejection during cross-frame drain; arbitrary
+process loss, other graph topologies, public admission, and production runtime
+ownership remain open.
+
 ### Explicit feedback target adjudication (2026-11-18)
 
 A new three-role review selected a distinct bounded-feedback input as the
