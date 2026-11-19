@@ -4172,3 +4172,25 @@ Sequence/Break settlement remains independently gated and cannot be used as
 evidence for this pin choice. No schema capability gate should be introduced
 when the selected contract is integrated; supported old definitions must be
 normalized automatically or fail with actionable diagnostics.
+
+### Public contract adjudication (2026-11-18)
+
+A subsequent clean-context proponent/opponent/adjudicator review returned
+**REVISE** and selected a staged integration: expose the explicit feedback
+input in unified schema 2.0 and integrate it through Core validation,
+serialization/package, editing, and existing single-loop runtime behavior;
+keep nested loops, public Break, and unresolved Sequence/Break settlement
+outside runtime admission until their production evidence is complete. Keep
+published revisions and recorded runs immutable, and migrate only editable
+copies when the existing return mapping is unambiguous.
+
+The public single-loop slice is implemented. Loop descriptors declare
+`execute` and `feedback`; Core validates one activation at each, packages retain
+the feedback target, and the Agent Framework executes a schema-2.0 variable
+Loop through the explicit feedback wire. Studio normalizes an old unified draft
+copy and retains the stable connection ID. The previous unified shape is still
+accepted for historical compatibility. Core tests pass 695/695 and focused
+bounded-loop runtime tests pass 6/6. This does not admit nested Loops or
+Sequence/Break composition: nested production settlement, failure/cancellation
+races, store reopen, and passive-playback proof remain open under the larger
+Blueprint parity objective.

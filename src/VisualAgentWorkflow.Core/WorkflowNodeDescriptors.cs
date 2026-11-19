@@ -445,7 +445,7 @@ public static class WorkflowNodeDescriptorRegistry
         Descriptor(NodeTypes.Condition, "condition", [Input("in", WorkflowDataTypes.String), Output("true", WorkflowDataTypes.String), Output("false", WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("true"), ExecutionOutput("false")], "1.0"),
         Descriptor(NodeTypes.Merge, "merge", [ManyInput("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.0"),
         Descriptor(NodeTypes.Approval, "approval", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.0"),
-        Descriptor(NodeTypes.Loop, "loop", [OptionalInput("in", WorkflowDataTypes.String), Output("body", WorkflowDataTypes.String), Output("done", WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("body"), ExecutionOutput("done")], "1.0"),
+        Descriptor(NodeTypes.Loop, "loop", [OptionalInput("in", WorkflowDataTypes.String), Output("body", WorkflowDataTypes.String), Output("done", WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionInput("feedback"), ExecutionOutput("body"), ExecutionOutput("done")], "1.0"),
         Descriptor(NodeTypes.LoopBody, "loop-body", [OptionalInput("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.45"),
         Descriptor(NodeTypes.BooleanBranch, "boolean-branch", [
             Input("condition", WorkflowDataTypes.Boolean),

@@ -342,16 +342,14 @@ public partial class WorkflowDesigner
         SetDesign(draft.Definition, design?.Layout ?? WorkflowLayout.Create(draft.Definition));
         generation = draft.Generation; activeRevisionId = draft.ActiveRevisionId;
         savedHash = DesignHash;
-        if (draft.Definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
         {
-            Guid? sourceRevisionId = null;
-            if (draft.HeadRevisionId is { } headRevisionId)
+            var result = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(draft.Definition);
+            if (result.Provenance is { } normalizationProvenance && draft.HeadRevisionId is { } headRevisionId)
             {
                 var sourceRevision = await current.Catalog.GetRevisionAsync(headRevisionId).WaitAsync(current.Token);
                 if (sourceRevision is { } publishedSource && IsExactNormalizationSource(draft.Definition, publishedSource.Revision))
-                    sourceRevisionId = headRevisionId;
+                    result = result with { Provenance = normalizationProvenance with { SourceRevisionId = headRevisionId } };
             }
-            var result = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(draft.Definition, sourceRevisionId);
             if (result.Succeeded && result.Definition is { } editable)
             {
                 SetDesign(editable, layout!.Reconcile(editable));
@@ -370,7 +368,7 @@ public partial class WorkflowDesigner
             else
             {
                 var reason = string.Join("; ", result.Diagnostics.Select(item => $"{item.Code} ({item.Path}): {item.Message}"));
-                message = $"This legacy draft retains its original schema because it cannot be normalized safely: {reason}";
+                message = $"This draft retains its original graph because it cannot be normalized safely: {reason}";
             }
         }
         ApplyMetadata(metadata);

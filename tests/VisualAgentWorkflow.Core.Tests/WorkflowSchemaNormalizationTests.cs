@@ -246,6 +246,8 @@ public class WorkflowSchemaNormalizationTests
         Assert.Equal(4, normalized.ExecutionConnections!.Count);
         Assert.Contains(normalized.ExecutionConnections.Values, edge => edge.Source == new PortReference("input", "then") &&
             edge.Target.NodeId == normalized.Nodes.Single(pair => pair.Value.Type == NodeTypes.Loop).Key);
+        Assert.Contains(normalized.ExecutionConnections.Values, edge => edge.Source.NodeId == anchorId &&
+            edge.Target == new PortReference(normalized.Nodes.Single(pair => pair.Value.Type == NodeTypes.Loop).Key, "feedback"));
         Assert.Equal(WorkflowJson.Serialize(normalized),
             WorkflowJson.Serialize(WorkflowSchemaNormalization.NormalizeForEditing(source)));
         Assert.Empty(WorkflowValidator.Validate(normalized));
@@ -267,23 +269,13 @@ public class WorkflowSchemaNormalizationTests
         var serializedSource = WorkflowJson.Deserialize(originalJson);
 
         var normalized = WorkflowSchemaNormalization.NormalizeForEditing(serializedSource);
-        var migrated = LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(normalized);
-        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(migrated,
-            LoopFeedbackPinShape.ExplicitFeedbackInput);
-
-        Assert.True(proof.IsValid, string.Join(Environment.NewLine, proof.Issues));
         Assert.Equal(schema, serializedSource.SchemaVersion);
         Assert.Equal(originalJson, WorkflowJson.Serialize(serializedSource));
         Assert.Equal("2.0", normalized.SchemaVersion);
-        Assert.Equal(normalized.Nodes.Keys, migrated.Nodes.Keys);
-        Assert.Equal(normalized.Connections, migrated.Connections);
-        Assert.Equal(normalized.ExecutionConnections!.Keys, migrated.ExecutionConnections!.Keys);
-        var region = Assert.Single(proof.Regions);
-        Assert.Equal("normalize-loop-return", region.FeedbackConnectionId);
-        Assert.Equal(new PortReference(region.LoopNodeId, "feedback"),
-            migrated.ExecutionConnections[region.FeedbackConnectionId].Target);
-        Assert.Equal(new PortReference(region.LoopNodeId, "execute"),
-            migrated.ExecutionConnections[region.InitialConnectionId].Target);
+        Assert.Equal(normalized.Nodes.Keys, serializedSource.Nodes.Keys);
+        Assert.Equal(normalized.Connections, serializedSource.Connections);
+        Assert.Equal("feedback", normalized.ExecutionConnections!["normalize-loop-return"].Target.PortId);
+        Assert.Equal("execute", normalized.ExecutionConnections["normalize-loop-initial"].Target.PortId);
         Assert.Empty(WorkflowValidator.Validate(normalized));
         Assert.Equal(WorkflowJson.Serialize(normalized),
             WorkflowJson.Serialize(WorkflowSchemaNormalization.NormalizeForEditing(serializedSource)));

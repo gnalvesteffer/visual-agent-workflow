@@ -28,6 +28,45 @@ public sealed class UnifiedWorkflowSchemaTests
         Assert.Throws<ArgumentException>(() => WorkflowRevision.Create(invalid, "test"));
     }
 
+    [Fact]
+    public void Current_loop_exposes_distinct_entry_and_feedback_pins_and_round_trips_in_a_package()
+    {
+        var graph = LoopGraph();
+        var loop = graph.Nodes["loop"];
+
+        Assert.Equal(new[] { "execute", "feedback" }, WorkflowPorts.ExplicitExecutionInputs(loop).ToArray());
+        Assert.Equal(new PortReference("loop", "execute"), graph.ExecutionConnections!["start"].Target);
+        Assert.Equal(new PortReference("loop", "feedback"), graph.ExecutionConnections["return"].Target);
+        Assert.Empty(WorkflowValidator.Validate(graph));
+
+        var packageJson = WorkflowPackageJson.Serialize(graph, WorkflowLayout.Create(graph));
+        var restored = WorkflowPackageJson.Deserialize(packageJson);
+
+        Assert.Equal(WorkflowJson.ComputeHash(graph), WorkflowJson.ComputeHash(restored.Definition));
+        Assert.Equal(new PortReference("loop", "feedback"), restored.Definition.ExecutionConnections!["return"].Target);
+    }
+
+    [Fact]
+    public void Current_editor_normalization_migrates_legacy_loop_return_without_changing_source_or_identities()
+    {
+        var feedbackGraph = LoopGraph();
+        var legacyGraph = feedbackGraph with
+        {
+            ExecutionConnections = feedbackGraph.ExecutionConnections!.SetItem("return",
+                feedbackGraph.ExecutionConnections["return"] with { Target = new("loop", "execute") })
+        };
+        var originalJson = WorkflowJson.Serialize(legacyGraph);
+
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(legacyGraph);
+
+        Assert.True(normalized.Succeeded);
+        Assert.Equal(feedbackGraph.ExecutionConnections, normalized.Definition!.ExecutionConnections);
+        Assert.Equal(originalJson, WorkflowJson.Serialize(legacyGraph));
+        Assert.Equal(WorkflowSchemaVersions.CurrentAuthoringSchema, normalized.Definition.SchemaVersion);
+        Assert.NotNull(normalized.Provenance);
+        normalized.Provenance!.Validate();
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -180,7 +219,7 @@ public sealed class UnifiedWorkflowSchemaTests
         {
             ["start"] = Execution("input", "then", "loop"),
             ["body"] = Execution("loop", "body", "body"),
-            ["return"] = Execution("body", "then", "loop"),
+            ["return"] = new(new("body", "then"), new("loop", "feedback"), "execution"),
             ["done"] = Execution("loop", "done", "output")
         }.ToImmutableSortedDictionary()
     };

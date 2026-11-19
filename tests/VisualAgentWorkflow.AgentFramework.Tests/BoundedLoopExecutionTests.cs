@@ -34,10 +34,10 @@ public sealed class BoundedLoopExecutionTests
             ["loop-body"] = new(new("loop", "body"), new("body", "execute"), "execution"),
             ["body-set"] = new(new("body", "then"), new("set", "execute"), "execution"),
             ["set-get"] = new(new("set", "then"), new("get", "execute"), "execution"),
-            ["get-loop"] = new(new("get", "then"), new("loop", "execute"), "execution"),
+            ["get-loop"] = new(new("get", "then"), new("loop", "feedback"), "execution"),
             ["loop-output"] = new(new("loop", "done"), new("output", "execute"), "execution")
         };
-        return new WorkflowDefinition(WorkflowSchemaVersions.LoopVariablesGraph, "loop-variable-candidate", "input",
+        return new WorkflowDefinition(WorkflowSchemaVersions.CurrentAuthoringSchema, "loop-variable-candidate", "input",
             nodes.ToImmutableSortedDictionary(), data.ToImmutableSortedDictionary())
         {
             Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty

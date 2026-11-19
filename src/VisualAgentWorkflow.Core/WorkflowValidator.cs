@@ -983,7 +983,8 @@ public static class WorkflowValidator
                 error("loop.body.path", $"nodes.{current}", "Each loop body node requires exactly one successor.");
                 break;
             }
-            if (successors[0].Value.Target == new PortReference(loopId, "execute"))
+            if (successors[0].Value.Target.NodeId == loopId &&
+                successors[0].Value.Target.PortId is "execute" or "feedback")
             {
                 returnId = successors[0].Key;
                 break;
@@ -995,8 +996,12 @@ public static class WorkflowValidator
             error("loop.body.return", $"nodes.{loopId}", $"The linear body must return to its loop within {LoopVariableTopologyAnalyzer.MaximumBodyNodes} nodes.");
             return;
         }
-        if (execution.Values.Count(edge => edge?.Target == new PortReference(loopId, "execute")) != 2)
-            error("loop.input", $"nodes.{loopId}", "A loop requires exactly one initial activation and one body return.");
+        var initialActivations = execution.Values.Count(edge => edge?.Target == new PortReference(loopId, "execute"));
+        var feedbackActivations = execution.Values.Count(edge => edge?.Target == new PortReference(loopId, "feedback"));
+        var returnsOnFeedback = execution[returnId].Target.PortId == "feedback";
+        if (returnsOnFeedback && (initialActivations != 1 || feedbackActivations != 1) ||
+            !returnsOnFeedback && (initialActivations != 2 || feedbackActivations != 0))
+            error("loop.input", $"nodes.{loopId}", "A loop requires one initial activation and exactly one body return on its feedback input.");
         foreach (var bodyId in body)
             if (execution.Values.Count(edge => edge?.Target.NodeId == bodyId) != 1)
                 error("loop.body.entry", $"nodes.{bodyId}", "Loop body nodes accept only their single body predecessor.");
@@ -1043,17 +1048,24 @@ public static class WorkflowValidator
         if (loopIncoming != 2)
             error("loop.input", $"nodes.{topology.LoopNodeId}.in", "The loop requires one initial value and one body-return value.");
 
-        var expectedExecution = new HashSet<(PortReference Source, PortReference Target)>
+        var feedbackExecution = new HashSet<(PortReference Source, PortReference Target)>
         {
             (new(inputs[0].Key, "then"), new(topology.LoopNodeId, "execute")),
             (new(topology.LoopNodeId, "body"), new(topology.BodyAnchorNodeId, "execute")),
-            (new(topology.BodyAnchorNodeId, "then"), new(topology.LoopNodeId, "execute")),
+            (new(topology.BodyAnchorNodeId, "then"), new(topology.LoopNodeId, "feedback")),
             (new(topology.LoopNodeId, "done"), new(outputs[0].Key, "execute"))
         };
+        var legacyExecution = new HashSet<(PortReference Source, PortReference Target)>(feedbackExecution)
+        {
+            (new(topology.BodyAnchorNodeId, "then"), new(topology.LoopNodeId, "execute"))
+        };
+        legacyExecution.Remove((new(topology.BodyAnchorNodeId, "then"), new(topology.LoopNodeId, "feedback")));
         var execution = definition.ExecutionConnections;
-        if (execution is null || execution.Count != expectedExecution.Count ||
-            !execution.Values.Where(edge => edge is not null)
-                .Select(edge => (edge.Source, edge.Target)).ToHashSet().SetEquals(expectedExecution))
+        if (execution is null ||
+            !(execution.Count == feedbackExecution.Count && execution.Values.Where(edge => edge is not null)
+                  .Select(edge => (edge.Source, edge.Target)).ToHashSet().SetEquals(feedbackExecution) ||
+              execution.Count == legacyExecution.Count && execution.Values.Where(edge => edge is not null)
+                  .Select(edge => (edge.Source, edge.Target)).ToHashSet().SetEquals(legacyExecution)))
         {
             error("loop.execution-topology", "executionConnections", "A data-carried loop requires explicit Input-to-Loop, Loop-to-Body, Body-to-Loop, and Loop-to-Output execution wires.");
             return;

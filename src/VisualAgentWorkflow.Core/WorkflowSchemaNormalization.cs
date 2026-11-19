@@ -5,7 +5,7 @@ namespace VisualAgentWorkflow.Core;
 /// <summary>Explicit, source-preserving conversion to the current editor contract.</summary>
 public static class WorkflowSchemaNormalization
 {
-    public const string NormalizerVersion = "unified-graph-2.0.3";
+    public const string NormalizerVersion = "unified-graph-2.0.4";
 
     /// <summary>Performs normalization and returns stable provenance or structured diagnostics.</summary>
     public static WorkflowNormalizationResult NormalizeForEditingWithProvenance(
@@ -67,7 +67,8 @@ public static class WorkflowSchemaNormalization
     public static WorkflowDefinition NormalizeForEditing(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+            return NormalizeLoopFeedbackForEditing(definition);
         WorkflowDefinition candidate;
         if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
         {
@@ -109,6 +110,7 @@ public static class WorkflowSchemaNormalization
                 };
             }
         }
+        candidate = NormalizeLoopFeedbackForEditing(candidate);
         var issues = WorkflowValidator.Validate(candidate);
         if (!issues.IsEmpty)
             throw new ArgumentException("normalization.invalid: " + string.Join("; ", issues.Select(issue => $"{issue.Code} ({issue.Path}): {issue.Message}")), nameof(definition));
@@ -299,7 +301,7 @@ public static class WorkflowSchemaNormalization
         var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
             .Add("normalize-loop-initial", new(new(inputId, "then"), new(topology.LoopNodeId, "execute"), "execution"))
             .Add("normalize-loop-body", new(new(topology.LoopNodeId, "body"), new(topology.BodyAnchorNodeId, "execute"), "execution"))
-            .Add("normalize-loop-return", new(new(topology.BodyAnchorNodeId, "then"), new(topology.LoopNodeId, "execute"), "execution"))
+            .Add("normalize-loop-return", new(new(topology.BodyAnchorNodeId, "then"), new(topology.LoopNodeId, "feedback"), "execution"))
             .Add("normalize-loop-done", new(new(topology.LoopNodeId, "done"), new(outputId, "execute"), "execution"));
 
         return definition with
@@ -307,6 +309,18 @@ public static class WorkflowSchemaNormalization
             SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
             ExecutionConnections = execution
         };
+    }
+
+    private static WorkflowDefinition NormalizeLoopFeedbackForEditing(WorkflowDefinition definition)
+    {
+        if (definition.ExecutionConnections is null ||
+            !definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Loop) ||
+            definition.ExecutionConnections.Values.All(edge => edge?.Target.PortId != "execute" ||
+                !definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) || target?.Type != NodeTypes.Loop))
+            return definition;
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(definition, LoopFeedbackPinShape.InferredFromBodyTopology);
+        return proof.IsValid ? LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(definition) : definition;
     }
 }
 

@@ -1,22 +1,23 @@
 # Bounded loop graphs
 
-Schema 1.17 supports one explicit loop region in a workflow. The loop is a control node with ordinary string pins, a declarative continue predicate, and a hard per-node maximum of 1–16 iterations. It executes inside the Agent Framework workflow; the Studio is only the editor and observer. Schema 2.0 supports activation-only loops, variable loops with explicit VariableGet/Set state, and the legacy loop-carried data shape. Normalization retains that data shape only for pure string-transform bodies, adding explicit activation wires while preserving the original data feedback edge.
+The unified schema 2.0 Loop is a control node with a declarative continue predicate and a hard per-node maximum of 1–16 iterations. Its `execute` input receives the initial activation, and its `feedback` input receives the bounded body's return activation. The distinct pins make the two roles visible in the graph. Schema 2.0 also supports activation-only loops, variable loops with explicit VariableGet/Set state, and the legacy loop-carried data shape. Pure string-transform legacy loops retain their data feedback edge while normalization adds explicit execution wires.
 
 ```mermaid
 flowchart LR
-    Input --> Loop
+    Input -- then --> Loop["Loop · execute"]
     Loop -- body --> Anchor[Loop body]
     Anchor --> Step[Text operation, agent, workflow value, or MCP tool]
-    Step -- repeat input --> Loop
+    Step -- then --> Feedback["Loop · feedback"]
+    Feedback --> Loop
     Loop -- done --> Next[Following workflow path]
     Next --> Output
 ```
 
-The initial value enters the loop once. The loop tests the current string using an ordinal, case-sensitive `equals`, `contains`, `starts-with`, or `is-empty` predicate. When it matches, the body runs and returns its resulting string to the loop input. When the predicate no longer matches, the loop sends that value through `done`. If the predicate still matches after the maximum number of body executions, `done` receives the current value and the run completes normally. The cap is a safety bound, not an error condition.
+The initial activation enters through `execute`. The loop tests the current string using an ordinal, case-sensitive `equals`, `contains`, `starts-with`, or `is-empty` predicate. When it matches, the body runs and returns its activation through `feedback`; when the predicate no longer matches, the loop sends the current value through `done`. If the predicate still matches after the maximum number of body executions, `done` receives the current value and the run completes normally. The cap is a safety bound, not an error condition. For data-carried loops, the ordinary data `in` pin still carries the initial and returned string values; `feedback` identifies only the execution return.
 
 ## Authoring
 
-In the Studio, select a connected output on a plain string workflow and add **Bounded loop** from the **Flow** node library. Configure **Continue while**, its match text, and **Maximum iterations** in the loop properties. The inserted **Loop body** anchor marks where the body begins; insert normal text operations, workflow values, agent nodes, and direct MCP tool nodes after it. The final body node returns to the loop input automatically. The **done** output continues along the original downstream path.
+In the Studio, add **Bounded loop** from the **Flow** node library. Connect the initial execution path to `execute`, connect the `body` output to the **Loop body** anchor, and connect the final body's execution output to `feedback`. Connect `done` to the downstream execution path. Configure **Continue while**, its match text, and **Maximum iterations** in the loop properties. Data values continue to use the Loop's typed data pins. When a pre-existing unified-schema draft has the old body-return-to-`execute` shape, Studio migrates its draft copy to `feedback` when that mapping is unambiguous, preserving node and connection IDs; the source and published revisions remain unchanged.
 
 The current implementation admits one loop per workflow, one linear body, and no other control nodes in a workflow containing a loop. JSON paths, conditionals, approvals, parallel blocks, nested loops, implicit loop exits, and early termination are not supported inside this loop milestone. Every loop path and downstream route must validate before publication or execution. Draft editing is allowed while incomplete, but runtime and publication fail closed until all issues are fixed.
 
@@ -34,6 +35,6 @@ The existing execution gate is checked at every node boundary, so a host can pau
 
 ## Contract boundaries
 
-The serialized definition contains only the `core.loop` configuration and normal graph edges; it stores no code, executable expression, runtime instance, or credential. The loop condition reuses the safe string-predicate contract. The fixed maximum is validated by Core, so imported definitions cannot bypass the bound by changing the UI. The loop's body and done outputs are separate declared pins. The runtime matches both source node and pin when routing a message, which distinguishes the initial input edge from the body's return edge.
+The serialized definition contains only the `core.loop` configuration and normal graph edges; it stores no code, executable expression, runtime instance, or credential. The loop condition reuses the safe string-predicate contract. The fixed maximum is validated by Core, so imported definitions cannot bypass the bound by changing the UI. The `execute` and `feedback` inputs and `body` and `done` outputs are declared execution pins. The runtime follows the explicit edge source pins; Core validation checks that exactly one initial activation and one body return reach their respective inputs. Old unified-schema definitions that return to `execute` remain readable and executable for immutable history; Studio converts editable copies when the mapping is unambiguous.
 
 This is a single bounded-loop primitive, not general-purpose graph scheduling. See [architecture](architecture.md), [roadmap](roadmap.md), and [implementation history](implementation-history.md) for current implementation and verification evidence.

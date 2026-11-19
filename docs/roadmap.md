@@ -113,9 +113,12 @@ the historical promotion chain.
   mixed-outcome combinations and enclosing-run recovery still need proof.
   The 2026-11-18 three-role adjudication selects a distinct Loop feedback input
   as the target authoring contract: initial entry and bounded body return have
-  separate pins, with deterministic automatic migration of valid existing
-  single-execute loops that preserves authored identities. This is a direction
-  for the unified graph contract, not yet public admission or runtime support.
+  separate pins. Unified schema 2.0 now publishes those pins through Core's
+  node descriptor and validator; package serialization and Agent Framework
+  execution cover the explicit feedback shape. Studio normalizes unambiguous
+  existing drafts while preserving authored identities; published revisions
+  remain immutable. The previous unified shape remains readable for existing
+  saved revisions.
   The proof-only discriminator compares both pin shapes on identical graphs;
   three nested loops with a multi-exit Sequence now produce identical ownership,
   and migration preserves node, data-edge, and execution-edge IDs while only
@@ -125,11 +128,11 @@ the historical promotion chain.
   target with source bytes and authored identities preserved (6/6 cases).
   Malformed duplicate-return imports from each of schemas 1.17–1.22 now fail
   without a target/provenance, preserve the serialized source, and retain every
-  validator code, path, and full message (6/6 cases). Core passes 693/693.
-  Other malformed/ambiguous legacy shapes and integrated authoring, validation,
-  package, runtime, persistence, and playback evidence remain before public
-  rollout. Sequence/Break production settlement remains a separate gate and
-  cannot be used to select feedback-pin topology.
+  validator code, path, and full message (6/6 cases). The current Core suite passes 695/695.
+  Other malformed/ambiguous legacy shapes and nested production authoring,
+  validation, runtime, persistence, and playback evidence remain open.
+  Sequence/Break production settlement remains a separate gate and cannot be
+  inferred from the feedback-pin contract.
   - [x] Add a non-authoritative Core topology/migration discriminator and run
     both feedback-pin shapes over shared nested-loop, Sequence, malformed-route,
     incomplete-draft, and migration cases. The expanded three-loop fixture has
@@ -152,6 +155,13 @@ the historical promotion chain.
   public Break. Nested serialized regions remain a fallback only if evidence
   shows the flat representation cannot meet the contract. See the adjudicated
   review in [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+- [x] Integrate the adjudicated Loop feedback input into unified schema 2.0.
+  New/current Loop nodes expose `execute` and `feedback`; validation requires
+  one initial activation and one body return on their respective pins. Packages
+  preserve the explicit wire, and the Agent Framework executes the schema-2.0
+  feedback route. Studio converts an unambiguous old draft copy while retaining
+  IDs and preserving published revisions. Previous unified definitions remain
+  readable. Core passes 695/695; bounded-loop runtime tests pass 6/6.
 - [x] Preserve 2.0 through package, reuse, graph-function, clipboard, and
   nested-workflow editing paths while preserving pinned dependency snapshots.
 - [x] Extend bounded `array<json>` in current schema 2.0 with an exact
