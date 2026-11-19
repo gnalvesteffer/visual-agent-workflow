@@ -129,10 +129,21 @@ the historical promotion chain.
   Malformed duplicate-return imports from each of schemas 1.17–1.22 now fail
   without a target/provenance, preserve the serialized source, and retain every
   validator code, path, and full message (6/6 cases). The current Core suite passes 695/695.
+  The proof now reads non-serialized execution-routing roles from resolved pin
+  descriptors to locate loop initial/feedback inputs, body anchors, done
+  continuations, fan-out/alternative routes, ordinary continuations, and
+  proof-only Break exits. This removes the topology walk's node-type checks and
+  implicit `then` assumption. Core builds successfully; focused and full tests
+  have not yet been rerun for this change. This metadata remains non-authoritative
+  and does not enable nested loops in public/package validation or production.
   Other malformed/ambiguous legacy shapes and nested production authoring,
   validation, runtime, persistence, and playback evidence remain open.
   Sequence/Break production settlement remains a separate gate and cannot be
   inferred from the feedback-pin contract.
+  - [x] Declare routing roles on static and configuration-derived execution
+    pins and consume them in the non-public topology experiment.
+  - [ ] Add conformance tests for role direction, dynamic role resolution, and
+    descriptor non-serialization; rerun the topology and Core suites.
   - [x] Add a non-authoritative Core topology/migration discriminator and run
     both feedback-pin shapes over shared nested-loop, Sequence, malformed-route,
     incomplete-draft, and migration cases. The expanded three-loop fixture has

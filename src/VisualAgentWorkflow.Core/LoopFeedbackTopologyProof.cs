@@ -33,7 +33,6 @@ internal sealed record LoopFeedbackTopologyProof(
 internal static class LoopFeedbackTopologyProofAnalyzer
 {
     private const int MaximumBodyNodes = 256;
-    private const string ProofBreakNodeType = "vaw.proof.array-break";
 
     public static LoopFeedbackTopologyProof Analyze(WorkflowDefinition definition, LoopFeedbackPinShape shape)
     {
@@ -49,9 +48,25 @@ internal static class LoopFeedbackTopologyProofAnalyzer
             return new([], issues.ToImmutable());
         }
 
-        var loops = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Loop)
+        var pinDescriptors = new Dictionary<string, WorkflowNodeDescriptor>(StringComparer.Ordinal);
+        foreach (var (nodeId, node) in definition.Nodes.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            if (node is null || !WorkflowTopologyProofDescriptors.TryResolve(node, out var descriptor))
+            {
+                Issue("loop.feedback.descriptor", $"nodes.{nodeId}", "Every node in a bounded loop proof requires a resolved pin descriptor.");
+                continue;
+            }
+            pinDescriptors.Add(nodeId, descriptor);
+        }
+        WorkflowPortDescriptor[] Pins(string nodeId, WorkflowPortDirection direction, WorkflowExecutionPinRole role) =>
+            pinDescriptors.TryGetValue(nodeId, out var descriptor)
+                ? descriptor.Ports.Where(port => port.Kind == WorkflowPortKind.Execution && port.Direction == direction && port.ExecutionRole == role).ToArray()
+                : [];
+        bool HasRole(string nodeId, WorkflowPortDirection direction, WorkflowExecutionPinRole role) => Pins(nodeId, direction, role).Length > 0;
+        var loops = pinDescriptors.Where(pair => HasRole(pair.Key, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopInitialInput) &&
+                HasRole(pair.Key, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopFeedbackInput))
             .Select(pair => pair.Key).Order(StringComparer.Ordinal).ToArray();
-        var anchors = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.LoopBody)
+        var anchors = pinDescriptors.Where(pair => HasRole(pair.Key, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopBodyEntryInput))
             .Select(pair => pair.Key).Order(StringComparer.Ordinal).ToArray();
         if (loops.Length == 0 || anchors.Length != loops.Length)
         {
@@ -70,10 +85,13 @@ internal static class LoopFeedbackTopologyProofAnalyzer
 
         foreach (var loopId in loops)
         {
-            var bodyEdges = edges.Where(item => item.Edge.Source == new PortReference(loopId, "body")).ToArray();
+            var bodyPorts = Pins(loopId, WorkflowPortDirection.Output, WorkflowExecutionPinRole.LoopBodyOutput);
+            var bodyEdges = bodyPorts.Length == 1
+                ? edges.Where(item => item.Edge.Source == new PortReference(loopId, bodyPorts[0].Id)).ToArray()
+                : [];
             var anchorId = bodyEdges.Length == 1 ? bodyEdges[0].Edge.Target.NodeId : null;
-            if (bodyEdges.Length != 1 || bodyEdges[0].Edge.Target.PortId != "execute" ||
-                anchorId is null || definition.Nodes.GetValueOrDefault(anchorId)?.Type != NodeTypes.LoopBody)
+            if (bodyEdges.Length != 1 || anchorId is null ||
+                !Pins(anchorId, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopBodyEntryInput).Any(pin => pin.Id == bodyEdges[0].Edge.Target.PortId))
             {
                 Issue("loop.feedback.body", $"nodes.{loopId}", "Each loop body output must activate exactly one loop-body anchor.");
                 continue;
@@ -103,17 +121,27 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                 activeLoops.Remove(loopId);
                 return false;
             }
-            var initialPort = "execute";
-            var feedbackPort = shape == LoopFeedbackPinShape.InferredFromBodyTopology ? "execute" : "feedback";
+            var initialPins = Pins(loopId, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopInitialInput);
+            var feedbackPins = Pins(loopId, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopFeedbackInput);
+            var initialPort = initialPins.SingleOrDefault()?.Id ?? "";
+            var feedbackPort = shape == LoopFeedbackPinShape.InferredFromBodyTopology ? initialPort : feedbackPins.SingleOrDefault()?.Id ?? "";
             var loopIncoming = incoming.GetValueOrDefault(loopId) ?? [];
             var initialEdges = loopIncoming.Where(item => item.Edge.Target.PortId == initialPort).ToArray();
             var feedbackEdges = loopIncoming.Where(item => item.Edge.Target.PortId == feedbackPort).ToArray();
 
-            var doneEdges = (outgoing.GetValueOrDefault(loopId) ?? [])
-                .Where(item => item.Edge.Source.PortId == "done").ToArray();
-            var doneTargetPort = doneEdges.Length == 1 && loops.Contains(doneEdges[0].Edge.Target.NodeId, StringComparer.Ordinal)
-                ? feedbackPort
-                : "execute";
+            var donePins = Pins(loopId, WorkflowPortDirection.Output, WorkflowExecutionPinRole.LoopDoneOutput);
+            var doneEdges = donePins.Length == 1
+                ? (outgoing.GetValueOrDefault(loopId) ?? []).Where(item => item.Edge.Source.PortId == donePins[0].Id).ToArray()
+                : [];
+            var doneTargetNodeId = doneEdges.Length == 1 ? doneEdges[0].Edge.Target.NodeId : null;
+            var doneTargetPort = doneTargetNodeId is null
+                ? null
+                : loops.Contains(doneTargetNodeId, StringComparer.Ordinal)
+                    ? shape == LoopFeedbackPinShape.InferredFromBodyTopology
+                        ? Pins(doneTargetNodeId, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopInitialInput).SingleOrDefault()?.Id
+                        : Pins(doneTargetNodeId, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopFeedbackInput).SingleOrDefault()?.Id
+                    : Pins(doneTargetNodeId, WorkflowPortDirection.Input, WorkflowExecutionPinRole.TerminalInput).SingleOrDefault()?.Id ??
+                      Pins(doneTargetNodeId, WorkflowPortDirection.Input, WorkflowExecutionPinRole.ActivationInput).SingleOrDefault()?.Id;
             if (doneEdges.Length != 1 || doneEdges[0].Edge.Target.PortId != doneTargetPort)
                 Issue("loop.feedback.done", $"nodes.{loopId}.done", "Each loop must have one continuation from its done output.");
 
@@ -187,10 +215,10 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                     continue;
                 }
 
-                if (node.Type == NodeTypes.LoopBody && current != loopAnchors[loopId])
+                if (HasRole(current, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopBodyEntryInput) && current != loopAnchors[loopId])
                     Issue("loop.feedback.anchor", $"nodes.{current}", "A body anchor must have one owning loop.");
 
-                if (node.Type == ProofBreakNodeType)
+                if (HasRole(current, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopBreakInput))
                 {
                     if ((outgoing.GetValueOrDefault(current) ?? []).Length > 0)
                         Issue("loop.feedback.break-terminal", $"nodes.{current}", "A proof Break must be a terminal route.");
@@ -198,7 +226,8 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                     continue;
                 }
 
-                if (node.Type == NodeTypes.Loop)
+                if (HasRole(current, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopInitialInput) &&
+                    HasRole(current, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopFeedbackInput))
                 {
                     if (!loopAnchors.ContainsKey(current))
                     {
@@ -207,24 +236,28 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                     }
 
                     if (!AnalyzeRegion(current, loopId)) continue;
-                    Follow(current, "done", path);
+                    Follow(current, donePins.Single().Id, path);
                     continue;
                 }
 
-                if (node.Type == NodeTypes.Sequence)
+                var fanOutPorts = Pins(current, WorkflowPortDirection.Output, WorkflowExecutionPinRole.FanOutOutput)
+                    .Concat(Pins(current, WorkflowPortDirection.Output, WorkflowExecutionPinRole.AlternativeOutput))
+                    .OrderBy(port => port.Id, StringComparer.Ordinal).ToArray();
+                if (fanOutPorts.Length > 0)
                 {
-                    var outputs = node.Sequence?.Outputs;
-                    if (outputs is not { IsDefaultOrEmpty: false } || outputs.Value.Length is < SequenceOutputLimits.MinimumOutputs or > SequenceOutputLimits.MaximumOutputs)
-                    {
-                        Issue("loop.feedback.sequence", $"nodes.{current}.sequence", "The proof Sequence must declare a bounded set of outputs.");
-                        continue;
-                    }
-                    foreach (var output in outputs.Value)
-                        Follow(current, SequenceOutputLimits.PinId(output.Id), new(path, StringComparer.Ordinal));
+                    foreach (var output in fanOutPorts)
+                        Follow(current, output.Id, new(path, StringComparer.Ordinal));
                     continue;
                 }
 
-                Follow(current, "then", path);
+                var continuationPorts = Pins(current, WorkflowPortDirection.Output, WorkflowExecutionPinRole.ContinuationOutput);
+                if (continuationPorts.Length != 1)
+                {
+                    Issue("loop.feedback.continuation", $"nodes.{current}",
+                        "Each ordinary body node must declare exactly one continuation output.");
+                    continue;
+                }
+                Follow(current, continuationPorts[0].Id, path);
             }
 
             if (returnConnectionId is null && !issues.Any(issue => issue.Path.StartsWith($"nodes.{loopId}", StringComparison.Ordinal)))
@@ -252,10 +285,13 @@ internal static class LoopFeedbackTopologyProofAnalyzer
             return returnConnectionId is not null;
         }
 
-        var inputs = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Input).ToArray();
-        var input = inputs.Length == 1 ? inputs[0].Key : "";
-        var rootLoops = edges.Where(item => item.Edge.Source.NodeId == input &&
-                item.Edge.Target.PortId == "execute" && loops.Contains(item.Edge.Target.NodeId, StringComparer.Ordinal))
+        var rootOutputs = pinDescriptors.Where(pair => !pair.Value.Ports.Any(port => port.Kind == WorkflowPortKind.Execution && port.Direction == WorkflowPortDirection.Input))
+            .SelectMany(pair => pair.Value.Ports.Where(port => port.Kind == WorkflowPortKind.Execution && port.Direction == WorkflowPortDirection.Output &&
+                    port.ExecutionRole == WorkflowExecutionPinRole.ContinuationOutput)
+                .Select(port => (NodeId: pair.Key, PortId: port.Id))).ToArray();
+        var rootLoops = edges.Where(item => rootOutputs.Contains((item.Edge.Source.NodeId, item.Edge.Source.PortId)) &&
+                Pins(item.Edge.Target.NodeId, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopInitialInput).Any(pin => pin.Id == item.Edge.Target.PortId) &&
+                loops.Contains(item.Edge.Target.NodeId, StringComparer.Ordinal))
             .Select(item => item.Edge.Target.NodeId).Distinct(StringComparer.Ordinal).ToArray();
         if (rootLoops.Length != 1)
             Issue("loop.feedback.root", "executionConnections", "The graph must enter exactly one root loop for this comparison.");

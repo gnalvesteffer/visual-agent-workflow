@@ -4289,3 +4289,20 @@ bounded-loop runtime tests pass 6/6. This does not admit nested Loops or
 Sequence/Break composition: nested production settlement, failure/cancellation
 races, store reopen, and passive-playback proof remain open under the larger
 Blueprint parity objective.
+
+### Contract-derived pin-role topology experiment (2026-11-19)
+
+The non-public topology experiment now resolves execution-routing roles from
+the canonical static and configuration-derived pin descriptors. Its walk uses
+those declarations to identify initial and feedback inputs, loop body entries,
+done continuations, ordinary continuations, fan-out/alternative outputs, and
+the synthetic proof Break exit. The region walk no longer recognizes Loop,
+LoopBody, Sequence, or the proof Break through node-family branches, and no
+longer assumes that an ordinary continuation is named `then`.
+
+This is still proof scaffolding only. The routing roles are not serialized and
+do not authorize schema validation, package admission, production dispatch,
+host access, or playback. The Core project builds without warnings; focused
+topology and Core tests have not yet been rerun. Descriptor role conformance,
+non-serialization coverage, production proof derivation, public/package
+validation, persistence, and playback remain open gates.

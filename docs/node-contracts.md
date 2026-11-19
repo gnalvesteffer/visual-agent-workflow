@@ -31,6 +31,14 @@ live discovery remains outside persisted resolution.
 metadata for the static pure/Boolean descriptor slice. It rejects legacy or
 too-early schema combinations without changing the serialized definition.
 
+Execution pin descriptors also declare a non-serialized `ExecutionRole` such as
+activation input, terminal input, loop entry/feedback/body, continuation,
+alternative, or fan-out. The nested-loop topology experiment consumes these
+roles with the authored connections to derive loop regions; it does not infer
+pin meaning from labels or node-family allowlists. These declarations remain
+proof metadata only: they do not change schema admission, production dispatch,
+host authority, or recorded playback.
+
 This page documents the canonical metadata in
 [`WorkflowNodeContractCatalog`](../src/VisualAgentWorkflow.Core/WorkflowNodeContracts.cs).
 It is an authoring and review reference, not a replacement for schema-specific

@@ -6,6 +6,26 @@ public sealed record WorkflowPort(string Id, string DataType);
 public enum WorkflowPortKind { Execution, Data }
 public enum WorkflowPortDirection { Input, Output }
 public enum WorkflowPortCardinality { AtMostOne, ExactlyOne, Many }
+/// <summary>
+/// Proof-oriented classification of an execution pin's routing role. This metadata
+/// is not serialized and does not authorize validation or runtime dispatch.
+/// </summary>
+public enum WorkflowExecutionPinRole
+{
+    None,
+    ActivationInput,
+    TerminalInput,
+    LoopInitialInput,
+    LoopFeedbackInput,
+    LoopBodyEntryInput,
+    LoopBreakInput,
+    ContinuationOutput,
+    AlternativeOutput,
+    FanOutOutput,
+    LoopBodyOutput,
+    LoopDoneOutput
+}
+
 public sealed record WorkflowPortDescriptor(string Id, WorkflowPortDirection Direction, WorkflowPortKind Kind, string? DataType = null, string? DisplayName = null)
 {
     /// <summary>Transient, untrusted authoring guidance from a live capability schema; never persisted or executed.</summary>
@@ -19,6 +39,12 @@ public sealed record WorkflowPortDescriptor(string Id, WorkflowPortDirection Dir
 
     /// <summary>Whether a data input can be satisfied by node-local authored configuration.</summary>
     public bool SupportsStaticValue { get; init; }
+
+    /// <summary>
+    /// Non-serialized routing declaration for explicit execution pins. It is consumed
+    /// only by bounded topology proofs and never grants execution authority.
+    /// </summary>
+    public WorkflowExecutionPinRole ExecutionRole { get; init; }
 }
 public sealed record StringCondition(string Operator, string Operand)
 {

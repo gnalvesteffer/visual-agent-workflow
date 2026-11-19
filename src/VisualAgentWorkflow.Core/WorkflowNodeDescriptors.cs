@@ -388,6 +388,15 @@ public static class WorkflowNodeDescriptorConformance
                 Error("data-type", $"Data port '{port.Id}' must declare a supported data type.");
             if (port.Kind == WorkflowPortKind.Execution && port.DataType is not null)
                 Error("execution-type", $"Execution port '{port.Id}' cannot declare a data type.");
+            if (!Enum.IsDefined(port.ExecutionRole))
+                Error("execution-role", $"Port '{port.Id}' has an unsupported execution routing role.");
+            if (port.Kind == WorkflowPortKind.Data && port.ExecutionRole != WorkflowExecutionPinRole.None)
+                Error("execution-role-kind", $"Data port '{port.Id}' cannot declare an execution routing role.");
+            if (port.Kind == WorkflowPortKind.Execution && port.ExecutionRole == WorkflowExecutionPinRole.None)
+                Error("execution-role-missing", $"Execution port '{port.Id}' must declare its routing role.");
+            if (port.Kind == WorkflowPortKind.Execution &&
+                (port.Direction == WorkflowPortDirection.Input) != IsExecutionInputRole(port.ExecutionRole))
+                Error("execution-role-direction", $"Execution routing role '{port.ExecutionRole}' does not match port '{port.Id}' direction.");
             if (!Enum.IsDefined(port.Cardinality))
                 Error("cardinality", $"Port '{port.Id}' has an unsupported cardinality.");
             if (port.SupportsStaticValue && (port.Direction != WorkflowPortDirection.Input || port.Kind != WorkflowPortKind.Data))
@@ -409,6 +418,14 @@ public static class WorkflowNodeDescriptorConformance
 
         return issues.ToImmutable();
     }
+
+    private static bool IsExecutionInputRole(WorkflowExecutionPinRole role) => role is
+        WorkflowExecutionPinRole.ActivationInput or
+        WorkflowExecutionPinRole.TerminalInput or
+        WorkflowExecutionPinRole.LoopInitialInput or
+        WorkflowExecutionPinRole.LoopFeedbackInput or
+        WorkflowExecutionPinRole.LoopBodyEntryInput or
+        WorkflowExecutionPinRole.LoopBreakInput;
 }
 
 /// <summary>
@@ -442,16 +459,16 @@ public static class WorkflowNodeDescriptorRegistry
         Descriptor(NodeTypes.JsonSelectString, "json-select-string", [Input("in", WorkflowDataTypes.Json), Output(WorkflowDataTypes.String)], "1.53"),
         Descriptor(NodeTypes.JsonProject, "json-project", [Input("in", WorkflowDataTypes.Json), Output(WorkflowDataTypes.Json)], "1.53"),
         Descriptor(NodeTypes.TextTemplate, "text-template", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)], "1.0"),
-        Descriptor(NodeTypes.Condition, "condition", [Input("in", WorkflowDataTypes.String), Output("true", WorkflowDataTypes.String), Output("false", WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("true"), ExecutionOutput("false")], "1.0"),
+        Descriptor(NodeTypes.Condition, "condition", [Input("in", WorkflowDataTypes.String), Output("true", WorkflowDataTypes.String), Output("false", WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("true", WorkflowExecutionPinRole.AlternativeOutput), ExecutionOutput("false", WorkflowExecutionPinRole.AlternativeOutput)], "1.0"),
         Descriptor(NodeTypes.Merge, "merge", [ManyInput("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.0"),
         Descriptor(NodeTypes.Approval, "approval", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.0"),
-        Descriptor(NodeTypes.Loop, "loop", [OptionalInput("in", WorkflowDataTypes.String), Output("body", WorkflowDataTypes.String), Output("done", WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionInput("feedback"), ExecutionOutput("body"), ExecutionOutput("done")], "1.0"),
-        Descriptor(NodeTypes.LoopBody, "loop-body", [OptionalInput("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.45"),
+        Descriptor(NodeTypes.Loop, "loop", [OptionalInput("in", WorkflowDataTypes.String), Output("body", WorkflowDataTypes.String), Output("done", WorkflowDataTypes.String), ExecutionInput("execute", WorkflowExecutionPinRole.LoopInitialInput), ExecutionInput("feedback", WorkflowExecutionPinRole.LoopFeedbackInput), ExecutionOutput("body", WorkflowExecutionPinRole.LoopBodyOutput), ExecutionOutput("done", WorkflowExecutionPinRole.LoopDoneOutput)], "1.0"),
+        Descriptor(NodeTypes.LoopBody, "loop-body", [OptionalInput("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute", WorkflowExecutionPinRole.LoopBodyEntryInput), ExecutionOutput("then")], "1.45"),
         Descriptor(NodeTypes.BooleanBranch, "boolean-branch", [
             Input("condition", WorkflowDataTypes.Boolean),
             ExecutionInput("execute"),
-            ExecutionOutput("true"),
-            ExecutionOutput("false")], "1.24")
+            ExecutionOutput("true", WorkflowExecutionPinRole.AlternativeOutput),
+            ExecutionOutput("false", WorkflowExecutionPinRole.AlternativeOutput)], "1.24")
     ];
 
     public static bool TryGet(string? nodeType, string descriptorVersion, out WorkflowNodeDescriptor descriptor)
@@ -508,18 +525,20 @@ public static class WorkflowNodeDescriptorRegistry
             Cardinality = WorkflowPortCardinality.Many
         };
 
-    private static WorkflowPortDescriptor ExecutionInput(string id) =>
+    private static WorkflowPortDescriptor ExecutionInput(string id, WorkflowExecutionPinRole role = WorkflowExecutionPinRole.ActivationInput) =>
         new(id, WorkflowPortDirection.Input, WorkflowPortKind.Execution)
         {
             Required = true,
-            Cardinality = WorkflowPortCardinality.ExactlyOne
+            Cardinality = WorkflowPortCardinality.ExactlyOne,
+            ExecutionRole = role
         };
 
-    private static WorkflowPortDescriptor ExecutionOutput(string id) =>
+    private static WorkflowPortDescriptor ExecutionOutput(string id, WorkflowExecutionPinRole role = WorkflowExecutionPinRole.ContinuationOutput) =>
         new(id, WorkflowPortDirection.Output, WorkflowPortKind.Execution)
         {
             Required = true,
-            Cardinality = WorkflowPortCardinality.ExactlyOne
+            Cardinality = WorkflowPortCardinality.ExactlyOne,
+            ExecutionRole = role
         };
 }
 
@@ -683,7 +702,8 @@ public static class WorkflowNodeDescriptorResolver
             ports.Add(new WorkflowPortDescriptor(port, WorkflowPortDirection.Input, WorkflowPortKind.Execution)
             {
                 Required = true,
-                Cardinality = WorkflowPortCardinality.ExactlyOne
+                Cardinality = WorkflowPortCardinality.ExactlyOne,
+                ExecutionRole = ExecutionRole(effectiveNode, port, WorkflowPortDirection.Input)
             });
 
         foreach (var port in WorkflowPortShapeCatalog.ExplicitExecutionOutputs(effectiveNode))
@@ -691,12 +711,35 @@ public static class WorkflowNodeDescriptorResolver
                 DisplayName: ExecutionPortLabel(effectiveNode, port))
             {
                 Required = true,
-                Cardinality = WorkflowPortCardinality.ExactlyOne
+                Cardinality = WorkflowPortCardinality.ExactlyOne,
+                ExecutionRole = ExecutionRole(effectiveNode, port, WorkflowPortDirection.Output)
             });
 
         descriptor = new WorkflowNodeDescriptor(effectiveNode.Type, WorkflowNodeDescriptorRegistry.CurrentVersion,
             ConfigurationKind(effectiveNode.Type), [.. ports]);
         return true;
+    }
+
+    private static WorkflowExecutionPinRole ExecutionRole(NodeDefinition node, string pin, WorkflowPortDirection direction)
+    {
+        if (direction == WorkflowPortDirection.Input)
+        {
+            if (node.Type == NodeTypes.Loop)
+                return pin == "feedback" ? WorkflowExecutionPinRole.LoopFeedbackInput : WorkflowExecutionPinRole.LoopInitialInput;
+            if (node.Type == NodeTypes.LoopBody)
+                return WorkflowExecutionPinRole.LoopBodyEntryInput;
+            if (node.Type is NodeTypes.Output or NodeTypes.Terminate)
+                return WorkflowExecutionPinRole.TerminalInput;
+            return WorkflowExecutionPinRole.ActivationInput;
+        }
+
+        if (node.Type is NodeTypes.Condition or NodeTypes.BooleanBranch or NodeTypes.Agent)
+            return WorkflowExecutionPinRole.AlternativeOutput;
+        if (node.Type is NodeTypes.Sequence or NodeTypes.ParallelFork or NodeTypes.ParallelRendezvous)
+            return WorkflowExecutionPinRole.FanOutOutput;
+        if (node.Type == NodeTypes.Loop)
+            return pin == "body" ? WorkflowExecutionPinRole.LoopBodyOutput : WorkflowExecutionPinRole.LoopDoneOutput;
+        return WorkflowExecutionPinRole.ContinuationOutput;
     }
 
     public static WorkflowNodeDescriptor Resolve(NodeDefinition node,
@@ -728,4 +771,27 @@ public static class WorkflowNodeDescriptorResolver
         NodeTypes.Sequence => "sequence",
         _ => "configured"
     };
+}
+
+/// <summary>Internal descriptors used only by topology-proof fixtures and experiments.</summary>
+internal static class WorkflowTopologyProofDescriptors
+{
+    private const string ArrayBreakType = "vaw.proof.array-break";
+
+    public static bool TryResolve(NodeDefinition node, out WorkflowNodeDescriptor descriptor)
+    {
+        if (node.Type == ArrayBreakType)
+        {
+            descriptor = new WorkflowNodeDescriptor(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion,
+                "proof-break", [new WorkflowPortDescriptor("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution)
+                {
+                    ExecutionRole = WorkflowExecutionPinRole.LoopBreakInput
+                }]);
+            return true;
+        }
+
+        var resolved = WorkflowNodeDescriptorResolver.ResolvePersisted(node);
+        descriptor = resolved.Descriptor!;
+        return resolved.IsResolved;
+    }
 }
