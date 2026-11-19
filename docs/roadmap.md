@@ -405,12 +405,13 @@ introduced.
   the root running and the Sequence output failed/completed without retrying
   the append (2/2). Fresh-process proofs now terminate the writer immediately
   after Break-node `node.completed`, `sequence.break_accepted`,
-  `sequence.break_completed`, and root `run.completed` in both stores (8
-  cases). Reopen preserves the running prefix without fabricating acceptance
-  after Break-node completion, then the appropriate running or terminal root
-  status and running or `break-completed` Sequence playback at later boundaries.
-  These are four exact boundaries only; other process-loss cut points and
-  recovery/resume remain open.
+  `sequence.break_completed`, inner `loop.iteration.completed`, and root
+  `run.completed` in both stores (10 cases). Reopen preserves the running
+  prefix without fabricating acceptance after Break-node completion; inner
+  Break settlement is visible without fabricating outer/root settlement; later
+  boundaries preserve the appropriate root and Sequence states. These are
+  five exact boundaries only; other process-loss cut points and recovery/resume
+  remain open.
   A pinned WorkflowCall with a production Agent Framework parallel fork inside
   the nested activation now holds one child Agent after its sibling completes.
   Neither child-call completion nor loop-item completion is emitted until the

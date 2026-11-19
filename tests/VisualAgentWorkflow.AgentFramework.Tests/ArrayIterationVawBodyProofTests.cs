@@ -6796,6 +6796,8 @@ public sealed class ArrayIterationVawBodyProofTests
     [InlineData(true, ExecutionEventKinds.Completed, "")]
     [InlineData(false, ExecutionEventKinds.NodeCompleted, "break")]
     [InlineData(true, ExecutionEventKinds.NodeCompleted, "break")]
+    [InlineData(false, ExecutionEventKinds.LoopIterationCompleted, "inner-loop")]
+    [InlineData(true, ExecutionEventKinds.LoopIterationCompleted, "inner-loop")]
     public async Task ProductionBodyNestedConditionalBreak_ProcessLossPreservesCommittedPrefix(bool sqlite,
         string stopAfterEvent, string stopAfterNodeId)
     {
@@ -6862,6 +6864,21 @@ public sealed class ArrayIterationVawBodyProofTests
                 Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
                 Assert.Equal("break-completed", playback.Status);
                 Assert.NotEmpty(playback.Outputs);
+            }
+            else if (stopAfterEvent == ExecutionEventKinds.LoopIterationCompleted)
+            {
+                Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
+                Assert.NotNull(playback!.BreakAcceptance);
+                Assert.Equal("running", reopened.Status);
+                var innerSettlement = Assert.Single(reopened.Events, evt =>
+                    evt.Kind == ExecutionEventKinds.LoopIterationCompleted && evt.NodeId == "inner-loop");
+                using var innerOutcome = JsonDocument.Parse(innerSettlement.Data!);
+                Assert.Equal("break", innerOutcome.RootElement.GetProperty("outcome").GetString());
+                Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                    evt.NodeId == "outer-loop");
+                Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.Completed &&
+                    evt.NodeId is null);
+                Assert.Equal("break-completed", playback.Status);
             }
             else
             {
