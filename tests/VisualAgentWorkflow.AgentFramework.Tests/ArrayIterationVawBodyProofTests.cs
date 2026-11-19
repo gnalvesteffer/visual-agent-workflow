@@ -8546,6 +8546,79 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task NestedConcurrentProductionCoordinator_LoopSettlementAppendFailureFailsRunAfterPreservingPrefix(bool sqlite)
+    {
+        var definition = NestedConcurrentBreakProofDefinition();
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "nested-concurrent-production-loop-settlement-append-failure-proof");
+        const string input = "[\"outer-a\"]";
+        const string rejectedScope = "outer-loop/0/inner-loop/1";
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendPredicate: evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.NodeId == "inner-loop" && evt.ScopeId == rejectedScope);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agent = new ControlledSettlementAgentExecutor("agent");
+        var breakNodeCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowBreakSettlementAppend = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break" &&
+                evt.ScopeId == rejectedScope)
+            {
+                breakNodeCompleted.TrySetResult();
+                await allowBreakSettlementAppend.Task;
+            }
+        }
+
+        var execution = new WorkflowRunner(agents: agent)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                input, "index", null, Record,
+                itemParameterId: "item", activationLoopNodeId: "outer-loop",
+                nestedItemsJson: "[\"continue\",\"stop\",\"must-not-run\"]",
+                nestedIndexParameterId: "innerIndex", nestedActivationLoopNodeId: "inner-loop",
+                maximumConcurrentBodies: 1);
+        Exception? appendFailure = null;
+        try
+        {
+            await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await breakNodeCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "The accepted Break-node event must not settle the run before its Loop completion is persisted.");
+            allowBreakSettlementAppend.TrySetResult();
+            appendFailure = await Xunit.Record.ExceptionAsync(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            allowBreakSettlementAppend.TrySetResult();
+            agent.Release.TrySetResult();
+        }
+
+        Assert.True(HasExceptionInChain<IOException>(appendFailure), appendFailure?.ToString());
+        var events = recorder.Snapshot();
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "proof-break" && evt.ScopeId == rejectedScope);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "inner-loop" && evt.ScopeId == rejectedScope);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "outer-loop" && evt.ScopeId == "outer-loop/0" &&
+            evt.Data == "{\"outcome\":\"failed\"}");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "input" && evt.Data == "must-not-run");
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal("failed", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderLoopActivations(reopened.Events, reopened.Status);
+        Assert.Contains("Loop activations (", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task NestedConcurrentProductionCoordinator_PropagatesChildFailureAfterBreakDrain(bool sqlite)
     {
         var definition = NestedConcurrentBreakProofDefinition();

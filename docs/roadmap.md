@@ -494,6 +494,13 @@ introduced.
   each store at its accepted nonterminal prefix, with no fabricated root
   terminal (2/2). Node/loop settlement-append rejection and process-loss
   recovery at this boundary remain open.
+  A nested Break settlement-append rejection now confirms that the accepted
+  Break-node event remains in the prefix, the failed inner settlement is
+  absent, the undispatched suffix stays suppressed, and the enclosing loop
+  plus root record failure. File and SQLite reopen match and passive playback
+  renders the loop activation (2/2). This is one injected nested-boundary
+  failure, not general process-loss or production ownership evidence; see
+  [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   Other remaining gates include byte/event contention, tool/outcome reservation
   races, host-control pause-event integration, uncontrolled production races,
   and the full body compatibility matrix. The proof coordinator

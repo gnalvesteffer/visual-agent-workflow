@@ -4187,6 +4187,19 @@ remains `running` (2/2 focused cases). This covers root terminal-append
 rejection only; interruption during node or loop settlement, process loss,
 public topology, and production ownership remain open.
 
+### Nested Break settlement-append failure proof (2026-11-18)
+
+The private nested coordinator now rejects the inner `loop.iteration.completed`
+append after the Break node's `node.completed` event has been accepted. The
+inner iteration is not recorded as settled; the coordinator preserves the
+accepted prefix, records the enclosing outer iteration as failed, and records
+one failed root outcome. The remaining inner suffix is not dispatched. File
+and SQLite reopen with the same contiguous failed history, and passive playback
+renders the loop activation (2/2 focused cases). This covers an injected
+settlement-append rejection at one nested Break boundary, not process loss,
+arbitrary interruptions, sibling-frame settlement races, public topology, or
+production loop ownership; the architecture gate remains **REVISE**.
+
 ### Explicit feedback target adjudication (2026-11-18)
 
 A new three-role review selected a distinct bounded-feedback input as the
