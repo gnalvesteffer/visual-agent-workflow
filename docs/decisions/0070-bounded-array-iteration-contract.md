@@ -4152,6 +4152,14 @@ cancellation precedence across sibling parent frames, persistence interruption
 at this exact boundary, public graph validation, and production ownership
 remain open; the architecture gate remains **REVISE**.
 
+The same ordering now rejects the root `run.failed` append after the first
+parent's Break and the sibling Agent failure have both been accepted. File and
+SQLite reopen to the identical nonterminal prefix, with both facts preserved,
+no synthetic root terminal, and passive playback reporting the run as still
+running (2/2 focused cases). This proves root failure-terminal append
+interruption for this one cross-frame ordering; it does not cover process loss,
+other settlement append boundaries, public topology, or production ownership.
+
 ### Sibling-frame unknown-tool precedence proof (2026-11-18)
 
 The same two-parent production-body setup now completes the first frame's MCP

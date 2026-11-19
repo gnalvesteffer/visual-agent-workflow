@@ -490,6 +490,11 @@ introduced.
   SQLite playback preserves the Break and one cancelled root terminal (2/2).
   This closes only that controlled cancellation ordering; interruption races
   remain open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  Rejecting the root `run.failed` append after a sibling Agent failure also
+  preserves the accepted Break/failure prefix in both stores; playback remains
+  nonterminal rather than inventing a failed status (2/2). This covers one
+  cross-frame failure ordering only; other persistence interruptions and
+  production ownership remain open.
   Rejecting the root cancellation append after both Agent cancellations leaves
   each store at its accepted nonterminal prefix, with no fabricated root
   terminal (2/2). Node/loop settlement-append rejection and process-loss
