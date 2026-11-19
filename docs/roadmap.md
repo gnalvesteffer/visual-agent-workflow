@@ -335,7 +335,19 @@ introduced.
   `inner-sequence` / `then.route` as the nearest-loop Break route under both
   feedback-pin projections; a Break without this provenance is rejected
   and two distinct Sequence outputs retain separate Break ownership
-  (focused topology tests 38/38, Core 703/703).
+  (focused topology tests 38/38, Core 703/703). A fail-first regression then
+  exposed an ignored disconnected Sequence/Break route; the analyzer now
+  rejects unvisited proof Break nodes with `loop.feedback.unreachable`.
+  Named topology tests now cover shared/ambiguous, cyclic, unreachable,
+  fallthrough, and incomplete-return cases under both pin projections
+  (focused topology tests 40/40, Core 705/705). The topology matrix is covered;
+  a private production-body proof now also composes a branchable Sequence
+  output with nearest-frame Break inside nested iteration. It verifies exact
+  target-frame identity, suffix skipping, later-item suppression, continued
+  outer iteration, and file/SQLite reopen with passive playback (2/2). This
+  covers only the integrated success path; the runtime/settlement gate remains
+  open and must receive a fresh architecture review before any public support
+  decision. See [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
   This is proof metadata only and does not enable public authoring or runtime
   dispatch. The
   production Sequence path queues configured outputs through a separate

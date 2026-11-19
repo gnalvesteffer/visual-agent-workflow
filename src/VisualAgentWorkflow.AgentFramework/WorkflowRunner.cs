@@ -130,7 +130,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             throw new NotSupportedException("The production Break proof does not yet cover Sequence settlement.");
         if (proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node => node.Type == NodeTypes.ParallelFork))
             ValidateStaticForkBreakProofTopology(revision.Definition, proofBreakNodeIds);
-        if (proofBreakNodeIds.Count > 0) WorkflowValidator.ThrowIfInvalid(ValidationProjection(revision.Definition));
+        if (proofBreakNodeIds.Count > 0 && sequencePlan is null)
+            WorkflowValidator.ThrowIfInvalid(ValidationProjection(revision.Definition));
 
         async ValueTask RecordBodyEvent(ExecutionEvent evt)
         {

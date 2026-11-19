@@ -4348,3 +4348,28 @@ under both feedback-pin projections. Focused topology tests pass 38/38 and the
 Core suite passes 703/703. This remains non-authoritative proof metadata; it
 does not change public validation, package admission, runtime dispatch, or
 playback.
+
+### Sequence/Break topology rejection matrix (2026-11-19)
+
+A fail-first regression demonstrated that a disconnected Sequence output
+ending at a proof Break was ignored by the region walk. The analyzer now emits
+`loop.feedback.unreachable` for proof Break nodes that are not reachable from a
+root-loop body through a Sequence output route. The named topology cases cover
+ambiguous/shared ownership (`Shared_sequence_output_routes_are_rejected`),
+cycles (`Nested_sequence_break_unowned_cycle_is_rejected`), unreachable loop
+regions and Sequence/Break routes (`Disconnected_loop_region_is_rejected_for_both_pin_shapes`,
+`Disconnected_sequence_break_route_is_rejected`), and Break fallthrough
+(`Sequence_break_terminal_cannot_have_a_successor`). Incomplete return routes
+are covered by `Nested_sequence_break_incomplete_return_is_rejected`. Each
+route case runs under inferred and explicit feedback-pin projections. The
+focused topology suite passes 40/40 and Core passes 705/705. This completes the
+enumerated proof-only topology rejection matrix, not the distinct runtime /
+settlement gate or public feature admission.
+
+The production-body proof now composes the branchable Sequence output with a
+nearest-frame Break in a nested iterator. It verifies the Break target is the
+inner activation, the Sequence suffix is skipped, the later inner item is not
+admitted, the enclosing outer iteration proceeds, and file/SQLite reopen plus
+passive playback preserve the same event prefix (2/2). This is one integrated
+success-path proof; failure, uncertainty, cancellation, pause/stop races,
+shared-budget stress, append rejection, and public admission remain unproven.

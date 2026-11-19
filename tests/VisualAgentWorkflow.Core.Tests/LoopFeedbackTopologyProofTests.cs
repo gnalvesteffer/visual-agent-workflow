@@ -220,6 +220,36 @@ public sealed class LoopFeedbackTopologyProofTests
     [Theory]
     [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
     [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Disconnected_sequence_break_route_is_rejected(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopSequenceBreakCandidate();
+        var basis = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+        var nodes = basis.Nodes
+            .Add("orphan-sequence", new NodeDefinition(NodeTypes.Sequence, "1.0.0")
+            {
+                Sequence = new([new("orphan", "Unreachable Break route")])
+            })
+            .Add("orphan-break", new("vaw.proof.array-break", "proof-only"));
+        var candidate = basis with
+        {
+            Nodes = nodes,
+            ExecutionConnections = basis.ExecutionConnections!.Add("orphan-sequence-start",
+                Edge("orphan-sequence", "then.orphan", "orphan-break", "execute"))
+        };
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(candidate, shape);
+
+        Assert.False(proof.IsValid);
+        Assert.Contains(proof.Issues, issue => issue.Code == "loop.feedback.unreachable" &&
+            issue.Path == "nodes.orphan-break");
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
     public void Shared_sequence_output_routes_are_rejected(string shapeName)
     {
         var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);

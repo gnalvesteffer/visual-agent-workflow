@@ -118,6 +118,7 @@ internal static class LoopFeedbackTopologyProofAnalyzer
 
         var activeLoops = new HashSet<string>(StringComparer.Ordinal);
         var analyzedLoops = new HashSet<string>(StringComparer.Ordinal);
+        var visitedBreakNodes = new HashSet<string>(StringComparer.Ordinal);
 
         bool AnalyzeRegion(string loopId, string? parentLoopId)
         {
@@ -234,6 +235,7 @@ internal static class LoopFeedbackTopologyProofAnalyzer
 
                 if (HasRole(current, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopBreakInput))
                 {
+                    visitedBreakNodes.Add(current);
                     if ((outgoing.GetValueOrDefault(current) ?? []).Length > 0)
                         Issue("loop.feedback.break-terminal", $"nodes.{current}", "A proof Break must be a terminal route.");
                     breakNodes.Add(current);
@@ -324,6 +326,13 @@ internal static class LoopFeedbackTopologyProofAnalyzer
 
         foreach (var loopId in loops.Where(id => !analyzedLoops.Contains(id)))
             Issue("loop.feedback.unreachable", $"nodes.{loopId}", "Every loop must be reachable from the root loop through one owning body.");
+
+        foreach (var breakNodeId in pinDescriptors.Keys
+                     .Where(nodeId => HasRole(nodeId, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopBreakInput))
+                     .Where(nodeId => !visitedBreakNodes.Contains(nodeId))
+                     .Order(StringComparer.Ordinal))
+            Issue("loop.feedback.unreachable", $"nodes.{breakNodeId}",
+                "Every proof Break must be reachable from a root loop body through a Sequence output route.");
 
         return new(regions.OrderBy(region => region.LoopNodeId, StringComparer.Ordinal).ToImmutableArray(),
             issues.ToImmutable());

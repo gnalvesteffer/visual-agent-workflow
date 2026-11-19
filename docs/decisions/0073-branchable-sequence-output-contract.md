@@ -291,3 +291,24 @@ identities; coordinator, dispatch, and production Sequence suites pass 78/78.
 This prevents a same-Sequence but different-output terminal handoff from
 completing the wrong activation. It does not resolve the broader mixed-outcome
 precedence, draining, or recovery gates above.
+
+## Nested iterator composition proof (2026-11-19)
+
+The private production-body proof now composes a branchable Sequence output
+with a proof-only Break inside the nested iterator body. For each outer item,
+the first inner item completes normally; the second takes the Break arm, skips
+the undispatched Sequence suffix, and prevents the third inner item from being
+admitted. The recorded Break target frame is asserted equal to that inner
+iteration's frame, so the outer iterator continues with its own next item.
+File and SQLite histories reopen with the same event prefix and passive
+playback retains the Sequence Break terminal (2/2 store cases).
+
+This closes the previously missing composition proof between branchable
+Sequence settlement and nearest-frame Break routing. It remains internal
+proof-only behavior: unified schema 2.0 validation, package admission, normal
+runtime planning, Studio authoring, and public typed-array iteration are
+unchanged. Failure/unknown/cancellation/pause/stop races across this composed
+shape, bounded concurrent sibling drain, append rejection at each settlement
+boundary, shared-budget behavior, and broader reader compatibility remain
+open. The full iterator architecture gate and a fresh review are still
+required before selecting public support.

@@ -1011,7 +1011,9 @@ public sealed partial class WorkflowRunner
         string innerLoopNodeId = "inner-loop", string? itemParameterId = "item",
         string arrayElementType = WorkflowDataTypes.String,
         StructuredActivationRunBudget? runBudget = null,
-        IReadOnlySet<string>? proofBreakNodeIds = null)
+        IReadOnlySet<string>? proofBreakNodeIds = null,
+        SequenceProductionPlan? sequencePlan = null,
+        int maximumConcurrentSequenceOutputs = 1)
     {
         ArgumentNullException.ThrowIfNull(bodyRevision);
         ArgumentNullException.ThrowIfNull(outerItemsJson);
@@ -1022,6 +1024,8 @@ public sealed partial class WorkflowRunner
         ArgumentException.ThrowIfNullOrWhiteSpace(innerLoopNodeId);
         ArgumentNullException.ThrowIfNull(record);
         if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
+        if (maximumConcurrentSequenceOutputs <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumConcurrentSequenceOutputs));
         if (outerItemsJson.Length > 16_384 || innerItemsJson.Length > 16_384)
             throw new ArgumentException("Nested activation proof input exceeds 16,384 characters.");
 
@@ -1071,11 +1075,23 @@ public sealed partial class WorkflowRunner
 
                     await Emit(ExecutionEventKinds.LoopIterationStarted, innerLoopNodeId, innerFrame.Id,
                         innerFrame.ScopeId);
+                    SequenceProductionDispatchSession? sequenceDispatchSession = null;
+                    if (sequencePlan is not null)
+                    {
+                        var connectionIds = sequencePlan.Outputs.ToDictionary(output => output.OutputId,
+                            output => output.ConnectionId, StringComparer.Ordinal);
+                        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), sequencePlan.SequenceNodeId,
+                            sequencePlan.Outputs.Select(output => output.OutputId).ToArray(), connectionIds,
+                            sequencePlan.AllowSingleOutput);
+                        sequenceDispatchSession = new SequenceProductionDispatchSession(coordinator, innerFrame,
+                            proofBreakNodeIds, maximumConcurrentSequenceOutputs);
+                    }
                     var bodyOutcome = await ExecuteBodyForActivationProofAsync(runId, bodyRevision,
                         innerFrame.Item, innerFrame.Parameters,
                         evt => Emit(evt.Kind, evt.NodeId, evt.InvocationId,
                             evt.ScopeId ?? innerFrame.ScopeId, evt.Data, evt.ConnectionId), cancellationToken,
-                        activationFrame: innerFrame, proofBreakNodeIds: proofBreakNodeIds);
+                        activationFrame: innerFrame, proofBreakNodeIds: proofBreakNodeIds,
+                        sequencePlan: sequencePlan, sequenceDispatchSession: sequenceDispatchSession);
 
                     switch (bodyOutcome.Disposition)
                     {

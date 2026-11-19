@@ -6331,6 +6331,86 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyNestedBranchSequenceBreak_ResolvesNearestFrameAndReopensPlayback(bool sqlite)
+    {
+        var revision = NestedBranchSequenceBreakDefinition();
+        const string outerItems = "[\"outer-a\",\"outer-b\"]";
+        const string innerItems = "[\"continue\",\"break\",\"must-not-run\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var runner = new WorkflowRunner();
+        var sequencePlan = new WorkflowRunner.SequenceProductionPlan("sequence", [
+            new("decision", 0, "branch", "sequence", "then.decision", "sequence-branch"),
+            new("suffix", 1, "suffix-output", "sequence", "then.suffix", "sequence-suffix")
+        ], null, SequenceTerminalState.Completed);
+
+        var result = await runner.ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision,
+            outerItems, innerItems, "outerIndex", "index", null, evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }, itemParameterId: "item", sequencePlan: sequencePlan);
+
+        Assert.False(result.Failed, string.Join("\n", recorder.Snapshot().Select(evt =>
+            $"{evt.Sequence}:{evt.NodeId ?? "root"}:{evt.Kind}:{evt.Data ?? ""}")));
+        Assert.True(result.HasOutput);
+        Assert.Equal("outer-a:continue;outer-b:continue", result.Output);
+        var events = recorder.Snapshot();
+        var breakIterations = events.Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "inner-loop" && evt.Data?.Contains("\"outcome\":\"break\"", StringComparison.Ordinal) == true)
+            .ToArray();
+        Assert.Equal(2, breakIterations.Length);
+        foreach (var breakIteration in breakIterations)
+        {
+            var started = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "inner-loop" && evt.ScopeId == breakIteration.ScopeId);
+            using var outcome = JsonDocument.Parse(breakIteration.Data!);
+            Assert.Equal(started.InvocationId, outcome.RootElement.GetProperty("targetFrameId").GetGuid());
+        }
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "inner-loop" && evt.ScopeId?.EndsWith("/inner-loop/2", StringComparison.Ordinal) == true);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "outer-loop"));
+        Assert.Equal(6, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+            evt.NodeId == "sequence"));
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+            evt.NodeId == "sequence"));
+        AssertPersistedSequence(runStore, events, "completed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("completed", reopened.Status);
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains("Latest run status: completed", playback, StringComparison.Ordinal);
+        Assert.Contains(ExecutionEventKinds.SequenceBreakCompleted, playback, StringComparison.Ordinal);
+    }
+
+    private static WorkflowRevision NestedBranchSequenceBreakDefinition()
+    {
+        var definition = WorkflowRunner.CreateSequenceBranchDecisionEvidenceProofRevision(true).Definition;
+        var nodes = definition.Nodes
+            .SetItem("outcome", new(NodeTypes.Condition, "1.0.0") { Condition = new("equals", "continue") })
+            .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "item", OutputDataType = WorkflowDataTypes.String });
+        var connections = definition.Connections.Remove("outcome-condition")
+            .Add("item-outcome", new(new("item", "out"), new("outcome", "in"), "data"))
+            .Add("item-output", new(new("item", "out"), new("output", "in"), "data"))
+            .Add("item-suffix-output", new(new("item", "out"), new("suffix-output", "in"), "data"));
+        var parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+            .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+            .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+            .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer });
+        return WorkflowRevision.CreateProofOnly(definition with
+        {
+            Nodes = nodes,
+            Connections = connections,
+            Parameters = parameters
+        }, "nested-branch-sequence-break-proof");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyNestedCoordinator_SharesModelBudgetAcrossOuterActivations(bool sqlite)
     {
         var revision = WorkflowRevision.Create(NestedBodyDefinition(),
