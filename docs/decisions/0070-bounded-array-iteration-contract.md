@@ -4164,6 +4164,18 @@ both (2/2 focused cases). This is controlled proof-only evidence; sibling
 cancellation precedence, persistence interruption at this boundary, public
 topology, and production ownership remain open.
 
+### Sibling-frame host cancellation after Break proof (2026-11-18)
+
+The proof now holds Agent calls active in two concurrent parent frames, waits
+for the first frame to consume its inner Break, then cancels the host. Both
+admitted Agents record cancellation, neither frame fabricates successful
+completion, and the single root terminal is `run.cancelled`. File and SQLite
+reopen preserve the same event sequence and passive playback retains the Break
+and cancelled root (2/2 focused cases). This closes only the controlled
+cross-frame host-cancellation ordering. Persistence interruption at this
+boundary, public topology, uncontrolled scheduler races, and production
+ownership remain open; architecture readiness remains **REVISE**.
+
 ### Explicit feedback target adjudication (2026-11-18)
 
 A new three-role review selected a distinct bounded-feedback input as the
