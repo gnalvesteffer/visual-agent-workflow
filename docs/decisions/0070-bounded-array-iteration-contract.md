@@ -4334,3 +4334,15 @@ only to the nearest inner loop under both feedback-pin projections (2/2). The
 public validator still rejects the proof-only Break node. This verifies one
 topology shape only; it does not prove concurrent sibling drain, public/package
 admission, production dispatch, persistence, or playback.
+
+### Sequence-output provenance proof (2026-11-19)
+
+The private topology result now retains the Sequence node and exact execution
+output pin that led to each proof Break. Provenance follows descriptor-derived
+fan-out and alternative routes and survives ordinary continuations and nested
+loop completion. The conditional fixture proves `inner-break` belongs to
+`inner-loop` through `inner-sequence` pin `then.route` under both feedback-pin
+projections, and a Break without Sequence-output provenance is rejected.
+Focused topology tests pass 36/36 and the Core suite passes 701/701. This
+remains non-authoritative proof metadata; it does not change
+public validation, package admission, runtime dispatch, or playback.

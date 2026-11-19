@@ -8,6 +8,16 @@ internal enum LoopFeedbackPinShape
     ExplicitFeedbackInput
 }
 
+internal sealed record LoopFeedbackSequenceOutputRouteProof(
+    string SequenceNodeId,
+    string SequenceOutputPinId);
+
+internal sealed record LoopFeedbackBreakRouteProof(
+    string LoopNodeId,
+    string BreakNodeId,
+    string SequenceNodeId,
+    string SequenceOutputPinId);
+
 internal sealed record LoopFeedbackRegionProof(
     string LoopNodeId,
     string BodyAnchorNodeId,
@@ -15,7 +25,8 @@ internal sealed record LoopFeedbackRegionProof(
     string InitialConnectionId,
     string FeedbackConnectionId,
     ImmutableArray<string> BodyNodeIds,
-    ImmutableArray<string> BreakNodeIds);
+    ImmutableArray<string> BreakNodeIds,
+    ImmutableArray<LoopFeedbackBreakRouteProof> BreakRoutes);
 
 internal sealed record LoopFeedbackTopologyIssue(string Code, string Path, string Message);
 
@@ -147,12 +158,14 @@ internal static class LoopFeedbackTopologyProofAnalyzer
 
             var body = ImmutableArray.CreateBuilder<string>();
             var breakNodes = ImmutableArray.CreateBuilder<string>();
+            var breakRoutes = ImmutableArray.CreateBuilder<LoopFeedbackBreakRouteProof>();
             var bodyNodeIds = new HashSet<string>(StringComparer.Ordinal);
-            var pending = new Queue<(string NodeId, HashSet<string> Path)>();
-            pending.Enqueue((loopAnchors[loopId], new(StringComparer.Ordinal)));
+            var pending = new Queue<(string NodeId, HashSet<string> Path, LoopFeedbackSequenceOutputRouteProof? SequenceRoute)>();
+            pending.Enqueue((loopAnchors[loopId], new(StringComparer.Ordinal), null));
             string? returnConnectionId = null;
 
-            void Follow(string sourceNodeId, string sourcePortId, HashSet<string> path)
+            void Follow(string sourceNodeId, string sourcePortId, HashSet<string> path,
+                LoopFeedbackSequenceOutputRouteProof? sequenceRoute)
             {
                 var successors = (outgoing.GetValueOrDefault(sourceNodeId) ?? [])
                     .Where(item => item.Edge.Source.PortId == sourcePortId).ToArray();
@@ -179,13 +192,14 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                     (activeLoops.Contains(next.Edge.Target.NodeId) || next.Edge.Target.PortId != initialPort))
                     Issue("loop.feedback.cross-owner", $"executionConnections.{next.Id}",
                         "A loop body may return only to its owning loop; nested loops are entered through their initial input.");
-                pending.Enqueue((next.Edge.Target.NodeId, path));
+                pending.Enqueue((next.Edge.Target.NodeId, path, sequenceRoute));
             }
 
             while (pending.TryDequeue(out var route))
             {
                 var current = route.NodeId;
                 var path = route.Path;
+                var sequenceRoute = route.SequenceRoute;
                 if (!path.Add(current))
                 {
                     Issue("loop.feedback.cycle", $"nodes.{current}", "An unowned cycle occurs inside a bounded loop body.");
@@ -223,6 +237,10 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                     if ((outgoing.GetValueOrDefault(current) ?? []).Length > 0)
                         Issue("loop.feedback.break-terminal", $"nodes.{current}", "A proof Break must be a terminal route.");
                     breakNodes.Add(current);
+                    if (sequenceRoute is null)
+                        Issue("loop.feedback.break-owner", $"nodes.{current}", "A proof Break must be reached from one declared Sequence output route.");
+                    else
+                        breakRoutes.Add(new(loopId, current, sequenceRoute.SequenceNodeId, sequenceRoute.SequenceOutputPinId));
                     continue;
                 }
 
@@ -236,7 +254,7 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                     }
 
                     if (!AnalyzeRegion(current, loopId)) continue;
-                    Follow(current, donePins.Single().Id, path);
+                    Follow(current, donePins.Single().Id, path, sequenceRoute);
                     continue;
                 }
 
@@ -246,7 +264,12 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                 if (fanOutPorts.Length > 0)
                 {
                     foreach (var output in fanOutPorts)
-                        Follow(current, output.Id, new(path, StringComparer.Ordinal));
+                    {
+                        var outputRoute = pinDescriptors[current].ConfigurationKind == "sequence"
+                            ? new LoopFeedbackSequenceOutputRouteProof(current, output.Id)
+                            : sequenceRoute;
+                        Follow(current, output.Id, new(path, StringComparer.Ordinal), outputRoute);
+                    }
                     continue;
                 }
 
@@ -257,7 +280,7 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                         "Each ordinary body node must declare exactly one continuation output.");
                     continue;
                 }
-                Follow(current, continuationPorts[0].Id, path);
+                Follow(current, continuationPorts[0].Id, path, sequenceRoute);
             }
 
             if (returnConnectionId is null && !issues.Any(issue => issue.Path.StartsWith($"nodes.{loopId}", StringComparison.Ordinal)))
@@ -279,7 +302,8 @@ internal static class LoopFeedbackTopologyProofAnalyzer
             var initialConnectionId = initialCandidates.Length == 1 ? initialCandidates[0].Id : "";
             if (returnConnectionId is not null)
                 regions.Add(new(loopId, loopAnchors[loopId], parentLoopId,
-                    initialConnectionId, returnConnectionId, body.ToImmutable(), breakNodes.ToImmutable()));
+                    initialConnectionId, returnConnectionId, body.ToImmutable(), breakNodes.ToImmutable(),
+                    breakRoutes.OrderBy(route => route.BreakNodeId, StringComparer.Ordinal).ToImmutableArray()));
 
             activeLoops.Remove(loopId);
             return returnConnectionId is not null;

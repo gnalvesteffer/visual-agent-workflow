@@ -145,11 +145,39 @@ public sealed class LoopFeedbackTopologyProofTests
         Assert.True(proof.IsValid, string.Join(Environment.NewLine, proof.Issues));
         var inner = Assert.Single(proof.Regions.Where(region => region.LoopNodeId == "inner-loop"));
         Assert.Equal(["inner-break"], inner.BreakNodeIds.ToArray());
+        var breakRoute = Assert.Single(inner.BreakRoutes);
+        Assert.Equal("inner-loop", breakRoute.LoopNodeId);
+        Assert.Equal("inner-break", breakRoute.BreakNodeId);
+        Assert.Equal("inner-sequence", breakRoute.SequenceNodeId);
+        Assert.Equal("then.route", breakRoute.SequenceOutputPinId);
         Assert.Empty(proof.Regions.Single(region => region.LoopNodeId == "outer-loop").BreakNodeIds);
         Assert.Contains(WorkflowValidator.Validate(candidate), issue =>
             issue.Code == "node.unsupported" && issue.Path == "nodes.inner-break");
         Assert.Throws<ArgumentException>(() =>
             WorkflowPackageJson.Create(candidate, WorkflowLayout.Create(candidate)));
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Break_without_sequence_output_owner_is_rejected(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopConditionalSequenceBreakCandidate();
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+        var execution = candidate.ExecutionConnections!
+            .Remove("inner-sequence-start")
+            .Remove("inner-route")
+            .Add("condition-start", Edge("inner-body", "then", "break-condition", "execute"));
+        candidate = candidate with { ExecutionConnections = execution };
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(candidate, shape);
+
+        Assert.False(proof.IsValid);
+        Assert.Contains(proof.Issues, issue => issue.Code == "loop.feedback.break-owner" &&
+            issue.Path == "nodes.inner-break");
     }
 
     [Theory]

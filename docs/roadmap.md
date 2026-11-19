@@ -330,6 +330,13 @@ introduced.
   schema or Studio authoring until that seam passes and the review selects the
   architecture. **Private integrated Sequence/Break activation proof — in
   progress; runtime architecture and public contracts unselected.** The
+  topology proof now retains the originating Sequence node and exact output
+  pin for each proof Break; the conditional fixture identifies
+  `inner-sequence` / `then.route` as the nearest-loop Break route under both
+  feedback-pin projections; a Break without this provenance is rejected
+  (focused topology tests 36/36, Core 701/701).
+  This is proof metadata only and does not enable public authoring or runtime
+  dispatch. The
   production Sequence path queues configured outputs through a separate
   source/collector settlement path. Follow the Blueprint contract: ordered
   output admission without waiting for earlier latent descendants; make
