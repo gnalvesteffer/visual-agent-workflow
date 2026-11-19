@@ -896,3 +896,11 @@ skipped suffix or Sequence terminal (2 focused cases). This covers ambiguous
 acknowledgment at this event only; process loss and other append sites remain
 open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: nested Break terminal append rejection (2026-11-19)
+
+Rejecting `sequence.break_completed` after Break acceptance fails the root but
+preserves the accepted nonterminal Sequence prefix in file and SQLite stores.
+Reopen does not fabricate a Break or normal Sequence terminal (2 focused
+cases). Process loss and root-terminal append rejection remain open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

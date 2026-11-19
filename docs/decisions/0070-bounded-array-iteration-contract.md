@@ -4448,3 +4448,10 @@ remains running with the acceptance and dispatched/completed output prefix;
 no skipped suffix or Sequence terminal is added (2/2). This qualifies
 ambiguous acknowledgment at Break acceptance for this candidate, not process
 loss or other append boundaries.
+
+Rejecting `sequence.break_completed` after Break acceptance now has matching
+nested production-body coverage in both stores. The root fails, the accepted
+Break prefix reopens with Sequence playback still running, and no Break or
+normal Sequence terminal is fabricated (2/2). This qualifies rejection of
+the Break terminal append only; process loss and later root-terminal append
+failure remain open.

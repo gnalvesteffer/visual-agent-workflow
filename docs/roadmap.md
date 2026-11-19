@@ -390,9 +390,13 @@ introduced.
   also fails the root run while preserving a nonterminal Sequence playback
   prefix: no acceptance, skipped suffix, or Sequence terminal is fabricated,
   and file/SQLite reopen agree (2/2). Other append boundaries remain open. A
-  lost acknowledgment after the acceptance was
-  committed now also reopens consistently: acceptance appears once, root is
-  failed, and Sequence playback stays running without a terminal (2/2).
+  lost acknowledgment after acceptance was committed now reopens consistently:
+  acceptance appears once, root is failed, and Sequence playback stays running
+  without a terminal (2/2).
+  Rejecting `sequence.break_completed` after acceptance likewise preserves the
+  accepted nonterminal Sequence prefix and fails the root consistently after
+  file/SQLite reopen (2/2); process loss and root-terminal append failure
+  remain open.
   Host cancellation after Break is requested while an Agent is admitted stays
   a cancelled root and Sequence through both stores and playback (2/2).
   A new proof-scoped single-stream dispatch session now passes the central
