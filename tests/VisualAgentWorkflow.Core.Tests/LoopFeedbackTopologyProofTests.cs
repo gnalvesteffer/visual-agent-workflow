@@ -132,6 +132,29 @@ public sealed class LoopFeedbackTopologyProofTests
     [Theory]
     [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
     [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
+    public void Conditional_sequence_route_can_end_in_nearest_loop_break(string shapeName)
+    {
+        var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
+        var inferred = NestedLoopConditionalSequenceBreakCandidate();
+        var candidate = shape == LoopFeedbackPinShape.InferredFromBodyTopology
+            ? inferred
+            : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
+
+        var proof = LoopFeedbackTopologyProofAnalyzer.Analyze(candidate, shape);
+
+        Assert.True(proof.IsValid, string.Join(Environment.NewLine, proof.Issues));
+        var inner = Assert.Single(proof.Regions.Where(region => region.LoopNodeId == "inner-loop"));
+        Assert.Equal(["inner-break"], inner.BreakNodeIds.ToArray());
+        Assert.Empty(proof.Regions.Single(region => region.LoopNodeId == "outer-loop").BreakNodeIds);
+        Assert.Contains(WorkflowValidator.Validate(candidate), issue =>
+            issue.Code == "node.unsupported" && issue.Path == "nodes.inner-break");
+        Assert.Throws<ArgumentException>(() =>
+            WorkflowPackageJson.Create(candidate, WorkflowLayout.Create(candidate)));
+    }
+
+    [Theory]
+    [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
+    [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
     public void Shared_sequence_output_routes_are_rejected(string shapeName)
     {
         var shape = Enum.Parse<LoopFeedbackPinShape>(shapeName);
@@ -452,6 +475,35 @@ public sealed class LoopFeedbackTopologyProofTests
             .Add("inner-return", Edge("inner-step", "then", "inner-loop", "execute"))
             .Add("inner-break", Edge("inner-sequence", "then.break", "inner-break", "execute"));
         return definition with { Nodes = nodes, ExecutionConnections = execution };
+    }
+
+    private static WorkflowDefinition NestedLoopConditionalSequenceBreakCandidate()
+    {
+        var definition = NestedLoopCandidate();
+        var nodes = definition.Nodes
+            .Remove("inner-step")
+            .Add("inner-sequence", new NodeDefinition(NodeTypes.Sequence, "1.0.0")
+            {
+                Sequence = new([new("route", "Conditional inner-loop route")])
+            })
+            .Add("inner-step", new(NodeTypes.SequenceReverse, "1.0.0"))
+            .Add("break-condition", new NodeDefinition(NodeTypes.Condition, "1.0.0")
+            {
+                Condition = new("contains", "stop")
+            })
+            .Add("inner-break", new("vaw.proof.array-break", "proof-only"));
+        var data = definition.Connections.Add("condition-input",
+            new(new("input", "out"), new("break-condition", "in"), "data"));
+        var execution = definition.ExecutionConnections!
+            .Remove("inner-step-start")
+            .Remove("inner-return")
+            .Add("inner-sequence-start", Edge("inner-body", "then", "inner-sequence", "execute"))
+            .Add("inner-route", Edge("inner-sequence", "then.route", "break-condition", "execute"))
+            .Add("condition-break", Edge("break-condition", "true", "inner-break", "execute"))
+            .Add("condition-continue", Edge("break-condition", "false", "inner-step", "execute"))
+            .Add("inner-return", Edge("inner-step", "then", "inner-loop", "execute"));
+
+        return definition with { Nodes = nodes, Connections = data, ExecutionConnections = execution };
     }
 
     private static WorkflowDefinition ThreeNestedLoopsWithSequenceExitsCandidate()

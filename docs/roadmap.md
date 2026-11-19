@@ -321,7 +321,12 @@ introduced.
   work/evidence budgets across production Agent Framework body dispatch and
   Agent/MCP nodes. The remaining evidence is the complete supported-body,
   failure/race, shared-budget, persistence, and playback matrix, followed by a
-  fresh three-role architecture review. Do not introduce public iterator/Break
+  fresh three-role architecture review. A three-role review on 2026-11-19
+  returned REVISE and authorized only proof work: a conditional Sequence route
+  may end in nearest-loop Break without a Merge or workflow Output arrival, but
+  public admission still depends on unique ownership, production settlement,
+  failure/cancellation/persistence races, and file/SQLite playback. Do not
+  introduce public iterator/Break
   schema or Studio authoring until that seam passes and the review selects the
   architecture. **Private integrated Sequence/Break activation proof — in
   progress; runtime architecture and public contracts unselected.** The

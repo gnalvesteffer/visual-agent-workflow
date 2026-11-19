@@ -4307,3 +4307,30 @@ non-serialization are covered. Focused topology/descriptor tests pass 82/82,
 the Core suite passes 697/697, and the Core project builds without warnings.
 Production proof derivation, public/package validation, persistence, and
 playback remain open gates.
+
+### Conditional Sequence Break topology review (adjudicated 2026-11-19)
+
+A clean-context proponent/opponent/adjudicator review returned **REVISE**.
+Proceed only with a proof-only topology extension; do not change public
+validation, package admission, runtime selection, or Studio authoring yet. Keep
+the candidate graph flat in unified schema 2.0, represent Break as a terminal
+route owned by one Sequence output activation, and derive nearest-frame and
+output ownership from declared pins and topology. Continue to forbid hidden
+ownership, body allowlists, and feature-specific schema/capability gates.
+
+The proof must reject ambiguous, shared, cyclic, unreachable, and falling-
+through routes. Its eventual composition gate remains the adjudicated
+source/scope-only Break request, atomic frame/Sequence admission closure,
+draining admitted work, skipping only undispatched work, exactly-once output
+settlement, existing outcome precedence, accepted-prefix behavior on write
+rejection, and identical file/SQLite passive playback. A passing topology
+proof authorizes another architecture review only; it does not authorize public
+Break support or establish Blueprint parity.
+
+The proof fixture now places a Condition inside one nested Sequence output:
+one route ends at the proof-only Break input and the other returns through an
+ordinary body node. The descriptor-derived topology analyzer assigns the Break
+only to the nearest inner loop under both feedback-pin projections (2/2). The
+public validator still rejects the proof-only Break node. This verifies one
+topology shape only; it does not prove concurrent sibling drain, public/package
+admission, production dispatch, persistence, or playback.
