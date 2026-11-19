@@ -7348,6 +7348,129 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyNestedCoordinator_ForkBranchFailureStopsLaterActivations(bool sqlite)
+    {
+        var definition = ParallelBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Inner array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "nested-iteration-parallel-fork-failure-production-body-proof");
+        const string outerItems = "[\"north-region\",\"south-region\"]";
+        const string innerItems = "[\"alpha\",\"beta\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var rightBranchCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var agents = new FirstSuccessThenFailAgentExecutor(rightBranchCompleted);
+
+        var result = await new WorkflowRunner(agents: agents)
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision, outerItems, innerItems,
+                "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right")
+                        rightBranchCompleted.TrySetResult();
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item");
+
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.False(result.HasOutput);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "agent-right" && evt.ScopeId == "outer-loop/0/inner-loop/0");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "agent-left" && evt.ScopeId == "outer-loop/0/inner-loop/0");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId is "inner-loop" or "outer-loop");
+        Assert.DoesNotContain(events, evt => evt.ScopeId is "outer-loop/0/inner-loop/1" or
+            "outer-loop/1" or "outer-loop/1/inner-loop/0");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+
+        AssertPersistedSequence(runStore, events, "failed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyNestedCoordinator_CancellationDrainsForkAndStopsLaterActivations(bool sqlite)
+    {
+        var definition = ParallelBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Inner array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "nested-iteration-parallel-fork-cancellation-production-body-proof");
+        const string outerItems = "[\"north-region\",\"south-region\"]";
+        const string innerItems = "[\"alpha\",\"beta\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new TwoBranchBlockingAgentExecutor();
+        using var cancellation = new CancellationTokenSource();
+        var execution = new WorkflowRunner(agents: agents)
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision, outerItems, innerItems,
+                "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, cancellation.Token, itemParameterId: "item")
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        try
+        {
+            await agents.BothBranchesStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted);
+            cancellation.Cancel();
+            var result = await execution;
+            Assert.True(result.Cancelled);
+            Assert.False(result.Failed);
+            Assert.False(result.HasOutput);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            if (!execution.IsCompleted)
+            {
+                try { await execution.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (TimeoutException) { }
+            }
+        }
+
+        var events = recorder.Snapshot();
+        const string failedScopeId = "outer-loop/0/inner-loop/0";
+        foreach (var agentId in new[] { "agent-left", "agent-right" })
+        {
+            var started = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == agentId && evt.ScopeId == failedScopeId);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+                evt.NodeId == agentId && evt.ScopeId == failedScopeId && evt.InvocationId == started.InvocationId);
+        }
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.ScopeId is "outer-loop/0/inner-loop/1" or
+            "outer-loop/1" or "outer-loop/1/inner-loop/0");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+
+        AssertPersistedSequence(runStore, events, "cancelled");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.DoesNotContain("Parallel join join · completed", playback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyNestedCoordinator_HostCancellationAfterBreakStopsOuterActivation(bool sqlite)
     {
         var revision = WorkflowRevision.CreateProofOnly(IntegratedNestedAgentMcpBreakDefinition(),

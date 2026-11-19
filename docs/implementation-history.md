@@ -992,6 +992,9 @@ The private nested production-body coordinator now executes a two-branch Agent
 Framework Fork/Join in each inner array activation across two outer frames.
 Four scopes each record two Agent completions and one completed join; file and
 SQLite reopen preserve the histories and playback reconstructs all four joins
-(2 focused cases). This extends the body compatibility proof, not public
-iterator support or nested Fork/Fork semantics. See
+(2 focused cases). Failure after one branch completes suppresses the join and
+later activations; cancellation with both branches active settles both
+cancelled without a join or later activation (4 more focused cases across both
+stores). This extends the body compatibility proof, not public iterator support
+or nested Fork/Fork semantics. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

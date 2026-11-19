@@ -4491,9 +4491,13 @@ two-branch Agent Framework Fork/Join once per inner typed-array activation
 across two outer frames. Each of the four activation scopes records both Agent
 completions, both join arrivals, one join completion, and one inner iteration
 completion. File and SQLite histories reopen identically, and passive playback
-reconstructs all four joins (2 cases). This adds Fork/Join inside the nested
-activation body to the supported-body evidence; it does not prove Fork nested
-inside Fork or authorize public iterator/Break behavior.
+reconstructs all four joins (2 cases). Matching file/SQLite cases now also
+verify that one branch failure after its sibling completes suppresses the join
+and all later activations, while host cancellation with both Agents active
+settles both as cancelled and suppresses the join and later activations (4
+focused cases). This adds Fork/Join inside the nested activation body to the
+supported-body evidence; it does not prove Fork nested inside Fork or authorize
+public iterator/Break behavior.
 
 Subprocess proofs now exercise actual writer process loss immediately after
 the Break node's `node.completed`, `sequence.break_accepted`,

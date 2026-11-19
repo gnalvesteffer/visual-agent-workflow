@@ -431,6 +431,10 @@ introduced.
   completions, nested iteration settlements, and passive playback survive
   reopen. This covers Fork/Join as an inner-activation body composition; it
   does not prove a Fork nested inside another Fork or public iterator support.
+  The same composition now covers branch failure after its sibling succeeds
+  and host cancellation while both branches are active (4/4 file/SQLite cases).
+  Failure suppresses the join and later inner/outer activations; cancellation
+  settles both Agents as cancelled and likewise admits no later activation.
   Host cancellation after Break is requested while an Agent is admitted stays
   a cancelled root and Sequence through both stores and playback (2/2).
   A new proof-scoped single-stream dispatch session now passes the central
