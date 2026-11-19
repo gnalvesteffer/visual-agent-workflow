@@ -70,7 +70,7 @@ public sealed partial class WorkflowRunner
         var connections = plan.Outputs.ToDictionary(output => output.OutputId,
             output => output.ConnectionId, StringComparer.Ordinal);
         var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), plan.SequenceNodeId,
-            plan.Outputs.Select(output => output.OutputId).ToArray(), connections);
+            plan.Outputs.Select(output => output.OutputId).ToArray(), connections, scopeId: frame.ScopeId);
         var session = new SequenceProductionDispatchSession(coordinator, frame, proofBreakNodeIds,
             maximumConcurrentOutputs);
         using var runContext = new StructuredActivationRunContext(runId, revision.RevisionId, record, null,
@@ -82,11 +82,12 @@ public sealed partial class WorkflowRunner
         {
             foreach (var runtimeEvent in coordinator.DrainEvents())
             {
-                var evidence = new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
-                    runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
-                    runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason);
+                var data = runtimeEvent.BreakAcceptance?.Serialize() ?? SequenceEvidence.Serialize(
+                    new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
+                        runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
+                        runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason));
                 await Emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
-                    frame.ScopeId, SequenceEvidence.Serialize(evidence), runtimeEvent.ConnectionId);
+                    runtimeEvent.ScopeId ?? frame.ScopeId, data, runtimeEvent.ConnectionId);
             }
         }
 
@@ -1082,7 +1083,7 @@ public sealed partial class WorkflowRunner
                             output => output.ConnectionId, StringComparer.Ordinal);
                         var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), sequencePlan.SequenceNodeId,
                             sequencePlan.Outputs.Select(output => output.OutputId).ToArray(), connectionIds,
-                            sequencePlan.AllowSingleOutput);
+                            sequencePlan.AllowSingleOutput, scopeId: innerFrame.ScopeId);
                         sequenceDispatchSession = new SequenceProductionDispatchSession(coordinator, innerFrame,
                             proofBreakNodeIds, maximumConcurrentSequenceOutputs);
                     }
@@ -1581,7 +1582,8 @@ public sealed partial class WorkflowRunner
                 StringComparer.Ordinal);
             var sequenceInvocationId = Guid.NewGuid();
             var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, nodeId,
-                outputEdges.Select(output => output.OutputId).ToArray(), connectionIds);
+                outputEdges.Select(output => output.OutputId).ToArray(), connectionIds,
+                scopeId: message.ActivationFrame?.ScopeId);
             var sequenceEventGate = new SemaphoreSlim(1, 1);
 
             async ValueTask FlushSequenceEvents()
@@ -1591,11 +1593,12 @@ public sealed partial class WorkflowRunner
                 {
                     foreach (var runtimeEvent in coordinator.DrainEvents())
                     {
-                        var evidence = new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
-                            runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
-                            runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason);
+                        var data = runtimeEvent.BreakAcceptance?.Serialize() ?? SequenceEvidence.Serialize(
+                            new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
+                                runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
+                                runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason));
                         await Emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
-                            runtimeEvent.ConnectionId, SequenceEvidence.Serialize(evidence));
+                            runtimeEvent.ConnectionId, data, runtimeEvent.ScopeId);
                     }
                 }
                 finally
@@ -1621,10 +1624,11 @@ public sealed partial class WorkflowRunner
                         // persisted. Do not publish skipped-output settlement until
                         // the Break request itself has been accepted.
                         return (ActivationId: activationId, OutputId: output.OutputId,
-                            Result: (GraphMessage?)null, Error: (Exception?)null);
+                            Result: (GraphMessage?)null, Error: (Exception?)null,
+                            Lineage: (SequenceMessageLineage?)null);
                     }
                     await FlushSequenceEvents();
-                    var lineage = new SequenceMessageLineage(sequenceInvocationId, nodeId, activation.OutputId,
+                    SequenceMessageLineage? lineage = new(sequenceInvocationId, nodeId, activation.OutputId,
                         activation.Ordinal, activation.ActivationId!.Value, output.ConnectionId,
                         message.ActivationFrame?.ScopeId);
                     try
@@ -1638,13 +1642,18 @@ public sealed partial class WorkflowRunner
                                 CollaborationRuntime: message.CollaborationRuntime), outputsCancellation.Token);
                         if (result is null)
                             return (ActivationId: activationId, OutputId: output.OutputId, Result: (GraphMessage?)null,
-                                Error: (Exception?)new InvalidOperationException($"Sequence output '{output.OutputId}' produced no result."));
-                        if (result.ActivationBreakRequest is not null)
+                                Error: (Exception?)new InvalidOperationException($"Sequence output '{output.OutputId}' produced no result."),
+                                Lineage: lineage);
+                        if (result.ActivationBreakRequest is { } breakRequest)
                         {
-                            coordinator.StopAdmission(successfulBreak: true);
+                            var activeFrame = message.ActivationFrame
+                                ?? throw new InvalidOperationException("The Sequence Break has no active frame.");
+                            var target = activeFrame.ConsumeNearestBreak(breakRequest);
+                            coordinator.AcceptBreak(lineage, breakRequest, target.TargetFrameId);
                             await FlushSequenceEvents();
                         }
-                        return (ActivationId: activationId, OutputId: output.OutputId, Result: result, Error: (Exception?)null);
+                        return (ActivationId: activationId, OutputId: output.OutputId, Result: result,
+                            Error: (Exception?)null, Lineage: lineage);
                     }
                     catch (WorkflowBodyEvidenceWriteException)
                     {
@@ -1654,7 +1663,7 @@ public sealed partial class WorkflowRunner
                     {
                         if (error is not OperationCanceledException) outputsCancellation.Cancel();
                         return (ActivationId: activationId, OutputId: output.OutputId, Result: (GraphMessage?)null,
-                            Error: error);
+                            Error: error, Lineage: lineage);
                     }
                 }).ToArray();
 
@@ -1672,19 +1681,17 @@ public sealed partial class WorkflowRunner
                     throw failure;
                 }
 
-                var breakResult = outcomes.Select(outcome => outcome.Result)
-                    .FirstOrDefault(result => result?.ActivationBreakRequest is not null);
-                if (breakResult is not null)
+                var breakOutcome = outcomes.FirstOrDefault(outcome => outcome.Result?.ActivationBreakRequest is not null);
+                if (breakOutcome.Result?.ActivationBreakRequest is { } breakRequest)
                 {
-                    coordinator.StopAdmission(successfulBreak: true);
                     foreach (var completed in outcomes.Where(outcome => outcome.Result is not null))
                         coordinator.Complete(completed.ActivationId, SequenceTerminalState.Completed,
                             completed.Result!.Text);
                     await FlushSequenceEvents();
                     await Emit("sequence.aborted", nodeId, sequenceInvocationId,
-                        data: JsonSerializer.Serialize(breakResult.ActivationBreakRequest,
+                        data: JsonSerializer.Serialize(breakRequest,
                             new JsonSerializerOptions(JsonSerializerDefaults.Web)));
-                    return breakResult;
+                    return breakOutcome.Result;
                 }
 
                 foreach (var completed in outcomes)

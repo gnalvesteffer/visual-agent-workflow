@@ -120,14 +120,14 @@ public sealed partial class WorkflowRunner
             new SequenceProductionOutput("decision", 0, "branch", "sequence", "then.decision", "sequence-branch"),
             new SequenceProductionOutput("suffix", 1, "suffix-output", "sequence", "then.suffix", "sequence-suffix")
         ], null, SequenceTerminalState.Completed);
+        var frame = new StructuredActivationFrame(Guid.NewGuid(), null, "array-loop", 0, input,
+            ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal));
         var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence", ["decision", "suffix"],
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["decision"] = "sequence-branch",
                 ["suffix"] = "sequence-suffix"
-            });
-        var frame = new StructuredActivationFrame(Guid.NewGuid(), null, "array-loop", 0, input,
-            ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal));
+            }, scopeId: frame.ScopeId);
         var breakNodeIds = ImmutableHashSet.Create(StringComparer.Ordinal, "break");
         var session = new SequenceProductionDispatchSession(coordinator, frame, breakNodeIds, maximumConcurrentOutputs: 1);
         return ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken,
@@ -434,7 +434,7 @@ public sealed partial class WorkflowRunner
                     path.ChildRevisionId, path.ChildContentHash)), StringComparer.Ordinal);
         var coordinator = sequenceDispatchSession?.Coordinator ?? new SequenceRuntimeCoordinator(sequenceInvocationId, plan.SequenceNodeId,
             plan.Outputs.Select(output => output.OutputId).ToArray(), connectionIds, plan.AllowSingleOutput,
-            callSettlements);
+            callSettlements, sequenceDispatchSession?.ActivationFrame.ScopeId);
         var sequenceEventGate = new SemaphoreSlim(1, 1);
 
         async ValueTask FlushSequenceEvents()
@@ -444,11 +444,12 @@ public sealed partial class WorkflowRunner
             {
                 foreach (var runtimeEvent in coordinator.DrainEvents())
                 {
-                    var evidence = new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
-                        runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
-                        runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason);
+                    var data = runtimeEvent.BreakAcceptance?.Serialize() ?? SequenceEvidence.Serialize(
+                        new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
+                            runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
+                            runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason));
                     await emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
-                        runtimeEvent.ConnectionId, SequenceEvidence.Serialize(evidence), null);
+                        runtimeEvent.ConnectionId, data, runtimeEvent.ScopeId);
                 }
             }
             finally
@@ -725,7 +726,8 @@ public sealed partial class WorkflowRunner
                 if (activation is null && ActivationFrame.BreakScope.Request is { } request)
                 {
                     breakRequest ??= request;
-                    Coordinator.StopAdmission(successfulBreak: true);
+                    if (!Coordinator.HasAcceptedBreak)
+                        throw new InvalidOperationException("The active Sequence did not record the accepted Break request.");
                 }
                 return activation;
             }
@@ -736,8 +738,9 @@ public sealed partial class WorkflowRunner
             if (!BreakNodeIds.Contains(request.SourceNodeId) || request.SourceFrameId != ActivationFrame.Id ||
                 request.ScopeId != ActivationFrame.ScopeId)
                 throw new InvalidOperationException("The Sequence Break request does not belong to its active frame.");
+            var signal = ActivationFrame.ConsumeNearestBreak(request);
             lock (gate) breakRequest ??= request;
-            Coordinator.StopAdmission(successfulBreak: true);
+            Coordinator.AcceptBreak(lineage, request, signal.TargetFrameId);
             if (!Coordinator.IsActivationTerminal(lineage.OutputActivationId))
                 Coordinator.Complete(lineage.OutputActivationId, SequenceTerminalState.Completed);
         }

@@ -74,6 +74,36 @@ public sealed class SequenceRuntimeCoordinatorTests
     }
 
     [Fact]
+    public void Attributed_break_is_recorded_before_skips_and_matches_the_dispatched_output()
+    {
+        const string scope = "array-loop/0";
+        var sequenceId = Guid.NewGuid();
+        var activationId = Guid.NewGuid();
+        var sourceFrameId = Guid.NewGuid();
+        var targetFrameId = Guid.NewGuid();
+        var coordinator = new SequenceRuntimeCoordinator(sequenceId, "sequence", ["first", "suffix"],
+            new Dictionary<string, string> { ["first"] = "connection-a", ["suffix"] = "connection-b" },
+            scopeId: scope);
+        coordinator.DispatchNext(activationId);
+        var lineage = new WorkflowRunner.SequenceMessageLineage(sequenceId, "sequence", "first", 0,
+            activationId, "connection-a", scope);
+        var request = new WorkflowRunner.StructuredActivationBreakRequest("break", sourceFrameId, scope);
+
+        coordinator.AcceptBreak(lineage, request, targetFrameId);
+
+        Assert.Equal([ExecutionEventKinds.SequenceStarted, ExecutionEventKinds.SequenceOutputDispatched,
+            ExecutionEventKinds.SequenceBreakAccepted, ExecutionEventKinds.SequenceOutputSkipped],
+            coordinator.Events.Select(evt => evt.Kind));
+        Assert.Throws<InvalidOperationException>(() => coordinator.AcceptBreak(
+            lineage with { ConnectionId = "tampered" }, request, targetFrameId));
+        var recorded = coordinator.ToExecutionEvents(Guid.NewGuid(), Guid.NewGuid(), 0, DateTimeOffset.UtcNow);
+        Assert.All(recorded, evt => Assert.Equal(scope, evt.ScopeId));
+        Assert.True(SequenceBreakAcceptanceEvidence.TryRead(recorded[2], out var evidence));
+        Assert.Equal(new SequenceBreakAcceptanceEvidence(sequenceId, "sequence", "break", sourceFrameId,
+            targetFrameId, scope), evidence);
+    }
+
+    [Fact]
     public void Terminal_sequence_exposes_typed_aggregate_signal_with_frame_and_output_lineage()
     {
         var sequenceInvocationId = Guid.NewGuid();
@@ -85,12 +115,14 @@ public sealed class SequenceRuntimeCoordinatorTests
             new Dictionary<string, string>
             {
                 ["first"] = "connection-a", ["second"] = "connection-b", ["suffix"] = "connection-c"
-            });
+            }, scopeId: "array-loop/0");
 
         coordinator.DispatchNext(firstActivation);
         coordinator.DispatchNext(secondActivation);
         coordinator.Complete(firstActivation, SequenceTerminalState.Completed);
-        coordinator.StopAdmission(successfulBreak: true);
+        coordinator.AcceptBreak(new(sequenceInvocationId, "sequence", "second", 1, secondActivation,
+                "connection-b", "array-loop/0"),
+            new("break", Guid.NewGuid(), "array-loop/0"), frameId);
         Assert.Null(SequenceAggregateCompletionSignal.Create(coordinator,
             new(sequenceInvocationId, "sequence", "first", 0, firstActivation, "connection-a", "array-loop/0"), frameId));
 
@@ -129,9 +161,14 @@ public sealed class SequenceRuntimeCoordinatorTests
                 new Dictionary<string, string>
                 {
                     ["first"] = "connection-a", ["racing"] = "connection-b", ["suffix"] = "connection-c"
-                });
+                }, scopeId: "array-loop/0");
             var first = Guid.NewGuid();
             coordinator.DispatchNext(first);
+            var firstLineage = new WorkflowRunner.SequenceMessageLineage(coordinator.SequenceInvocationId,
+                coordinator.SequenceNodeId, "first", 0, first, "connection-a", "sequence/first");
+            var acceptedBreakRequest = new WorkflowRunner.StructuredActivationBreakRequest("break", Guid.NewGuid(),
+                "array-loop/0");
+            var targetFrame = Guid.NewGuid();
             using var start = new Barrier(3);
 
             var admission = Task.Run(() =>
@@ -139,14 +176,14 @@ public sealed class SequenceRuntimeCoordinatorTests
                 start.SignalAndWait();
                 return coordinator.TryDispatchNext(Guid.NewGuid(), maximumActiveOutputs: 2);
             });
-            var breakRequest = Task.Run(() =>
+            var breakAcceptance = Task.Run(() =>
             {
                 start.SignalAndWait();
-                coordinator.StopAdmission(successfulBreak: true);
+                coordinator.AcceptBreak(firstLineage, acceptedBreakRequest, targetFrame);
             });
             start.SignalAndWait();
             var admissionResult = await admission;
-            await breakRequest;
+            await breakAcceptance;
 
             Assert.Null(coordinator.TryDispatchNext(Guid.NewGuid(), maximumActiveOutputs: 2));
             var prefix = coordinator.Events;

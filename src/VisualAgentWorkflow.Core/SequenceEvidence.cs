@@ -14,10 +14,43 @@ public sealed record SequenceLifecycleEvidence(
     int Version = 1,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Reason = null);
 
+/// <summary>Durable attribution for a Break accepted by a Sequence activation.</summary>
+public sealed record SequenceBreakAcceptanceEvidence(Guid SequenceInvocationId, string SequenceNodeId,
+    string SourceNodeId, Guid SourceFrameId, Guid TargetFrameId, string ScopeId, int Version = 1)
+{
+    public string Serialize() => JsonSerializer.Serialize(this, JsonSerializerOptions.Web);
+
+    public static bool TryRead(ExecutionEvent executionEvent, out SequenceBreakAcceptanceEvidence? evidence)
+    {
+        ArgumentNullException.ThrowIfNull(executionEvent);
+        evidence = null;
+        if (executionEvent.Kind != ExecutionEventKinds.SequenceBreakAccepted ||
+            string.IsNullOrWhiteSpace(executionEvent.Data)) return false;
+
+        try
+        {
+            evidence = JsonSerializer.Deserialize<SequenceBreakAcceptanceEvidence>(executionEvent.Data,
+                JsonSerializerOptions.Web);
+            return evidence is { Version: 1 } && evidence.SequenceInvocationId != Guid.Empty &&
+                !string.IsNullOrWhiteSpace(evidence.SequenceNodeId) &&
+                !string.IsNullOrWhiteSpace(evidence.SourceNodeId) && evidence.SourceFrameId != Guid.Empty &&
+                evidence.TargetFrameId != Guid.Empty && !string.IsNullOrWhiteSpace(evidence.ScopeId) &&
+                executionEvent.NodeId == evidence.SequenceNodeId &&
+                executionEvent.InvocationId == evidence.SequenceInvocationId &&
+                executionEvent.ScopeId == evidence.ScopeId;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+}
+
 public static class SequenceEvidence
 {
     private static readonly HashSet<string> LifecycleKinds = new(StringComparer.Ordinal)
     {
+        ExecutionEventKinds.SequenceBreakAccepted,
         ExecutionEventKinds.SequenceStarted,
         ExecutionEventKinds.SequenceOutputDispatched,
         ExecutionEventKinds.SequenceOutputCompleted,
@@ -37,7 +70,9 @@ public static class SequenceEvidence
     {
         ArgumentNullException.ThrowIfNull(executionEvent);
         evidence = null;
-        if (!LifecycleKinds.Contains(executionEvent.Kind) || string.IsNullOrWhiteSpace(executionEvent.Data))
+        if (!LifecycleKinds.Contains(executionEvent.Kind) ||
+            executionEvent.Kind == ExecutionEventKinds.SequenceBreakAccepted ||
+            string.IsNullOrWhiteSpace(executionEvent.Data))
             return false;
 
         try
@@ -72,10 +107,24 @@ public static class SequenceEvidence
         var started = false;
         var terminal = false;
         var status = "running";
+        SequenceBreakAcceptanceEvidence? breakAcceptance = null;
         foreach (var executionEvent in events)
         {
-            if (!TryRead(executionEvent, out var evidence) || evidence is null || terminal)
-                return false;
+            if (terminal) return false;
+            if (executionEvent.Kind == ExecutionEventKinds.SequenceBreakAccepted)
+            {
+                if (!started || breakAcceptance is not null ||
+                    outputs.Values.Any(output => output.State == "skipped") ||
+                    !SequenceBreakAcceptanceEvidence.TryRead(executionEvent, out var accepted) || accepted is null ||
+                    identity is null || identity.SequenceInvocationId != accepted.SequenceInvocationId ||
+                    identity.SequenceNodeId != accepted.SequenceNodeId ||
+                    !string.Equals(scopeId, accepted.ScopeId, StringComparison.Ordinal))
+                    return false;
+                breakAcceptance = accepted;
+                continue;
+            }
+
+            if (!TryRead(executionEvent, out var evidence) || evidence is null) return false;
             if ((executionEvent.Kind == ExecutionEventKinds.SequenceBreakCompleted && evidence.Reason != "break") ||
                 (executionEvent.Kind != ExecutionEventKinds.SequenceBreakCompleted && evidence.Reason is not null))
                 return false;
@@ -103,7 +152,8 @@ public static class SequenceEvidence
                     started = true;
                     break;
                 case ExecutionEventKinds.SequenceOutputDispatched:
-                    if (evidence.OutputId is null || evidence.Ordinal is not { } ordinal || ordinal != nextDispatchOrdinal ||
+                    if (breakAcceptance is not null || evidence.OutputId is null ||
+                        evidence.Ordinal is not { } ordinal || ordinal != nextDispatchOrdinal ||
                         evidence.ActivationId is not { } activation || evidence.ConnectionId is null ||
                         outputs.ContainsKey(ordinal) || activeActivations.ContainsKey(activation))
                         return false;
@@ -135,7 +185,8 @@ public static class SequenceEvidence
                     outputs.Add(skippedOrdinal, new(evidence.OutputId, skippedOrdinal, null, evidence.ConnectionId, "skipped"));
                     break;
                 case ExecutionEventKinds.SequenceCompleted:
-                    if (activeActivations.Count != 0 || outputs.Count == 0 || outputs.Values.Any(output => output.State != "completed"))
+                    if (breakAcceptance is not null || activeActivations.Count != 0 || outputs.Count == 0 ||
+                        outputs.Values.Any(output => output.State != "completed"))
                         return false;
                     status = "completed";
                     terminal = true;
@@ -143,7 +194,7 @@ public static class SequenceEvidence
                 case ExecutionEventKinds.SequenceBreakCompleted:
                     if (activeActivations.Count != 0 || outputs.Count == 0 ||
                         outputs.Values.Any(output => output.State is not ("completed" or "skipped")) ||
-                        !outputs.Values.Any(output => output.State == "skipped"))
+                        (!outputs.Values.Any(output => output.State == "skipped") && breakAcceptance is null))
                         return false;
                     var orderedOutputs = outputs.Values.OrderBy(output => output.Ordinal).ToArray();
                     var skippedSeen = false;
@@ -174,7 +225,11 @@ public static class SequenceEvidence
 
         if (identity is null) return false;
         snapshot = new(identity.SequenceInvocationId, identity.SequenceNodeId, status,
-            outputs.Values.OrderBy(output => output.Ordinal).ToArray()) { ScopeId = scopeId };
+            outputs.Values.OrderBy(output => output.Ordinal).ToArray())
+        {
+            ScopeId = scopeId,
+            BreakAcceptance = breakAcceptance
+        };
         return true;
     }
 }
@@ -184,6 +239,9 @@ public sealed record SequencePlaybackSnapshot(Guid SequenceInvocationId, string 
 {
     /// <summary>The activation scope that owns this Sequence invocation, when recorded.</summary>
     public string? ScopeId { get; init; }
+
+    /// <summary>The accepted Break attribution, when present in the recorded prefix.</summary>
+    public SequenceBreakAcceptanceEvidence? BreakAcceptance { get; init; }
 }
 
 public sealed record SequencePlaybackOutput(string OutputId, int Ordinal, Guid? ActivationId,

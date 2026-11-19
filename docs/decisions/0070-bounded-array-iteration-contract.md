@@ -4386,15 +4386,29 @@ Sequence outputs (2/2).
 
 This proves failure before Break on the composed nested route; it does not prove
 that an already-admitted sibling's late failure overrides a concurrently
-reached Break. A held-Agent overlap fixture now isolates the scheduling boundary
-with a successful release. The conditional Branch completes while the sibling
-Agent is held, but the downstream Break does not start until that Agent is
-released and completes. The focused proof passes against both file and SQLite
-stores; it also confirms the enclosing nested-Sequence behavior reaches two
-Break completions across the two outer items. This establishes the observed
-ordering for this production-body fixture only. It does not establish a general
-Agent Framework scheduling rule, compare the fresh-subworkflow candidate, or
-show whether this ordering meets Blueprint parity. Keep the architecture
-unselected and compare the exact graph against the fresh-subworkflow candidate
-before drawing that conclusion. Unknown external outcome, cancellation,
-pause/stop races, append-rejection cases, and public admission remain open.
+reached Break. A held-Agent overlap fixture isolates the scheduling boundary:
+the conditional Branch completes while the sibling Agent is held, but the
+downstream Break does not start until that Agent is released and completes. The
+same fixture now runs through both the current production-body candidate and a
+fresh Agent Framework subworkflow candidate. Both preserve the observed event
+shape and reconstruct the same `break-completed` state after file and SQLite
+reopen (2/2 per store/candidate). This is evidence for this exact composition,
+not a general Agent Framework scheduling guarantee or an architecture selection.
+
+Zero-skipped Break playback previously had no evidence that distinguished an
+accepted Break from an otherwise completed Sequence. The runtime now emits a
+separate version-1 `sequence.break_accepted` record immediately when the Break
+route requests it, before sibling drain, skipped-output settlement, and the
+terminal. It binds Sequence invocation/node, Break source
+node/frame, nearest target frame, and enclosing activation scope. Runtime
+acceptance also checks that the request belongs to a currently dispatched
+Sequence output and the active frame. Playback requires exactly one valid
+acceptance for a zero-skip `break-completed`; legacy v1 histories remain valid
+when they contain the prior completed-prefix/skipped-suffix evidence. An
+accepted prefix without a terminal remains running, and malformed, mismatched,
+duplicate, late, or normally completed-after-Break histories fail closed.
+Focused Core evidence tests pass 16/16, coordinator tests pass 8/8, and the
+paired file/SQLite candidate test passes 2/2. Unknown external outcome,
+cancellation, pause/stop races, broader append-rejection cases, the complete
+body matrix, and public admission remain open. This proof does not establish
+Blueprint parity or authorize public Break support.

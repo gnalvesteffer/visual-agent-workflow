@@ -418,8 +418,18 @@ introduced.
   0073](decisions/0073-branchable-sequence-output-contract.md) and the fresh
   architecture review in [Decision
   0070](decisions/0070-bounded-array-iteration-contract.md).
-  The existing overlapping Break/Agent proof remains covered, but it does not
-  close that gap.
+  A paired file/SQLite proof now compares the exact nested conditional Break
+  shape across current production-body dispatch and a fresh Agent Framework
+  subworkflow: the Branch completes while a sibling Agent is held, Break waits
+  for release, both candidates persist the same Sequence lifecycle, and passive
+  playback reconstructs `break-completed` after reopen (2/2 each). A versioned
+  `sequence.break_accepted` event binds source node/frame, nearest target frame,
+  Sequence identity, and enclosing scope. Zero-skipped Break terminals require
+  that attribution; legacy skipped-suffix evidence remains readable, and an
+  accepted prefix without a terminal remains running. This closes the exact
+  comparison gap only; broad scheduler ownership, admission races, failure /
+  uncertainty / cancellation precedence, append interruption, and public
+  admission remain open.
   This remains a private proof path: the
   production guard, public schema, and Studio authoring remain unchanged. Prove
   one VAW owner for frames,

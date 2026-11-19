@@ -109,6 +109,63 @@ public sealed class SequenceEvidenceTests
     }
 
     [Fact]
+    public void Playback_reconstructs_attributed_break_without_skipped_outputs_and_keeps_accepted_prefix_running()
+    {
+        const string scope = "array-loop/0";
+        var sequenceId = Guid.NewGuid();
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var activationId = Guid.NewGuid();
+        var acceptance = new SequenceBreakAcceptanceEvidence(sequenceId, "sequence", "break",
+            Guid.NewGuid(), Guid.NewGuid(), scope);
+        var events = new[]
+        {
+            Lifecycle(runId, revisionId, 1, ExecutionEventKinds.SequenceStarted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null), scope),
+            Lifecycle(runId, revisionId, 2, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+                new(sequenceId, "sequence", "first", 0, activationId, "connection-a"), scope),
+            Lifecycle(runId, revisionId, 3, ExecutionEventKinds.SequenceOutputCompleted, sequenceId,
+                new(sequenceId, "sequence", "first", 0, activationId, "connection-a"), scope),
+            new ExecutionEvent(runId, revisionId, 4, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.SequenceBreakAccepted, "sequence", sequenceId,
+                Data: acceptance.Serialize()) { ScopeId = scope },
+            Lifecycle(runId, revisionId, 5, ExecutionEventKinds.SequenceBreakCompleted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null, Reason: "break"), scope)
+        };
+
+        Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("break-completed", playback!.Status);
+        Assert.Equal(acceptance, playback.BreakAcceptance);
+        Assert.Single(playback.Outputs);
+
+        Assert.True(SequenceEvidence.TryReconstructPlayback(events.Take(4), out var prefix));
+        Assert.Equal("running", prefix!.Status);
+        Assert.Equal(acceptance, prefix.BreakAcceptance);
+
+        var zeroSkipLegacy = events.Where(evt => evt.Kind != ExecutionEventKinds.SequenceBreakAccepted)
+            .Select(evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted
+                ? evt with { Sequence = 4 }
+                : evt).ToArray();
+        Assert.False(SequenceEvidence.TryReconstructPlayback(zeroSkipLegacy, out _));
+        var duplicateAcceptance = events.Take(4)
+            .Append(events[3] with { Sequence = 5 })
+            .Append(events[4] with { Sequence = 6 });
+        Assert.False(SequenceEvidence.TryReconstructPlayback(duplicateAcceptance, out _));
+        Assert.False(SequenceEvidence.TryReconstructPlayback(events.Append(events[3] with { Sequence = 6 }), out _));
+        Assert.False(SequenceEvidence.TryReconstructPlayback(events.Select(evt => evt.Kind ==
+                ExecutionEventKinds.SequenceBreakAccepted ? evt with { ScopeId = "wrong-scope" } : evt), out _));
+        var mismatchedAcceptance = acceptance with { SequenceInvocationId = Guid.NewGuid() };
+        Assert.False(SequenceEvidence.TryReconstructPlayback(events.Select(evt => evt.Kind ==
+                ExecutionEventKinds.SequenceBreakAccepted ? evt with { Data = mismatchedAcceptance.Serialize() } : evt), out _));
+        var lateAcceptance = events.Take(3)
+            .Append(Lifecycle(runId, revisionId, 4, ExecutionEventKinds.SequenceOutputSkipped, sequenceId,
+                new(sequenceId, "sequence", "suffix", 1, null, "connection-b"), scope))
+            .Append(events[3] with { Sequence = 5 })
+            .Append(events[4] with { Sequence = 6 });
+        Assert.False(SequenceEvidence.TryReconstructPlayback(lateAcceptance, out _));
+    }
+
+    [Fact]
     public void Legacy_sequence_evidence_remains_usable_by_the_nested_reader_without_agent_events()
     {
         var sequenceId = Guid.NewGuid();
@@ -381,8 +438,9 @@ public sealed class SequenceEvidenceTests
     }
 
     private static ExecutionEvent Lifecycle(Guid runId, Guid revisionId, long sequence, string kind, Guid invocationId,
-        SequenceLifecycleEvidence evidence) => new(runId, revisionId, sequence, DateTimeOffset.UtcNow, kind,
-        evidence.SequenceNodeId, invocationId, evidence.ConnectionId, SequenceEvidence.Serialize(evidence));
+        SequenceLifecycleEvidence evidence, string? scopeId = null) => new(runId, revisionId, sequence,
+        DateTimeOffset.UtcNow, kind, evidence.SequenceNodeId, invocationId, evidence.ConnectionId,
+        SequenceEvidence.Serialize(evidence)) { ScopeId = scopeId };
 
     private static ExecutionEvent Descendant(Guid runId, Guid revisionId, long sequence, string kind, string nodeId,
         Guid invocationId, string data) => new(runId, revisionId, sequence, DateTimeOffset.UtcNow, kind,

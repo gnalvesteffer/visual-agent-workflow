@@ -6521,6 +6521,176 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IteratorCandidates_NestedConditionalBreakSchedulingMatchesFreshSubworkflow(bool sqlite)
+    {
+        var revision = NestedConditionalSequenceBreakWithHeldAgent();
+        var production = await RunCandidateAsync(freshSubworkflow: false);
+        var subworkflow = await RunCandidateAsync(freshSubworkflow: true);
+
+        Assert.Equal(ProductionSequenceShape(production.Events), ProductionSequenceShape(subworkflow.Events));
+
+        async Task<(ExecutionEvent[] Events, string Status)> RunCandidateAsync(bool freshSubworkflow)
+        {
+            using var runStore = new ProofRunStore(revision, "[\"outer-a\",\"outer-b\"]", sqlite);
+            var recorder = new ProofRecorder(runStore, startRoot: false);
+            var agents = new ControlledSettlementAgentExecutor("agent");
+            var branchCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var breakStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var sequencePlan = new WorkflowRunner.SequenceProductionPlan("sequence", [
+                new("decision", 0, "branch", "sequence", "then.decision", "sequence-break"),
+                new("sibling", 1, "agent", "sequence", "then.sibling", "sequence-sibling")
+            ], null, SequenceTerminalState.Completed);
+            ValueTask Record(ExecutionEvent evt)
+            {
+                recorder.Append(evt);
+                if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "branch")
+                    branchCompleted.TrySetResult();
+                if (evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "break")
+                    breakStarted.TrySetResult();
+                return ValueTask.CompletedTask;
+            }
+
+            var execution = freshSubworkflow
+                ? ExecuteFreshNestedBreakCandidateAsync(runStore.RunId, revision, recorder, agents,
+                    sequencePlan, Record)
+                : new WorkflowRunner(agents: agents).ExecuteProductionNestedBodyBreakSequenceProofAsync(
+                    runStore.RunId, revision, "[\"outer-a\",\"outer-b\"]", "[\"inner\"]",
+                    "outerIndex", "index", null, Record,
+                    itemParameterId: "item", proofBreakNodeIds: new HashSet<string>(["break"], StringComparer.Ordinal),
+                    sequencePlan: sequencePlan, maximumConcurrentSequenceOutputs: 2);
+
+            try
+            {
+                await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await branchCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                var earlyBreak = await Task.WhenAny(breakStarted.Task, Task.Delay(TimeSpan.FromSeconds(1)));
+                Assert.NotSame(breakStarted.Task, earlyBreak);
+                agents.Release.TrySetResult();
+                var result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+                var events = recorder.Snapshot();
+                Assert.False(result.Failed, string.Join("\n", events.Select(evt =>
+                    $"{evt.Sequence} {evt.Kind} {evt.NodeId} scope={evt.ScopeId} {evt.Data}")));
+                Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted));
+                AssertPersistedSequence(runStore, events, "completed");
+                var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+                Assert.Equal(events, reopened.Events);
+                var sequenceGroups = reopened.Events.Where(evt => SequenceEvidence.IsLifecycleEvent(evt.Kind))
+                    .GroupBy(evt =>
+                    {
+                        if (SequenceBreakAcceptanceEvidence.TryRead(evt, out var accepted))
+                            return accepted!.SequenceInvocationId;
+                        Assert.True(SequenceEvidence.TryRead(evt, out var evidence));
+                        return evidence!.SequenceInvocationId;
+                    });
+                foreach (var sequenceGroup in sequenceGroups)
+                {
+                    Assert.True(SequenceEvidence.TryReconstructPlayback(sequenceGroup, out var playback),
+                        $"Could not reconstruct {sequenceGroup.Key}: {string.Join(" | ", sequenceGroup.Select(evt => evt.Kind))}");
+                    Assert.Equal("break-completed", playback!.Status);
+                }
+                return (events, "completed");
+            }
+            finally
+            {
+                agents.Release.TrySetResult();
+            }
+        }
+    }
+
+    private static async Task<WorkflowExecutionResult> ExecuteFreshNestedBreakCandidateAsync(Guid runId,
+        WorkflowRevision revision, ProofRecorder recorder, IAgentNodeExecutor agents,
+        WorkflowRunner.SequenceProductionPlan sequencePlan, Func<ExecutionEvent, ValueTask> record)
+    {
+        var breakNodeIds = new HashSet<string>(["break"], StringComparer.Ordinal);
+        var baseParameters = WorkflowParameters.Resolve(revision.Definition, null)
+            ?? ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+        await record(new ExecutionEvent(runId, revision.RevisionId, 0, DateTimeOffset.UtcNow,
+            ExecutionEventKinds.Started));
+
+        for (var outerIndex = 0; outerIndex < 2; outerIndex++)
+        {
+            var outerFrame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null,
+                "outer-loop", outerIndex, $"outer-{(char)('a' + outerIndex)}", baseParameters);
+            outerFrame = outerFrame with
+            {
+                Parameters = outerFrame.BindIteratorValues(revision.Definition, null, "outerIndex")
+            };
+            recorder.Append(ExecutionEventKinds.LoopIterationStarted, "outer-loop", outerFrame.Id,
+                outerFrame.ScopeId);
+
+            var innerBreaks = new ConcurrentQueue<LoopProofBreakDispatch>();
+            await RunFreshSubworkflowLoopProofAsync(runId, revision, recorder, "inner-loop", ["inner"],
+                outerFrame, "index", innerBreaks, async innerFrame =>
+                {
+                    var (child, workflow) = BuildFreshVawBodyWorkflow();
+                    var bodyInput = new FreshVawBodyInput(async cancellationToken =>
+                    {
+                        var connectionIds = sequencePlan.Outputs.ToDictionary(output => output.OutputId,
+                            output => output.ConnectionId, StringComparer.Ordinal);
+                        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), sequencePlan.SequenceNodeId,
+                            sequencePlan.Outputs.Select(output => output.OutputId).ToArray(), connectionIds,
+                            sequencePlan.AllowSingleOutput, scopeId: innerFrame.ScopeId);
+                        var sequenceSession = new WorkflowRunner.SequenceProductionDispatchSession(coordinator,
+                            innerFrame, breakNodeIds, maximumConcurrentOutputs: 2);
+                        ValueTask RecordBodyEvent(ExecutionEvent evt) => record(evt with
+                        {
+                            ScopeId = evt.ScopeId ?? innerFrame.ScopeId
+                        });
+                        var outcome = await new WorkflowRunner(agents: agents).ExecuteBodyForActivationProofAsync(
+                            runId, revision, innerFrame.Item, innerFrame.Parameters, RecordBodyEvent, cancellationToken,
+                            activationFrame: innerFrame, proofBreakNodeIds: breakNodeIds,
+                            sequencePlan: sequencePlan, sequenceDispatchSession: sequenceSession);
+                        if (outcome.Disposition == WorkflowBodyProofDisposition.BreakRequested &&
+                            outcome.BreakRequest is { } request)
+                        {
+                            var signal = WorkflowRunner.ConsumeProductionBodyBreakRequestProof(innerFrame,
+                                request, breakNodeIds);
+                            recorder.Append(new ExecutionEvent(runId, revision.RevisionId, 0, DateTimeOffset.UtcNow,
+                                ExecutionEventKinds.LoopIterationCompleted, "inner-loop", innerFrame.Id)
+                            {
+                                ScopeId = innerFrame.ScopeId,
+                                Data = JsonSerializer.Serialize(new { outcome = "break", signal.SourceNodeId,
+                                    signal.TargetFrameId }, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                            });
+                            return new LoopProofBreak(signal.SourceNodeId, signal.SourceFrameId,
+                                signal.TargetFrameId, signal.ScopeId);
+                        }
+
+                        if (outcome.Disposition != WorkflowBodyProofDisposition.Succeeded || outcome.Output is null)
+                            throw new InvalidOperationException($"Fresh-subworkflow body ended as {outcome.Disposition}.");
+                        recorder.Append(new ExecutionEvent(runId, revision.RevisionId, 0, DateTimeOffset.UtcNow,
+                            ExecutionEventKinds.LoopIterationCompleted, "inner-loop", innerFrame.Id)
+                            { ScopeId = innerFrame.ScopeId });
+                        return new ActivationLoopProofValue(outcome.Output);
+                    });
+
+                    await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, bodyInput);
+                    LoopProofResult? result = null;
+                    await foreach (var evt in run.WatchStreamAsync())
+                        if (evt is WorkflowOutputEvent { Data: LoopProofResult proofResult }) result = proofResult;
+                    _ = child;
+                    return result ?? throw new InvalidOperationException("Fresh subworkflow produced no body outcome.");
+                });
+            Assert.Single(innerBreaks);
+            recorder.Append(ExecutionEventKinds.LoopIterationCompleted, "outer-loop", outerFrame.Id,
+                outerFrame.ScopeId);
+        }
+
+        recorder.CompleteRoot();
+        return new WorkflowExecutionResult(null, Terminated: false, HasOutput: false);
+    }
+
+    private static (string Kind, string? NodeId, string? ConnectionId, string? ScopeId)[] ProductionSequenceShape(
+        IEnumerable<ExecutionEvent> events) => events
+        .Where(evt => evt.Kind.StartsWith("sequence.", StringComparison.Ordinal) ||
+            evt.Kind is ExecutionEventKinds.BranchSelected or ExecutionEventKinds.LoopIterationStarted or
+                ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.NodeStarted or
+                ExecutionEventKinds.NodeCompleted)
+        .Select(evt => (evt.Kind, evt.NodeId, evt.ConnectionId, evt.ScopeId)).ToArray();
+
     private static WorkflowRevision NestedBranchSequenceBreakDefinition()
     {
         var definition = WorkflowRunner.CreateSequenceBranchDecisionEvidenceProofRevision(true).Definition;

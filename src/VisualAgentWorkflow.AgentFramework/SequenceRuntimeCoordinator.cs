@@ -13,10 +13,12 @@ internal sealed class SequenceRuntimeCoordinator
     private readonly Guid sequenceInvocationId;
     private readonly string sequenceNodeId;
     private readonly IReadOnlyDictionary<string, string> connectionIds;
+    private readonly string? scopeId;
     private readonly List<SequenceRuntimeEvent> events = [];
     private readonly Dictionary<Guid, string> completedResults = [];
     private readonly object gate = new();
     private readonly IReadOnlyDictionary<string, SequenceWorkflowCallSettlement>? callSettlements;
+    private SequenceBreakAcceptanceEvidence? breakAcceptance;
     private SequenceTerminalState? terminalState;
     private bool terminalEventRecorded;
     private bool breakCompletionRequested;
@@ -25,7 +27,8 @@ internal sealed class SequenceRuntimeCoordinator
     public SequenceRuntimeCoordinator(Guid sequenceInvocationId, string sequenceNodeId,
         IReadOnlyList<string> outputIds, IReadOnlyDictionary<string, string> connectionIds,
         bool allowSingleOutput = false,
-        IReadOnlyDictionary<string, SequenceWorkflowCallSettlement>? callSettlements = null)
+        IReadOnlyDictionary<string, SequenceWorkflowCallSettlement>? callSettlements = null,
+        string? scopeId = null)
     {
         if (sequenceInvocationId == Guid.Empty) throw new ArgumentException("A sequence invocation ID is required.", nameof(sequenceInvocationId));
         if (string.IsNullOrWhiteSpace(sequenceNodeId)) throw new ArgumentException("A sequence node ID is required.", nameof(sequenceNodeId));
@@ -37,8 +40,10 @@ internal sealed class SequenceRuntimeCoordinator
         this.sequenceNodeId = sequenceNodeId;
         this.connectionIds = new Dictionary<string, string>(connectionIds, StringComparer.Ordinal);
         this.callSettlements = callSettlements;
+        this.scopeId = scopeId;
         ledger = new SequenceActivationLedger(outputIds, allowSingleOutput);
-        events.Add(new SequenceRuntimeEvent(ExecutionEventKinds.SequenceStarted, sequenceNodeId, sequenceInvocationId, null, null, null, null));
+        events.Add(new SequenceRuntimeEvent(ExecutionEventKinds.SequenceStarted, sequenceNodeId,
+            sequenceInvocationId, null, null, null, null, ScopeId: scopeId));
     }
 
     public IReadOnlyList<SequenceRuntimeEvent> Events
@@ -49,6 +54,11 @@ internal sealed class SequenceRuntimeCoordinator
     public Guid SequenceInvocationId => sequenceInvocationId;
 
     public string SequenceNodeId => sequenceNodeId;
+
+    public bool HasAcceptedBreak
+    {
+        get { lock (gate) return breakAcceptance is not null; }
+    }
 
     public SequenceTerminalState? TerminalState
     {
@@ -100,12 +110,13 @@ internal sealed class SequenceRuntimeCoordinator
 
         return Events.Select((runtimeEvent, index) =>
         {
-            var evidence = new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId, runtimeEvent.SequenceNodeId,
-                runtimeEvent.OutputId, runtimeEvent.Ordinal, runtimeEvent.ActivationId, runtimeEvent.ConnectionId,
-                Reason: runtimeEvent.Reason);
+            var data = runtimeEvent.BreakAcceptance?.Serialize() ?? SequenceEvidence.Serialize(
+                new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId, runtimeEvent.SequenceNodeId,
+                    runtimeEvent.OutputId, runtimeEvent.Ordinal, runtimeEvent.ActivationId, runtimeEvent.ConnectionId,
+                    Reason: runtimeEvent.Reason));
             return new ExecutionEvent(runId, revisionId, checked(firstSequence + index), recordedAt,
                 runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
-                runtimeEvent.ConnectionId, SequenceEvidence.Serialize(evidence));
+                runtimeEvent.ConnectionId, data) { ScopeId = runtimeEvent.ScopeId };
         }).ToArray();
     }
 
@@ -182,20 +193,52 @@ internal sealed class SequenceRuntimeCoordinator
     }
 
     /// <summary>Closes future output admission while allowing dispatched outputs to settle.</summary>
-    public IReadOnlyList<SequenceActivationSnapshot> StopAdmission(bool successfulBreak = false)
+    public IReadOnlyList<SequenceActivationSnapshot> StopAdmission()
     {
         lock (gate)
         {
             admissionStopped = true;
-            breakCompletionRequested |= successfulBreak;
-            var snapshots = ledger.SkipPending();
-            foreach (var skipped in snapshots.Where(item => item.State == SequenceActivationState.Skipped))
-                if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.OutputId == skipped.OutputId))
-                    Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId,
-                        skipped.OutputId, skipped.Ordinal, null, connectionIds[skipped.OutputId]));
-            RecordTerminalIfComplete();
-            return snapshots;
+            return StopAdmissionUnderLock();
         }
+    }
+
+    public IReadOnlyList<SequenceActivationSnapshot> AcceptBreak(WorkflowRunner.SequenceMessageLineage lineage,
+        WorkflowRunner.StructuredActivationBreakRequest request, Guid targetFrameId)
+    {
+        ArgumentNullException.ThrowIfNull(lineage);
+        ArgumentNullException.ThrowIfNull(request);
+        lock (gate)
+        {
+            var activation = ledger.Snapshot.FirstOrDefault(item => item.ActivationId == lineage.OutputActivationId);
+            if (lineage.SequenceInvocationId != sequenceInvocationId || lineage.SequenceNodeId != sequenceNodeId ||
+                activation is not { State: SequenceActivationState.Dispatched } ||
+                activation.OutputId != lineage.OutputId || activation.Ordinal != lineage.Ordinal ||
+                !MatchesOutputConnection(lineage.OutputId, lineage.ConnectionId) ||
+                request.SourceFrameId == Guid.Empty || request.SourceNodeId is not { Length: > 0 } ||
+                request.ScopeId != scopeId || targetFrameId == Guid.Empty)
+                throw new InvalidOperationException("Break attribution must match a dispatched output and its active scope.");
+            if (breakAcceptance is not null)
+                throw new InvalidOperationException("A Break was already accepted for this Sequence activation.");
+
+            breakAcceptance = new(sequenceInvocationId, sequenceNodeId, request.SourceNodeId,
+                request.SourceFrameId, targetFrameId, request.ScopeId);
+            breakCompletionRequested = true;
+            admissionStopped = true;
+            Add(new(ExecutionEventKinds.SequenceBreakAccepted, sequenceNodeId, sequenceInvocationId,
+                null, null, null, null, BreakAcceptance: breakAcceptance, ScopeId: request.ScopeId));
+            return StopAdmissionUnderLock();
+        }
+    }
+
+    private IReadOnlyList<SequenceActivationSnapshot> StopAdmissionUnderLock()
+    {
+        var snapshots = ledger.SkipPending();
+        foreach (var skipped in snapshots.Where(item => item.State == SequenceActivationState.Skipped))
+            if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.OutputId == skipped.OutputId))
+                Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId,
+                    skipped.OutputId, skipped.Ordinal, null, connectionIds[skipped.OutputId]));
+        RecordTerminalIfComplete();
+        return snapshots;
     }
 
     public bool IsActivationTerminal(Guid activationId) =>
@@ -253,7 +296,9 @@ internal sealed class SequenceRuntimeCoordinator
 
     private void Add(SequenceRuntimeEvent runtimeEvent)
     {
-        lock (gate) events.Add(runtimeEvent);
+        lock (gate) events.Add(runtimeEvent.ScopeId is null && scopeId is not null
+            ? runtimeEvent with { ScopeId = scopeId }
+            : runtimeEvent);
     }
 
     /// <summary>
@@ -357,4 +402,6 @@ internal sealed record SequenceRuntimeEvent(
     int? Ordinal,
     Guid? ActivationId,
     string? ConnectionId,
-    string? Reason = null);
+    string? Reason = null,
+    SequenceBreakAcceptanceEvidence? BreakAcceptance = null,
+    string? ScopeId = null);

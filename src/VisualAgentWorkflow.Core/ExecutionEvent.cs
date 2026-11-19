@@ -95,6 +95,7 @@ public static class ExecutionEventKinds
     public const string SequenceOutputFailed = "sequence.output.failed";
     public const string SequenceOutputCancelled = "sequence.output.cancelled";
     public const string SequenceOutputSkipped = "sequence.output.skipped";
+    public const string SequenceBreakAccepted = "sequence.break_accepted";
     public const string SequenceCompleted = "sequence.completed";
     public const string SequenceBreakCompleted = "sequence.break_completed";
     public const string SequenceFailed = "sequence.failed";
