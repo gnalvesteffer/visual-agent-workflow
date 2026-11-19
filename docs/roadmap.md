@@ -495,6 +495,12 @@ introduced.
   nonterminal rather than inventing a failed status (2/2). This covers one
   cross-frame failure ordering only; other persistence interruptions and
   production ownership remain open.
+  Rejecting the root `run.outcome-unknown` append after an admitted sibling MCP
+  call becomes uncertain likewise preserves its correlated authorization and
+  uncertainty alongside the first frame's Break in both stores; playback stays
+  nonterminal (2/2). This covers one terminal interruption after an uncertain
+  external action, not crash recovery or production ownership. See [Decision
+  0070](decisions/0070-bounded-array-iteration-contract.md).
   Rejecting the root cancellation append after both Agent cancellations leaves
   each store at its accepted nonterminal prefix, with no fabricated root
   terminal (2/2). Node/loop settlement-append rejection and process-loss

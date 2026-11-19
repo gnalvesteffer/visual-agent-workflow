@@ -4160,6 +4160,18 @@ running (2/2 focused cases). This proves root failure-terminal append
 interruption for this one cross-frame ordering; it does not cover process loss,
 other settlement append boundaries, public topology, or production ownership.
 
+### Sibling unknown-outcome terminal-append interruption proof (2026-11-18)
+
+The cross-frame unknown-outcome case now rejects the root
+`run.outcome-unknown` append after the sibling MCP call has persisted correlated
+`tool.authorized` and `tool.uncertain` evidence. File and SQLite reopen to the
+same accepted nonterminal prefix, retaining the first frame's Break and the
+uncertain external call; passive playback reports the run as still running
+(2/2 focused cases). The rejected terminal is not reconstructed or retried.
+This covers one root-terminal interruption after an uncertain sibling call;
+arbitrary process loss, other settlement boundaries, public topology, and
+production ownership remain open.
+
 ### Sibling-frame unknown-tool precedence proof (2026-11-18)
 
 The same two-parent production-body setup now completes the first frame's MCP

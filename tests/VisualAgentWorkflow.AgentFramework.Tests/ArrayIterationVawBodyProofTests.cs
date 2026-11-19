@@ -8472,6 +8472,95 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task NestedConcurrentProductionCoordinator_UnknownOutcomeRootAppendFailurePreservesPrefix(bool sqlite)
+    {
+        var definition = NestedConcurrentBreakProofDefinition(includeMcp: true);
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "nested-concurrent-production-unknown-root-append-failure-proof");
+        using var runStore = new ProofRunStore(revision, "[\"outer-a\",\"outer-b\"]", sqlite,
+            rejectedAppendPredicate: evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agent = new ControlledSettlementAgentExecutor("agent");
+        var tools = new FirstSuccessSecondUnknownToolBroker("proof.parallel-tool");
+        var secondParentAdmitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSecondParent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstBreakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            recorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.LoopIterationCompleted && evt.NodeId == "inner-loop" &&
+                evt.ScopeId == "outer-loop/0/inner-loop/1")
+                firstBreakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        ValueTask AfterOuterItemAdmitted(int index, CancellationToken cancellationToken)
+        {
+            if (index != 1) return ValueTask.CompletedTask;
+            secondParentAdmitted.TrySetResult();
+            return new(releaseSecondParent.Task.WaitAsync(cancellationToken));
+        }
+
+        var execution = new WorkflowRunner(agents: agent, tools: tools)
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                "[\"outer-a\",\"outer-b\"]", "index", null, Record,
+                itemParameterId: "item", activationLoopNodeId: "outer-loop",
+                nestedItemsJson: "[\"continue\",\"stop\",\"must-not-run\"]",
+                nestedIndexParameterId: "innerIndex", nestedActivationLoopNodeId: "inner-loop",
+                maximumConcurrentBodies: 2, afterItemAdmitted: AfterOuterItemAdmitted);
+        Exception? appendFailure = null;
+        try
+        {
+            await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await secondParentAdmitted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await firstBreakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            agent.Release.TrySetResult();
+            await tools.FirstCallCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            releaseSecondParent.TrySetResult();
+            await tools.SecondCallStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "The root must remain unsettled until the admitted sibling's external outcome is known.");
+            tools.ReleaseSecondCall.TrySetResult();
+            appendFailure = await Xunit.Record.ExceptionAsync(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            releaseSecondParent.TrySetResult();
+            agent.Release.TrySetResult();
+            tools.ReleaseSecondCall.TrySetResult();
+        }
+
+        Assert.True(HasExceptionInChain<IOException>(appendFailure), appendFailure?.ToString());
+        var events = recorder.Snapshot();
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "inner-loop" && evt.ScopeId == "outer-loop/0/inner-loop/1");
+        var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+            evt.NodeId == "tool" && evt.ScopeId == "outer-loop/1/inner-loop/0");
+        var uncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            evt.NodeId == "tool" && evt.ScopeId == "outer-loop/1/inner-loop/0");
+        using var authorizedData = JsonDocument.Parse(authorized.Data!);
+        using var uncertainData = JsonDocument.Parse(uncertain.Data!);
+        Assert.Equal(authorizedData.RootElement.GetProperty("toolCallId").GetGuid(),
+            uncertainData.RootElement.GetProperty("toolCallId").GetGuid());
+        Assert.DoesNotContain(events, evt => evt.NodeId is null && evt.Kind is
+            (ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+                ExecutionEventKinds.OutcomeUnknown));
+        AssertPersistedSequence(runStore, events, "running");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal("running", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+        var loopPlayback = await RenderLoopActivations(reopened.Events, reopened.Status);
+        Assert.Contains("inner-loop · Iteration 2 · Break", loopPlayback, StringComparison.Ordinal);
+        var runPlayback = await RenderPlayback(reopened);
+        Assert.Contains(ExecutionEventKinds.ToolUncertain, runPlayback, StringComparison.Ordinal);
+        Assert.Contains("Latest run status: running", runPlayback, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task NestedConcurrentProductionCoordinator_HostCancellationSettlesSiblingFramesAfterBreak(bool sqlite)
     {
         var definition = NestedConcurrentBreakProofDefinition();
