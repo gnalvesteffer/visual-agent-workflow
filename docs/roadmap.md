@@ -395,8 +395,9 @@ introduced.
   without a terminal (2/2).
   Rejecting `sequence.break_completed` after acceptance likewise preserves the
   accepted nonterminal Sequence prefix and fails the root consistently after
-  file/SQLite reopen (2/2); process loss and root-terminal append failure
-  remain open.
+  file/SQLite reopen (2/2). Rejecting that terminal and then root `run.failed`
+  preserves the running root prefix without retrying either append (2/2).
+  Process loss remains open.
   Host cancellation after Break is requested while an Agent is admitted stays
   a cancelled root and Sequence through both stores and playback (2/2).
   A new proof-scoped single-stream dispatch session now passes the central

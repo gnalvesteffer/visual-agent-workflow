@@ -904,3 +904,12 @@ preserves the accepted nonterminal Sequence prefix in file and SQLite stores.
 Reopen does not fabricate a Break or normal Sequence terminal (2 focused
 cases). Process loss and root-terminal append rejection remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: nested root-terminal append rejection (2026-11-19)
+
+When both `sequence.break_completed` and root `run.failed` appends are rejected,
+the nested production-body proof propagates the root-terminal `IOException`
+without retrying. File and SQLite reopen preserve the running root prefix,
+Break acceptance, and nonterminal Sequence playback (2 focused cases). Process
+loss remains open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

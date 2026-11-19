@@ -4454,4 +4454,10 @@ nested production-body coverage in both stores. The root fails, the accepted
 Break prefix reopens with Sequence playback still running, and no Break or
 normal Sequence terminal is fabricated (2/2). This qualifies rejection of
 the Break terminal append only; process loss and later root-terminal append
-failure remain open.
+failure were a separate gate, now covered below.
+
+When both `sequence.break_completed` and root `run.failed` appends are rejected,
+the nested proof propagates the root-terminal `IOException` without retrying.
+File and SQLite reopen retain the running root prefix, exactly one Break
+acceptance, and nonterminal Sequence playback (2/2). This covers those two
+consecutive append rejections; process loss remains open.
