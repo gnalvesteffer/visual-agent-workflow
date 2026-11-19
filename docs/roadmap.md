@@ -425,6 +425,12 @@ introduced.
   pass through both child Agents, the held sibling prevents premature
   interface/iteration settlement, and file/SQLite playback retains all three
   outcomes (6 cases). Other child graph shapes and crash recovery remain open.
+  The private nested production-body proof now also runs a two-branch Agent
+  Framework Fork/Join independently for each inner typed-array activation
+  across two outer frames (2/2 file/SQLite cases). All four joins, eight Agent
+  completions, nested iteration settlements, and passive playback survive
+  reopen. This covers Fork/Join as an inner-activation body composition; it
+  does not prove a Fork nested inside another Fork or public iterator support.
   Host cancellation after Break is requested while an Agent is admitted stays
   a cancelled root and Sequence through both stores and playback (2/2).
   A new proof-scoped single-stream dispatch session now passes the central

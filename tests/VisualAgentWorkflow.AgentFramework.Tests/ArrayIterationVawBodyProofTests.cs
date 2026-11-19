@@ -7277,6 +7277,77 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyNestedCoordinator_ComposesForkJoinPerInnerActivation(bool sqlite)
+    {
+        var definition = ParallelBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Inner array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "nested-iteration-parallel-fork-join-production-body-proof");
+        const string outerItems = "[\"north-region\",\"south-region\"]";
+        const string innerItems = "[\"alpha\",\"beta\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new EchoAgentExecutor();
+
+        var result = await new WorkflowRunner(agents: agents)
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision, outerItems, innerItems,
+                "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item");
+
+        var events = recorder.Snapshot();
+        Assert.False(result.Failed);
+        Assert.False(result.Cancelled);
+        Assert.True(result.HasOutput);
+        Assert.Equal(8, agents.Inputs.Length);
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join"));
+        Assert.Equal(8, events.Count(evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress && evt.NodeId == "join"));
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "inner-loop"));
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "outer-loop"));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+
+        for (var outerIndex = 0; outerIndex < 2; outerIndex++)
+        for (var innerIndex = 0; innerIndex < 2; innerIndex++)
+        {
+            var scopeId = $"outer-loop/{outerIndex}/inner-loop/{innerIndex}";
+            var scoped = events.Where(evt => evt.ScopeId == scopeId).ToArray();
+            foreach (var agentId in new[] { "agent-left", "agent-right" })
+            {
+                var started = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                    evt.NodeId == agentId);
+                Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                    evt.NodeId == agentId && evt.InvocationId == started.InvocationId);
+            }
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+                evt.NodeId == "join"));
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.NodeId == "inner-loop");
+        }
+
+        AssertPersistedSequence(runStore, events, "completed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Equal(4, CountOccurrences(playback, "Parallel join join · completed"));
+
+        static int CountOccurrences(string text, string value) =>
+            (text.Length - text.Replace(value, string.Empty, StringComparison.Ordinal).Length) / value.Length;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyNestedCoordinator_HostCancellationAfterBreakStopsOuterActivation(bool sqlite)
     {
         var revision = WorkflowRevision.CreateProofOnly(IntegratedNestedAgentMcpBreakDefinition(),

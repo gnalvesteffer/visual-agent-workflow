@@ -985,3 +985,13 @@ Break; the acceptance remains recorded and no Break terminal is fabricated.
 File and SQLite cases pass for both outcomes (4 focused cases). Cross-frame
 races and general concurrent drain remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Typed-array iteration proof: Fork/Join per nested activation (2026-11-19)
+
+The private nested production-body coordinator now executes a two-branch Agent
+Framework Fork/Join in each inner array activation across two outer frames.
+Four scopes each record two Agent completions and one completed join; file and
+SQLite reopen preserve the histories and playback reconstructs all four joins
+(2 focused cases). This extends the body compatibility proof, not public
+iterator support or nested Fork/Fork semantics. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

@@ -4486,6 +4486,15 @@ focused cases). This closes those three outcomes for this interface graph
 shape; other child topologies, crash recovery, and the full iterator gate
 remain open.
 
+The private nested production-body coordinator now also executes a real
+two-branch Agent Framework Fork/Join once per inner typed-array activation
+across two outer frames. Each of the four activation scopes records both Agent
+completions, both join arrivals, one join completion, and one inner iteration
+completion. File and SQLite histories reopen identically, and passive playback
+reconstructs all four joins (2 cases). This adds Fork/Join inside the nested
+activation body to the supported-body evidence; it does not prove Fork nested
+inside Fork or authorize public iterator/Break behavior.
+
 Subprocess proofs now exercise actual writer process loss immediately after
 the Break node's `node.completed`, `sequence.break_accepted`,
 `sequence.break_completed`, inner `loop.iteration.completed`, and root
