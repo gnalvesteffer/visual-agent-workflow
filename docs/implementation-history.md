@@ -956,10 +956,10 @@ process-loss recovery, and public iterator admission remain open. See
 
 ## Typed-array iteration proof: process loss at Break boundaries (2026-11-19)
 
-A separate test process now commits either `sequence.break_accepted` or
-`sequence.break_completed` and is terminated before root settlement. Reopening
-file and SQLite stores preserves the running root and corresponding running
-or `break-completed` Sequence playback state (4 focused cases). This proves
-persisted prefixes at these two process-loss boundaries, not automatic recovery
-or resumption; other cut points and the full iterator gate remain open. See
+A separate test process now commits `sequence.break_accepted`,
+`sequence.break_completed`, or root `run.completed`, then is terminated.
+Reopening file and SQLite stores preserves the expected root status and running
+or `break-completed` Sequence playback (6 focused cases). This proves persisted
+prefixes at these three process-loss boundaries, not automatic recovery or
+resumption; other cut points and the full iterator gate remain open. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

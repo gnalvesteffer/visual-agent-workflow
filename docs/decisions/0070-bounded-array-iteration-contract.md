@@ -4487,10 +4487,11 @@ shape; other child topologies, crash recovery, and the full iterator gate
 remain open.
 
 Subprocess proofs now exercise actual writer process loss immediately after
-either `sequence.break_accepted` or `sequence.break_completed` is committed.
-The parent terminates the child before root settlement and reopens both file
-and SQLite stores. Playback preserves a running Sequence at the accepted prefix
-or `break-completed` at the terminal prefix, while the root remains running
-(4 cases). This proves durable reconstruction at those two boundaries; it does
-not recover or resume the interrupted workflow, and other process-loss cut
-points remain open.
+`sequence.break_accepted`, `sequence.break_completed`, and root `run.completed`
+are committed. The parent terminates the child at each boundary and reopens
+both file and SQLite stores. Playback preserves the running accepted prefix or
+`break-completed` Sequence state; after root completion, the run remains
+completed while Sequence playback remains `break-completed` (6 cases). This
+proves durable reconstruction at these three boundaries; it does not recover
+or resume an interrupted workflow, and other process-loss cut points remain
+open.

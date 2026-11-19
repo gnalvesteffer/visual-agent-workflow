@@ -6792,6 +6792,8 @@ public sealed class ArrayIterationVawBodyProofTests
     [InlineData(true, ExecutionEventKinds.SequenceBreakAccepted)]
     [InlineData(false, ExecutionEventKinds.SequenceBreakCompleted)]
     [InlineData(true, ExecutionEventKinds.SequenceBreakCompleted)]
+    [InlineData(false, ExecutionEventKinds.Completed)]
+    [InlineData(true, ExecutionEventKinds.Completed)]
     public async Task ProductionBodyNestedConditionalBreak_ProcessLossPreservesCommittedPrefix(bool sqlite,
         string stopAfterEvent)
     {
@@ -6828,24 +6830,32 @@ public sealed class ArrayIterationVawBodyProofTests
                 ? new SqliteWorkflowRunStore(storePath)
                 : new FileRunJournal(storePath);
             var reopened = reopenedStore.Get(runId)!;
-            Assert.Equal("running", reopened.Status);
             Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
             Assert.DoesNotContain(reopened.Events, evt => evt.Kind is ExecutionEventKinds.SequenceCompleted or
-                ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
+                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
             Assert.True(SequenceEvidence.TryReconstructPlayback(
                 reopened.Events.Where(evt => SequenceEvidence.IsLifecycleEvent(evt.Kind)), out var playback));
             Assert.NotNull(playback!.BreakAcceptance);
             if (stopAfterEvent == ExecutionEventKinds.SequenceBreakAccepted)
             {
+                Assert.Equal("running", reopened.Status);
                 Assert.Equal("running", playback.Status);
                 Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
                 Assert.Equal(["dispatched", "completed"], playback.Outputs.Select(output => output.State));
             }
-            else
+            else if (stopAfterEvent == ExecutionEventKinds.SequenceBreakCompleted)
             {
+                Assert.Equal("running", reopened.Status);
                 Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
                 Assert.Equal("break-completed", playback.Status);
                 Assert.NotEmpty(playback.Outputs);
+            }
+            else
+            {
+                Assert.Equal(ExecutionEventKinds.Completed, stopAfterEvent);
+                Assert.Equal("completed", reopened.Status);
+                Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.Completed);
+                Assert.Equal("break-completed", playback.Status);
             }
         }
         finally
