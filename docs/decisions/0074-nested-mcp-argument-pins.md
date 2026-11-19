@@ -64,6 +64,12 @@ Before enabling nested pins in authoring or runtime admission:
    must remain stable; no discovery refresh may silently rewrite authored pins
    or connections.
 
+Approval-wrapped direct MCP calls have a separate exact-action evidence path:
+`approval.requested` currently stores the resolved input so a reviewer can
+inspect what they are approving. Nested-pin authoring for those calls remains
+gated until the protected payload lifecycle and exact-action review path are
+resolved in [Decision 0075](0075-approval-payload-privacy.md).
+
 If these gates require a different value/evidence contract, return for another
 architecture review before broadening the proof. A successful proof does not
 by itself establish general nested pins, array-item pins, unrestricted JSON

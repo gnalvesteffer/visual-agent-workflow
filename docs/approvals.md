@@ -47,6 +47,15 @@ This milestone guards explicit `core.mcp-tool` nodes. It does not intercept tool
 
 The input/payload is recorded plaintext in this prototype. Prompts and inputs are rendered as text, not trusted HTML. Remove the approval step before deleting the guarded tool or replacing it with a non-tool operation. New nodes/conditionals cannot be spliced between an approval and its target. Tools can still be changed to another approved binding in a draft, but that produces different content for future publications; it does not alter an active request.
 
+Approval request payload privacy is an open architecture gate. Exact action input
+is currently stored in `approval.requested` because the pending reader and
+reviewer must validate and inspect the action. A reviewed redesign must preserve
+that exact-action guarantee while defining protected retrieval and legacy
+history handling; see [Decision 0075](decisions/0075-approval-payload-privacy.md).
+Nested typed MCP pin authoring for approval-wrapped calls remains gated until
+that lifecycle is resolved. This does not protect current or legacy approval
+payloads.
+
 Manual pause is independent: resume cannot approve a request, and approving while paused does not resume the run. After approval, the continuation reacquires the shared execution permit and respects any pause before advancing. Approval waits count toward the existing 32-context admission limit. Cancel stops the wait without dispatching the guarded action. Cancellation after approval is best effort and cannot roll back an already dispatched tool.
 
 ## Host APIs and attribution
