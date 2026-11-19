@@ -38,4 +38,6 @@ grants, or argument values are included in the descriptor.
 
 Nested typed graph pins, schema-driven default adoption, automatic pin
 regeneration or migration, arbitrary JSON Schema composition, and richer
-redacted invocation evidence require separate reviewed contracts.
+redacted invocation evidence require separate reviewed contracts. The bounded
+nested-pin proof gate and its redaction and compatibility prerequisites are
+tracked in [Decision 0074](0074-nested-mcp-argument-pins.md).
