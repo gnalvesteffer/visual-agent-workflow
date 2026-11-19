@@ -312,3 +312,22 @@ shape, bounded concurrent sibling drain, append rejection at each settlement
 boundary, shared-budget behavior, and broader reader compatibility remain
 open. The full iterator architecture gate and a fresh review are still
 required before selecting public support.
+
+## Nested selected-branch failure proof (2026-11-19)
+
+The nested production-body Sequence fixture now places a deterministic MCP
+operation after the selected branch's Merge and before its conditional Break.
+When that operation fails, the decision output settles failed, the Sequence
+suffix is skipped, no Break terminal is recorded, and the nested body does not
+admit later inner or outer items. Both file and SQLite stores reopen with the
+same event prefix and passive playback reconstructs `failed` with one failed
+and one skipped Sequence output (2/2).
+
+This proves one composed failure path, not late failure during concurrent
+drain. The held-Agent overlap attempt timed out before observing the fake
+executor start or the Break completion; the event prefix alone does not
+distinguish a dispatch deadlock from a fixture scheduling issue. Keep this
+uncertainty explicit, debug or reshape that proof separately, and do not infer
+an architecture limit. Concurrent admitted-sibling failure, unknown MCP
+outcome, cancellation, append rejection, and public validation/runtime remain
+open.

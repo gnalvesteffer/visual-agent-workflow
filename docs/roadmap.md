@@ -345,9 +345,17 @@ introduced.
   output with nearest-frame Break inside nested iteration. It verifies exact
   target-frame identity, suffix skipping, later-item suppression, continued
   outer iteration, and file/SQLite reopen with passive playback (2/2). This
-  covers only the integrated success path; the runtime/settlement gate remains
-  open and must receive a fresh architecture review before any public support
-  decision. See [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
+  now also covers deterministic MCP failure after the selected branch's Merge
+  but before Break: the decision output fails, its Sequence suffix is skipped,
+  and no later inner or outer item starts; file/SQLite reopen and passive
+  playback match (2/2). This is one failure-before-Break path, not late failure
+  during concurrent drain. A held-Agent overlap attempt timed out before
+  executor entry or Break completion; that trace is inconclusive and does not
+  establish an architecture limitation. Concurrent admitted-sibling failure,
+  unknown outcome, cancellation, append rejection, shared-budget races, and
+  public admission remain open. The runtime/settlement gate remains open and
+  requires a fresh architecture review before public support. See [Decision
+  0073](decisions/0073-branchable-sequence-output-contract.md).
   This is proof metadata only and does not enable public authoring or runtime
   dispatch. The
   production Sequence path queues configured outputs through a separate

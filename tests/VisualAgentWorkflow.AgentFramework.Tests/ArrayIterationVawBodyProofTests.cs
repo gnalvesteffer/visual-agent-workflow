@@ -6385,6 +6385,70 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains(ExecutionEventKinds.SequenceBreakCompleted, playback, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyNestedBranchSequenceBreak_SelectedBranchFailureWinsAndReopens(bool sqlite)
+    {
+        const string bindingId = "proof.sequence-branch-tool";
+        var revision = NestedBranchSequenceBreakWithFailingToolDefinition(bindingId);
+        const string outerItems = "[\"outer-a\",\"outer-b\"]";
+        const string innerItems = "[\"break\",\"must-not-run\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var tools = new ControlledSettlementToolBroker(bindingId, ControlledToolOutcome.Failure);
+        var sequencePlan = new WorkflowRunner.SequenceProductionPlan("sequence", [
+            new("decision", 0, "branch", "sequence", "then.decision", "sequence-branch"),
+            new("suffix", 1, "suffix-output", "sequence", "then.suffix", "sequence-suffix")
+        ], null, SequenceTerminalState.Completed);
+
+        var execution = new WorkflowRunner(tools: tools).ExecuteProductionNestedBodyBreakSequenceProofAsync(
+            runStore.RunId, revision, outerItems, innerItems, "outerIndex", "index", null, evt =>
+        {
+            recorder.Append(evt);
+            return ValueTask.CompletedTask;
+        }, itemParameterId: "item", sequencePlan: sequencePlan);
+
+        try
+        {
+            await tools.DispatchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            tools.ReleaseOutcome.TrySetResult();
+            var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+            var events = recorder.Snapshot();
+
+            Assert.True(result.Failed);
+            Assert.False(result.Cancelled);
+            Assert.False(result.HasOutput);
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed &&
+                evt.NodeId == "tool" && evt.ScopeId == "outer-loop/0/inner-loop/0");
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+                evt.NodeId == "sequence" && SequenceEvidence.TryRead(evt, out var evidence) &&
+                evidence?.OutputId == "decision");
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+                evt.NodeId == "sequence" && SequenceEvidence.TryRead(evt, out var evidence) &&
+                evidence?.OutputId == "suffix");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "inner-loop" && evt.ScopeId == "outer-loop/0/inner-loop/1");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "outer-loop" && evt.ScopeId == "outer-loop/1");
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+            AssertPersistedSequence(runStore, events, "failed");
+
+            var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+            Assert.Equal(events, reopened.Events);
+            Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var sequencePlayback));
+            Assert.Equal("failed", sequencePlayback!.Status);
+            Assert.Equal(["failed", "skipped"], sequencePlayback.Outputs.Select(output => output.State));
+            Assert.Contains("Latest run status: failed", await RenderPlayback(reopened), StringComparison.Ordinal);
+        }
+        finally
+        {
+            tools.ReleaseOutcome.TrySetResult();
+            if (!execution.IsCompleted) await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
     private static WorkflowRevision NestedBranchSequenceBreakDefinition()
     {
         var definition = WorkflowRunner.CreateSequenceBranchDecisionEvidenceProofRevision(true).Definition;
@@ -6406,6 +6470,27 @@ public sealed class ArrayIterationVawBodyProofTests
             Connections = connections,
             Parameters = parameters
         }, "nested-branch-sequence-break-proof");
+    }
+
+    private static WorkflowRevision NestedBranchSequenceBreakWithFailingToolDefinition(string bindingId)
+    {
+        var revision = NestedBranchSequenceBreakDefinition();
+        var definition = revision.Definition;
+        var nodes = definition.Nodes
+            .Add("tool", new NodeDefinition(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest(bindingId, new string('a', 64))) { McpArgumentsJson = "{}" });
+        var connections = definition.Connections.Add("item-tool",
+            new(new("item", "out"), new("tool", "in"), "data"));
+        var execution = definition.ExecutionConnections!
+            .Remove("merge-outcome")
+            .Add("merge-tool", Edge("merge", "then", "tool", "execute"))
+            .Add("tool-outcome", Edge("tool", "then", "outcome", "execute"));
+        return WorkflowRevision.CreateProofOnly(definition with
+        {
+            Nodes = nodes,
+            Connections = connections,
+            ExecutionConnections = execution
+        }, "nested-branch-sequence-break-tool-failure-proof");
     }
 
     [Theory]

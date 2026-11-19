@@ -4373,3 +4373,23 @@ admitted, the enclosing outer iteration proceeds, and file/SQLite reopen plus
 passive playback preserve the same event prefix (2/2). This is one integrated
 success-path proof; failure, uncertainty, cancellation, pause/stop races,
 shared-budget stress, append rejection, and public admission remain unproven.
+
+### Nested Sequence selected-branch failure proof (2026-11-19)
+
+A deterministic MCP failure placed after the selected branch's Merge and
+before its conditional Break now exercises the nested production-body Sequence
+path through both file and SQLite stores. The selected output settles failed,
+its undispatched Sequence suffix is skipped, no Break terminal is fabricated,
+and neither the next inner item nor the next outer item starts. Reopening each
+store preserves the event prefix and passive playback reports failed/skipped
+Sequence outputs (2/2).
+
+This proves failure before Break on the composed nested route; it does not prove
+that an already-admitted sibling's late failure overrides a concurrently
+reached Break. An attempted held-Agent overlap fixture timed out after the
+Sequence reported both outputs dispatched; its trace reached held-Agent node
+start and input evaluation but did not reach the fake executor or Break
+completion. That ambiguous fixture result is not evidence for an architecture
+limit. Keep the architecture unselected and debug or reshape that overlap
+proof separately. Unknown external outcome, cancellation, pause/stop races,
+append-rejection cases, and public admission remain open.
