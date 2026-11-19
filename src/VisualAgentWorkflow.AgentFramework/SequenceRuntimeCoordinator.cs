@@ -307,6 +307,13 @@ internal sealed record SequenceAggregateCompletionSignal(
     SequenceOutputActivationLineage LastSettledOutput,
     ImmutableArray<SequenceActivationSnapshot> OutputActivations)
 {
+    public bool Matches(SequenceOutputActivationLineage lineage, Guid? frameId) =>
+        SequenceInvocationId == lineage.SequenceInvocationId &&
+        SequenceNodeId == lineage.SequenceNodeId &&
+        ScopeId == lineage.ScopeId &&
+        FrameId == frameId &&
+        LastSettledOutput == lineage;
+
     public static SequenceAggregateCompletionSignal? Create(SequenceRuntimeCoordinator coordinator,
         SequenceOutputActivationLineage lastSettledOutput, Guid? frameId)
     {

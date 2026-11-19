@@ -283,3 +283,11 @@ only and does not resolve terminal outcome precedence or enclosing-run recovery.
 The complete Agent Framework suite subsequently passed 954/954, including the
 process-loss and injected SQLite checkpoint-fault probes that interrupted the
 previous run.
+
+The production Sequence source now accepts a terminal aggregate signal only
+when its complete last-output lineage and frame match the arriving completion
+message. Focused coordinator assertions reject mismatched output and frame
+identities; coordinator, dispatch, and production Sequence suites pass 78/78.
+This prevents a same-Sequence but different-output terminal handoff from
+completing the wrong activation. It does not resolve the broader mixed-outcome
+precedence, draining, or recovery gates above.

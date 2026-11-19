@@ -98,7 +98,10 @@ the historical promotion chain.
   Focused coordinator/dispatch/production tests pass 78/78. Aggregate signal
   construction now rejects a last-output lineage whose connection ID differs
   from the coordinator's pinned output contract; a fail-first regression covers
-  this identity check. Both process-loss checkpoint probes that failed during
+  this identity check. The Sequence source now also correlates a terminal signal
+  with the exact arriving output activation and frame before routing it onward;
+  coordinator tests cover mismatched output and frame identities. Both
+  process-loss checkpoint probes that failed during
   the prior run pass individually, and the complete Agent Framework suite now
   passes 954/954, including the injected SQLite checkpoint fault cases.
   Outcome precedence,

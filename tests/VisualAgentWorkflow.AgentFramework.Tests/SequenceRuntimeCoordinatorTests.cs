@@ -107,6 +107,9 @@ public sealed class SequenceRuntimeCoordinatorTests
         Assert.Equal(new SequenceOutputActivationLineage(sequenceInvocationId, "sequence", "second", 1,
                 secondActivation, "connection-b", "array-loop/0"),
             signal.LastSettledOutput);
+        Assert.True(signal.Matches(signal.LastSettledOutput, frameId));
+        Assert.False(signal.Matches(signal.LastSettledOutput with { OutputId = "other-output" }, frameId));
+        Assert.False(signal.Matches(signal.LastSettledOutput, Guid.NewGuid()));
         Assert.Equal([SequenceActivationState.Completed, SequenceActivationState.Completed, SequenceActivationState.Skipped],
             signal.OutputActivations.Select(output => output.State));
         Assert.Throws<InvalidOperationException>(() => SequenceAggregateCompletionSignal.Create(coordinator,

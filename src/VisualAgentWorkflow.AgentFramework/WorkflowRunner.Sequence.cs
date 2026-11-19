@@ -762,9 +762,11 @@ public sealed partial class WorkflowRunner
                         throw new InvalidOperationException("A Sequence completion is missing its lineage.");
                     var aggregateCompletion = message.SequenceAggregateCompletion;
                     if (aggregateCompletion is not null &&
-                        (aggregateCompletion.SequenceInvocationId != coordinator.SequenceInvocationId ||
-                         aggregateCompletion.SequenceNodeId != coordinator.SequenceNodeId))
-                        throw new InvalidOperationException("The aggregate completion signal belongs to a different Sequence invocation.");
+                        !aggregateCompletion.Matches(new(completedLineage.SequenceInvocationId,
+                            completedLineage.SequenceNodeId, completedLineage.OutputId, completedLineage.Ordinal,
+                            completedLineage.OutputActivationId, completedLineage.ConnectionId,
+                            completedLineage.DescendantScopeId), message.ActivationFrame?.Id))
+                        throw new InvalidOperationException("The aggregate completion signal does not match its Sequence output activation.");
                     await flushSequenceEvents();
                     var nextActivation = sequenceDispatchSession?.TryAdmit();
                     if (nextActivation is { } admitted)
