@@ -60,6 +60,36 @@ public class WorkflowRunnerTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "inner-join");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "outer-join");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "post-join");
+
+        var arrivals = events.Where(evt => evt.Kind == ExecutionEventKinds.ParallelJoinArrival).ToArray();
+        Assert.Equal(8, arrivals.Length);
+        Assert.All(arrivals, arrival => Assert.True(ParallelJoinArrivalEvidence.TryRead(arrival, out _)));
+        Assert.Equal(2, arrivals.Where(evt => evt.NodeId == "deep-join")
+            .Select(evt => ParallelJoinArrivalEvidence.TryRead(evt, out var evidence) ? evidence!.BranchId : null).Distinct().Count());
+        Assert.All(arrivals.Where(evt => evt.NodeId == "deep-join"), evt =>
+            Assert.True(ParallelJoinArrivalEvidence.TryRead(evt, out var evidence) && evidence!.Lineage.Length == 3));
+        Assert.All(arrivals.Where(evt => evt.NodeId == "inner-join"), evt =>
+            Assert.True(ParallelJoinArrivalEvidence.TryRead(evt, out var evidence) && evidence!.Lineage.Length == 2));
+        Assert.All(arrivals.Where(evt => evt.NodeId == "post-join"), evt =>
+            Assert.True(ParallelJoinArrivalEvidence.TryRead(evt, out var evidence) && evidence!.Lineage.Length == 1));
+        Assert.True(ParallelJoinEvidence.TryReconstructPlayback(revision.Definition, events, out var playback));
+        Assert.Equal("completed", playback!.Status);
+        Assert.Equal(4, playback.Activations.Length);
+        Assert.All(playback.Activations, activation => Assert.Equal("completed", activation.State));
+
+        var firstArrival = arrivals[0];
+        Assert.True(ParallelJoinArrivalEvidence.TryRead(firstArrival, out var firstEvidence));
+        var tampered = firstEvidence! with
+        {
+            Lineage = firstEvidence.Lineage.SetItem(firstEvidence.Lineage.Length - 1,
+                firstEvidence.Lineage[^1] with { ParentActivationId = Guid.NewGuid() })
+        };
+        var corruptedEvents = events.Select(evt => evt.Sequence == firstArrival.Sequence
+            ? evt with { Data = tampered.Serialize() }
+            : evt).ToArray();
+        Assert.False(ParallelJoinEvidence.TryReconstructPlayback(revision.Definition, corruptedEvents, out _));
+        Assert.False(ParallelJoinEvidence.TryReconstructPlayback(revision.Definition,
+            events.Append(firstArrival).ToArray(), out _));
     }
 
     [Fact]

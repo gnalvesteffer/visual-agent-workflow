@@ -1,6 +1,6 @@
 # Decision 0076: Nested Fork/Join composition
 
-**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, and Studio insertion/removal of nested regions are implemented; persistence/playback, package coverage, and editing existing region branch counts/identities remain open
+**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, Studio insertion/removal, versioned accepted-arrival lineage playback, and File/SQLite reopen proofs are implemented; package coverage, terminal failure/cancellation playback, and editing existing region branch counts/identities remain open
 
 **Date:** 2026-11-20
 
@@ -11,13 +11,13 @@ inside another branch. VAW supports static Fork/Join regions. Core now validates
 strictly owned nested regions and the public runner has a three-level success
 proof. Studio can insert a two-branch execution skeleton on an eligible explicit
 execution edge and remove the smallest containing region, but does not yet edit
-the branch count or identities of an existing region. The private production-body
-proofs now run the same static inner Fork and Join concurrently under separate
-outer branches, restore the parent lineage, and cover success, failure,
-cancellation, duplicate arrivals after join completion, unexpected branch IDs,
-and an unrelated configured Fork identity. File and SQLite histories reopen
-and passive playback preserves the results. These proofs bypass public graph
-validation and do not make nested Fork/Join a supported feature.
+the branch count or identities of an existing region. Earlier private
+production-body proofs ran the same static inner Fork and Join concurrently
+under separate outer branches, restored parent lineage, and covered success,
+failure, cancellation, duplicate arrivals after join completion, unexpected
+branch IDs, and an unrelated configured Fork identity. Their file/SQLite
+reopen and playback checks bypassed public graph validation; the cross-layer
+proofs and remaining gaps are tracked below.
 
 Schema 2.0 is VAW's unified graph contract. Its purpose is to consolidate graph
 capabilities without author-facing schema or capability promotion gates.
@@ -113,8 +113,20 @@ all data connections; authors wire branch data separately. A public runner
 regression executes a nested region inserted inside an existing owned branch.
 Core tests cover selecting/removing nested and deep regions, parent
 preservation, continuation routing, and root removal without schema/output-type
-changes. File/SQLite persistence and passive playback for
-normal-path outcomes, malformed parent-lineage tampering, duplicate arrivals
-before completion, package compatibility, and editing existing region branch
+changes. Schema 2.0 now emits versioned `parallel.join.arrival` events after
+accepting a branch result. The payload identifies the Join, Fork activation,
+branch, and complete root-to-leaf Fork lineage. Core validates configured
+Fork/Join/branch identities and the static nested-owner chain, then passively
+reconstructs accepted branch counts and nesting depth at any recorded prefix.
+The run inspector renders this projection without re-executing the workflow.
+Schema-2.0 histories written before this event existed retain their ordinary
+status and progress events; the inspector explicitly reports that their arrival
+lineage was not recorded instead of reconstructing it from progress text.
+A three-level public-runner regression verifies eight arrivals, successful
+reconstruction, rejection of tampered parent lineage, and rejection of duplicate
+arrival evidence. A nested run has been appended to and reopened from both File
+and SQLite stores; playback reconstructs its two Join activations without
+execution. Package compatibility, failure/cancellation settlement playback,
+runtime duplicate-arrival race coverage, and editing existing region branch
 counts/identities remain open. See [the Blueprint parity roadmap](../roadmap.md) and
 [parallel graph behavior](../parallel-graphs.md).

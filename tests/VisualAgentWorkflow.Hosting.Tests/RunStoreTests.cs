@@ -1,8 +1,10 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using VisualAgentWorkflow.AgentFramework;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
 using Xunit;
@@ -164,6 +166,101 @@ public sealed class RunStoreTests : IDisposable
         Assert.Equal(childRevision, call.ChildRevisionId);
         Assert.Equal(childHash, call.ChildContentHash);
         Assert.Equal("completed", call.State);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Nested_parallel_arrival_lineage_reopens_and_replays_without_execution(bool sqlite)
+    {
+        var definition = NestedParallelStoreDefinition();
+        var revision = WorkflowRevision.Create(definition, "nested-parallel-store-proof");
+        var store = Store(sqlite);
+        var run = store.Create(revision, "parallel input");
+
+        var result = await new WorkflowRunner(agents: new RunStoreEchoAgent()).ExecuteWithOutcomeAsync(
+            run.Header.RunId, revision, "parallel input", null,
+            evt =>
+            {
+                store.Append(run.Header.RunId, evt.Sequence - 1, [evt]);
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.False(result.Failed);
+        var reopened = Store(sqlite).Get(run.Header.RunId)!;
+        var arrivals = reopened.Events.Where(evt => evt.Kind == ExecutionEventKinds.ParallelJoinArrival).ToArray();
+        var outerForkId = reopened.Header.Definition.Nodes.Where(pair => pair.Value.Type == NodeTypes.ParallelFork)
+            .Single(pair => reopened.Header.Definition.ExecutionConnections!.Values.Any(edge =>
+                edge.Target.NodeId == pair.Key && edge.Source.NodeId == "input")).Key;
+        var nestedForkId = reopened.Header.Definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.ParallelFork &&
+            pair.Key != outerForkId).Key;
+        var nestedJoinId = reopened.Header.Definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.ParallelJoin &&
+            pair.Value.ParallelJoin!.ForkNodeId == nestedForkId).Key;
+        Assert.Equal(4, arrivals.Length);
+        Assert.All(arrivals.Where(evt => evt.NodeId != nestedJoinId), evt =>
+            Assert.True(ParallelJoinArrivalEvidence.TryRead(evt, out var evidence) && evidence!.Lineage.Length == 1));
+        Assert.All(arrivals.Where(evt => evt.NodeId == nestedJoinId), evt =>
+            Assert.True(ParallelJoinArrivalEvidence.TryRead(evt, out var evidence) && evidence!.Lineage.Length == 2));
+        Assert.True(ParallelJoinEvidence.TryReconstructPlayback(reopened.Header.Definition, reopened.Events, out var playback));
+        Assert.Equal("completed", playback!.Status);
+        Assert.Equal(2, playback.Activations.Length);
+        Assert.All(playback.Activations, activation => Assert.Equal("completed", activation.State));
+    }
+
+    private static WorkflowDefinition NestedParallelStoreDefinition()
+    {
+        var baseline = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "nested-parallel-store-proof", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["data-path"] = new(new("input", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["execution-path"] = new(new("input", "then"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        var definition = GraphEditing.InsertParallelRegionAtExecutionConnection(baseline, "execution-path");
+        var outerFork = definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.ParallelFork);
+        var outerJoin = definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.ParallelJoin);
+        var branch = outerFork.Value.ParallelFork!.Branches[0];
+        var preAgentId = "nested-store-pre-agent";
+        var postAgentId = "nested-store-post-agent";
+        var directBranchEdge = definition.ExecutionConnections!.Single(pair => pair.Value.Source.NodeId == branch.AnchorNodeId &&
+            pair.Value.Target.NodeId == outerJoin.Key);
+        var nodes = definition.Nodes
+            .Add(preAgentId, new(NodeTypes.Agent, "1.0.0", Agent: new("test.run-store-echo", null, "Before nested region", [])))
+            .Add(postAgentId, new(NodeTypes.Agent, "1.0.0", Agent: new("test.run-store-echo", null, "After nested region", [])));
+        var connections = definition.Connections
+            .Add("nested-store-pre-input", new(new("input", "out"), new(preAgentId, "in"), "data"))
+            .Add("nested-store-post-input", new(new("input", "out"), new(postAgentId, "in"), "data"));
+        var execution = definition.ExecutionConnections!.Remove(directBranchEdge.Key)
+            .Add("nested-store-anchor-pre", new(new(branch.AnchorNodeId, "then"), new(preAgentId, "execute"), "execution"))
+            .Add("nested-store-pre-post", new(new(preAgentId, "out"), new(postAgentId, "execute"), "execution"))
+            .Add("nested-store-post-join", new(new(postAgentId, "out"),
+                new(outerJoin.Key, ParallelBranchLimits.PinId(branch.Id)), "execution"));
+        definition = definition with { Nodes = nodes, Connections = connections, ExecutionConnections = execution };
+        definition = GraphEditing.InsertParallelRegionAtExecutionConnection(definition, "nested-store-pre-post");
+        return definition;
+    }
+
+    private sealed class RunStoreEchoAgent : IAgentNodeExecutor
+    {
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("test.run-store-echo", "Run store echo", "test", true)]);
+
+        public Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(input);
+        }
     }
 
     [Theory]

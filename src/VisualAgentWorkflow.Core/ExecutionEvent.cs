@@ -1,6 +1,6 @@
 namespace VisualAgentWorkflow.Core;
 
-/// <summary>Recorded execution facts. Data is plain text in this initial local-only implementation.</summary>
+/// <summary>Recorded execution facts. Data is text or a versioned, event-specific JSON evidence payload.</summary>
 public sealed record ExecutionEvent(
     Guid RunId,
     Guid RevisionId,
@@ -36,6 +36,7 @@ public static class ExecutionEventKinds
     public const string LoopIterationCompleted = "loop.iteration.completed";
     public const string LoopStopped = "loop.stopped";
     public const string ParallelJoinProgress = "parallel.join.progress";
+    public const string ParallelJoinArrival = "parallel.join.arrival";
     public const string ParallelCollaborationRegionStarted = "parallel.collaboration.region.started";
     public const string ParallelCollaborationMessageSent = "parallel.collaboration.message.sent";
     public const string ParallelCollaborationMessagesRead = "parallel.collaboration.messages.read";

@@ -281,7 +281,9 @@
 
     private string? ActiveActivity(string id)
     {
-        if (State(id)?.Kind != ExecutionEventKinds.NodeStarted) return null;
+        var state = State(id);
+        var isParallelJoin = Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type == NodeTypes.ParallelJoin;
+        if (state?.Kind != ExecutionEventKinds.NodeStarted && !isParallelJoin) return null;
         if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall)
         {
             var child = VisibleEvents.LastOrDefault(evt => evt.ScopeId == id || evt.ScopeId?.StartsWith(id + "/", StringComparison.Ordinal) == true);
@@ -302,6 +304,20 @@
         if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type == NodeTypes.Loop &&
             RootEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped) is { } loopActivity)
             return LoopActivity(loopActivity, "Preparing loop");
+        if (Snapshot is { } snapshot && isParallelJoin &&
+            ParallelJoinEvidence.TryReconstructPlayback(snapshot.Header.Definition, RootEvents, out var parallelPlayback) &&
+            parallelPlayback?.Activations.LastOrDefault(activation => activation.JoinNodeId == id) is { } parallelActivation)
+        {
+            var depth = parallelActivation.Lineages.IsDefaultOrEmpty ? 1 :
+                parallelActivation.Lineages.Max(lineage => lineage.Length);
+            var nesting = depth > 1 ? $" · nested depth {depth}" : string.Empty;
+            return $"Accepted {parallelActivation.ReceivedBranchIds.Length} of {parallelActivation.ExpectedBranchIds.Length} branch results{nesting} · {parallelActivation.State}";
+        }
+        if (Snapshot is { } legacyParallelSnapshot && isParallelJoin &&
+            legacyParallelSnapshot.Header.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+            state?.Kind is (ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled) &&
+            RootEvents.Any(evt => evt.NodeId == id && evt.Kind == ExecutionEventKinds.ParallelJoinProgress))
+            return "Parallel arrival lineage was not recorded in this history";
         var invocation = State(id)?.InvocationId;
         var events = RootEvents.Where(e => e.NodeId == id &&
             (e.InvocationId == invocation || IsDelegatedInvocation(e, invocation))).ToArray();

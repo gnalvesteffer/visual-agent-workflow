@@ -1928,6 +1928,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         : complete ? "Both branch results received." : $"Received {receivedCount} of 2 branch results; waiting for the other branch.";
                     if (started) await Emit(ExecutionEventKinds.NodeStarted, Id, invocation,
                         data: configurable ? $"Waiting for {expectedCount} parallel branch results." : "Waiting for both parallel branch results.");
+                    if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && configurable)
+                    {
+                        var arrival = CreateParallelJoinArrivalEvidence(Id, node.ParallelJoin!, incomingPort!, received);
+                        await Emit(ExecutionEventKinds.ParallelJoinArrival, Id, arrival.ForkActivationId,
+                            data: arrival.Serialize());
+                    }
                     await Emit(ExecutionEventKinds.ParallelJoinProgress, Id, invocation, data: progress);
                     if (!complete) return new("", Id, "parallel.pending", DataType: "json",
                         ActivationFrame: received.ActivationFrame,
@@ -2696,6 +2702,37 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     throw new InvalidOperationException($"Parallel branch results exceed {ParallelGraphLimits.MaximumAggregateCharacters} characters.");
                 return (started, true, result, activation.Inputs.Count, expectedBranches.Count);
             }
+        }
+
+        private static ParallelJoinArrivalEvidence CreateParallelJoinArrivalEvidence(string joinNodeId,
+            ParallelJoinConfiguration configuration, string inputPort, GraphMessage message)
+        {
+            var branchId = inputPort.StartsWith("branch.", StringComparison.Ordinal)
+                ? inputPort["branch.".Length..]
+                : throw new InvalidOperationException("A parallel join arrival must identify its branch input.");
+            var lineage = message.ParallelForkLineage ?? throw new InvalidOperationException(
+                "A unified parallel join arrival is missing fork activation lineage.");
+            if (!lineage.TryGetValue(configuration.ForkNodeId, out var leaf) || leaf.ActivationId is not { } activationId ||
+                leaf.BranchId != branchId)
+                throw new InvalidOperationException("A unified parallel join arrival has inconsistent fork activation lineage.");
+
+            var path = new List<ParallelForkLineageEntry> { leaf };
+            var current = leaf;
+            while (current.ParentForkNodeId is { } parentForkId)
+            {
+                if (!lineage.TryGetValue(parentForkId, out var parent) || parent.ActivationId != current.ParentActivationId ||
+                    parent.BranchId != current.ParentBranchId)
+                    throw new InvalidOperationException("A nested parallel join arrival has incomplete parent lineage.");
+                path.Add(parent);
+                current = parent;
+                if (path.Count > 64)
+                    throw new InvalidOperationException("Parallel fork activation lineage exceeds the supported evidence bound.");
+            }
+            path.Reverse();
+            return new(ParallelJoinArrivalEvidence.CurrentVersion, joinNodeId, configuration.ForkNodeId,
+                activationId, branchId, path.Select(item => new ParallelForkActivationIdentity(item.ForkNodeId,
+                    item.ActivationId ?? Guid.Empty, item.BranchId ?? string.Empty, item.ParentForkNodeId,
+                    item.ParentActivationId, item.ParentBranchId)).ToImmutableArray());
         }
 
         private async Task<string> InvokeTool(string input, Guid invocation, CancellationToken cancellationToken)

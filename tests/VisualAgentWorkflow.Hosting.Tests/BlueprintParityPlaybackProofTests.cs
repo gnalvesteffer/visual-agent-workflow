@@ -69,6 +69,48 @@ public sealed class BlueprintParityPlaybackProofTests
     }
 
     [Fact]
+    public async Task Recorded_parallel_arrival_prefix_renders_accepted_branch_count_passively()
+    {
+        var baseline = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "parallel-arrival-playback", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["data-path"] = new(new("input", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["execution-path"] = new(new("input", "then"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        var definition = GraphEditing.InsertParallelRegionAtExecutionConnection(baseline, "execution-path");
+        var revision = WorkflowRevision.Create(definition, "parallel-arrival-playback");
+        var runId = Guid.NewGuid();
+        var events = new List<ExecutionEvent>();
+
+        await new WorkflowRunner().ExecuteAsync(runId, revision, "parallel input",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        var firstArrival = events.First(evt => evt.Kind == ExecutionEventKinds.ParallelJoinArrival);
+        var prefix = events.Where(evt => evt.Sequence <= firstArrival.Sequence).ToImmutableArray();
+        Assert.True(ParallelJoinEvidence.TryReconstructPlayback(definition, prefix, out var parallelPlayback));
+        Assert.Single(Assert.Single(parallelPlayback!.Activations).ReceivedBranchIds);
+        var html = await Render(Snapshot(runId, revision, prefix, "parallel-arrival-playback", "parallel input"));
+
+        Assert.Contains("Accepted 1 of 2 branch results", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Accepted 2 of 2 branch results", html, StringComparison.Ordinal);
+
+        var legacyEvents = events.Where(evt => evt.Kind != ExecutionEventKinds.ParallelJoinArrival).ToImmutableArray();
+        var legacyHtml = await Render(Snapshot(runId, revision, legacyEvents, "parallel-arrival-playback", "parallel input"));
+        Assert.Contains("Parallel arrival lineage was not recorded in this history", legacyHtml, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Unknown_tool_outcome_is_explained_without_suggesting_a_blind_retry()
     {
         var revision = WorkflowRevision.Create(WorkflowTemplates.Create("uppercase"), "unknown-outcome-playback");
