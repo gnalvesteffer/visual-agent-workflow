@@ -57,6 +57,45 @@ public sealed class DirectMcpExecutionTests
         Assert.Equal("{\"query\":\"configured\"}", broker.Input);
     }
 
+    [Fact]
+    public async Task Configured_nested_direct_mcp_values_are_redacted_from_runtime_evidence()
+    {
+        const string privateName = "private-nested-name";
+        const string privateLabel = "private-nested-label";
+        var configuredArguments = JsonSerializer.Serialize(new
+        {
+            payload = new
+            {
+                request = new { name = privateName, count = 3 },
+                labels = new[] { privateLabel }
+            }
+        });
+        var baseline = Definition();
+        var definition = baseline with
+        {
+            Nodes = baseline.Nodes.SetItem("tool", baseline.Nodes["tool"] with
+            {
+                McpArgumentsJson = configuredArguments
+            })
+        };
+        var broker = new RecordingBroker();
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "{}", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal(configuredArguments, broker.Input);
+        Assert.DoesNotContain(events, evt => evt.Data?.Contains(privateName, StringComparison.Ordinal) == true);
+        Assert.DoesNotContain(events, evt => evt.Data?.Contains(privateLabel, StringComparison.Ordinal) == true);
+        AssertRedacted(events.Single(evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "tool"));
+        AssertRedacted(events.Single(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool"));
+        var evaluations = events.Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated).ToArray();
+        Assert.NotEmpty(evaluations);
+        Assert.All(evaluations, AssertRedacted);
+    }
+
     [Theory]
     [InlineData("1.37")]
     [InlineData("2.0")]

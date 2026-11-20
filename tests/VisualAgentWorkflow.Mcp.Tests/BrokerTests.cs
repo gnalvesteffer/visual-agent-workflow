@@ -84,10 +84,19 @@ public class BrokerTests
             out var arguments, out var diagnostic));
         Assert.Empty(diagnostic);
 
-        var events = new List<string>();
-        await using (var scope = broker.OpenScope(Invocation(Revision(binding), events)))
+        var events = new List<(string Kind, string? Data)>();
+        var revision = Revision(binding);
+        var invocation = new NodeInvocationContext(Guid.NewGuid(), revision, "step-1", Guid.NewGuid(),
+            (kind, data) => { events.Add((kind, data)); return ValueTask.CompletedTask; });
+        await using (var scope = broker.OpenScope(invocation))
         {
             Assert.Equal("Ada:3:blue,green", await scope.InvokeJsonAsync(binding.BindingId, arguments));
+            var authorized = Assert.Single(events, item => item.Kind == ExecutionEventKinds.ToolAuthorized);
+            var completed = Assert.Single(events, item => item.Kind == ExecutionEventKinds.ToolCompleted);
+            Assert.Contains("\"payloadState\":\"redacted\"", authorized.Data, StringComparison.Ordinal);
+            Assert.Contains("\"payloadState\":\"redacted\"", completed.Data, StringComparison.Ordinal);
+            Assert.DoesNotContain("Ada", events.Select(item => item.Data).OfType<string>());
+            Assert.DoesNotContain("Ada:3:blue,green", events.Select(item => item.Data).OfType<string>());
 
             events.Clear();
             using var invalidLiveArguments = JsonDocument.Parse("""
@@ -95,7 +104,7 @@ public class BrokerTests
                 """);
             await Assert.ThrowsAsync<ToolInvocationException>(() =>
                 scope.InvokeJsonAsync(binding.BindingId, invalidLiveArguments.RootElement));
-            Assert.DoesNotContain(ExecutionEventKinds.ToolAuthorized, events);
+            Assert.DoesNotContain(events, item => item.Kind == ExecutionEventKinds.ToolAuthorized);
         }
 
         var driftedBinding = binding with { ContractHash = new string('0', 64) };

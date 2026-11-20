@@ -107,9 +107,13 @@ generic diagnostic that does not echo values. A real stdio broker test dispatche
 the reconstructed nested object, rejects invalid argument values and changed
 pinned contracts, and enforces a missing node grant. The mapper is internal and
 is not used by descriptor projection, workflow persistence, runtime admission,
-or Studio. Rejecting an unsupported live schema through the broker, persisted
-evidence redaction, and compatibility remain unproven; none of the gates below
-are considered complete.
+or Studio. Broker evidence for the nested request is checked for redaction, and
+a runner regression confirms configured nested direct-MCP values do not appear
+in node lifecycle or data-evaluation events. That runner test uses the existing
+static JSON argument path; nested field pins themselves remain unadmitted.
+Rejecting an unsupported live schema through the broker, persisted-store and
+rendered-playback redaction, and compatibility remain unproven; none of the gates
+below are considered complete.
 
 The current implementation already supports nested MCP values on JSON pins and
 retains normalized nested schema metadata. It does not yet provide the
