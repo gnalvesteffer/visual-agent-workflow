@@ -67,6 +67,53 @@ public class BrokerTests
     }
 
     [Fact]
+    public async Task NestedArgumentProofValuesPassThroughLiveBrokerSchemaContractAndGrantChecks()
+    {
+        var broker = CreateBroker(policy: new DemoToolPolicy());
+        var binding = (await broker.ListBindingsAsync()).Single(item => item.BindingId == "demo.inspect-payload");
+        using var schema = JsonDocument.Parse(binding.InputSchemaJson);
+        using var staticArguments = JsonDocument.Parse("""
+            {"payload":{"request":{"count":3},"labels":["blue","green"]}}
+            """);
+        using var connectedName = JsonDocument.Parse("\"Ada\"");
+        var descriptor = McpToolInputSchemas.Describe(schema.RootElement);
+        Assert.True(McpNestedArgumentPath.TryCreatePins(descriptor, out var pins));
+        var namePin = Assert.Single(pins, pin => pin.Path == "/payload/request/name");
+        Assert.True(McpNestedArgumentPath.TryReconstructArguments(schema.RootElement, staticArguments.RootElement,
+            new Dictionary<string, JsonElement> { [namePin.Id] = connectedName.RootElement },
+            out var arguments, out var diagnostic));
+        Assert.Empty(diagnostic);
+
+        var events = new List<string>();
+        await using (var scope = broker.OpenScope(Invocation(Revision(binding), events)))
+        {
+            Assert.Equal("Ada:3:blue,green", await scope.InvokeJsonAsync(binding.BindingId, arguments));
+
+            events.Clear();
+            using var invalidLiveArguments = JsonDocument.Parse("""
+                {"payload":{"request":{"name":"Ada","count":"three"},"labels":["blue"]}}
+                """);
+            await Assert.ThrowsAsync<ToolInvocationException>(() =>
+                scope.InvokeJsonAsync(binding.BindingId, invalidLiveArguments.RootElement));
+            Assert.DoesNotContain(ExecutionEventKinds.ToolAuthorized, events);
+        }
+
+        var driftedBinding = binding with { ContractHash = new string('0', 64) };
+        var driftEvents = new List<string>();
+        await using (var driftedScope = broker.OpenScope(Invocation(Revision(driftedBinding), driftEvents)))
+        {
+            await Assert.ThrowsAsync<ToolContractMismatchException>(() =>
+                driftedScope.InvokeJsonAsync(binding.BindingId, arguments));
+            Assert.DoesNotContain(ExecutionEventKinds.ToolAuthorized, driftEvents);
+        }
+
+        var restrictedBroker = CreateBroker(policy: new ExplicitToolAuthorizationPolicy([]));
+        await using var deniedScope = restrictedBroker.OpenScope(Invocation(Revision(binding), []));
+        await Assert.ThrowsAsync<ToolAccessDeniedException>(() =>
+            deniedScope.InvokeJsonAsync(binding.BindingId, arguments));
+    }
+
+    [Fact]
     public async Task DirectMcpInvocationRedactsPersistedArgumentsAndResultsButReturnsTheResult()
     {
         const string sensitiveInput = "private-mcp-input";

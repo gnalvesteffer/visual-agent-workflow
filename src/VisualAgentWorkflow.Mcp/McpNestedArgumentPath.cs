@@ -14,6 +14,7 @@ namespace VisualAgentWorkflow.Mcp;
 /// </remarks>
 internal static class McpNestedArgumentPath
 {
+    private const int MaximumObjectPathDepth = 2;
     private const string InvalidArgumentsDiagnostic =
         "Nested MCP argument values do not match the pinned closed-object contract.";
 
@@ -25,24 +26,20 @@ internal static class McpNestedArgumentPath
         if (descriptor.Root.JsonType != "object" || descriptor.Root.AllowsAdditionalProperties)
             return false;
 
-        var nestedObjects = descriptor.Root.Properties
-            .Where(field => field.JsonType == "object")
-            .ToArray();
-        if (nestedObjects.Length != 1) return false;
+        var candidateObjects = new List<(McpSchemaFieldDescriptor Field, ImmutableArray<string> Path)>();
+        FindCandidateObjects(descriptor.Root, [], candidateObjects);
+        if (candidateObjects.Count != 1) return false;
 
-        var nestedObject = nestedObjects[0];
-        if (!nestedObject.Required || nestedObject.AllowsAdditionalProperties || nestedObject.Properties.IsDefaultOrEmpty)
-            return false;
-
+        var (nestedObject, objectPath) = candidateObjects[0];
         var candidates = ImmutableArray.CreateBuilder<McpNestedArgumentPinProof>(nestedObject.Properties.Length);
         foreach (var field in nestedObject.Properties)
         {
             if (field.JsonType is not ("string" or "integer" or "number" or "boolean"))
                 return false;
 
-            var path = ToPointer([nestedObject.Name, field.Name]);
-            candidates.Add(new(path, ToPinId([nestedObject.Name, field.Name]), field.Name,
-                field.JsonType, field.Required, field.Bounds));
+            var segments = objectPath.Add(field.Name);
+            candidates.Add(new(ToPointer(segments), ToPinId(segments), field.Name,
+                field.JsonType, field.Required, field.Bounds, segments));
         }
 
         var ordered = candidates.OrderBy(pin => pin.Path, StringComparer.Ordinal).ToImmutableArray();
@@ -52,6 +49,27 @@ internal static class McpNestedArgumentPath
 
         pins = ordered;
         return true;
+    }
+
+    private static void FindCandidateObjects(McpSchemaFieldDescriptor parent,
+        ImmutableArray<string> parentPath, List<(McpSchemaFieldDescriptor Field, ImmutableArray<string> Path)> candidates)
+    {
+        foreach (var field in parent.Properties.Where(property => property.JsonType == "object"))
+        {
+            if (!field.Required || field.AllowsAdditionalProperties) continue;
+            var path = parentPath.Add(field.Name);
+            if (path.Length > MaximumObjectPathDepth) continue;
+
+            if (!field.Properties.IsDefaultOrEmpty && field.Properties.All(property =>
+                    property.JsonType is "string" or "integer" or "number" or "boolean"))
+            {
+                candidates.Add((field, path));
+                continue;
+            }
+
+            if (path.Length < MaximumObjectPathDepth)
+                FindCandidateObjects(field, path, candidates);
+        }
     }
 
     public static bool TryReconstructArguments(JsonElement schema, JsonElement staticArguments,
@@ -66,23 +84,26 @@ internal static class McpNestedArgumentPath
             if (!TryCreatePins(descriptor, out var pins) || staticArguments.ValueKind != JsonValueKind.Object)
                 return false;
 
-            var nestedObjectName = descriptor.Root.Properties.Single(field => field.JsonType == "object").Name;
             var reconstructed = JsonNode.Parse(staticArguments.GetRawText())!.AsObject();
             foreach (var (pinId, value) in connectedValues)
             {
                 var pin = pins.SingleOrDefault(candidate => candidate.Id == pinId);
                 if (pin is null) return false;
 
-                JsonObject nested;
-                if (reconstructed.TryGetPropertyValue(nestedObjectName, out var existing))
+                var nested = reconstructed;
+                foreach (var segment in pin.PathSegments.Take(pin.PathSegments.Length - 1))
                 {
-                    if (existing is not JsonObject existingObject) return false;
-                    nested = existingObject;
-                }
-                else
-                {
-                    nested = new JsonObject();
-                    reconstructed[nestedObjectName] = nested;
+                    if (nested.TryGetPropertyValue(segment, out var existing))
+                    {
+                        if (existing is not JsonObject existingObject) return false;
+                        nested = existingObject;
+                    }
+                    else
+                    {
+                        var created = new JsonObject();
+                        nested[segment] = created;
+                        nested = created;
+                    }
                 }
 
                 nested[pin.Name] = JsonNode.Parse(value.GetRawText());
@@ -127,4 +148,5 @@ internal sealed record McpNestedArgumentPinProof(
     string Name,
     string DataType,
     bool Required,
-    McpSchemaBounds Bounds);
+    McpSchemaBounds Bounds,
+    ImmutableArray<string> PathSegments);
