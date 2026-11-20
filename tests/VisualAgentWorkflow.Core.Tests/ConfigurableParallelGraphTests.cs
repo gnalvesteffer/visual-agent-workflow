@@ -303,6 +303,34 @@ public sealed class ConfigurableParallelGraphTests
     }
 
     [Fact]
+    public void UnifiedThreeLevelNestedParallelPackageAndProjectReleaseRoundTripWithoutSchemaGate()
+    {
+        var definition = DeeperNestedUnifiedParallelDefinition();
+        var layout = WorkflowLayout.Create(definition);
+        var packageJson = WorkflowPackageJson.Serialize(definition, layout);
+
+        var imported = WorkflowPackageJson.Deserialize(packageJson);
+
+        Assert.Equal(WorkflowSchemaVersions.UnifiedWorkflowGraph, imported.Definition.SchemaVersion);
+        Assert.Equal(WorkflowJson.ComputeHash(definition), imported.DefinitionHash);
+        Assert.Equal(WorkflowJson.Serialize(definition), WorkflowJson.Serialize(imported.Definition));
+        Assert.Equal(WorkflowLayoutJson.ComputeHash(layout, definition), imported.LayoutHash);
+        Assert.Equal(packageJson, WorkflowPackageJson.Serialize(imported.Definition, imported.Layout));
+        Assert.All(new[] { "fork", "inner-fork", "deep-fork" }, forkId =>
+            Assert.Contains(imported.Definition.Nodes, node => node.Key == forkId && node.Value.Type == NodeTypes.ParallelFork));
+
+        var archive = WorkflowProjectPackageJson.CreateArchive("nested-parallel-project", "Nested parallel",
+            [imported]);
+        var release = WorkflowProjectPackageJson.Read(archive);
+        var released = release.Workflows[definition.WorkflowId];
+
+        Assert.Equal(WorkflowSchemaVersions.UnifiedWorkflowGraph, released.Definition.SchemaVersion);
+        Assert.Equal(imported.DefinitionHash, released.DefinitionHash);
+        Assert.Equal(imported.LayoutHash, released.LayoutHash);
+        Assert.Equal(packageJson, WorkflowPackageJson.Serialize(released.Definition, released.Layout));
+    }
+
+    [Fact]
     public void Schema132StillRejectsBranchLocalBooleanRouting()
     {
         var definition = BranchLocalDefinition() with { SchemaVersion = WorkflowSchemaVersions.ConfigurableParallelGraph };

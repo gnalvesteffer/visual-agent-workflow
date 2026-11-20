@@ -1,6 +1,6 @@
 # Decision 0076: Nested Fork/Join composition
 
-**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, Studio insertion/removal, versioned activation/arrival playback, and File/SQLite reopen proofs are implemented; package coverage and editing existing region branch counts/identities remain open
+**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, Studio insertion/removal, versioned activation/arrival playback, File/SQLite reopen, and three-level workflow/project-package round trips are implemented; runtime duplicate-arrival races and editing existing region branch counts/identities remain open
 
 **Date:** 2026-11-20
 
@@ -140,9 +140,12 @@ arrival evidence. Public failure/cancellation regressions reconstruct zero and
 partial arrivals as incomplete while preserving the run terminal status. A
 rendered run-inspector proof shows a zero-arrival activation and its accepted
 count at a selected prefix. File and SQLite reopen tests cover zero and partial
-arrivals for both failed and cancelled runs, without re-execution. Package
-compatibility, runtime duplicate-arrival race coverage, and editing existing
-region branch counts/identities remain open. These storage tests establish
-structural consistency and replay, not cryptographic tamper resistance. See [the
+arrivals for both failed and cancelled runs, without re-execution. A current
+schema 2.0 graph with three nested Fork levels also round-trips through a
+workflow package and a project release while preserving definition/layout
+hashes and exact serialized bytes. Runtime duplicate-arrival race coverage and
+editing existing region branch counts/identities remain open. These tests
+establish structural consistency and replay, not cryptographic tamper
+resistance. See [the
 Blueprint parity roadmap](../roadmap.md) and
 [parallel graph behavior](../parallel-graphs.md).

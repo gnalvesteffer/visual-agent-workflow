@@ -34,12 +34,13 @@ the run inspector displays the projection without execution.
 Older schema-2.0 histories retain their status/progress records and are marked
 as lacking recorded arrival lineage.
 File/SQLite reopen is verified for nested success plus zero/partial-arrival
-failure and cancellation; package compatibility and existing-region branch
-editing remain unverified. The accepted end contract has no separate schema,
-capability, or fixed-depth gate.
+failure and cancellation. Three-level nested definitions also round-trip
+through workflow packages and project releases. Runtime duplicate-arrival
+races and existing-region branch editing remain unverified. The accepted end
+contract has no separate schema, capability, or fixed-depth gate.
 See [Decision 0076](decisions/0076-nested-fork-join-composition.md).
 
-Schemas 1.14–1.31 support up to four sequential, explicit two-branch blocks. Schema 1.32 adds a configurable 2–8 branch region in an explicit execution graph. In either form a parallel block is a visible fork and barrier, not an arrangement of nodes that happen to sit side by side. Each branch receives the same incoming string and produces one string result. Historical schemas do not support nested regions; unified schema 2.0 validates and executes strict nested regions. Fork admission and accepted-arrival lineage are persisted and reconstructed passively. Store replay covers success, failure, and cancellation; package compatibility and richer editing remain in progress.
+Schemas 1.14–1.31 support up to four sequential, explicit two-branch blocks. Schema 1.32 adds a configurable 2–8 branch region in an explicit execution graph. In either form a parallel block is a visible fork and barrier, not an arrangement of nodes that happen to sit side by side. Each branch receives the same incoming string and produces one string result. Historical schemas do not support nested regions; unified schema 2.0 validates and executes strict nested regions. Fork admission and accepted-arrival lineage are persisted and reconstructed passively. Store replay covers success, failure, and cancellation. Three-level nested graphs round-trip through workflow and project packages; runtime duplicate-arrival races and richer editing remain in progress.
 
 ```mermaid
 flowchart LR
