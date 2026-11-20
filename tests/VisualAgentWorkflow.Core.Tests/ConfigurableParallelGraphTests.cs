@@ -70,6 +70,85 @@ public sealed class ConfigurableParallelGraphTests
     }
 
     [Fact]
+    public void NestedRegionSelectionResolvesTheInnermostOwnedForkJoinBlock()
+    {
+        var definition = NestedUnifiedParallelDefinition();
+
+        var expected = new[] { "inner-fork", "inner-anchor-a", "inner-anchor-b", "inner-agent-a", "inner-agent-b", "inner-join" }
+            .Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(expected, ParallelBlockEditing.Nodes(definition, "inner-fork"));
+        Assert.Equal(expected, ParallelBlockEditing.Nodes(definition, "inner-anchor-a"));
+        Assert.Equal(expected, ParallelBlockEditing.Nodes(definition, "inner-join"));
+        Assert.Equal(expected, ParallelBlockEditing.Nodes(definition, "inner-agent-a"));
+    }
+
+    [Fact]
+    public void RemovingNestedRegionPreservesItsParentAndReconnectsWithinTheOwnerBranch()
+    {
+        var definition = NestedUnifiedParallelDefinition();
+
+        var removed = ParallelBlockEditing.Remove(definition, "inner-anchor-a");
+
+        Assert.Equal(WorkflowSchemaVersions.UnifiedWorkflowGraph, removed.SchemaVersion);
+        Assert.All(new[] { "inner-fork", "inner-anchor-a", "inner-anchor-b", "inner-agent-a", "inner-agent-b", "inner-join" },
+            id => Assert.DoesNotContain(id, removed.Nodes.Keys));
+        Assert.Contains("fork", removed.Nodes.Keys);
+        Assert.Contains("review", removed.Nodes.Keys);
+        Assert.Contains("join", removed.Nodes.Keys);
+        Assert.Contains(removed.ExecutionConnections!.Values, edge =>
+            edge.Source == new PortReference("research", "then") && edge.Target == new PortReference("agent-research", "execute"));
+        Assert.Empty(WorkflowValidator.Validate(removed));
+    }
+
+    [Fact]
+    public void RemovingMiddleNestedRegionAlsoRemovesItsDescendantsAndPreservesTheOuterRegion()
+    {
+        var definition = DeeperNestedUnifiedParallelDefinition();
+
+        var removed = ParallelBlockEditing.Remove(definition, "inner-fork");
+
+        Assert.DoesNotContain(removed.Nodes.Keys, id => id.StartsWith("inner-", StringComparison.Ordinal) ||
+            id.StartsWith("deep-", StringComparison.Ordinal));
+        Assert.Contains("fork", removed.Nodes.Keys);
+        Assert.Contains("review", removed.Nodes.Keys);
+        Assert.Contains("join", removed.Nodes.Keys);
+        Assert.Contains(removed.ExecutionConnections!.Values, edge =>
+            edge.Source == new PortReference("research", "then") && edge.Target == new PortReference("agent-research", "execute"));
+        Assert.Empty(WorkflowValidator.Validate(removed));
+    }
+
+    [Fact]
+    public void RemovingInnermostRegionPreservesItsParentContinuation()
+    {
+        var definition = DeeperNestedUnifiedParallelDefinition();
+
+        var removed = ParallelBlockEditing.Remove(definition, "deep-agent-x");
+
+        Assert.DoesNotContain(removed.Nodes.Keys, id => id.StartsWith("deep-", StringComparison.Ordinal));
+        Assert.Contains("inner-fork", removed.Nodes.Keys);
+        Assert.Contains("inner-agent-a", removed.Nodes.Keys);
+        Assert.Contains("inner-join", removed.Nodes.Keys);
+        Assert.Contains(removed.ExecutionConnections!.Values, edge =>
+            edge.Source == new PortReference("inner-anchor-a", "then") && edge.Target == new PortReference("inner-agent-a", "execute"));
+        Assert.Empty(WorkflowValidator.Validate(removed));
+    }
+
+    [Fact]
+    public void RemovingRootRegionPreservesSchemaAndOutputTypeWhileReportingDisconnectedDataResult()
+    {
+        var definition = Definition(2) with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
+
+        var removed = ParallelBlockEditing.Remove(definition, "fork");
+
+        Assert.Equal(WorkflowSchemaVersions.UnifiedWorkflowGraph, removed.SchemaVersion);
+        Assert.Equal("json", removed.Nodes["output"].OutputDataType);
+        Assert.DoesNotContain(removed.Nodes.Values, node => node.Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin);
+        Assert.Contains(removed.ExecutionConnections!.Values, edge =>
+            edge.Source == new PortReference("input", "then") && edge.Target == new PortReference("output", "execute"));
+        Assert.Contains(WorkflowValidator.Validate(removed), issue => issue.Code == "data.degree");
+    }
+
+    [Fact]
     public void UnifiedGraphAllowsMultipleSequentialRootForkJoinRegions()
     {
         var definition = SequentialUnifiedParallelDefinition();

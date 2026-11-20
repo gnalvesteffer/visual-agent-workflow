@@ -425,6 +425,11 @@ public partial class WorkflowEditor
     private ImmutableArray<string> pendingBlockNodes = [];
     private string? pendingParallelBlockRemoval;
     private ImmutableArray<string> pendingParallelBlockNodes = [];
+    private ImmutableArray<string> pendingParallelBlockDataConsumers = [];
+    private string? PendingParallelBlockJoinId => pendingParallelBlockRemoval is { } forkId
+        ? Definition.Nodes.FirstOrDefault(entry => entry.Value.Type == NodeTypes.ParallelJoin &&
+            entry.Value.ParallelJoin?.ForkNodeId == forkId).Key
+        : null;
     private async Task RequestBlockRemoval(string id, GraphContextRequest? context = null)
     {
         if (ReadOnly || Disabled) return;
@@ -459,14 +464,26 @@ public partial class WorkflowEditor
         try
         {
             pendingParallelBlockNodes = ParallelBlockEditing.Nodes(Definition, id);
-            pendingParallelBlockRemoval = Definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.ParallelFork).Key;
+            pendingParallelBlockRemoval = pendingParallelBlockNodes.Single(nodeId => Definition.Nodes[nodeId].Type == NodeTypes.ParallelFork);
+            var removed = pendingParallelBlockNodes.ToHashSet(StringComparer.Ordinal);
+            pendingParallelBlockDataConsumers = Definition.Connections.Values
+                .Where(edge => removed.Contains(edge.Source.NodeId) && !removed.Contains(edge.Target.NodeId))
+                .Select(edge => edge.Target.NodeId)
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToImmutableArray();
             await SelectNode(pendingParallelBlockRemoval);
             error = null;
         }
         catch (ArgumentException exception) { error = exception.Message; }
     }
 
-    private void CancelParallelBlockRemoval() { pendingParallelBlockRemoval = null; pendingParallelBlockNodes = []; }
+    private void CancelParallelBlockRemoval()
+    {
+        pendingParallelBlockRemoval = null;
+        pendingParallelBlockNodes = [];
+        pendingParallelBlockDataConsumers = [];
+    }
 
     private async Task ConfirmParallelBlockRemoval()
     {

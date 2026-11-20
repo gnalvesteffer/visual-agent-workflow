@@ -363,7 +363,15 @@
                         @if (pendingParallelBlockRemoval == id)
                         {
                             <section aria-label="Confirm parallel block removal">
-                                <p>Remove this parallel block and its @pendingParallelBlockNodes.Length nodes, then reconnect its original input to the following node?</p>
+                                <p>Remove Fork @pendingParallelBlockRemoval and its matching Join @PendingParallelBlockJoinId, including @pendingParallelBlockNodes.Length nodes? The execution path will reconnect to the region's owner.</p>
+                                @if (!pendingParallelBlockDataConsumers.IsEmpty)
+                                {
+                                    <p class="vaw-help">This region's data output also feeds surviving nodes. Removing it will disconnect those inputs and leave an editable draft with Problems to resolve before running.</p>
+                                    <ul aria-label="Surviving nodes with disconnected data inputs">
+                                        @foreach (var consumerId in pendingParallelBlockDataConsumers)
+                                        { <li>@(string.IsNullOrWhiteSpace(EffectiveLayout.Nodes[consumerId].Label) ? WorkflowGraphCanvas.FriendlyName(Definition.Nodes[consumerId]) : EffectiveLayout.Nodes[consumerId].Label) · @consumerId</li> }
+                                    </ul>
+                                }
                                 <ul>
                                     @foreach (var removedId in pendingParallelBlockNodes)
                                     { <li>@(string.IsNullOrWhiteSpace(EffectiveLayout.Nodes[removedId].Label) ? WorkflowGraphCanvas.FriendlyName(Definition.Nodes[removedId]) : EffectiveLayout.Nodes[removedId].Label) · @removedId</li> }

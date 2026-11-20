@@ -9,7 +9,9 @@ public static class ParallelBlockEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph)
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+            return UnifiedNodes(definition, nodeId);
+        if (definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph)
             return ConfigurableNodes(definition, nodeId);
         if (!definition.Nodes.TryGetValue(nodeId, out var selected) ||
             selected.Type is not (NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin))
@@ -53,7 +55,9 @@ public static class ParallelBlockEditing
 
     public static WorkflowDefinition Remove(WorkflowDefinition definition, string nodeId)
     {
-        if (definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph)
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+            return RemoveUnifiedRegion(definition, nodeId);
+        if (definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph)
             return RemoveConfigurable(definition, nodeId);
         var removed = Nodes(definition, nodeId).ToHashSet(StringComparer.Ordinal);
         var forkId = removed.Single(id => definition.Nodes[id].Type == NodeTypes.ParallelFork);
@@ -84,6 +88,97 @@ public static class ParallelBlockEditing
         };
         WorkflowValidator.ThrowIfInvalid(result);
         return result;
+    }
+
+    private static ImmutableArray<string> UnifiedNodes(WorkflowDefinition definition, string nodeId)
+    {
+        if (!definition.Nodes.TryGetValue(nodeId, out var selected))
+            throw new ArgumentException("Select a node inside a unified parallel region.", nameof(nodeId));
+
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var forkId = ResolveUnifiedForkId(definition, nodeId, selected);
+        return UnifiedRegionNodes(definition, forkId).Order(StringComparer.Ordinal).ToImmutableArray();
+    }
+
+    private static string ResolveUnifiedForkId(WorkflowDefinition definition, string nodeId, NodeDefinition selected)
+    {
+        var directForkId = selected.Type switch
+        {
+            NodeTypes.ParallelFork => nodeId,
+            NodeTypes.ParallelBranch => selected.ParallelBranch?.ForkNodeId,
+            NodeTypes.ParallelJoin => selected.ParallelJoin?.ForkNodeId,
+            _ => null
+        };
+        if (directForkId is not null) return directForkId;
+
+        return definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelFork)
+            .Select(entry => (ForkId: entry.Key, Members: UnifiedRegionNodes(definition, entry.Key)))
+            .Where(region => region.Members.Contains(nodeId))
+            .OrderBy(region => region.Members.Count)
+            .Select(region => region.ForkId)
+            .FirstOrDefault() ?? throw new ArgumentException(
+                "The selected node does not belong to a unified parallel region.", nameof(nodeId));
+    }
+
+    private static HashSet<string> UnifiedRegionNodes(WorkflowDefinition definition, string forkNodeId)
+    {
+        var fork = definition.Nodes[forkNodeId];
+        var joinId = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.ParallelJoin &&
+            entry.Value.ParallelJoin?.ForkNodeId == forkNodeId).Key;
+        var edges = definition.ExecutionConnections!.Values;
+        var outgoing = edges.GroupBy(edge => edge.Source.NodeId)
+            .ToDictionary(group => group.Key, group => group.Select(edge => edge.Target.NodeId).ToArray(), StringComparer.Ordinal);
+        var members = new HashSet<string>(StringComparer.Ordinal) { forkNodeId };
+
+        foreach (var branch in fork.ParallelFork!.Branches)
+        {
+            var pending = new Stack<string>();
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            pending.Push(branch.AnchorNodeId);
+            while (pending.TryPop(out var current))
+            {
+                if (current == joinId)
+                {
+                    members.Add(joinId);
+                    continue;
+                }
+                if (!visited.Add(current)) continue;
+                members.Add(current);
+                if (outgoing.TryGetValue(current, out var successors))
+                    foreach (var successor in successors) pending.Push(successor);
+            }
+        }
+
+        return members;
+    }
+
+    private static WorkflowDefinition RemoveUnifiedRegion(WorkflowDefinition definition, string nodeId)
+    {
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var removed = UnifiedNodes(definition, nodeId).ToHashSet(StringComparer.Ordinal);
+        var selectedForkId = ResolveUnifiedForkId(definition, nodeId, definition.Nodes[nodeId]);
+        var forkId = selectedForkId;
+        var joinId = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.ParallelJoin &&
+            entry.Value.ParallelJoin?.ForkNodeId == forkId).Key;
+        var execution = definition.ExecutionConnections!;
+        var incoming = execution.Single(edge => edge.Value.Target.NodeId == forkId);
+        var continuation = execution.Single(edge => edge.Value.Source.NodeId == joinId);
+        var remainingExecution = execution.RemoveRange(execution
+            .Where(edge => removed.Contains(edge.Value.Source.NodeId) || removed.Contains(edge.Value.Target.NodeId))
+            .Select(edge => edge.Key))
+            .Add("link-" + Guid.NewGuid().ToString("N"),
+                new(incoming.Value.Source, continuation.Value.Target, "execution"));
+        var remainingData = definition.Connections.RemoveRange(definition.Connections
+            .Where(edge => removed.Contains(edge.Value.Source.NodeId) || removed.Contains(edge.Value.Target.NodeId))
+            .Select(edge => edge.Key));
+
+        return definition with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Nodes = definition.Nodes.RemoveRange(removed),
+            Connections = remainingData,
+            ExecutionConnections = remainingExecution
+        };
     }
 
     private static ImmutableArray<string> ConfigurableNodes(WorkflowDefinition definition, string nodeId)

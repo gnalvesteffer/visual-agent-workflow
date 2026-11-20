@@ -1,6 +1,6 @@
 # Decision 0076: Nested Fork/Join composition
 
-**Status:** Accepted target; static schema-2.0 ownership validation and a three-level public-runner success proof are implemented, while failure/recovery, authoring, package, and playback proofs remain open
+**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, and nested-region removal in Studio are implemented; persistence/playback, package coverage, and full nested authoring remain open
 
 **Date:** 2026-11-20
 
@@ -101,7 +101,15 @@ public runner also executes a normally validated graph with three nested levels
 and a later sequential root region to a successful joined result. Public-runner
 failure and cancellation regressions now verify that no nested Join or final
 Output reports a completed result when a required branch does not succeed.
-File/SQLite persistence and passive playback for those normal-path outcomes
-remain open. Malformed parent-lineage tampering, duplicate arrivals before
-completion, package compatibility, and Studio authoring also remain open. See [the
-Blueprint parity roadmap](../roadmap.md) and [parallel graph behavior](../parallel-graphs.md).
+Studio resolves a selected node to the smallest containing nested Fork/Join
+region. Its removal preview identifies the matching Join and all removed nodes;
+removal deletes contained descendants, preserves the parent region, and
+reconnects the owner branch to the removed region's continuation. Surviving
+data consumers are listed and remain in a saveable invalid draft when their
+inputs are disconnected. Core tests cover selecting/removing nested and deep
+regions, parent preservation, continuation routing, and root removal without
+schema/output-type changes. File/SQLite persistence and passive playback for
+normal-path outcomes, malformed parent-lineage tampering, duplicate arrivals
+before completion, package compatibility, and full nested region creation and
+editing remain open. See [the Blueprint parity roadmap](../roadmap.md) and
+[parallel graph behavior](../parallel-graphs.md).
