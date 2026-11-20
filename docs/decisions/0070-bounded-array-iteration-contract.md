@@ -4565,14 +4565,16 @@ source executor and cannot represent a second concurrent arrival batch from
 those same static executors. Schema 2.0 production execution now routes join
 arrivals directly to the VAW Join executor, which correlates by fork activation
 and branch identity; historical schemas retain their existing barrier path.
-The focused runtime group passes 41/41, including the repeated-activation
+The focused runtime group passes 43/43, including the repeated-activation
 proofs.
 
 Additional file/SQLite cases (4/4) hold a duplicate branch-A arrival until
 after its join activation has completed, and send an unexpected branch ID.
 Both are rejected against the completed activation rather than completing a
 second or mixed join; reopened histories and passive playback preserve the
-failure. These cases do not prove state retirement/reclamation or every
-malformed-lineage shape. Parent-mismatch, duplicate-arrival races before join
-completion, unknown fork identity, additional nested levels, and public
-validation/admission remain open.
+failure. A further pair of file/SQLite cases configures the Join with an
+existing but unrelated Fork identity; the runtime rejects arrivals from the
+actual Fork and playback preserves the failed run. These cases do not prove
+state retirement/reclamation or every malformed-lineage shape.
+Parent-mismatch, duplicate-arrival races before join completion, additional
+nested levels, and public validation/admission remain open.

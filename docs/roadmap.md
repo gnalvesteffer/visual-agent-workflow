@@ -445,10 +445,13 @@ introduced.
   repeated concurrent batches from the same static branch executors. Unified
   schema 2.0 now routes arrivals directly to VAW's activation-correlated Join;
   historical schemas keep their barrier route. The focused runtime group passes
-  41/41. Late duplicate
+  43/43, including file/SQLite rejection for an unrelated Fork identity. Late duplicate
   branch-A arrivals after join completion and an unexpected branch ID are
-  rejected with matching reopened playback (4/4). Malformed parent lineage,
-  other late-arrival shapes, and public validation/admission remain open.
+  rejected with matching reopened playback (4/4). A configured Join that names
+  a different, existing Fork identity also fails closed in both stores, with
+  passive playback preserving the failure (2/2). Malformed parent lineage,
+  duplicate arrivals before join completion, and public validation/admission
+  remain open.
   Broader composition and the full iterator gate remain open. The complete
   Agent Framework suite passed 1,012/1,012 tests on rerun;
   one reservation-count assertion failed in the preceding full run, then passed

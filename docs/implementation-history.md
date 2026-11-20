@@ -1,5 +1,15 @@
 # Implementation history
 
+## Unified Fork/Join identity rejection proof (2026-11-20)
+
+The current-schema Join runtime now has file and SQLite proof coverage for a
+malformed nested graph whose Join names a different, existing Fork than the
+one that supplied its branch arrivals. The run fails at the Join, and reopened
+passive playback preserves that failure in both stores (2/2). This closes the
+unknown-fork-identity case only; parent-lineage tampering, duplicate arrivals
+before completion, and public nested-fork authoring remain open. See [Decision
+0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Bounded direct-MCP event payload redaction (2026-11-19)
 
 Direct MCP nodes now keep resolved arguments and results in runtime memory while

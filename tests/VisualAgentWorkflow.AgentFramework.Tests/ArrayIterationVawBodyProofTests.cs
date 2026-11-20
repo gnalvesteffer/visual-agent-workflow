@@ -25296,6 +25296,57 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyNestedForkJoinRejectsUnknownForkIdentity(bool sqlite)
+    {
+        var source = SharedNestedForkGraphDefinition();
+        var definition = source with
+        {
+            Nodes = source.Nodes
+                .Add("unrelated-fork", new(NodeTypes.ParallelFork, "1.0.0")
+                {
+                    ParallelFork = new(ImmutableArray.Create(
+                        new ParallelBranchDescriptor("a", "A", "unused-anchor-a"),
+                        new ParallelBranchDescriptor("b", "B", "unused-anchor-b")))
+                })
+                .SetItem("shared-inner-join", source.Nodes["shared-inner-join"] with
+                {
+                    ParallelJoin = new("unrelated-fork", ["a", "b"])
+                }),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Inner array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "nested-fork-unknown-identity-proof");
+        const string outerItems = "[\"root\"]";
+        const string innerItems = "[\"item\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+
+        var result = await new WorkflowRunner(agents: new SharedNestedForkAgentExecutor())
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision, outerItems, innerItems,
+                "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item", allowNestedForksProof: true)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(result.Failed);
+        var events = recorder.Snapshot();
+        Assert.Contains(events, evt => evt.NodeId == "shared-inner-join" &&
+            evt.Kind == ExecutionEventKinds.NodeFailed);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "shared-inner-join" &&
+            evt.Kind == ExecutionEventKinds.NodeCompleted);
+        AssertPersistedSequence(runStore, events, "failed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains("Latest run status: failed", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyNestedForkJoinRejectsUnknownBranchArrival(bool sqlite)
     {
         var source = SharedNestedForkGraphDefinition();
