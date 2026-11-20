@@ -4552,3 +4552,24 @@ public validator remains unchanged and continues to reject nested Forks. This
 evidence therefore narrows runtime uncertainty but does not declare nested
 Forks or iterator composition supported, nor does it select the public runtime
 architecture.
+
+### Shared static nested-Fork activation proof (2026-11-19)
+
+The private proof now reuses one static inner Fork and Join from both outer
+branches concurrently. Two distinct inner activation IDs each collect their
+own A/B values, complete independently, and restore the correct outer branch
+lineage before the relay. File and SQLite reopen and passive playback preserve
+the same history (2/2). This proof-only build routes join arrivals directly to
+the VAW join executor instead of Agent Framework's fan-in barrier: that
+barrier waits for one message per source executor and cannot represent a
+second concurrent arrival batch from those same static executors. No public
+runtime routing behavior changed.
+
+Additional file/SQLite cases (4/4) hold a duplicate branch-A arrival until
+after its join activation has completed, and send an unexpected branch ID.
+Both are rejected against the completed activation rather than completing a
+second or mixed join; reopened histories and passive playback preserve the
+failure. These cases do not prove state retirement/reclamation or every
+malformed-lineage shape. Parent-mismatch, duplicate-arrival races before join
+completion, unknown fork identity, additional nested levels, and public
+validation/admission remain open.

@@ -437,9 +437,18 @@ introduced.
   SQLite stores with playback (6 focused cases). The nested graph is admitted
   only by proof scaffolding that bypasses public validation; Core validation
   still rejects nested forks, so this is runtime evidence only and does not
-  establish public iterator or nested-fork support. Shared inner-fork identity
-  across outer branches, broader composition, and the full iterator gate remain
-  open. The complete Agent Framework suite passed 1,012/1,012 tests on rerun;
+  establish public iterator or nested-fork support. Shared inner-Fork identity
+  across outer branches now passes a separate proof-only file/SQLite matrix
+  (2/2): two activations independently join their own A/B values and restore
+  the correct outer branch lineage. The private proof uses direct join routing
+  because Agent Framework's fan-in barrier admits one message per source
+  executor and cannot distinguish repeated concurrent batches from the same
+  static branch executors; production routing is unchanged. Late duplicate
+  branch-A arrivals after join completion and an unexpected branch ID are
+  rejected with matching reopened playback (4/4). Malformed parent lineage,
+  other late-arrival shapes, and public validation/admission remain open.
+  Broader composition and the full iterator gate remain open. The complete
+  Agent Framework suite passed 1,012/1,012 tests on rerun;
   one reservation-count assertion failed in the preceding full run, then passed
   in isolation and in the repeat run.
   The same composition now covers branch failure after its sibling succeeds

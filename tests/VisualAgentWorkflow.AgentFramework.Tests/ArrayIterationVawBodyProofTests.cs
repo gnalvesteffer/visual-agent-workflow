@@ -25161,6 +25161,204 @@ public sealed class ArrayIterationVawBodyProofTests
             await RenderPlayback(reopened), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyNestedForkJoinCorrelatesOneStaticForkAcrossParentBranches(bool sqlite)
+    {
+        var definition = SharedNestedForkGraphDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Inner array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "nested-fork-shared-activation-proof");
+        const string outerItems = "[\"root\"]";
+        const string innerItems = "[\"item\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new SharedNestedForkAgentExecutor();
+        using var cancellation = new CancellationTokenSource();
+
+        var execution = new WorkflowRunner(agents: agents)
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision, outerItems, innerItems,
+                "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, cancellation.Token, itemParameterId: "item", allowNestedForksProof: true);
+
+        try
+        {
+            await agents.BothJoinRelaysStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        catch (TimeoutException)
+        {
+            cancellation.Cancel();
+            await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            throw new InvalidOperationException("Both join relays did not start. Recorded nodes: " +
+                string.Join(", ", recorder.Snapshot().Where(evt => evt.NodeId is not null)
+                    .Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.InvocationId}:{evt.Data}:{evt.ScopeId}")));
+        }
+        var relayValues = agents.JoinRelayInputs;
+        Assert.Equal(2, relayValues.Length);
+        var parentContextsByJoin = relayValues.Select(value => ReadParentContexts(value).ToArray()).ToArray();
+        Assert.All(parentContextsByJoin, contexts => Assert.Single(contexts.Distinct(StringComparer.Ordinal)));
+        Assert.Equal(["north", "south"], parentContextsByJoin.Select(contexts => contexts[0]).Order(StringComparer.Ordinal));
+
+        cancellation.Cancel();
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(result.Cancelled);
+        var events = recorder.Snapshot();
+        var joinCompletions = events.Where(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "shared-inner-join").ToArray();
+        Assert.Equal(2, joinCompletions.Length);
+        Assert.Equal(2, joinCompletions.Select(evt => evt.InvocationId).Distinct().Count());
+        var parentTransfers = events.Where(evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+            evt.NodeId == "join-relay").Select(evt => JsonDocument.Parse(evt.Data!).RootElement.Clone()).ToArray();
+        Assert.Equal(2, parentTransfers.Length);
+        Assert.Equal(new[] { "left", "right" }, parentTransfers
+            .Select(evt => evt.GetProperty("branchId").GetString()).Order(StringComparer.Ordinal));
+        Assert.All(parentTransfers, evt => Assert.Equal("outer-fork", evt.GetProperty("forkNodeId").GetString()));
+
+        AssertPersistedSequence(runStore, events, "cancelled");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains("Latest run status: cancelled", await RenderPlayback(reopened), StringComparison.Ordinal);
+
+        static IEnumerable<string> ReadParentContexts(string joinedJson)
+        {
+            using var joined = JsonDocument.Parse(joinedJson);
+            foreach (var branch in joined.RootElement.EnumerateObject())
+            {
+                using var branchValue = JsonDocument.Parse(branch.Value.GetString()!);
+                yield return branchValue.RootElement.GetProperty("parent").GetString()!;
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyNestedForkJoinRejectsLateDuplicateArrival(bool sqlite)
+    {
+        var source = SharedNestedForkGraphDefinition();
+        var definition = source with
+        {
+            Nodes = source.Nodes.Add("late-agent", new(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.shared-fork", null, "Late duplicate", []))),
+            ExecutionConnections = source.ExecutionConnections!
+                .Add("agent-a-late", Edge("inner-agent-a", "out", "late-agent", "execute"))
+                .Add("late-agent-join", Edge("late-agent", "out", "shared-inner-join", "branch.a")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Inner array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "nested-fork-late-duplicate-proof");
+        const string outerItems = "[\"root\"]";
+        const string innerItems = "[\"item\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new LateDuplicateNestedForkAgentExecutor();
+        using var cancellation = new CancellationTokenSource();
+
+        var execution = new WorkflowRunner(agents: agents)
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision, outerItems, innerItems,
+                "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    if (evt.NodeId == "shared-inner-join" && evt.Kind == ExecutionEventKinds.NodeCompleted)
+                        agents.JoinCompleted.TrySetResult();
+                    if (evt.NodeId == "shared-inner-join" && evt.Kind == ExecutionEventKinds.NodeFailed)
+                        agents.LateDuplicateRejected.TrySetResult();
+                    return ValueTask.CompletedTask;
+                }, cancellation.Token, itemParameterId: "item", allowNestedForksProof: true);
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(result.Failed);
+        var events = recorder.Snapshot();
+        var joinCompletions = events.Where(evt => evt.NodeId == "shared-inner-join" &&
+            evt.Kind == ExecutionEventKinds.NodeCompleted).ToArray();
+        var joinFailures = events.Where(evt => evt.NodeId == "shared-inner-join" &&
+            evt.Kind == ExecutionEventKinds.NodeFailed).ToArray();
+        Assert.NotEmpty(joinCompletions);
+        Assert.NotEmpty(joinFailures);
+        Assert.Contains(joinFailures, failure => joinCompletions.Any(completed =>
+            completed.InvocationId == failure.InvocationId && completed.Sequence < failure.Sequence));
+        AssertPersistedSequence(runStore, events, "failed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains("Latest run status: failed", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyNestedForkJoinRejectsUnknownBranchArrival(bool sqlite)
+    {
+        var source = SharedNestedForkGraphDefinition();
+        var fork = source.Nodes["shared-inner-fork"];
+        var definition = source with
+        {
+            Nodes = source.Nodes
+                .SetItem("shared-inner-fork", fork with
+                {
+                    ParallelFork = fork.ParallelFork! with
+                    {
+                        Branches = fork.ParallelFork.Branches.Add(
+                            new ParallelBranchDescriptor("unknown", "Unknown", "inner-anchor-unknown"))
+                    }
+                })
+                .Add("inner-anchor-unknown", new(NodeTypes.ParallelBranch, "1.0.0")
+                    { ParallelBranch = new("shared-inner-fork", "unknown") })
+                .Add("inner-agent-unknown", new(NodeTypes.Agent, "1.0.0",
+                    Agent: new("proof.shared-fork", null, "Unknown branch", []))),
+            ExecutionConnections = source.ExecutionConnections!
+                .Add("inner-unknown", Edge("shared-inner-fork", ParallelBranchLimits.PinId("unknown"),
+                    "inner-anchor-unknown", "execute"))
+                .Add("anchor-unknown-agent", Edge("inner-anchor-unknown", "then", "inner-agent-unknown", "execute"))
+                .Add("unknown-agent-join", Edge("inner-agent-unknown", "out", "shared-inner-join", "branch.unknown")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Inner array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "nested-fork-unknown-arrival-proof");
+        const string outerItems = "[\"root\"]";
+        const string innerItems = "[\"item\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        using var cancellation = new CancellationTokenSource();
+
+        var execution = new WorkflowRunner(agents: new SharedNestedForkAgentExecutor())
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision, outerItems, innerItems,
+                "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, cancellation.Token, itemParameterId: "item", allowNestedForksProof: true);
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(result.Failed);
+        var events = recorder.Snapshot();
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+            evt.NodeId == "shared-inner-join" && evt.ConnectionId == "execution:unknown-agent-join");
+        var joinCompletions = events.Where(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "shared-inner-join").ToArray();
+        var joinFailures = events.Where(evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "shared-inner-join").ToArray();
+        Assert.NotEmpty(joinCompletions);
+        Assert.Contains(joinFailures, failure => joinCompletions.Any(completed =>
+            completed.InvocationId == failure.InvocationId && completed.Sequence < failure.Sequence));
+
+        AssertPersistedSequence(runStore, events, "failed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains("Latest run status: failed", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
     private static WorkflowDefinition NestedParallelForkGraphDefinition()
     {
         var outerBranches = ImmutableArray.Create(
@@ -25238,6 +25436,123 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             ExecutionConnections = execution
         };
+    }
+
+    private static WorkflowDefinition SharedNestedForkGraphDefinition()
+    {
+        var outerBranches = ImmutableArray.Create(
+            new ParallelBranchDescriptor("left", "Outer left", "outer-anchor-left"),
+            new ParallelBranchDescriptor("right", "Outer right", "outer-anchor-right"));
+        var innerBranches = ImmutableArray.Create(
+            new ParallelBranchDescriptor("a", "Inner A", "inner-anchor-a"),
+            new ParallelBranchDescriptor("b", "Inner B", "inner-anchor-b"));
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("outer-fork", new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(outerBranches) })
+            .Add("outer-anchor-left", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("outer-fork", "left") })
+            .Add("outer-anchor-right", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("outer-fork", "right") })
+            .Add("parent-left", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.shared-fork", null, "Left context", [])))
+            .Add("parent-right", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.shared-fork", null, "Right context", [])))
+            .Add("left-context", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("north") })
+            .Add("right-context", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("south") })
+            .Add("shared-inner-fork", new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(innerBranches) })
+            .Add("inner-anchor-a", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("shared-inner-fork", "a") })
+            .Add("inner-anchor-b", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("shared-inner-fork", "b") })
+            .Add("inner-agent-a", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.shared-fork", null, "Inner A", [])))
+            .Add("inner-agent-b", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.shared-fork", null, "Inner B", [])))
+            .Add("shared-inner-join", new(NodeTypes.ParallelJoin, "1.0.0")
+                { ParallelJoin = new("shared-inner-fork", ["a", "b"]) })
+            .Add("join-relay", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.shared-fork", null, "Join relay", [])))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("left-context", new(new("left-context", "out"), new("parent-left", "in"), "data"))
+            .Add("right-context", new(new("right-context", "out"), new("parent-right", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-outer-fork", Edge("input", "then", "outer-fork", "execute"))
+            .Add("outer-left", Edge("outer-fork", ParallelBranchLimits.PinId("left"), "outer-anchor-left", "execute"))
+            .Add("outer-right", Edge("outer-fork", ParallelBranchLimits.PinId("right"), "outer-anchor-right", "execute"))
+            .Add("left-parent", Edge("outer-anchor-left", "then", "parent-left", "execute"))
+            .Add("right-parent", Edge("outer-anchor-right", "then", "parent-right", "execute"))
+            .Add("left-shared-fork", Edge("parent-left", "out", "shared-inner-fork", "execute"))
+            .Add("right-shared-fork", Edge("parent-right", "out", "shared-inner-fork", "execute"))
+            .Add("inner-a", Edge("shared-inner-fork", ParallelBranchLimits.PinId("a"), "inner-anchor-a", "execute"))
+            .Add("inner-b", Edge("shared-inner-fork", ParallelBranchLimits.PinId("b"), "inner-anchor-b", "execute"))
+            .Add("anchor-a-agent", Edge("inner-anchor-a", "then", "inner-agent-a", "execute"))
+            .Add("anchor-b-agent", Edge("inner-anchor-b", "then", "inner-agent-b", "execute"))
+            .Add("agent-a-join", Edge("inner-agent-a", "out", "shared-inner-join", "branch.a"))
+            .Add("agent-b-join", Edge("inner-agent-b", "out", "shared-inner-join", "branch.b"))
+            .Add("join-relay", Edge("shared-inner-join", "then", "join-relay", "execute"))
+            .Add("relay-output", Edge("join-relay", "out", "output", "execute"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "nested-shared-parallel-fork-proof", "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private sealed class SharedNestedForkAgentExecutor : IAgentNodeExecutor
+    {
+        private readonly ConcurrentQueue<string> joinRelayInputs = new();
+        private int joinRelayStarts;
+
+        public TaskCompletionSource BothJoinRelaysStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string[] JoinRelayInputs => [.. joinRelayInputs];
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.shared-fork", "Shared fork proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId is "parent-left" or "parent-right") return input;
+            if (invocation.NodeId is "inner-agent-a" or "inner-agent-b" or "inner-agent-unknown")
+                return JsonSerializer.Serialize(new { parent = input, branch = invocation.NodeId });
+            if (invocation.NodeId != "join-relay")
+                throw new InvalidOperationException($"Unexpected shared-fork proof node '{invocation.NodeId}'.");
+
+            joinRelayInputs.Enqueue(input);
+            var start = Interlocked.Increment(ref joinRelayStarts);
+            if (start == 2) BothJoinRelaysStarted.TrySetResult();
+            if (start == 2)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("A cancelled shared-fork relay unexpectedly resumed.");
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            return input;
+        }
+    }
+
+    private sealed class LateDuplicateNestedForkAgentExecutor : IAgentNodeExecutor
+    {
+        public TaskCompletionSource JoinCompleted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource LateDuplicateRejected { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.shared-fork", "Shared fork proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId is "parent-left" or "parent-right") return input;
+            if (invocation.NodeId is "inner-agent-a" or "inner-agent-b")
+                return JsonSerializer.Serialize(new { parent = input, branch = invocation.NodeId });
+            if (invocation.NodeId == "late-agent")
+            {
+                await JoinCompleted.Task.WaitAsync(cancellationToken);
+                return input;
+            }
+            if (invocation.NodeId == "join-relay")
+            {
+                await LateDuplicateRejected.Task.WaitAsync(cancellationToken);
+                return input;
+            }
+            throw new InvalidOperationException($"Unexpected late-duplicate proof node '{invocation.NodeId}'.");
+        }
     }
 
     private sealed class NestedForkSettlementAgentExecutor(bool blockAll) : IAgentNodeExecutor
