@@ -1,7 +1,12 @@
 using System.Collections.Immutable;
 using System.IO;
 using System.Text.Json;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using VisualAgentWorkflow.AgentFramework;
+using VisualAgentWorkflow.Blazor.Components;
 using VisualAgentWorkflow.Core;
 using VisualAgentWorkflow.Hosting;
 using Xunit;
@@ -148,6 +153,12 @@ public sealed class DirectMcpExecutionTests
             var dataEvaluations = snapshot.Events.Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated).ToArray();
             Assert.NotEmpty(dataEvaluations);
             Assert.All(dataEvaluations, AssertRedacted);
+
+            var playbackHtml = await RenderPlayback(snapshot);
+            Assert.Contains("Execution evidence", playbackHtml, StringComparison.Ordinal);
+            Assert.Contains("payloadState", playbackHtml, StringComparison.Ordinal);
+            Assert.DoesNotContain(privateName, playbackHtml, StringComparison.Ordinal);
+            Assert.DoesNotContain(privateLabel, playbackHtml, StringComparison.Ordinal);
         }
         finally
         {
@@ -158,6 +169,15 @@ public sealed class DirectMcpExecutionTests
     private static IWorkflowRunStore CreateStore(string storeKind, string path) => storeKind == "sqlite"
         ? new SqliteWorkflowRunStore(path)
         : new FileRunJournal(path);
+
+    private static async Task<string> RenderPlayback(RunSnapshot snapshot)
+    {
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        return await renderer.Dispatcher.InvokeAsync(async () =>
+            (await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }))).ToHtmlString());
+    }
 
     [Theory]
     [InlineData("1.37")]
