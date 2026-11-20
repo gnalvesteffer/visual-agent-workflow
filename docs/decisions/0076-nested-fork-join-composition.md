@@ -1,6 +1,6 @@
 # Decision 0076: Nested Fork/Join composition
 
-**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, Studio insertion/removal, versioned activation/arrival playback, File/SQLite reopen, and three-level workflow/project-package round trips are implemented; runtime duplicate-arrival races and editing existing region branch counts/identities remain open
+**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, Studio insertion/removal and existing-region branch-count editing, versioned activation/arrival playback, File/SQLite reopen, and three-level workflow/project-package round trips are implemented; runtime duplicate-arrival races remain open
 
 **Date:** 2026-11-20
 
@@ -10,8 +10,8 @@ Unreal Blueprint graphs can compose control flow by placing a parallel region
 inside another branch. VAW supports static Fork/Join regions. Core now validates
 strictly owned nested regions and the public runner has a three-level success
 proof. Studio can insert a two-branch execution skeleton on an eligible explicit
-execution edge and remove the smallest containing region, but does not yet edit
-the branch count or identities of an existing region. Earlier private
+execution edge, remove the smallest containing region, and edit the branch count
+of an existing region while preserving stable branch IDs. Earlier private
 production-body proofs ran the same static inner Fork and Join concurrently
 under separate outer branches, restored parent lineage, and covered success,
 failure, cancellation, duplicate arrivals after join completion, unexpected
@@ -143,8 +143,13 @@ count at a selected prefix. File and SQLite reopen tests cover zero and partial
 arrivals for both failed and cancelled runs, without re-execution. A current
 schema 2.0 graph with three nested Fork levels also round-trips through a
 workflow package and a project release while preserving definition/layout
-hashes and exact serialized bytes. Runtime duplicate-arrival race coverage and
-editing existing region branch counts/identities remain open. These tests
+hashes and exact serialized bytes. Studio's existing-region editor can add and
+reorder branches and remove empty branches by resolving the selected Fork's
+uniquely matching Join. Core and browser regressions prove an inner branch-count
+edit preserves its containing outer Fork/Join region, existing wires, stable
+branch identities, and graph validity. Removal is available only when the
+matching Join is unique. Runtime duplicate-arrival race coverage remains open.
+These tests
 establish structural consistency and replay, not cryptographic tamper
 resistance. See [the
 Blueprint parity roadmap](../roadmap.md) and
