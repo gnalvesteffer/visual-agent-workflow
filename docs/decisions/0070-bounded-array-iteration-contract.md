@@ -4578,3 +4578,35 @@ actual Fork and playback preserves the failed run. These cases do not prove
 state retirement/reclamation or every malformed-lineage shape.
 Parent-mismatch, duplicate-arrival races before join completion, additional
 nested levels, and public validation/admission remain open.
+
+## Integrated production ownership gate review (adjudicated 2026-11-20)
+
+A fresh three-role review returned **REVISE**. The hybrid remains the strongest
+candidate because it can preserve ordinary production node handlers and
+explicitly own per-activation state, but the evidence does not select a
+production architecture or authorize public iterator/Break contracts. An
+opponent claim that nested Fork/Join is not admitted is stale: unified schema
+2.0 already admits arbitrary finite-depth, statically single-owned nested
+Fork/Join and the public runner has three-level coverage. That does not prove
+that iterator activations compose with those Fork/Join regions.
+
+The next gate is one ordinary production owner for activation frames,
+nearest-loop Break routing, root lifecycle, and atomic shared work/evidence
+budgets. Public Core validation and package validation must independently
+derive and agree on topology and ownership. Production adapters must execute
+the body behind an explicit join/settlement contract that reconciles the
+current VAW-owned Join routing. The integrated proof must cover exact-once
+Sequence settlement; admission, draining and suffix skipping; mixed known
+failure with unresolved external work; cancellation; persistence rejection;
+malformed ownership and cycles; and File/SQLite reopen with identical passive
+playback. Only after this gate passes should another architecture review
+consider public typed item/index pins and Break authoring. Checkpoint recovery
+remains a separate, excluded contract.
+
+The mixed-outcome question is already settled and is not a remaining iterator
+gate: root status remains execution disposition, while
+`WorkflowWorkEvidence.Read` and `WorkflowRunReconciliation.Assess` report
+correlated unresolved work and incomplete evidence separately. Existing
+reopened-history coverage asserts this distinction across settlement order,
+terminal-write rejection, cancellation, and Sequence Break. Do not introduce a
+duplicate aggregate API or reopen root-status precedence absent new evidence.

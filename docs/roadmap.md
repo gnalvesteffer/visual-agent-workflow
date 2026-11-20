@@ -735,10 +735,9 @@ introduced.
   either order (4/4). The integrated bounded Sequence proof admits two linear
   MCP outputs, requests Break on the third, and skips the fourth while draining
   one known failure plus one unresolved outcome in either order; file/SQLite
-  playback preserves both records (4/4). Root status precedence remains
-  unselected. The fresh three-role review returned REVISE: preserve root status
-  as execution disposition and keep external-effect certainty separately
-  observable. A follow-up source audit found that the read-only
+  playback preserves both records (4/4). The fresh three-role review returned
+  REVISE: preserve root status as execution disposition and keep external-effect
+  certainty separately observable. A follow-up source audit found that the read-only
   `WorkflowWorkEvidence`/`RunReconciliation` projection already exposes
   correlated unsettled tool calls and incomplete correlation alongside the
   unchanged run status, including after terminal events. Do not add a duplicate
@@ -1807,13 +1806,23 @@ introduced.
       the path for a contract-compliant custom broker, not arbitrary broker
       conformance or a production budget owner. The suite passes 348/348; see
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
-    - [ ] Add authored typed array item/index pins and a real Break node, then
-      continue the hybrid comparison for broader external-outcome boundaries,
-      other join/cancellation races, and complete evidence bounds. Keep
-      production architecture unselected until the shared lifecycle and budget
-      owner is proven. The 2026-11-18 review confirms the bounded Sequence
-      branch admission only covers arms that converge at Merge; it does not yet
-      model a Break terminal competing with continued sibling Sequence work.
+    - [ ] Complete the integrated production ownership gate before adding
+      authored typed array item/index pins or a real Break node. A fresh
+      three-role review (2026-11-20) returned **REVISE**: the hybrid remains
+      the strongest candidate, but no production architecture or public
+      iterator/Break contract is selected. One ordinary production owner must
+      coordinate activation frames, nearest-loop Break, root lifecycle, and
+      atomic shared work/evidence budgets. Public and package validation must
+      independently derive and agree on topology/ownership; production adapters
+      must execute body work behind an explicit join/settlement contract that
+      reconciles current VAW-owned Join routing. Prove exact-once Sequence
+      settlement, admission/drain/suffix skip, mixed known failure plus
+      unresolved external work, cancellation, persistence rejection, malformed
+      ownership/cycles, and File/SQLite passive playback before another
+      architecture review. Checkpoint recovery remains separately excluded.
+      Root status is settled as execution disposition; the existing read-only
+      reconciliation projection reports correlated unresolved work and
+      incomplete evidence separately. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Run the same production nested body and private typed Break graph
       through the structured dispatcher, a fresh Agent Framework subworkflow
       per item, and the hybrid runner. Item and zero-based index values reach
