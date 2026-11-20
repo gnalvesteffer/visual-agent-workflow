@@ -1,6 +1,6 @@
 # Decision 0076: Nested Fork/Join composition
 
-**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, Studio insertion/removal and existing-region branch-count editing, versioned activation/arrival playback, File/SQLite reopen, and three-level workflow/project-package round trips are implemented; runtime duplicate-arrival races remain open
+**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, Studio insertion/removal and existing-region branch-count editing, versioned activation/arrival playback, File/SQLite reopen, and three-level workflow/project-package round trips are implemented; scheduler-level concurrent duplicate-arrival proof remains open
 
 **Date:** 2026-11-20
 
@@ -148,8 +148,11 @@ reorder branches and remove empty branches by resolving the selected Fork's
 uniquely matching Join. Core and browser regressions prove an inner branch-count
 edit preserves its containing outer Fork/Join region, existing wires, stable
 branch identities, and graph validity. Removal is available only when the
-matching Join is unique. Runtime duplicate-arrival race coverage remains open.
-These tests
+matching Join is unique. A per-activation failure latch now rejects arrivals queued after a duplicate or
+other Join failure; the focused duplicate-then-final test covers this state
+transition. File/SQLite runner proofs continue to cover late duplicates after
+completion. A scheduler-level test that races a duplicate against the final
+branch dispatch remains open. These tests
 establish structural consistency and replay, not cryptographic tamper
 resistance. See [the
 Blueprint parity roadmap](../roadmap.md) and

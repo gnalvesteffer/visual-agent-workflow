@@ -35,12 +35,17 @@ Older schema-2.0 histories retain their status/progress records and are marked
 as lacking recorded arrival lineage.
 File/SQLite reopen is verified for nested success plus zero/partial-arrival
 failure and cancellation. Three-level nested definitions also round-trip
-through workflow packages and project releases. Runtime duplicate-arrival
-races and existing-region branch editing remain unverified. The accepted end
-contract has no separate schema, capability, or fixed-depth gate.
+through workflow packages and project releases. Existing regions support
+adding/reordering branches and removing empty branches through the matching
+Join. At runtime, a duplicate or otherwise failed arrival latches that Join
+activation as failed, so already-queued later arrivals cannot complete it; a
+focused state regression covers duplicate-then-final ordering, and file/SQLite
+runner proofs cover duplicate arrivals after a completed Join. A scheduler-level
+proof of concurrent duplicate/final-arrival dispatch remains open. The accepted
+end contract has no separate schema, capability, or fixed-depth gate.
 See [Decision 0076](decisions/0076-nested-fork-join-composition.md).
 
-Schemas 1.14–1.31 support up to four sequential, explicit two-branch blocks. Schema 1.32 adds a configurable 2–8 branch region in an explicit execution graph. In either form a parallel block is a visible fork and barrier, not an arrangement of nodes that happen to sit side by side. Each branch receives the same incoming string and produces one string result. Historical schemas do not support nested regions; unified schema 2.0 validates and executes strict nested regions. Fork admission and accepted-arrival lineage are persisted and reconstructed passively. Store replay covers success, failure, and cancellation. Three-level nested graphs round-trip through workflow and project packages. Studio can add, reorder, and remove empty branches from an existing nested region through the Join owned by that Fork, without changing sibling regions or data wires. Runtime duplicate-arrival races before Join completion remain in progress; branch IDs are stable identities and cannot be renamed in place, and populated paths must be cleared before branch removal.
+Schemas 1.14–1.31 support up to four sequential, explicit two-branch blocks. Schema 1.32 adds a configurable 2–8 branch region in an explicit execution graph. In either form a parallel block is a visible fork and barrier, not an arrangement of nodes that happen to sit side by side. Each branch receives the same incoming string and produces one string result. Historical schemas do not support nested regions; unified schema 2.0 validates and executes strict nested regions. Fork admission and accepted-arrival lineage are persisted and reconstructed passively. Store replay covers success, failure, and cancellation. Three-level nested graphs round-trip through workflow and project packages. Studio can add, reorder, and remove empty branches from an existing nested region through the Join owned by that Fork, without changing sibling regions or data wires. The Join activation latches a duplicate or otherwise failed arrival and rejects later arrivals; a focused state regression covers duplicate-then-final ordering, while a scheduler-level concurrent-dispatch proof remains in progress. Branch IDs are stable identities and cannot be renamed in place, and populated paths must be cleared before branch removal.
 
 ```mermaid
 flowchart LR

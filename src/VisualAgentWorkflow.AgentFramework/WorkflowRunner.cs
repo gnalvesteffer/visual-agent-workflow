@@ -1806,16 +1806,6 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private readonly ConcurrentDictionary<ParallelJoinActivationKey, ParallelJoinActivationState> parallelJoinActivations = new();
         private readonly AsyncLocal<StructuredActivationFrame?> activeActivationFrame = new();
 
-        private readonly record struct ParallelJoinActivationKey(Guid? FrameId, Guid? ForkActivationId);
-
-        private sealed class ParallelJoinActivationState(Guid? frameId, Guid? forkActivationId)
-        {
-            public ParallelJoinActivationKey Key { get; } = new(frameId, forkActivationId);
-            public object Sync { get; } = new();
-            public SemaphoreSlim Execution { get; } = new(1, 1);
-            public SortedDictionary<string, string> Inputs { get; } = new(StringComparer.Ordinal);
-            public Guid? InvocationId { get; set; }
-        }
         private bool UsesConfigurableParallelGraph => revision.Definition.SchemaVersion is
             WorkflowSchemaVersions.UnifiedWorkflowGraph or
             WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or
@@ -1942,6 +1932,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 await joinActivation!.Execution.WaitAsync(cancellationToken);
                 try
                 {
+                    joinActivation.ThrowIfFailed();
                     var configurable = UsesConfigurableParallelGraph;
                     var joinResult = configurable
                         ? CollectConfigurableParallelJoinInput(joinActivation, incomingPort!, received)
@@ -1984,11 +1975,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
+                    joinActivation!.MarkFailed();
                     await Emit(ExecutionEventKinds.NodeCancelled, Id, invocation, null, "Parallel join cancelled.");
                     throw;
                 }
                 catch
                 {
+                    joinActivation!.MarkFailed();
                     await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Parallel join failed.");
                     throw;
                 }
@@ -2613,7 +2606,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
         private static Guid ParallelJoinInvocation(ParallelJoinActivationState activation)
         {
-            lock (activation.Sync) return activation.InvocationId ??= Guid.NewGuid();
+            return activation.GetOrCreateInvocationId();
         }
 
         private ParallelCollaborationAgentGrant? CollaborationGrant(string nodeId, string? branchId,
@@ -2713,19 +2706,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private (bool Started, bool Complete, string? Result, int ReceivedCount) CollectParallelJoinInput(
             ParallelJoinActivationState activation, string inputPort, string input)
         {
-            lock (activation.Sync)
-            {
-                if (inputPort is not ("branch_1" or "branch_2") || !activation.Inputs.TryAdd(inputPort, input))
-                    throw new InvalidOperationException("The parallel join received an unexpected or duplicate branch result.");
-                var started = activation.Inputs.Count == 1;
-                if (activation.Inputs.Count < ParallelGraphLimits.MaximumBranches)
-                    return (started, false, null, activation.Inputs.Count);
+            if (inputPort is not ("branch_1" or "branch_2"))
+                throw new InvalidOperationException("The parallel join received an unexpected or duplicate branch result.");
+            var started = activation.InputCount == 0;
+            activation.AddInput(inputPort, input);
+            var receivedCount = activation.InputCount;
+            if (receivedCount < ParallelGraphLimits.MaximumBranches)
+                return (started, false, null, receivedCount);
 
-                var result = JsonSerializer.Serialize(activation.Inputs);
-                if (result.Length > ParallelGraphLimits.MaximumAggregateCharacters)
-                    throw new InvalidOperationException($"Parallel branch results exceed {ParallelGraphLimits.MaximumAggregateCharacters} characters.");
-                return (started, true, result, activation.Inputs.Count);
-            }
+            var result = JsonSerializer.Serialize(activation.InputSnapshot());
+            if (result.Length > ParallelGraphLimits.MaximumAggregateCharacters)
+                throw new InvalidOperationException($"Parallel branch results exceed {ParallelGraphLimits.MaximumAggregateCharacters} characters.");
+            return (started, true, result, receivedCount);
         }
 
         private (bool Started, bool Complete, string? Result, int ReceivedCount, int ExpectedCount)
@@ -2752,22 +2744,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                  parentContext.BranchId != forkContext.ParentBranchId))
                 throw new InvalidOperationException("The parallel join received a result outside its expected parent fork activation.");
 
-            lock (activation.Sync)
-            {
-                if (activation.Key.ForkActivationId is { } expectedActivation && expectedActivation != activationId.Value)
-                    throw new InvalidOperationException("A parallel join cannot combine results from different fork activations.");
-                if (!activation.Inputs.TryAdd(branchId, message.Text))
-                    throw new InvalidOperationException("The parallel join received a duplicate branch result.");
+            if (activation.Key.ForkActivationId is { } expectedActivation && expectedActivation != activationId.Value)
+                throw new InvalidOperationException("A parallel join cannot combine results from different fork activations.");
+            var started = activation.InputCount == 0;
+            activation.AddInput(branchId, message.Text);
+            var receivedCount = activation.InputCount;
+            if (receivedCount < expectedBranches.Count)
+                return (started, false, null, receivedCount, expectedBranches.Count);
 
-                var started = activation.Inputs.Count == 1;
-                if (activation.Inputs.Count < expectedBranches.Count)
-                    return (started, false, null, activation.Inputs.Count, expectedBranches.Count);
-
-                var result = JsonSerializer.Serialize(activation.Inputs);
-                if (result.Length > ParallelGraphLimits.MaximumAggregateCharacters)
-                    throw new InvalidOperationException($"Parallel branch results exceed {ParallelGraphLimits.MaximumAggregateCharacters} characters.");
-                return (started, true, result, activation.Inputs.Count, expectedBranches.Count);
-            }
+            var result = JsonSerializer.Serialize(activation.InputSnapshot());
+            if (result.Length > ParallelGraphLimits.MaximumAggregateCharacters)
+                throw new InvalidOperationException($"Parallel branch results exceed {ParallelGraphLimits.MaximumAggregateCharacters} characters.");
+            return (started, true, result, receivedCount, expectedBranches.Count);
         }
 
         private static ParallelJoinArrivalEvidence CreateParallelJoinArrivalEvidence(string joinNodeId,
