@@ -159,6 +159,15 @@ the historical promotion chain.
   it. Its focused topology group now passes 42/42 and Core passes 724/724. The
   independent public/package topology-derivation agreement for a future
   supported nested topology remains open.
+  The ordinary unified-schema predicate Loop now creates a fresh immutable
+  activation frame for each body pass and carries it through the normal
+  Agent-Framework dispatch path. The frame records the loop scope and pass
+  index; repeated passes share the enclosing frame instead of becoming false
+  nested iterations. A production-runner regression checks matching start and
+  completion scopes for every body pass, while a legacy-schema check confirms
+  its historical event scopes remain unchanged. This is runtime groundwork
+  only: it does not execute array iterators or Break, own Sequence settlement,
+  or admit nested Loop candidates. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   Other malformed/ambiguous legacy shapes and nested production authoring,
   validation, runtime, persistence, and playback evidence remain open.
   Sequence/Break production settlement remains a separate gate and cannot be

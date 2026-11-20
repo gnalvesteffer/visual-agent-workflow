@@ -67,6 +67,7 @@ public sealed class MutableVariableExecutionTests
 
         Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.VariableWritten));
         Assert.Equal("[\"next\",\"next\",\"next\"]", result);
+        Assert.All(events.Where(evt => VariableEvidence.IsStateEvent(evt.Kind)), evt => Assert.Null(evt.ScopeId));
         Assert.True(VariableEvidence.TryReconstructPlayback(events, out var playback));
         Assert.Equal("[\"next\",\"next\",\"next\"]", playback!.Values["items"].Value);
         Assert.Equal([1, 2, 3], playback.Operations.Where(operation => operation.Kind == "write")

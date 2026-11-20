@@ -554,6 +554,13 @@ array defaults so they can be repaired in Studio; strict package export and run
 validation continue to reject them. Invalid drafts are excluded from callable
 workflow choices used for interface implementations.
 
+Unified schema 2.0 predicate-loop passes carry fresh activation frames through
+the ordinary runner, giving node lifecycle and data-evaluation evidence a
+per-pass scope. Run-scoped variable-state events retain the workflow storage
+scope and carry the loop iteration separately, so playback reconstructs state
+across passes without merging distinct workflow-call stores. This does not
+enable array iteration, nested loops, or Break.
+
 ## Reconciliation assessment and operator assertions
 
 Core's optional `IWorkflowRunReconciliationObserver` supplies cursor-bound metadata without changing the original observer contract. A pure work projection preserves unsettled model/tool/approval facts even after terminal status; new model/tool call IDs distinguish repeated calls without changing event envelopes. Hosting combines that evidence with checkpoint validation; SQLite reads both under one transaction. The protected observation group adds only a GET assessment route, and the Core-only HTTP client plus embeddable reconciliation panel validate identity/cursor alignment. The panel suppresses stale eligibility on source changes or outage and remains independent of playback. The optional `IWorkflowRunReconciliationDecisionStore` stores a separate append-only human assertion, with exact target and current-head checks in one SQLite write transaction. Assertions never alter the assessment or recovery gates. There is no HTTP mutation route or Studio control; a consuming host must provide authenticated actor identity and authorize access before exposing the capability. See [run reconciliation](run-reconciliation.md).

@@ -85,6 +85,7 @@ public sealed class BoundedLoopExecutionTests
         var stopped = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopStopped);
         Assert.Equal("predicate-false", JsonDocument.Parse(stopped.Data!).RootElement.GetProperty("reason").GetString());
         Assert.Equal(1, events.Count(evt => evt.NodeId == bodyId && evt.Kind == ExecutionEventKinds.NodeStarted));
+        Assert.All(events.Where(evt => evt.NodeId == bodyId), evt => Assert.Null(evt.ScopeId));
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Transfer && evt.NodeId == graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.Loop).Key);
         Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
         Assert.Equal(events.Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped)
@@ -167,6 +168,28 @@ public sealed class BoundedLoopExecutionTests
         Assert.Equal(3, stopData.GetProperty("iterations").GetInt32());
         Assert.Equal(3, events.Count(evt => evt.NodeId == graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.LoopBody).Key && evt.Kind == ExecutionEventKinds.NodeCompleted));
         Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
+    }
+
+    [Fact]
+    public async Task UnifiedPredicateLoopGivesEachBodyPassAnIndependentActivationScope()
+    {
+        var graph = Graph();
+        graph = WorkflowSchemaNormalization.NormalizeForEditing(graph);
+        var bodyId = graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.LoopBody).Key;
+        var loopId = graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.Loop).Key;
+        var events = new List<ExecutionEvent>();
+
+        var output = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(graph, "unified-loop-activation-scope"), "continue",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("continue", output);
+        var bodyActivations = events.Where(evt => evt.NodeId == bodyId && evt.Kind == ExecutionEventKinds.NodeStarted)
+            .Select(evt => evt.ScopeId).ToArray();
+        Assert.Equal(new string?[] { $"{loopId}/1", $"{loopId}/2", $"{loopId}/3" }, bodyActivations);
+        Assert.Equal(3, bodyActivations.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(bodyActivations, events.Where(evt => evt.NodeId == bodyId && evt.Kind == ExecutionEventKinds.NodeCompleted)
+            .Select(evt => evt.ScopeId));
     }
 
     [Fact]

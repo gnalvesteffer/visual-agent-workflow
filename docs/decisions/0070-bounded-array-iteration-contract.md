@@ -4637,3 +4637,35 @@ plan through independent public and package topology validation for the
 supported nested contract; the private analyzer and rejection assertions do
 not establish that agreement. See the roadmap's [active array-iteration
 workstream](../roadmap.md#next-parity-workstream-first-class-collections).
+
+### Production-owner sequencing adjudication (2026-11-20)
+
+A fresh proponent, opponent, and adjudicator review reconciled the earlier
+topology-first note with the production-owner gate. **Proceed with a private,
+graph-derived production activation owner before public/package admission.** The
+owner must derive activation ownership and nearest-loop Break routing from the
+definition and pin roles; callers must not supply loop or Break identities. It
+must own frames, root lifecycle, shared work/evidence budgets, and settlement
+while respecting the existing VAW-owned Join and Sequence contracts.
+
+The current topology analyzer remains non-authoritative. No public or
+semi-public topology plan, iterator pins, Break contract, serializer admission,
+or package admission is added by this sequence. Once the executable contract
+exists, Core validation and package validation must independently derive and
+agree on the supported topology before nested candidates are admitted. The
+owner proof must exercise repeated static Fork/Join activations and stale
+arrivals, Sequence terminal settlement, malformed ownership/cycles,
+cancellation, shared-budget exhaustion, persistence failure, and passive
+File/SQLite playback. A mismatch between the owner plan and either independent
+validator is a release blocker.
+
+The first production-runtime increment gives every supported unified-schema
+predicate Loop body pass a fresh immutable activation frame, carried through
+the normal Agent Framework dispatcher. This establishes per-pass scope identity
+in the real runner and preserves legacy event scopes. Run-scoped variable state
+events retain their workflow storage scope and include the loop iteration in
+their payload, so variable playback remains valid across passes. It is only groundwork:
+it does not implement typed array iteration, Break execution, nested Loop
+admission, or an integrated lifecycle/settlement owner. The focused regression
+in `BoundedLoopExecutionTests` checks each body start/completion pair uses its
+own graph-derived loop scope.

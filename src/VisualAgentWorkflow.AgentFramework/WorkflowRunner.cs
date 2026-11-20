@@ -511,7 +511,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 rootRevision, workflowPath, collaborationOptions, collaborationRuntime, null, boundaryTracker,
                 afterNodeStarted: afterNodeStarted,
                 activationBreakNode: proofBreakNodeIds?.Contains(n.Key) == true,
-                proofBreakNodeIds: proofBreakNodeIds));
+                proofBreakNodeIds: proofBreakNodeIds,
+                variableEvidenceUsesActivationScope: false));
         if (collaborationRuntime is not null)
         {
             var region = collaborationRuntime.Region;
@@ -1691,14 +1692,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Func<Guid?, WorkflowVariableStore?>? activationVariableStore = null,
         bool activationBreakNode = false,
         IReadOnlySet<string>? proofBreakNodeIds = null,
-        Func<SequenceMessageLineage, StructuredActivationBreakRequest, ValueTask>? onSequenceBreakRequested = null)
+        Func<SequenceMessageLineage, StructuredActivationBreakRequest, ValueTask>? onSequenceBreakRequested = null,
+        bool variableEvidenceUsesActivationScope = true)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
         private ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null,
-            string? data = null, string? eventScope = null) =>
+            string? data = null, string? eventScope = null, bool useStorageScope = false) =>
             record(kind, node, invocation, connection, data,
-                eventScope ?? activeActivationFrame.Value?.ScopeId ?? scopeId);
+                useStorageScope ? scopeId : eventScope ?? activeActivationFrame.Value?.ScopeId ?? scopeId);
 
         private IReadOnlyDictionary<string, string>? CurrentParameters =>
             activeActivationFrame.Value?.Parameters ?? parameters;
@@ -2153,6 +2155,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     {
                         throw new GraphDataEvaluationException(Id, exception.Message, exception);
                     }
+                    // Production variable state belongs to the workflow store across loop passes;
+                    // its iteration is explicit in the payload, while ScopeId remains the store scope.
                     await Emit(ExecutionEventKinds.VariableWritten, Id, invocation, null, JsonSerializer.Serialize(new
                     {
                         variableId,
@@ -2161,7 +2165,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         value = written.Value,
                         version = written.Version,
                         loopIteration = received.LoopIteration
-                    }));
+                    }), useStorageScope: !variableEvidenceUsesActivationScope);
                 }
                 if (node.Type == NodeTypes.VariableGet)
                 {
@@ -2181,7 +2185,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         value = current.Value,
                         version = current.Version,
                         loopIteration = received.LoopIteration
-                    }));
+                    }), useStorageScope: !variableEvidenceUsesActivationScope);
                 }
                 var resultAvailable = received.HasValue;
                 if (node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall)
@@ -2346,6 +2350,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         AddSequenceLineage(JsonSerializer.Serialize(new { port })));
                 }
                 var nextLoopIteration = received.LoopIteration;
+                var nextActivationFrame = received.ActivationFrame;
                 if (node.Type == NodeTypes.Loop)
                 {
                     var loop = node.Loop!;
@@ -2356,8 +2361,20 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     {
                         port = "body";
                         nextLoopIteration++;
+                        if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                        {
+                            var parentFrame = received.ActivationFrame is { } currentFrame &&
+                                currentFrame.LoopNodeId == Id
+                                ? currentFrame.Parent
+                                : received.ActivationFrame;
+                            var frameParameters = CurrentParameters?.ToImmutableSortedDictionary(StringComparer.Ordinal)
+                                ?? ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+                            nextActivationFrame = new StructuredActivationFrame(Guid.NewGuid(), parentFrame,
+                                Id, nextLoopIteration, result, frameParameters);
+                        }
                         await Emit(ExecutionEventKinds.LoopIterationStarted, Id, invocation, null,
-                            JsonSerializer.Serialize(new { iteration = nextLoopIteration, maximumIterations = loop.MaximumIterations }));
+                            JsonSerializer.Serialize(new { iteration = nextLoopIteration, maximumIterations = loop.MaximumIterations }),
+                            nextActivationFrame?.ScopeId);
                     }
                     else
                     {
@@ -2443,7 +2460,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     terminated, failureSignal, received.ParallelActivationId, received.ParallelBranchId, received.ParallelForkNodeId,
                     ParallelForkLineage: received.ParallelForkLineage,
                     SequenceLineage: received.SequenceLineage, HasValue: resultAvailable,
-                    ActivationFrame: received.ActivationFrame,
+                    ActivationFrame: nextActivationFrame,
                     CollaborationRuntime: received.CollaborationRuntime);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
