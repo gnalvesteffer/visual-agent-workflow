@@ -163,7 +163,6 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var result = await ExecuteCoreAsync(runId, revision, input, parameters, RecordBodyEvent, gate,
                 cancellationToken, sequencePlan: sequencePlan, allowOutcomeUnknown: true,
                 skipValidationForInternalProof: proofBreakNodeIds.Count > 0 || allowNestedForksProof, emitRunLifecycle: false,
-                correlateRepeatedJoinArrivalsProof: allowNestedForksProof,
                 afterNodeStarted: afterNodeStarted,
                 activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds,
                 sequenceDispatchSession: sequenceDispatchSession,
@@ -242,7 +241,6 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         bool skipValidationForInternalProof = false,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
         bool emitRunLifecycle = true,
-        bool correlateRepeatedJoinArrivalsProof = false,
         StructuredActivationFrame? activationFrame = null,
         IReadOnlySet<string>? proofBreakNodeIds = null,
         Action<StructuredActivationBreakRequest>? captureActivationBreak = null,
@@ -294,8 +292,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         var workflow = sequencePlan is null
             ? BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 collaborationRuntime, variableStore, afterNodeStarted: afterNodeStarted,
-                activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds,
-                correlateRepeatedJoinArrivalsProof: correlateRepeatedJoinArrivalsProof)
+                activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds)
             : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 callScopeCancellation, afterNodeStarted, sequenceDispatchSession);
 
@@ -501,8 +498,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         CheckpointBoundaryTracker? boundaryTracker = null,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
         StructuredActivationFrame? activationFrame = null,
-        IReadOnlySet<string>? proofBreakNodeIds = null,
-        bool correlateRepeatedJoinArrivalsProof = false)
+        IReadOnlySet<string>? proofBreakNodeIds = null)
     {
         var definition = revision.Definition;
         var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition)
@@ -539,16 +535,17 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         var executionEdges = WorkflowSchemaVersions.UsesExplicitGraph(definition)
             ? definition.ExecutionConnections!.Values
             : definition.Connections.Values;
+        var routeJoinArrivalsDirectly = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
         foreach (var edge in executionEdges)
         {
-            if (!correlateRepeatedJoinArrivalsProof && definition.Nodes[edge.Target.NodeId].Type == NodeTypes.ParallelJoin) continue;
+            if (!routeJoinArrivalsDirectly && definition.Nodes[edge.Target.NodeId].Type == NodeTypes.ParallelJoin) continue;
             builder.AddEdge<GraphMessage>((ExecutorBinding)executors[edge.Source.NodeId], (ExecutorBinding)executors[edge.Target.NodeId], message =>
                 message?.SourceNode == edge.Source.NodeId && message.SourcePort == edge.Source.PortId &&
                 (message.ActivationFrame?.BreakScope.IsRequested != true ||
                     definition.Nodes[edge.Target.NodeId].Type == NodeTypes.ParallelBranch ||
                     definition.Nodes[edge.Source.NodeId].Type == NodeTypes.ParallelBranch));
         }
-        foreach (var join in definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelJoin && !correlateRepeatedJoinArrivalsProof))
+        foreach (var join in definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelJoin && !routeJoinArrivalsDirectly))
         {
             var branchSources = executionEdges
                 .Where(edge => edge.Target.NodeId == join.Key)

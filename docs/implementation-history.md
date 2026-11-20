@@ -998,3 +998,16 @@ cancelled without a join or later activation (4 more focused cases across both
 stores). This extends the body compatibility proof, not public iterator support
 or nested Fork/Fork semantics. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+## Current-schema repeated parallel join routing (2026-11-20)
+
+Unified schema 2.0 now routes connected branch arrivals directly to the VAW
+Join executor. The Join correlates each arrival by fork activation and branch
+ID, allowing the same static source executors to participate in overlapping
+join activations. Historical schemas retain their Agent Framework fan-in
+barrier routing. Focused tests cover the ordinary 2.0 three-branch path,
+historical routing, and concurrent same-static-fork activations, late
+duplicate arrivals, and unknown branch IDs (41 tests passed in the focused
+runtime group). Public nested-fork validation and Studio authoring remain
+unsupported. See [parallel graph behavior](parallel-graphs.md) and
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).

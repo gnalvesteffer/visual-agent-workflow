@@ -440,10 +440,12 @@ introduced.
   establish public iterator or nested-fork support. Shared inner-Fork identity
   across outer branches now passes a separate proof-only file/SQLite matrix
   (2/2): two activations independently join their own A/B values and restore
-  the correct outer branch lineage. The private proof uses direct join routing
-  because Agent Framework's fan-in barrier admits one message per source
-  executor and cannot distinguish repeated concurrent batches from the same
-  static branch executors; production routing is unchanged. Late duplicate
+  the correct outer branch lineage. The proof exposed that Agent Framework's
+  fan-in barrier admits one message per source executor and cannot distinguish
+  repeated concurrent batches from the same static branch executors. Unified
+  schema 2.0 now routes arrivals directly to VAW's activation-correlated Join;
+  historical schemas keep their barrier route. The focused runtime group passes
+  41/41. Late duplicate
   branch-A arrivals after join completion and an unexpected branch ID are
   rejected with matching reopened playback (4/4). Malformed parent lineage,
   other late-arrival shapes, and public validation/admission remain open.

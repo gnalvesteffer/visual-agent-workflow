@@ -31,7 +31,7 @@ See [product design: workflow parameters and variables](design.md#workflow-param
 
 Use visible pins or named bindings for values that affect agent instructions, provider/model choice, tool arguments, conditions, or transformations. Avoid hidden placeholder substitution in arbitrary node fields. Share parameter schemas and safe defaults with the workflow, resolve run overrides separately, and record effective non-secret values or redacted references according to sensitivity policy.
 
-The shipped parallel slice is deliberately bounded: two named branches, one fan-out, one matching fan-in barrier, and a JSON result. Model it with explicit branch anchors and connections, never infer parallelism from layout. Validation rejects incomplete or crossed paths before publication or execution. Keep side-effect and failure semantics visible; completed external effects cannot be undone when another branch fails.
+The original historical parallel slice is deliberately bounded: two named branches, one fan-out, one matching fan-in barrier, and a JSON result. Unified schema 2.0 supports 2–8 named branches and routes each arrival to the activation-aware VAW Join executor. Model either form with explicit branch anchors and connections, never infer parallelism from layout. Validation rejects incomplete or crossed paths before publication or execution. Keep side-effect and failure semantics visible; completed external effects cannot be undone when another branch fails.
 
 ## Review each authoring change
 

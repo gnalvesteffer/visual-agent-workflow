@@ -4550,20 +4550,23 @@ barrier-to-barrier routes, or public validation/admission. The proof-only entry
 point bypasses public graph validation for this invalid nested topology; the
 public validator remains unchanged and continues to reject nested Forks. This
 evidence therefore narrows runtime uncertainty but does not declare nested
-Forks or iterator composition supported, nor does it select the public runtime
-architecture.
+Forks or iterator composition supported. The current-schema production join
+routing decision and verification are recorded below.
 
-### Shared static nested-Fork activation proof (2026-11-19)
+### Shared static nested-Fork activation proof and current-schema routing (2026-11-20)
 
 The private proof now reuses one static inner Fork and Join from both outer
 branches concurrently. Two distinct inner activation IDs each collect their
 own A/B values, complete independently, and restore the correct outer branch
 lineage before the relay. File and SQLite reopen and passive playback preserve
-the same history (2/2). This proof-only build routes join arrivals directly to
-the VAW join executor instead of Agent Framework's fan-in barrier: that
-barrier waits for one message per source executor and cannot represent a
-second concurrent arrival batch from those same static executors. No public
-runtime routing behavior changed.
+the same history (2/2). The first version of this proof used direct join
+routing because Agent Framework's fan-in barrier waits for one message per
+source executor and cannot represent a second concurrent arrival batch from
+those same static executors. Schema 2.0 production execution now routes join
+arrivals directly to the VAW Join executor, which correlates by fork activation
+and branch identity; historical schemas retain their existing barrier path.
+The focused runtime group passes 41/41, including the repeated-activation
+proofs.
 
 Additional file/SQLite cases (4/4) hold a duplicate branch-A arrival until
 after its join activation has completed, and send an unexpected branch ID.
