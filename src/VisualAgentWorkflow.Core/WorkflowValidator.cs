@@ -2676,6 +2676,11 @@ public static class WorkflowValidator
     private static void ValidateConfigurableParallelGraph(WorkflowDefinition definition,
         Action<string, string, string> error, bool allowBranchLocalRouting = false)
     {
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+        {
+            ValidateUnifiedNestedParallelGraph(definition, error);
+            return;
+        }
         var forks = definition.Nodes.Where(node => node.Value?.Type == NodeTypes.ParallelFork).ToArray();
         var joins = definition.Nodes.Where(node => node.Value?.Type == NodeTypes.ParallelJoin).ToArray();
         var anchors = definition.Nodes.Where(node => node.Value?.Type == NodeTypes.ParallelBranch).ToArray();
@@ -2803,6 +2808,222 @@ public static class WorkflowValidator
             error("parallel.join.inputs", $"nodes.{joinId}", "The join requires exactly one completed result from every configured branch.");
         if (edges.Count(edge => edge.Source.NodeId == joinId) != 1)
             error("parallel.join.output", $"nodes.{joinId}", "The join must continue through exactly one execution output.");
+    }
+
+    private static void ValidateUnifiedNestedParallelGraph(WorkflowDefinition definition,
+        Action<string, string, string> error)
+    {
+        var edges = definition.ExecutionConnections?.Values.ToArray() ?? [];
+        var forks = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.ParallelFork)
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        var joinsByFork = definition.Nodes
+            .Where(pair => pair.Value?.Type == NodeTypes.ParallelJoin)
+            .GroupBy(pair => pair.Value.ParallelJoin?.ForkNodeId ?? string.Empty, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        if (forks.Count == 0)
+            return;
+
+        var reachable = new HashSet<string>(StringComparer.Ordinal);
+        var reachableForks = new List<string>();
+        var pending = new Queue<string>();
+        pending.Enqueue(definition.EntryNodeId);
+        while (pending.TryDequeue(out var current))
+        {
+            if (!reachable.Add(current))
+                continue;
+            if (forks.ContainsKey(current))
+                reachableForks.Add(current);
+            foreach (var edge in edges.Where(edge => edge.Source.NodeId == current))
+                pending.Enqueue(edge.Target.NodeId);
+        }
+        var owners = new Dictionary<string, string>(StringComparer.Ordinal);
+        var validated = new HashSet<string>(StringComparer.Ordinal);
+        var activeForks = new HashSet<string>(StringComparer.Ordinal);
+        var allRegionNodes = new HashSet<string>(StringComparer.Ordinal);
+        var branchOwnedNodes = new HashSet<string>(StringComparer.Ordinal);
+
+        HashSet<string> ValidateRegion(string forkId, string? owner)
+        {
+            var regionNodes = new HashSet<string>(StringComparer.Ordinal) { forkId };
+            if (owner is not null && !owners.TryAdd(forkId, owner))
+            {
+                error("parallel.nested.owner", $"nodes.{forkId}", "A nested fork must have exactly one parent-branch owner and cannot be shared or activated more than once by that owner.");
+                return regionNodes;
+            }
+            if (!activeForks.Add(forkId))
+            {
+                error("parallel.branch.cycle", $"nodes.{forkId}", "Nested fork regions cannot contain execution cycles.");
+                return regionNodes;
+            }
+
+            if (!forks.TryGetValue(forkId, out var fork) || fork.ParallelFork?.Branches is not { IsDefault: false } branches ||
+                branches.Length is < ParallelBranchLimits.MinimumBranches or > ParallelGraphLimits.MaximumExplicitBranches)
+            {
+                error("parallel.fork.configuration", $"nodes.{forkId}", "A fork requires between two and eight named branches.");
+                activeForks.Remove(forkId);
+                return regionNodes;
+            }
+            if (!joinsByFork.TryGetValue(forkId, out var matchingJoins) || matchingJoins.Length != 1)
+            {
+                error("parallel.join.match", $"nodes.{forkId}", "Each fork must have exactly one matching join.");
+                activeForks.Remove(forkId);
+                return regionNodes;
+            }
+            var joinId = matchingJoins[0].Key;
+            var join = matchingJoins[0].Value;
+            if (join.ParallelJoin?.BranchIds is not { IsDefault: false } joinBranchIds ||
+                !joinBranchIds.SequenceEqual(branches.Select(branch => branch.Id), StringComparer.Ordinal))
+                error("parallel.join.configuration", $"nodes.{joinId}", "Join branch IDs and order must exactly match the owning fork.");
+
+            if (owner is null && edges.Count(edge => edge.Target.NodeId == forkId) != 1)
+                error("parallel.fork.entry", $"nodes.{forkId}", "A root fork must have exactly one activation input.");
+
+            var occupied = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var branch in branches)
+            {
+                if (branch is null || !definition.Nodes.TryGetValue(branch.AnchorNodeId, out var anchor) ||
+                    anchor?.Type != NodeTypes.ParallelBranch || anchor.ParallelBranch is not { } identity ||
+                    identity.ForkNodeId != forkId || identity.BranchId != branch.Id)
+                {
+                    error("parallel.anchor.identity", $"nodes.{forkId}", "Each branch requires an anchor with the same fork and stable branch identity.");
+                    continue;
+                }
+
+                var forkEdges = edges.Where(edge => edge.Source.NodeId == forkId &&
+                    edge.Source.PortId == ParallelBranchLimits.PinId(branch.Id)).ToArray();
+                if (forkEdges.Length != 1 || forkEdges[0].Target.NodeId != branch.AnchorNodeId || forkEdges[0].Target.PortId != "execute")
+                    error("parallel.fork.route", $"nodes.{forkId}.outputs.{branch.Id}", "Each named fork output must activate its matching branch anchor.");
+
+                var branchNodes = new HashSet<string>(StringComparer.Ordinal) { branch.AnchorNodeId };
+                var decisions = new HashSet<string>(StringComparer.Ordinal);
+                var path = new HashSet<string>(StringComparer.Ordinal);
+
+                bool ContinueFrom(ConnectionDefinition edge)
+                {
+                    if (edge.Target.NodeId == joinId)
+                    {
+                        if (edge.Target.PortId != ParallelBranchLimits.PinId(branch.Id))
+                            error("parallel.join.route", $"executionConnections.{branch.Id}", "A branch must connect to the join pin with its own stable branch ID.");
+                        return true;
+                    }
+                    if (forks.ContainsKey(edge.Target.NodeId))
+                    {
+                        var childForkId = edge.Target.NodeId;
+                        var childOwner = $"{forkId}/{branch.Id}";
+                        branchNodes.Add(childForkId);
+                        var childNodes = ValidateRegion(childForkId, childOwner);
+                        branchNodes.UnionWith(childNodes);
+                        var childJoins = joinsByFork.GetValueOrDefault(childForkId) ?? [];
+                        var childJoinId = childJoins.Length == 1 ? childJoins[0].Key : null;
+                        var childOutput = edges.Where(candidate => candidate.Source.NodeId == childJoinId).ToArray();
+                        if (childOutput.Length != 1 || childOutput[0].Source.PortId != "then" || childOutput[0].Target.PortId != "execute")
+                        {
+                            error("parallel.join.output", $"nodes.{childJoinId}", "A nested join must continue through one execution output to its owning branch.");
+                            return false;
+                        }
+                        return ContinueFrom(childOutput[0]);
+                    }
+                    if (!definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) || target is null ||
+                        target.Type is not (NodeTypes.Agent or NodeTypes.BooleanBranch or NodeTypes.McpTool) ||
+                        target.Type == NodeTypes.McpTool && definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph ||
+                        edge.Target.PortId != "execute")
+                    {
+                        error("parallel.branch.node", $"nodes.{edge.Target.NodeId}", "A branch outcome must remain inside its owner and reach its matching join.");
+                        return false;
+                    }
+                    return WalkPath(edge.Target.NodeId, isAnchor: false);
+                }
+
+                bool WalkPath(string current, bool isAnchor)
+                {
+                    if (!path.Add(current))
+                    {
+                        error("parallel.branch.cycle", $"nodes.{current}", "Parallel branch paths cannot contain cycles.");
+                        return false;
+                    }
+                    branchNodes.Add(current);
+                    if (!definition.Nodes.TryGetValue(current, out var node) || node is null)
+                    {
+                        path.Remove(current);
+                        return false;
+                    }
+                    if (node.Type == NodeTypes.BooleanBranch)
+                        decisions.Add(current);
+                    var expectedPins = node.Type switch
+                    {
+                        NodeTypes.ParallelBranch when isAnchor => new[] { "then" },
+                        NodeTypes.BooleanBranch => new[] { "true", "false" },
+                        NodeTypes.Agent when node.Agent?.Routes is not { IsDefaultOrEmpty: false } => new[] { "out" },
+                        NodeTypes.McpTool => new[] { "then" },
+                        _ => []
+                    };
+                    if (expectedPins.Length == 0)
+                    {
+                        error("parallel.branch.node", $"nodes.{current}", "A parallel branch may contain its anchor, supported Agent and MCP steps, Boolean Branches, and nested Fork/Join regions.");
+                        path.Remove(current);
+                        return false;
+                    }
+                    var outgoing = edges.Where(edge => edge.Source.NodeId == current).ToArray();
+                    if (outgoing.Length != expectedPins.Length || expectedPins.Any(pin => outgoing.Count(edge => edge.Source.PortId == pin) != 1))
+                    {
+                        error("parallel.branch.path", $"nodes.{current}", "Every branch step must connect each required execution output exactly once.");
+                        path.Remove(current);
+                        return false;
+                    }
+                    var completed = outgoing.All(ContinueFrom);
+                    path.Remove(current);
+                    return completed;
+                }
+
+                if (!WalkPath(branch.AnchorNodeId, isAnchor: true))
+                    error("parallel.branch.join", $"nodes.{branch.AnchorNodeId}", "Every branch path must reach its matching join.");
+                if (decisions.Count > 1)
+                    error("parallel.branch.decision.count", $"nodes.{branch.AnchorNodeId}", "A parallel branch may contain at most one Boolean Branch node.");
+                foreach (var nodeId in branchNodes)
+                {
+                    regionNodes.Add(nodeId);
+                    branchOwnedNodes.Add(nodeId);
+                    if (!occupied.Add(nodeId))
+                        error("parallel.branch.overlap", $"nodes.{nodeId}", "Parallel branches cannot share nodes.");
+                    var incoming = edges.Where(edge => edge.Target.NodeId == nodeId).ToArray();
+                    if (nodeId == branch.AnchorNodeId
+                        ? incoming.Length != 1 || incoming[0].Source.NodeId != forkId
+                        : incoming.Length < 1 || incoming.Any(edge => !branchNodes.Contains(edge.Source.NodeId)))
+                        error("parallel.branch.entry", $"nodes.{nodeId}", "Every node must be activated only from its owning branch.");
+                }
+            }
+
+            var joinInputs = edges.Where(edge => edge.Target.NodeId == joinId).ToArray();
+            if (joinInputs.Length != branches.Length || joinInputs.Select(edge => edge.Target.PortId).Distinct(StringComparer.Ordinal).Count() != branches.Length)
+                error("parallel.join.inputs", $"nodes.{joinId}", "The join requires exactly one completed result from every configured branch.");
+            if (edges.Count(edge => edge.Source.NodeId == joinId) != 1)
+                error("parallel.join.output", $"nodes.{joinId}", "The join must continue through exactly one execution output.");
+
+            regionNodes.Add(joinId);
+            allRegionNodes.UnionWith(regionNodes);
+            activeForks.Remove(forkId);
+            validated.Add(forkId);
+            return regionNodes;
+        }
+
+        foreach (var forkId in reachableForks)
+        {
+            if (validated.Contains(forkId))
+                continue;
+            var incomingSource = edges.FirstOrDefault(edge => edge.Target.NodeId == forkId)?.Source.NodeId;
+            if (incomingSource is not null && branchOwnedNodes.Contains(incomingSource))
+                error("parallel.nested.owner", $"nodes.{forkId}", "Every nested fork must be reachable from exactly one owning parent branch.");
+            else
+                ValidateRegion(forkId, owner: null);
+        }
+        foreach (var forkId in forks.Keys.Where(id => !reachableForks.Contains(id, StringComparer.Ordinal)))
+            error("parallel.root.reachability", $"nodes.{forkId}", "Every fork region must be reachable from the workflow entry.");
+        foreach (var anchor in definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.ParallelBranch))
+            if (!allRegionNodes.Contains(anchor.Key))
+                error("parallel.anchor.owner", $"nodes.{anchor.Key}", "Every branch anchor must belong to exactly one validated fork region.");
+        foreach (var join in definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.ParallelJoin))
+            if (!allRegionNodes.Contains(join.Key))
+                error("parallel.join.owner", $"nodes.{join.Key}", "Every join must belong to exactly one validated fork region.");
     }
 
     private static bool HasCycle(IReadOnlyDictionary<string, List<string>> adjacency, IEnumerable<string> nodes)

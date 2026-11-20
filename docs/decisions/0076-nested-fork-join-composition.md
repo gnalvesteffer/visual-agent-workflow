@@ -1,14 +1,15 @@
 # Decision 0076: Nested Fork/Join composition
 
-**Status:** Accepted target; public validation and authoring remain unimplemented
+**Status:** Accepted target; static schema-2.0 ownership validation and a three-level public-runner success proof are implemented, while failure/recovery, authoring, package, and playback proofs remain open
 
 **Date:** 2026-11-20
 
 ## Context
 
 Unreal Blueprint graphs can compose control flow by placing a parallel region
-inside another branch. VAW currently supports static Fork/Join regions, but
-Core validation and Studio reject nested regions. The private production-body
+inside another branch. VAW supports static Fork/Join regions. Core now validates
+strictly owned nested regions and the public runner has a three-level success
+proof, but Studio does not yet author or edit nested regions. The private production-body
 proofs now run the same static inner Fork and Join concurrently under separate
 outer branches, restore the parent lineage, and cover success, failure,
 cancellation, duplicate arrivals after join completion, unexpected branch IDs,
@@ -91,7 +92,13 @@ route. The focused Fork/Join runtime group passes 43/43. A malformed graph
 whose Join names a different existing Fork fails in both file and SQLite
 proofs, with the failure preserved by passive playback (2/2).
 
-Public nested topology ownership, malformed parent-lineage tampering,
-duplicate arrivals before completion, package/Studio authoring, and deeper
-than the currently proven composition remain open. See [the Blueprint parity
-roadmap](../roadmap.md) and [parallel graph behavior](../parallel-graphs.md).
+Core now validates nested unified-schema Fork/Join regions with arbitrary
+finite depth, requires a unique parent-branch owner, and rejects shared
+sibling ownership and joins paired with another Fork. Unified validation
+also supports sequential root regions. Regressions cover two and three nested
+levels, sequential roots, and malformed ownership/pairing cases. The
+public runner also executes a normally validated graph with three nested levels
+and a later sequential root region to a successful joined result. Malformed parent-lineage tampering, duplicate
+arrivals before completion, normal-path failure/cancellation and replay
+coverage, package compatibility, and Studio authoring remain open. See [the
+Blueprint parity roadmap](../roadmap.md) and [parallel graph behavior](../parallel-graphs.md).

@@ -54,6 +54,72 @@ public sealed class ConfigurableParallelGraphTests
     }
 
     [Fact]
+    public void UnifiedGraphAllowsNestedForkJoinOwnedByOneOuterBranch()
+    {
+        var definition = NestedUnifiedParallelDefinition();
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void UnifiedGraphAllowsArbitrarilyDeeperForkJoinOwnership()
+    {
+        var definition = DeeperNestedUnifiedParallelDefinition();
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void UnifiedGraphAllowsMultipleSequentialRootForkJoinRegions()
+    {
+        var definition = SequentialUnifiedParallelDefinition();
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void UnifiedGraphRejectsNestedForkSharedBySiblingOwners()
+    {
+        var definition = NestedUnifiedParallelDefinition();
+        var execution = definition.ExecutionConnections!
+            .Remove("research-inner-fork")
+            .Add("review-inner-fork", Execution("review", "then", "inner-fork", "execute"));
+        var shared = definition with { ExecutionConnections = execution };
+
+        Assert.Contains(WorkflowValidator.Validate(shared), issue => issue.Code == "parallel.nested.owner");
+    }
+
+    [Fact]
+    public void UnifiedGraphRejectsNestedJoinPairedWithAnotherFork()
+    {
+        var definition = NestedUnifiedParallelDefinition();
+        var invalid = definition with
+        {
+            Nodes = definition.Nodes.SetItem("inner-join", definition.Nodes["inner-join"] with
+            {
+                ParallelJoin = new("fork", ["inner_a", "inner_b"])
+            })
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(invalid), issue => issue.Code == "parallel.join.match");
+    }
+
+    [Fact]
+    public void UnifiedGraphDiagnosesMultipleNestedJoinsWithoutThrowing()
+    {
+        var definition = NestedUnifiedParallelDefinition();
+        var invalid = definition with
+        {
+            Nodes = definition.Nodes.Add("duplicate-inner-join", new(NodeTypes.ParallelJoin, "1.0.0")
+            {
+                ParallelJoin = new("inner-fork", ["inner_a", "inner_b"])
+            })
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(invalid), issue => issue.Code == "parallel.join.match");
+    }
+
+    [Fact]
     public void UnifiedParallelGraphKeepsApprovalNodesOutsideParallelBranches()
     {
         var definition = UnifiedMcpBranchDefinition();
@@ -405,6 +471,122 @@ public sealed class ConfigurableParallelGraphTests
             connections = connections.Add($"input-{toolId}",
                 new(new("input", "out"), new(toolId, "in"), "data"));
         }
+        return definition with { Nodes = nodes, Connections = connections, ExecutionConnections = execution };
+    }
+
+    private static WorkflowDefinition NestedUnifiedParallelDefinition()
+    {
+        var definition = Definition(2) with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
+        var nodes = definition.Nodes
+            .Add("inner-fork", new(NodeTypes.ParallelFork, "1.0.0")
+            {
+                ParallelFork = new([
+                    new("inner_a", "Inner A", "inner-anchor-a"),
+                    new("inner_b", "Inner B", "inner-anchor-b")])
+            })
+            .Add("inner-anchor-a", new(NodeTypes.ParallelBranch, "1.0.0")
+            {
+                ParallelBranch = new("inner-fork", "inner_a")
+            })
+            .Add("inner-anchor-b", new(NodeTypes.ParallelBranch, "1.0.0")
+            {
+                ParallelBranch = new("inner-fork", "inner_b")
+            })
+            .Add("inner-agent-a", new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, "Inner A", [])))
+            .Add("inner-agent-b", new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, "Inner B", [])))
+            .Add("inner-join", new(NodeTypes.ParallelJoin, "1.0.0")
+            {
+                ParallelJoin = new("inner-fork", ["inner_a", "inner_b"])
+            });
+        var execution = definition.ExecutionConnections!
+            .Remove("research-agent")
+            .Remove("agent-research-join")
+            .Add("research-inner-fork", Execution("research", "then", "inner-fork", "execute"))
+            .Add("inner-fork-a", Execution("inner-fork", "branch.inner_a", "inner-anchor-a", "execute"))
+            .Add("inner-fork-b", Execution("inner-fork", "branch.inner_b", "inner-anchor-b", "execute"))
+            .Add("inner-anchor-a-agent", Execution("inner-anchor-a", "then", "inner-agent-a", "execute"))
+            .Add("inner-anchor-b-agent", Execution("inner-anchor-b", "then", "inner-agent-b", "execute"))
+            .Add("inner-agent-a-join", Execution("inner-agent-a", "out", "inner-join", "branch.inner_a"))
+            .Add("inner-agent-b-join", Execution("inner-agent-b", "out", "inner-join", "branch.inner_b"))
+            .Add("inner-join-research-agent", Execution("inner-join", "then", "agent-research", "execute"))
+            .Add("agent-research-join", Execution("agent-research", "out", "join", "branch.research"));
+        var connections = definition.Connections
+            .Add("input-inner-a", new(new("input", "out"), new("inner-agent-a", "in"), "data"))
+            .Add("input-inner-b", new(new("input", "out"), new("inner-agent-b", "in"), "data"));
+        return definition with { Nodes = nodes, Connections = connections, ExecutionConnections = execution };
+    }
+
+    private static WorkflowDefinition DeeperNestedUnifiedParallelDefinition()
+    {
+        var definition = NestedUnifiedParallelDefinition();
+        var nodes = definition.Nodes
+            .Add("deep-fork", new(NodeTypes.ParallelFork, "1.0.0")
+            {
+                ParallelFork = new([
+                    new("deep_x", "Deep X", "deep-anchor-x"),
+                    new("deep_y", "Deep Y", "deep-anchor-y")])
+            })
+            .Add("deep-anchor-x", new(NodeTypes.ParallelBranch, "1.0.0")
+            {
+                ParallelBranch = new("deep-fork", "deep_x")
+            })
+            .Add("deep-anchor-y", new(NodeTypes.ParallelBranch, "1.0.0")
+            {
+                ParallelBranch = new("deep-fork", "deep_y")
+            })
+            .Add("deep-agent-x", new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, "Deep X", [])))
+            .Add("deep-agent-y", new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, "Deep Y", [])))
+            .Add("deep-join", new(NodeTypes.ParallelJoin, "1.0.0")
+            {
+                ParallelJoin = new("deep-fork", ["deep_x", "deep_y"])
+            });
+        var execution = definition.ExecutionConnections!
+            .Remove("inner-anchor-a-agent")
+            .Add("inner-a-deep-fork", Execution("inner-anchor-a", "then", "deep-fork", "execute"))
+            .Add("deep-fork-x", Execution("deep-fork", "branch.deep_x", "deep-anchor-x", "execute"))
+            .Add("deep-fork-y", Execution("deep-fork", "branch.deep_y", "deep-anchor-y", "execute"))
+            .Add("deep-anchor-x-agent", Execution("deep-anchor-x", "then", "deep-agent-x", "execute"))
+            .Add("deep-anchor-y-agent", Execution("deep-anchor-y", "then", "deep-agent-y", "execute"))
+            .Add("deep-agent-x-join", Execution("deep-agent-x", "out", "deep-join", "branch.deep_x"))
+            .Add("deep-agent-y-join", Execution("deep-agent-y", "out", "deep-join", "branch.deep_y"))
+            .Add("deep-join-inner-a", Execution("deep-join", "then", "inner-agent-a", "execute"));
+        var connections = definition.Connections
+            .Add("input-deep-x", new(new("input", "out"), new("deep-agent-x", "in"), "data"))
+            .Add("input-deep-y", new(new("input", "out"), new("deep-agent-y", "in"), "data"));
+        return definition with { Nodes = nodes, Connections = connections, ExecutionConnections = execution };
+    }
+
+    private static WorkflowDefinition SequentialUnifiedParallelDefinition()
+    {
+        var definition = Definition(2) with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
+        var branches = ImmutableArray.Create(
+            new ParallelBranchDescriptor("next_a", "Next A", "next-anchor-a"),
+            new ParallelBranchDescriptor("next_b", "Next B", "next-anchor-b"));
+        var nodes = definition.Nodes
+            .Add("next-fork", new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(branches) })
+            .Add("next-anchor-a", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("next-fork", "next_a") })
+            .Add("next-anchor-b", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("next-fork", "next_b") })
+            .Add("next-agent-a", new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, "Next A", [])))
+            .Add("next-agent-b", new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, "Next B", [])))
+            .Add("next-join", new(NodeTypes.ParallelJoin, "1.0.0")
+            {
+                ParallelJoin = new("next-fork", ["next_a", "next_b"])
+            });
+        var execution = definition.ExecutionConnections!
+            .Remove("join-output")
+            .Add("join-next-fork", Execution("join", "then", "next-fork", "execute"))
+            .Add("next-fork-a", Execution("next-fork", "branch.next_a", "next-anchor-a", "execute"))
+            .Add("next-fork-b", Execution("next-fork", "branch.next_b", "next-anchor-b", "execute"))
+            .Add("next-anchor-a-agent", Execution("next-anchor-a", "then", "next-agent-a", "execute"))
+            .Add("next-anchor-b-agent", Execution("next-anchor-b", "then", "next-agent-b", "execute"))
+            .Add("next-agent-a-join", Execution("next-agent-a", "out", "next-join", "branch.next_a"))
+            .Add("next-agent-b-join", Execution("next-agent-b", "out", "next-join", "branch.next_b"))
+            .Add("next-join-output", Execution("next-join", "then", "output", "execute"));
+        var connections = definition.Connections
+            .Remove("join-json")
+            .Add("input-next-a", new(new("input", "out"), new("next-agent-a", "in"), "data"))
+            .Add("input-next-b", new(new("input", "out"), new("next-agent-b", "in"), "data"))
+            .Add("next-join-json", new(new("next-join", "out"), new("output", "in"), "data"));
         return definition with { Nodes = nodes, Connections = connections, ExecutionConnections = execution };
     }
 

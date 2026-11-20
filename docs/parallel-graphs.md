@@ -7,22 +7,21 @@ concurrently under the existing fork/join contract and contribute their text
 results to the matching named join field. Denial or failure aborts the region
 without a joined result; cancellation propagates through active calls. Completed
 external effects in sibling branches are not rolled back. Approval nodes,
-loops, nested forks, and other unsupported control-flow nodes remain invalid
-inside these regions. Historical schemas retain their previous branch rules.
+loops, and other unsupported control-flow nodes remain invalid inside these
+regions. Historical schemas retain their previous branch rules.
 
-Nested Fork/Join is a parity target for unified schema 2.0, not current
-supported behavior. The accepted end contract is arbitrary finite-depth
-composition with activation-scoped arrivals and statically validated region
-ownership; there will be no separate schema, capability, or fixed-depth gate.
-Each nested region must have one parent-branch owner; a static child region
-shared across sibling owners is outside the reviewed topology contract unless
-a parent-aware routing design is reviewed separately.
-See [Decision 0076](decisions/0076-nested-fork-join-composition.md). Until the
-Core ownership analyzer, runtime settlement proofs, Studio editing, package
-compatibility, and passive playback are implemented together, validation
-continues to reject nested regions.
+Nested Fork/Join is a parity target for unified schema 2.0, not yet a complete
+supported authoring/runtime feature. Core validation now admits arbitrary
+finite-depth nested regions when each child has exactly one parent-branch
+owner; it also supports sequential root regions and rejects a child shared
+across sibling owners or a join paired to a different fork. The public
+runner completes a normally validated graph combining three nested levels
+with a later sequential root region. Nested failure/cancellation, persistence and
+playback, package compatibility, and Studio editing remain unverified. The
+accepted end contract has no separate schema, capability, or fixed-depth gate.
+See [Decision 0076](decisions/0076-nested-fork-join-composition.md).
 
-Schemas 1.14–1.31 support up to four sequential, explicit two-branch blocks. Schema 1.32 adds a configurable 2–8 branch region in an explicit execution graph. In either form a parallel block is a visible fork and barrier, not an arrangement of nodes that happen to sit side by side. Each branch receives the same incoming string and produces one string result. Nested or independently concurrent regions remain unsupported.
+Schemas 1.14–1.31 support up to four sequential, explicit two-branch blocks. Schema 1.32 adds a configurable 2–8 branch region in an explicit execution graph. In either form a parallel block is a visible fork and barrier, not an arrangement of nodes that happen to sit side by side. Each branch receives the same incoming string and produces one string result. Historical schemas do not support nested regions; unified schema 2.0 validation admits the strict nested topology described above, while full runtime/editor support remains in progress.
 
 ```mermaid
 flowchart LR
@@ -41,7 +40,7 @@ Choose **Parallel block** from the node library while an ordinary string connect
 
 To add another block, select a string connection after the previous block's selector and insert **Parallel block** again. Each block has its own join, progress events, and JSON result. Selecting a fork, branch, or join and choosing **Remove parallel block…** previews and removes only that block, preserving the other blocks and reconnecting the surrounding path.
 
-In legacy schemas 1.14–1.31, add deterministic text operations, Agent nodes, or MCP tools after either branch anchor. In historical schema 1.32 regions, branches use straight Agent paths. Current schema 2.0 also permits direct MCP nodes in these static branches; each has its own configured binding, arguments, node grant, invocation identity, and audit events. Tool denial or failure aborts the region without a joined result, and cancellation propagates through active calls. Completed external effects in sibling branches are not rolled back. Approval nodes, loops, nested forks, and other unsupported control-flow nodes remain invalid. The branch anchors must remain the first nodes after the fork, and each path must connect to the join input with the same branch ID. These paths are acyclic. Schema 1.33 adds one rendezvous to the schema 1.32 topology and keeps its before/after Agent paths linear. Schema 1.34 is the bounded exception described below. Schema 1.35 defines two ordered rendezvous phases with separate phase-scoped snapshots and grants; its full contract is in [two-phase parallel Agent collaboration](parallel-agent-collaboration-phases.md). Existing compatible pin rewiring is available; drafts with incomplete or mismatched paths show validation issues and cannot be published or run. The JSON selector can turn the complete result or one named field back into text.
+In legacy schemas 1.14–1.31, add deterministic text operations, Agent nodes, or MCP tools after either branch anchor. In historical schema 1.32 regions, branches use straight Agent paths. Current schema 2.0 also permits direct MCP nodes in these static branches; each has its own configured binding, arguments, node grant, invocation identity, and audit events. Tool denial or failure aborts the region without a joined result, and cancellation propagates through active calls. Completed external effects in sibling branches are not rolled back. Approval nodes, loops, and other unsupported control-flow nodes remain invalid; nested regions follow the bounded support status described above. The branch anchors must remain the first nodes after the fork, and each path must connect to the join input with the same branch ID. These paths are acyclic. Schema 1.33 adds one rendezvous to the schema 1.32 topology and keeps its before/after Agent paths linear. Schema 1.34 is the bounded exception described below. Schema 1.35 defines two ordered rendezvous phases with separate phase-scoped snapshots and grants; its full contract is in [two-phase parallel Agent collaboration](parallel-agent-collaboration-phases.md). Existing compatible pin rewiring is available; drafts with incomplete or mismatched paths show validation issues and cannot be published or run. The JSON selector can turn the complete result or one named field back into text.
 
 The runner maps the fork to explicit Agent Framework messages and uses the framework's concurrent in-process execution environment. Historical schemas route join arrivals through Agent Framework's fan-in barrier. Unified schema 2.0 sends each connected arrival directly to the VAW Join executor, which correlates by fork activation and branch ID; this supports repeated activations of the same static source executors. Join output is a deterministic JSON object with the configured branch IDs, capped at 16,384 serialized characters. Node, transfer, join-progress, completion, and failure events preserve the values and actual connections for playback; replay performs no agent or tool calls.
 
@@ -63,7 +62,7 @@ Runtime arrivals are keyed by run, fork activation, and stable branch ID. Duplic
 
 Core validates this region, projects stable named execution pins, and runs branches concurrently through Microsoft Agent Framework. Runtime join arrivals use the same invocation ID as the fork and are keyed by branch ID; an incomplete or failed fan-in never produces a partial value. The aggregate remains capped at 16,384 characters. A deterministic three-branch and eight-branch runtime test covers concurrent completion, named JSON results and failure without output. Existing schemas retain their original pins and scheduling behavior.
 
-Studio can create a 1.32 region from a valid 1.31 graph whose Input first activates an Agent or Boolean Branch and whose Output still returns the input text. The author chooses 2–8 branches; Studio inserts the fork, named anchors, and join as one undoable edit and routes the join's JSON result to Output. Labels can be edited without changing stable IDs or wire endpoints. The fork inspector can append branches up to the eight-branch limit, reorder branch pins, and remove an empty branch while at least two remain. Each edit updates the fork descriptors, anchor and matching join pins atomically. Populated branches cannot be removed until their Agent nodes have been moved or deleted; Studio does not silently discard authored work. Removing the complete region restores the original Input-to-Output value path and is undoable. Current schema 2.0 supports Agent and direct MCP steps in these static branches; historical schema 1.32 definitions remain linear Agent paths, and schema 1.34 adds only the Boolean routing described below. Loops, approvals, and nested regions remain unsupported.
+Studio can create a 1.32 region from a valid 1.31 graph whose Input first activates an Agent or Boolean Branch and whose Output still returns the input text. The author chooses 2–8 branches; Studio inserts the fork, named anchors, and join as one undoable edit and routes the join's JSON result to Output. Labels can be edited without changing stable IDs or wire endpoints. The fork inspector can append branches up to the eight-branch limit, reorder branch pins, and remove an empty branch while at least two remain. Each edit updates the fork descriptors, anchor and matching join pins atomically. Populated branches cannot be removed until their Agent nodes have been moved or deleted; Studio does not silently discard authored work. Removing the complete region restores the original Input-to-Output value path and is undoable. Current schema 2.0 supports Agent and direct MCP steps in these static branches; historical schema 1.32 definitions remain linear Agent paths, and schema 1.34 adds only the Boolean routing described below. Loops and approvals remain unsupported in the Studio-created straight branch paths; nested regions currently require definition-level authoring because the Studio editor does not yet support them.
 
 Playback remains event-based and never invokes live agents or tools. Existing schemas retain their original pins and scheduling behavior. Schema 1.33 adds one collaborative rendezvous with phase-specific grants and passive playback; repeated barriers remain deferred. Tests cover stable named pins, branch-count limits, add/remove/reorder, label changes, removal/undo, concurrent three/eight-arm execution, and failure without partial output. See [the user guide](user-guide.md#run-configurable-parallel-branches) for the Studio authoring flow.
 

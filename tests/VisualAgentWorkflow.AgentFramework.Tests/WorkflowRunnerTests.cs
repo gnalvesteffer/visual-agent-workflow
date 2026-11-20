@@ -41,6 +41,135 @@ public class WorkflowRunnerTests
     }
 
     [Fact]
+    public async Task ExecutesStrictlyOwnedNestedForkJoinThroughPublicRunnerPath()
+    {
+        var revision = WorkflowRevision.Create(NestedForkDefinition(), "nested-public-runner");
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(agents: new EchoNestedAgentExecutor())
+            .ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "research input", null,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; })
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(result.Failed);
+        Assert.True(result.HasOutput);
+        Assert.Contains("research input", result.Output, StringComparison.Ordinal);
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId is "deep-join" or "inner-join" or "outer-join" or "post-join"));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "deep-join");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "inner-join");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "outer-join");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "post-join");
+    }
+
+    private static WorkflowDefinition NestedForkDefinition()
+    {
+        var outerBranches = ImmutableArray.Create(
+            new ParallelBranchDescriptor("research", "Research", "research-anchor"),
+            new ParallelBranchDescriptor("review", "Review", "review-anchor"));
+        var innerBranches = ImmutableArray.Create(
+            new ParallelBranchDescriptor("a", "Inner A", "inner-anchor-a"),
+            new ParallelBranchDescriptor("b", "Inner B", "inner-anchor-b"));
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("outer-fork", new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(outerBranches) })
+            .Add("research-anchor", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("outer-fork", "research") })
+            .Add("review-anchor", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("outer-fork", "review") })
+            .Add("inner-fork", new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(innerBranches) })
+            .Add("inner-anchor-a", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("inner-fork", "a") })
+            .Add("inner-anchor-b", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("inner-fork", "b") })
+            .Add("deep-fork", new(NodeTypes.ParallelFork, "1.0.0")
+            {
+                ParallelFork = new([
+                    new("x", "Deep X", "deep-anchor-x"),
+                    new("y", "Deep Y", "deep-anchor-y")])
+            })
+            .Add("deep-anchor-x", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("deep-fork", "x") })
+            .Add("deep-anchor-y", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("deep-fork", "y") })
+            .Add("inner-agent-a", new(NodeTypes.Agent, "1.0.0", Agent: new("test.nested-echo", null, "Inner A", [])))
+            .Add("inner-agent-b", new(NodeTypes.Agent, "1.0.0", Agent: new("test.nested-echo", null, "Inner B", [])))
+            .Add("deep-agent-x", new(NodeTypes.Agent, "1.0.0", Agent: new("test.nested-echo", null, "Deep X", [])))
+            .Add("deep-agent-y", new(NodeTypes.Agent, "1.0.0", Agent: new("test.nested-echo", null, "Deep Y", [])))
+            .Add("review-agent", new(NodeTypes.Agent, "1.0.0", Agent: new("test.nested-echo", null, "Review", [])))
+            .Add("research-agent", new(NodeTypes.Agent, "1.0.0", Agent: new("test.nested-echo", null, "Research", [])))
+            .Add("deep-join", new(NodeTypes.ParallelJoin, "1.0.0") { ParallelJoin = new("deep-fork", ["x", "y"]) })
+            .Add("inner-join", new(NodeTypes.ParallelJoin, "1.0.0") { ParallelJoin = new("inner-fork", ["a", "b"]) })
+            .Add("outer-join", new(NodeTypes.ParallelJoin, "1.0.0") { ParallelJoin = new("outer-fork", ["research", "review"]) })
+            .Add("post-fork", new(NodeTypes.ParallelFork, "1.0.0")
+            {
+                ParallelFork = new([
+                    new("post_a", "Post A", "post-anchor-a"),
+                    new("post_b", "Post B", "post-anchor-b")])
+            })
+            .Add("post-anchor-a", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("post-fork", "post_a") })
+            .Add("post-anchor-b", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("post-fork", "post_b") })
+            .Add("post-agent-a", new(NodeTypes.Agent, "1.0.0", Agent: new("test.nested-echo", null, "Post A", [])))
+            .Add("post-agent-b", new(NodeTypes.Agent, "1.0.0", Agent: new("test.nested-echo", null, "Post B", [])))
+            .Add("post-join", new(NodeTypes.ParallelJoin, "1.0.0") { ParallelJoin = new("post-fork", ["post_a", "post_b"]) })
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = "json" });
+        var connections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-inner-a", new(new("input", "out"), new("inner-agent-a", "in"), "data"))
+            .Add("input-inner-b", new(new("input", "out"), new("inner-agent-b", "in"), "data"))
+            .Add("input-deep-x", new(new("input", "out"), new("deep-agent-x", "in"), "data"))
+            .Add("input-deep-y", new(new("input", "out"), new("deep-agent-y", "in"), "data"))
+            .Add("input-research", new(new("input", "out"), new("research-agent", "in"), "data"))
+            .Add("input-review", new(new("input", "out"), new("review-agent", "in"), "data"))
+            .Add("input-post-a", new(new("input", "out"), new("post-agent-a", "in"), "data"))
+            .Add("input-post-b", new(new("input", "out"), new("post-agent-b", "in"), "data"))
+            .Add("post-result", new(new("post-join", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-outer-fork", Execution("input", "then", "outer-fork", "execute"))
+            .Add("outer-research", Execution("outer-fork", "branch.research", "research-anchor", "execute"))
+            .Add("outer-review", Execution("outer-fork", "branch.review", "review-anchor", "execute"))
+            .Add("research-inner-fork", Execution("research-anchor", "then", "inner-fork", "execute"))
+            .Add("inner-a", Execution("inner-fork", "branch.a", "inner-anchor-a", "execute"))
+            .Add("inner-b", Execution("inner-fork", "branch.b", "inner-anchor-b", "execute"))
+            .Add("inner-a-deep-fork", Execution("inner-anchor-a", "then", "deep-fork", "execute"))
+            .Add("deep-x", Execution("deep-fork", "branch.x", "deep-anchor-x", "execute"))
+            .Add("deep-y", Execution("deep-fork", "branch.y", "deep-anchor-y", "execute"))
+            .Add("deep-x-agent", Execution("deep-anchor-x", "then", "deep-agent-x", "execute"))
+            .Add("deep-y-agent", Execution("deep-anchor-y", "then", "deep-agent-y", "execute"))
+            .Add("deep-x-join", Execution("deep-agent-x", "out", "deep-join", "branch.x"))
+            .Add("deep-y-join", Execution("deep-agent-y", "out", "deep-join", "branch.y"))
+            .Add("deep-join-inner-a", Execution("deep-join", "then", "inner-agent-a", "execute"))
+            .Add("inner-b-agent", Execution("inner-anchor-b", "then", "inner-agent-b", "execute"))
+            .Add("inner-a-join", Execution("inner-agent-a", "out", "inner-join", "branch.a"))
+            .Add("inner-b-join", Execution("inner-agent-b", "out", "inner-join", "branch.b"))
+            .Add("inner-join-research", Execution("inner-join", "then", "research-agent", "execute"))
+            .Add("research-outer-join", Execution("research-agent", "out", "outer-join", "branch.research"))
+            .Add("review-agent-outer-join", Execution("review-anchor", "then", "review-agent", "execute"))
+            .Add("review-outer-join", Execution("review-agent", "out", "outer-join", "branch.review"))
+            .Add("outer-post-fork", Execution("outer-join", "then", "post-fork", "execute"))
+            .Add("post-a", Execution("post-fork", "branch.post_a", "post-anchor-a", "execute"))
+            .Add("post-b", Execution("post-fork", "branch.post_b", "post-anchor-b", "execute"))
+            .Add("post-anchor-a-agent", Execution("post-anchor-a", "then", "post-agent-a", "execute"))
+            .Add("post-anchor-b-agent", Execution("post-anchor-b", "then", "post-agent-b", "execute"))
+            .Add("post-agent-a-join", Execution("post-agent-a", "out", "post-join", "branch.post_a"))
+            .Add("post-agent-b-join", Execution("post-agent-b", "out", "post-join", "branch.post_b"))
+            .Add("post-output", Execution("post-join", "then", "output", "execute"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "nested-public-runner", "input", nodes, connections)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static ConnectionDefinition Execution(string sourceNode, string sourcePort, string targetNode, string targetPort) =>
+        new(new(sourceNode, sourcePort), new(targetNode, targetPort), "execution");
+
+    private sealed class EchoNestedAgentExecutor : IAgentNodeExecutor
+    {
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("test.nested-echo", "Nested echo", "test", true)]);
+
+        public Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(input);
+        }
+    }
+
+    [Fact]
     public async Task WorkflowValueNodePassesDefaultOrRunOverrideAsRecordedGraphData()
     {
         var definition = new WorkflowDefinition("1.6", "parameter-runtime", "input",
