@@ -106,6 +106,35 @@ public sealed class DirectMcpGraphTests
     }
 
     [Fact]
+    public void Legacy_direct_mcp_pin_package_round_trip_preserves_hash_and_pin_identity_after_new_discovery()
+    {
+        var definition = PinDefinition();
+        var originalHash = WorkflowJson.ComputeHash(definition);
+        var originalPackage = WorkflowPackageJson.Serialize(definition, WorkflowLayout.Create(definition));
+        var restored = WorkflowPackageJson.Deserialize(originalPackage);
+        var tool = restored.Definition.Nodes["tool"];
+        var rediscoveredPorts = ImmutableArray.Create(
+            new McpInputPortDefinition("arg.path", "path", WorkflowDataTypes.String, true),
+            new McpInputPortDefinition("arg.maxBytes", "maxBytes", WorkflowDataTypes.Integer, false),
+            new McpInputPortDefinition("arg.newField", "newField", WorkflowDataTypes.String, false));
+
+        var projection = WorkflowNodeCapabilityProjectionResolver.Resolve(tool,
+            discoveredMcpInputPorts: rediscoveredPorts);
+        var serializedAgain = WorkflowPackageJson.Serialize(restored.Definition, restored.Layout);
+
+        Assert.Equal("1.37", restored.Definition.SchemaVersion);
+        Assert.Equal(originalHash, restored.DefinitionHash);
+        Assert.Equal(originalHash, WorkflowJson.ComputeHash(restored.Definition));
+        Assert.Equal(originalPackage, serializedAgain);
+        Assert.Equal(new[] { "arg.path", "arg.maxBytes" }, tool.McpInputPorts!.Value.Select(port => port.Id));
+        Assert.Equal(new[] { "arg.path", "arg.maxBytes" }, projection.Ports
+            .Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data)
+            .Select(port => port.Id));
+        Assert.DoesNotContain(projection.Ports, port => port.Id == "arg.newField");
+        Assert.Empty(WorkflowValidator.Validate(restored.Definition));
+    }
+
+    [Fact]
     public void Schema_1_40_accepts_a_finite_number_mcp_pin_and_constant()
     {
         var definition = NumberPinDefinition();

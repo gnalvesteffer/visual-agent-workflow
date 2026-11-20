@@ -127,6 +127,13 @@ bounded direct-MCP evidence path through File/SQLite reopen and rendered
 inspector playback. Old-definition/package compatibility remains unproven, so
 gate 5 and the overall proof and authoring stay gated.
 
+The first gate-5 compatibility fixture now round-trips a schema-1.37 workflow
+package containing top-level MCP pins. It verifies byte-identical package
+serialization, unchanged definition hash and pin IDs after a rediscovery that
+advertises an additional argument, and successful validation of the restored
+definition. This covers one historical package/pin shape; independent old-reader
+interpretation and broader schema/package migration compatibility remain open.
+
 The current implementation already supports nested MCP values on JSON pins and
 retains normalized nested schema metadata. It does not yet provide the
 path-level pin contract, end-to-end evidence privacy, or migration guarantees
