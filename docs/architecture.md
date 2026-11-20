@@ -11,6 +11,13 @@ static parallel and collaboration plans derive their branch and phase shape
 from persisted configuration. MCP grants, exact approvals, provider contracts,
 resource limits, and immutable run identity remain host/runtime checks.
 
+Unified schema 2.0 directly routes parallel arrivals to the activation-aware
+Join executor. Public validation still rejects nested Fork/Join regions. The
+accepted schema 2.0 target is arbitrary finite-depth composition with static
+ownership validation and activation-lineage settlement; implementation status
+and required proofs are tracked in [Decision
+0076](decisions/0076-nested-fork-join-composition.md).
+
 The unified schema supports activation-only loops, explicit variable-based
 loops, and the legacy loop-carried string topology. Normalization of schema
 1.17–1.22 preserves the latter's data feedback edge and adds explicit

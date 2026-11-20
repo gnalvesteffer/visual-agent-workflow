@@ -10,6 +10,15 @@ external effects in sibling branches are not rolled back. Approval nodes,
 loops, nested forks, and other unsupported control-flow nodes remain invalid
 inside these regions. Historical schemas retain their previous branch rules.
 
+Nested Fork/Join is a parity target for unified schema 2.0, not current
+supported behavior. The accepted end contract is arbitrary finite-depth
+composition with activation-scoped arrivals and statically validated region
+ownership; there will be no separate schema, capability, or fixed-depth gate.
+See [Decision 0076](decisions/0076-nested-fork-join-composition.md). Until the
+Core ownership analyzer, runtime settlement proofs, Studio editing, package
+compatibility, and passive playback are implemented together, validation
+continues to reject nested regions.
+
 Schemas 1.14–1.31 support up to four sequential, explicit two-branch blocks. Schema 1.32 adds a configurable 2–8 branch region in an explicit execution graph. In either form a parallel block is a visible fork and barrier, not an arrangement of nodes that happen to sit side by side. Each branch receives the same incoming string and produces one string result. Nested or independently concurrent regions remain unsupported.
 
 ```mermaid
