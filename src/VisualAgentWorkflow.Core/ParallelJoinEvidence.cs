@@ -7,6 +7,65 @@ namespace VisualAgentWorkflow.Core;
 public sealed record ParallelForkActivationIdentity(string ForkNodeId, Guid ActivationId, string BranchId,
     string? ParentForkNodeId, Guid? ParentActivationId, string? ParentBranchId);
 
+/// <summary>Versioned evidence that a unified Fork activation was admitted before branch dispatch.</summary>
+public sealed record ParallelJoinActivationEvidence(int Version, string JoinNodeId, string ForkNodeId,
+    Guid ForkActivationId, ImmutableArray<string> ExpectedBranchIds,
+    ImmutableArray<ParallelForkActivationIdentity> ParentLineage)
+{
+    public const int CurrentVersion = 1;
+
+    public string Serialize() => JsonSerializer.Serialize(this);
+
+    public static bool TryRead(ExecutionEvent executionEvent, out ParallelJoinActivationEvidence? evidence)
+    {
+        evidence = null;
+        if (executionEvent.Kind != ExecutionEventKinds.ParallelJoinActivated ||
+            string.IsNullOrWhiteSpace(executionEvent.Data) || executionEvent.Data.Length > 64 * 1024) return false;
+
+        try
+        {
+            evidence = JsonSerializer.Deserialize<ParallelJoinActivationEvidence>(executionEvent.Data);
+            return evidence is not null && evidence.Version == CurrentVersion &&
+                !string.IsNullOrWhiteSpace(evidence.JoinNodeId) && !string.IsNullOrWhiteSpace(evidence.ForkNodeId) &&
+                evidence.ForkActivationId != Guid.Empty && evidence.ExpectedBranchIds is { IsDefault: false } branches &&
+                branches.Length is >= ParallelBranchLimits.MinimumBranches and <= ParallelGraphLimits.MaximumExplicitBranches &&
+                branches.All(branch => !string.IsNullOrWhiteSpace(branch)) &&
+                branches.Distinct(StringComparer.Ordinal).Count() == branches.Length &&
+                evidence.ParentLineage is { IsDefault: false } lineage && lineage.Length <= 64 &&
+                executionEvent.NodeId == evidence.ForkNodeId && executionEvent.InvocationId == evidence.ForkActivationId &&
+                IsValidParentLineage(lineage);
+        }
+        catch (JsonException)
+        {
+            evidence = null;
+            return false;
+        }
+    }
+
+    internal static bool IsValidParentLineage(ImmutableArray<ParallelForkActivationIdentity> lineage)
+    {
+        var seenForks = new HashSet<string>(StringComparer.Ordinal);
+        for (var index = 0; index < lineage.Length; index++)
+        {
+            var item = lineage[index];
+            if (item is null || string.IsNullOrWhiteSpace(item.ForkNodeId) || item.ActivationId == Guid.Empty ||
+                string.IsNullOrWhiteSpace(item.BranchId) || !seenForks.Add(item.ForkNodeId)) return false;
+            if (index == 0)
+            {
+                if (item.ParentForkNodeId is not null || item.ParentActivationId is not null || item.ParentBranchId is not null)
+                    return false;
+            }
+            else
+            {
+                var parent = lineage[index - 1];
+                if (item.ParentForkNodeId != parent.ForkNodeId || item.ParentActivationId != parent.ActivationId ||
+                    item.ParentBranchId != parent.BranchId) return false;
+            }
+        }
+        return true;
+    }
+}
+
 /// <summary>Versioned evidence for a branch result accepted by a schema 2.0 parallel join.</summary>
 public sealed record ParallelJoinArrivalEvidence(int Version, string JoinNodeId, string ForkNodeId,
     Guid ForkActivationId, string BranchId, ImmutableArray<ParallelForkActivationIdentity> Lineage)
@@ -67,7 +126,10 @@ public sealed record ParallelJoinArrivalEvidence(int Version, string JoinNodeId,
 
 public sealed record ParallelJoinPlaybackActivation(string JoinNodeId, Guid ForkActivationId, string State,
     ImmutableArray<string> ReceivedBranchIds, ImmutableArray<string> ExpectedBranchIds,
-    ImmutableArray<ImmutableArray<ParallelForkActivationIdentity>> Lineages, long FirstSequence);
+    ImmutableArray<ImmutableArray<ParallelForkActivationIdentity>> Lineages, long FirstSequence)
+{
+    public ImmutableArray<ParallelForkActivationIdentity> ActivationLineage { get; init; } = [];
+}
 
 /// <summary>Passive root-graph projection of accepted parallel arrivals; scoped child histories need their own definition.</summary>
 public sealed record ParallelJoinPlaybackSnapshot(string Status,
@@ -87,6 +149,7 @@ public static class ParallelJoinEvidence
         if (!TryBuildNestedForkOwners(definition, out var nestedForkOwners)) return false;
 
         var events = executionEvents.OrderBy(evt => evt.Sequence).ToArray();
+        var hasActivationEvents = events.Any(evt => evt.Kind == ExecutionEventKinds.ParallelJoinActivated);
         Guid? runId = null;
         long priorSequence = 0;
         var activations = new Dictionary<(string Scope, string Join, Guid ForkActivation), MutableActivation>();
@@ -98,19 +161,33 @@ public static class ParallelJoinEvidence
             runId ??= evt.RunId;
             priorSequence = evt.Sequence;
             if (evt.ScopeId is not null) continue;
+            if (evt.Kind == ExecutionEventKinds.ParallelJoinActivated)
+            {
+                if (!ParallelJoinActivationEvidence.TryRead(evt, out var evidence) || evidence is null ||
+                    !ValidateAgainstDefinition(definition, nestedForkOwners, evidence)) return false;
+                var key = (string.Empty, evidence.JoinNodeId, evidence.ForkActivationId);
+                if (activations.ContainsKey(key)) return false;
+                activations.Add(key, new(key.Item1, evidence.JoinNodeId, evidence.ForkActivationId, evt.Sequence,
+                    evidence.ExpectedBranchIds, evidence.ParentLineage));
+                continue;
+            }
             if (evt.Kind == ExecutionEventKinds.ParallelJoinArrival)
             {
                 if (runState is not null || !ParallelJoinArrivalEvidence.TryRead(evt, out var evidence) || evidence is null ||
                     !ValidateAgainstDefinition(definition, nestedForkOwners, evidence)) return false;
 
                 var key = (evt.ScopeId ?? string.Empty, evidence.JoinNodeId, evidence.ForkActivationId);
-                if (!activations.TryGetValue(key, out var activation))
+                if (!activations.TryGetValue(key, out var activation) && hasActivationEvents) return false;
+                if (activation is null)
                 {
+                    var lineage = evidence.Lineage;
                     activation = new(key.Item1, evidence.JoinNodeId, evidence.ForkActivationId, evt.Sequence,
-                        definition.Nodes[evidence.JoinNodeId].ParallelJoin!.BranchIds);
+                        definition.Nodes[evidence.JoinNodeId].ParallelJoin!.BranchIds, lineage.RemoveAt(lineage.Length - 1));
                     activations.Add(key, activation);
                 }
+                var leaf = evidence.Lineage[^1];
                 if (!activation.Expected.Contains(evidence.BranchId, StringComparer.Ordinal) ||
+                    !activation.ParentLineage.Add(leaf).SequenceEqual(evidence.Lineage) ||
                     !activation.Arrivals.TryAdd(evidence.BranchId, evidence.Lineage)) return false;
                 continue;
             }
@@ -160,7 +237,7 @@ public static class ParallelJoinEvidence
         var projected = activations.Values.OrderBy(item => item.FirstSequence)
             .Select(item => new ParallelJoinPlaybackActivation(item.JoinNodeId, item.ForkActivationId, item.State,
                 item.Expected.Where(item.Arrivals.ContainsKey).ToImmutableArray(), item.Expected,
-                item.Arrivals.Values.ToImmutableArray(), item.FirstSequence)).ToImmutableArray();
+                item.Arrivals.Values.ToImmutableArray(), item.FirstSequence) { ActivationLineage = item.ParentLineage }).ToImmutableArray();
         var status = runState ?? (projected.Any(item => item.State == "failed") ? "failed" :
             projected.Any(item => item.State == "cancelled") ? "cancelled" :
             projected.All(item => item.State == "completed") ? "completed" : "incomplete");
@@ -193,6 +270,37 @@ public static class ParallelJoinEvidence
             else if (!nestedForkOwners.TryGetValue(identity.ForkNodeId, out var owner) ||
                 owner.ForkNodeId != evidence.Lineage[index - 1].ForkNodeId ||
                 owner.BranchId != evidence.Lineage[index - 1].BranchId) return false;
+        }
+        return true;
+    }
+
+    private static bool ValidateAgainstDefinition(WorkflowDefinition definition,
+        IReadOnlyDictionary<string, (string ForkNodeId, string BranchId)> nestedForkOwners,
+        ParallelJoinActivationEvidence evidence)
+    {
+        if (!definition.Nodes.TryGetValue(evidence.JoinNodeId, out var join) ||
+            join?.Type != NodeTypes.ParallelJoin || join.ParallelJoin?.ForkNodeId != evidence.ForkNodeId ||
+            !definition.Nodes.TryGetValue(evidence.ForkNodeId, out var fork) || fork?.Type != NodeTypes.ParallelFork ||
+            fork.ParallelFork?.Branches is not { IsDefault: false } forkBranches ||
+            !forkBranches.Select(branch => branch.Id).ToHashSet(StringComparer.Ordinal)
+                .SetEquals(evidence.ExpectedBranchIds) ||
+            join.ParallelJoin.BranchIds.Length != evidence.ExpectedBranchIds.Length ||
+            !join.ParallelJoin.BranchIds.ToHashSet(StringComparer.Ordinal).SetEquals(evidence.ExpectedBranchIds)) return false;
+
+        if (evidence.ParentLineage.IsEmpty) return !nestedForkOwners.ContainsKey(evidence.ForkNodeId);
+        if (!nestedForkOwners.TryGetValue(evidence.ForkNodeId, out var owner) ||
+            owner.ForkNodeId != evidence.ParentLineage[^1].ForkNodeId ||
+            owner.BranchId != evidence.ParentLineage[^1].BranchId) return false;
+
+        for (var index = 0; index < evidence.ParentLineage.Length; index++)
+        {
+            var identity = evidence.ParentLineage[index];
+            if (!definition.Nodes.TryGetValue(identity.ForkNodeId, out var ancestor) || ancestor?.Type != NodeTypes.ParallelFork ||
+                ancestor.ParallelFork?.Branches is not { IsDefault: false } ancestorBranches ||
+                !ancestorBranches.Any(branch => branch.Id == identity.BranchId)) return false;
+            if (index > 0 && (!nestedForkOwners.TryGetValue(identity.ForkNodeId, out var parentOwner) ||
+                parentOwner.ForkNodeId != evidence.ParentLineage[index - 1].ForkNodeId ||
+                parentOwner.BranchId != evidence.ParentLineage[index - 1].BranchId)) return false;
         }
         return true;
     }
@@ -243,13 +351,14 @@ public static class ParallelJoinEvidence
     }
 
     private sealed class MutableActivation(string scopeId, string joinNodeId, Guid forkActivationId, long firstSequence,
-        ImmutableArray<string> expected)
+        ImmutableArray<string> expected, ImmutableArray<ParallelForkActivationIdentity> parentLineage)
     {
         public string ScopeId { get; } = scopeId;
         public string JoinNodeId { get; } = joinNodeId;
         public Guid ForkActivationId { get; } = forkActivationId;
         public long FirstSequence { get; } = firstSequence;
         public ImmutableArray<string> Expected { get; } = expected;
+        public ImmutableArray<ParallelForkActivationIdentity> ParentLineage { get; } = parentLineage;
         public Dictionary<string, ImmutableArray<ParallelForkActivationIdentity>> Arrivals { get; } = new(StringComparer.Ordinal);
         public string State { get; set; } = "running";
     }

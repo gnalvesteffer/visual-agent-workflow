@@ -27,7 +27,7 @@ public class WorkflowSchemaNormalizationTests
     }
 
     [Fact]
-    public void RemovingUnifiedConfiguredParallelRegionUsesExecutionWiresAndKeepsSchema()
+    public void RemovingUnifiedConfiguredParallelRegionRestoresExecutionAndLeavesDataConsumersEditable()
     {
         var source = WorkflowSchemaNormalization.NormalizeForEditing(Blank());
         var branches = ImmutableArray.Create(new ParallelBranchDescriptor("first", "First", "first"),
@@ -54,7 +54,9 @@ public class WorkflowSchemaNormalizationTests
         var removed = ParallelBlockEditing.Remove(source, "fork");
         Assert.Equal("2.0", removed.SchemaVersion);
         Assert.Equal(2, removed.Nodes.Count);
-        Assert.Empty(WorkflowValidator.Validate(removed));
+        Assert.Empty(removed.Connections);
+        Assert.Contains(WorkflowValidator.Validate(removed), issue => issue.Code == "data.degree" &&
+            issue.Path == "nodes.output.inputs.in");
         Assert.Equal(new PortReference("output", "execute"), Assert.Single(removed.ExecutionConnections!).Value.Target);
         Assert.Equal(original, WorkflowJson.Serialize(source));
     }

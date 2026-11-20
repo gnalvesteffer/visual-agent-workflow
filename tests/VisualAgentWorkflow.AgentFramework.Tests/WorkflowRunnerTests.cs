@@ -62,6 +62,25 @@ public class WorkflowRunnerTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "post-join");
 
         var arrivals = events.Where(evt => evt.Kind == ExecutionEventKinds.ParallelJoinArrival).ToArray();
+        var activations = events.Where(evt => evt.Kind == ExecutionEventKinds.ParallelJoinActivated).ToArray();
+        Assert.Equal(4, activations.Length);
+        Assert.All(activations, activated => Assert.True(ParallelJoinActivationEvidence.TryRead(activated, out _)));
+        Assert.All(arrivals, arrival => Assert.Contains(activations, activated =>
+            ParallelJoinActivationEvidence.TryRead(activated, out var evidence) &&
+            evidence!.ForkActivationId == arrival.InvocationId && activated.Sequence < arrival.Sequence));
+        var activationToTamper = activations[0];
+        Assert.True(ParallelJoinActivationEvidence.TryRead(activationToTamper, out var activationEvidence));
+        var shortenedActivation = activationEvidence! with
+        {
+            ExpectedBranchIds = activationEvidence.ExpectedBranchIds.RemoveAt(0)
+        };
+        Assert.False(ParallelJoinEvidence.TryReconstructPlayback(revision.Definition,
+            events.Select(evt => evt.Sequence == activationToTamper.Sequence
+                ? evt with { Data = shortenedActivation.Serialize() } : evt).ToArray(), out _));
+        var firstRootLineage = activations.First(evt => ParallelJoinActivationEvidence.TryRead(evt, out var evidence) &&
+            evidence!.ParentLineage.IsEmpty);
+        Assert.False(ParallelJoinEvidence.TryReconstructPlayback(revision.Definition,
+            events.Where(evt => evt.Sequence != firstRootLineage.Sequence).ToArray(), out _));
         Assert.Equal(8, arrivals.Length);
         Assert.All(arrivals, arrival => Assert.True(ParallelJoinArrivalEvidence.TryRead(arrival, out _)));
         Assert.Equal(2, arrivals.Where(evt => evt.NodeId == "deep-join")
@@ -133,6 +152,9 @@ public class WorkflowRunnerTests
             evt.NodeId is "deep-join" or "inner-join" or "outer-join" or "post-join");
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed);
+        Assert.True(ParallelJoinEvidence.TryReconstructPlayback(revision.Definition, events, out var playback));
+        Assert.Equal("failed", playback!.Status);
+        Assert.Contains(playback.Activations, activation => activation.ReceivedBranchIds.Length < activation.ExpectedBranchIds.Length);
     }
 
     [Fact]
@@ -156,6 +178,33 @@ public class WorkflowRunnerTests
             evt.NodeId is "deep-join" or "inner-join" or "outer-join" or "post-join");
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Cancelled);
+        Assert.True(ParallelJoinEvidence.TryReconstructPlayback(revision.Definition, events, out var playback));
+        Assert.Equal("cancelled", playback!.Status);
+        Assert.Contains(playback.Activations, activation => activation.ReceivedBranchIds.IsEmpty && activation.State == "incomplete");
+    }
+
+    [Fact]
+    public async Task Fork_activation_evidence_write_failure_prevents_branch_dispatch()
+    {
+        var revision = WorkflowRevision.Create(NestedForkDefinition(), "nested-activation-evidence-write-failure");
+        var events = new List<ExecutionEvent>();
+        var agents = new EchoNestedAgentExecutor();
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(Guid.NewGuid(), revision,
+                "research input", null, evt =>
+                {
+                    if (evt.Kind == ExecutionEventKinds.ParallelJoinActivated)
+                        throw new IOException("Could not persist Fork activation evidence.");
+                    events.Add(evt);
+                    return ValueTask.CompletedTask;
+                }).WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.IsType<IOException>(failure.InnerException);
+
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ParallelJoinActivated);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+            evt.NodeId is "research-anchor" or "review-anchor");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed);
     }
 
     private static WorkflowDefinition NestedForkDefinition()

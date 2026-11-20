@@ -207,6 +207,77 @@ public sealed class RunStoreTests : IDisposable
         Assert.All(playback.Activations, activation => Assert.Equal("completed", activation.State));
     }
 
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    public void Parallel_activation_failure_and_cancellation_reopen_as_incomplete_without_execution(
+        bool sqlite, bool acceptOneArrival, bool cancel)
+    {
+        var definition = SingleParallelStoreDefinition();
+        var revision = WorkflowRevision.Create(definition, "parallel-terminal-playback-proof");
+        var store = Store(sqlite);
+        var run = store.Create(revision, "parallel input");
+        var fork = definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.ParallelFork);
+        var join = definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.ParallelJoin);
+        var activationId = Guid.NewGuid();
+        var events = new List<ExecutionEvent>
+        {
+            Event(run, 1),
+            new(run.Header.RunId, run.Header.RevisionId, 2, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.ParallelJoinActivated, fork.Key, activationId,
+                Data: new ParallelJoinActivationEvidence(ParallelJoinActivationEvidence.CurrentVersion,
+                    join.Key, fork.Key, activationId, join.Value.ParallelJoin!.BranchIds, []).Serialize())
+        };
+        if (acceptOneArrival)
+        {
+            var branchId = join.Value.ParallelJoin!.BranchIds[0];
+            var lineage = ImmutableArray.Create(new ParallelForkActivationIdentity(fork.Key, activationId,
+                branchId, null, null, null));
+            events.Add(new(run.Header.RunId, run.Header.RevisionId, 3, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.ParallelJoinArrival, join.Key, activationId,
+                Data: new ParallelJoinArrivalEvidence(ParallelJoinArrivalEvidence.CurrentVersion, join.Key,
+                    fork.Key, activationId, branchId, lineage).Serialize()));
+        }
+        events.Add(Event(run, events.Count + 1L, cancel ? ExecutionEventKinds.Cancelled : ExecutionEventKinds.Failed));
+        store.Append(run.Header.RunId, 0, events);
+
+        var reopened = Store(sqlite).Get(run.Header.RunId)!;
+        Assert.True(ParallelJoinEvidence.TryReconstructPlayback(reopened.Header.Definition, reopened.Events, out var playback));
+        Assert.Equal(cancel ? "cancelled" : "failed", playback!.Status);
+        var activation = Assert.Single(playback.Activations);
+        Assert.Equal("incomplete", activation.State);
+        Assert.Equal(acceptOneArrival ? 1 : 0, activation.ReceivedBranchIds.Length);
+        Assert.Equal(2, activation.ExpectedBranchIds.Length);
+    }
+
+    private static WorkflowDefinition SingleParallelStoreDefinition()
+    {
+        var baseline = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "parallel-terminal-playback-proof", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["data-path"] = new(new("input", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["execution-path"] = new(new("input", "then"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        return GraphEditing.InsertParallelRegionAtExecutionConnection(baseline, "execution-path");
+    }
+
     private static WorkflowDefinition NestedParallelStoreDefinition()
     {
         var baseline = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,

@@ -44,7 +44,27 @@
         </div>
             </ToolbarContent>
             <NodeContent Context="nodeId">
-                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var evaluation = DataEvaluation(nodeId); var pendingNode = PendingRootNodeId; var label = pendingNode == nodeId ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully" : evaluation is not null ? "Evaluated" : StateLabel(state); var activity = ActiveActivity(nodeId); var outcome = OutcomeSummary(nodeId, state); var invocations = NodeInvocationCount(nodeId); var cost = 0m; if (node.Type == NodeTypes.Agent) { var agentMetrics = AgentMetrics(nodeId); if (agentMetrics is not null) cost = agentMetrics.EstimatedCost; } }
+                @{
+                    var node = Snapshot.Header.Definition.Nodes[nodeId];
+                    var state = State(nodeId);
+                    var evaluation = DataEvaluation(nodeId);
+                    var pendingNode = PendingRootNodeId;
+                    var parallelActivation = node.Type == NodeTypes.ParallelJoin ? ParallelActivation(nodeId) : null;
+                    var label = pendingNode == nodeId
+                        ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval"
+                        : PausedBefore(nodeId) && state is null ? "Paused before execution"
+                        : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully"
+                        : evaluation is not null ? "Evaluated"
+                        : parallelActivation is not null && (state is null ||
+                            state.Kind == ExecutionEventKinds.NodeStarted && parallelActivation.State != "running")
+                            ? char.ToUpperInvariant(parallelActivation.State[0]) + parallelActivation.State[1..]
+                            : StateLabel(state);
+                    var activity = ActiveActivity(nodeId, parallelActivation);
+                    var outcome = OutcomeSummary(nodeId, state);
+                    var invocations = NodeInvocationCount(nodeId);
+                    var cost = 0m;
+                    if (node.Type == NodeTypes.Agent) { var agentMetrics = AgentMetrics(nodeId); if (agentMetrics is not null) cost = agentMetrics.EstimatedCost; }
+                }
                 <div class="vaw-node-status-chip" role="group" aria-label="@($" {label} status and recorded events")">
                     <button type="button" class="vaw-node-button" aria-label="@($" {nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId ? "true" : "false")">
                         <span class="vaw-node-status-label"><span class="vaw-node-status-dot" aria-hidden="true"></span>@label</span>
@@ -279,7 +299,7 @@
         return events.Count(evt => evt.NodeId == nodeId && evt.Kind == ExecutionEventKinds.NodeStarted);
     }
 
-    private string? ActiveActivity(string id)
+    private string? ActiveActivity(string id, ParallelJoinPlaybackActivation? parallelActivation)
     {
         var state = State(id);
         var isParallelJoin = Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type == NodeTypes.ParallelJoin;
@@ -304,12 +324,12 @@
         if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type == NodeTypes.Loop &&
             RootEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped) is { } loopActivity)
             return LoopActivity(loopActivity, "Preparing loop");
-        if (Snapshot is { } snapshot && isParallelJoin &&
-            ParallelJoinEvidence.TryReconstructPlayback(snapshot.Header.Definition, RootEvents, out var parallelPlayback) &&
-            parallelPlayback?.Activations.LastOrDefault(activation => activation.JoinNodeId == id) is { } parallelActivation)
+        if (parallelActivation is not null)
         {
-            var depth = parallelActivation.Lineages.IsDefaultOrEmpty ? 1 :
-                parallelActivation.Lineages.Max(lineage => lineage.Length);
+            var depth = parallelActivation.Lineages.IsDefaultOrEmpty
+                ? parallelActivation.ActivationLineage.Length + 1
+                : Math.Max(parallelActivation.ActivationLineage.Length + 1,
+                    parallelActivation.Lineages.Max(lineage => lineage.Length));
             var nesting = depth > 1 ? $" · nested depth {depth}" : string.Empty;
             return $"Accepted {parallelActivation.ReceivedBranchIds.Length} of {parallelActivation.ExpectedBranchIds.Length} branch results{nesting} · {parallelActivation.State}";
         }
@@ -367,6 +387,13 @@
             _ => "Processing"
         };
     }
+
+    private ParallelJoinPlaybackActivation? ParallelActivation(string id) =>
+        Snapshot is { } snapshot &&
+        ParallelJoinEvidence.TryReconstructPlayback(snapshot.Header.Definition, RootEvents, out var playback)
+            ? playback?.Activations.LastOrDefault(activation => activation.JoinNodeId == id)
+            : null;
+
     private static string LoopActivity(ExecutionEvent evt, string fallback)
     {
         try

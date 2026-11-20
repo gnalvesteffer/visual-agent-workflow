@@ -96,6 +96,21 @@ public sealed class BlueprintParityPlaybackProofTests
         await new WorkflowRunner().ExecuteAsync(runId, revision, "parallel input",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
+        var activationEvent = events.First(evt => evt.Kind == ExecutionEventKinds.ParallelJoinActivated);
+        var admittedPrefix = events.Where(evt => evt.Sequence <= activationEvent.Sequence).ToImmutableArray();
+        Assert.True(ParallelJoinEvidence.TryReconstructPlayback(definition, admittedPrefix, out var admittedPlayback));
+        var admitted = Assert.Single(admittedPlayback!.Activations);
+        Assert.Empty(admitted.ReceivedBranchIds);
+        Assert.Equal(2, admitted.ExpectedBranchIds.Length);
+        Assert.Equal("running", admitted.State);
+
+        var terminal = new ExecutionEvent(runId, revision.RevisionId, activationEvent.Sequence + 1,
+            DateTimeOffset.UtcNow, ExecutionEventKinds.Failed);
+        var failedPrefix = admittedPrefix.Add(terminal);
+        var failedHtml = await Render(Snapshot(runId, revision, failedPrefix, "parallel-arrival-playback", "parallel input"));
+        Assert.Contains("Incomplete", failedHtml, StringComparison.Ordinal);
+        Assert.Contains("Accepted 0 of 2 branch results", failedHtml, StringComparison.Ordinal);
+
         var firstArrival = events.First(evt => evt.Kind == ExecutionEventKinds.ParallelJoinArrival);
         var prefix = events.Where(evt => evt.Sequence <= firstArrival.Sequence).ToImmutableArray();
         Assert.True(ParallelJoinEvidence.TryReconstructPlayback(definition, prefix, out var parallelPlayback));
@@ -105,7 +120,8 @@ public sealed class BlueprintParityPlaybackProofTests
         Assert.Contains("Accepted 1 of 2 branch results", html, StringComparison.Ordinal);
         Assert.DoesNotContain("Accepted 2 of 2 branch results", html, StringComparison.Ordinal);
 
-        var legacyEvents = events.Where(evt => evt.Kind != ExecutionEventKinds.ParallelJoinArrival).ToImmutableArray();
+        var legacyEvents = events.Where(evt => evt.Kind is not (ExecutionEventKinds.ParallelJoinArrival or
+            ExecutionEventKinds.ParallelJoinActivated)).ToImmutableArray();
         var legacyHtml = await Render(Snapshot(runId, revision, legacyEvents, "parallel-arrival-playback", "parallel input"));
         Assert.Contains("Parallel arrival lineage was not recorded in this history", legacyHtml, StringComparison.Ordinal);
     }

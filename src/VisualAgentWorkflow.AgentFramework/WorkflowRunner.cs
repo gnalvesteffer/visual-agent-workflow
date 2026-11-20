@@ -2370,6 +2370,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         LoopDataTopologyAnalyzer.Analyze(revision.Definition) is not null)
                         dataEvaluator?.SetRuntimeOutput(Id, port, "string", result);
                 }
+                if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+                    node.Type == NodeTypes.ParallelFork && node.ParallelFork is { } forkConfiguration)
+                {
+                    var matchingJoins = revision.Definition.Nodes.Where(pair => pair.Value.Type == NodeTypes.ParallelJoin &&
+                        pair.Value.ParallelJoin?.ForkNodeId == Id).Select(pair => pair.Key).ToArray();
+                    if (matchingJoins.Length == 1)
+                    {
+                        var activationEvidence = CreateParallelJoinActivationEvidence(Id, matchingJoins[0], invocation,
+                            forkConfiguration.Branches, received);
+                        await Emit(ExecutionEventKinds.ParallelJoinActivated, Id, invocation, data: activationEvidence.Serialize());
+                    }
+                }
                 if (!internalTerminationHandoff)
                 {
                     var outputContainsMcpValue = outputEvaluation?.Evaluations.Any(value =>
@@ -2733,6 +2745,37 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 activationId, branchId, path.Select(item => new ParallelForkActivationIdentity(item.ForkNodeId,
                     item.ActivationId ?? Guid.Empty, item.BranchId ?? string.Empty, item.ParentForkNodeId,
                     item.ParentActivationId, item.ParentBranchId)).ToImmutableArray());
+        }
+
+        private static ParallelJoinActivationEvidence CreateParallelJoinActivationEvidence(string forkNodeId,
+            string joinNodeId, Guid activationId, ImmutableArray<ParallelBranchDescriptor> branches, GraphMessage message)
+        {
+            var path = new List<ParallelForkLineageEntry>();
+            if (message.ParallelForkNodeId is { } parentForkId)
+            {
+                var lineage = message.ParallelForkLineage ?? throw new InvalidOperationException(
+                    "A nested Fork activation is missing its parent lineage.");
+                if (!lineage.TryGetValue(parentForkId, out var current) ||
+                    current.ActivationId != message.ParallelActivationId || current.BranchId != message.ParallelBranchId)
+                    throw new InvalidOperationException("A nested Fork activation has inconsistent parent lineage.");
+                path.Add(current);
+                while (current.ParentForkNodeId is { } ancestorId)
+                {
+                    if (!lineage.TryGetValue(ancestorId, out current) || current.ActivationId != path[^1].ParentActivationId ||
+                        current.BranchId != path[^1].ParentBranchId)
+                        throw new InvalidOperationException("A nested Fork activation has incomplete ancestor lineage.");
+                    path.Add(current);
+                    if (path.Count > 64)
+                        throw new InvalidOperationException("Parallel fork activation lineage exceeds the supported evidence bound.");
+                }
+                path.Reverse();
+            }
+
+            var parentLineage = path.Select(item => new ParallelForkActivationIdentity(item.ForkNodeId,
+                item.ActivationId ?? Guid.Empty, item.BranchId ?? string.Empty, item.ParentForkNodeId,
+                item.ParentActivationId, item.ParentBranchId)).ToImmutableArray();
+            return new(ParallelJoinActivationEvidence.CurrentVersion, joinNodeId, forkNodeId, activationId,
+                branches.Select(branch => branch.Id).ToImmutableArray(), parentLineage);
         }
 
         private async Task<string> InvokeTool(string input, Guid invocation, CancellationToken cancellationToken)

@@ -1,6 +1,6 @@
 # Decision 0076: Nested Fork/Join composition
 
-**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, Studio insertion/removal, versioned accepted-arrival lineage playback, and File/SQLite reopen proofs are implemented; package coverage, terminal failure/cancellation playback, and editing existing region branch counts/identities remain open
+**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, Studio insertion/removal, versioned activation/arrival playback, and File/SQLite reopen proofs are implemented; package coverage and editing existing region branch counts/identities remain open
 
 **Date:** 2026-11-20
 
@@ -118,15 +118,31 @@ accepting a branch result. The payload identifies the Join, Fork activation,
 branch, and complete root-to-leaf Fork lineage. Core validates configured
 Fork/Join/branch identities and the static nested-owner chain, then passively
 reconstructs accepted branch counts and nesting depth at any recorded prefix.
-The run inspector renders this projection without re-executing the workflow.
-Schema-2.0 histories written before this event existed retain their ordinary
-status and progress events; the inspector explicitly reports that their arrival
-lineage was not recorded instead of reconstructing it from progress text.
+Schema 2.0 also records a versioned `parallel.join.activated` event immediately
+before dispatching branch work. It means the Fork activation was admitted for
+dispatch; it does not claim every branch started or reached the Join. The event
+contains the paired Fork/Join IDs, activation ID, expected branch IDs, and
+parent lineage. If recording fails, branch dispatch does not begin. Arrival
+events remain the sole evidence that a branch result was accepted. Playback
+validates activation and arrival identities against the saved graph and keeps
+Join lifecycle state separate from the run outcome. A zero-arrival activation
+left open at failure/cancellation is shown as incomplete with 0 of the expected
+branches, rather than falsely assigning the run's cause to the Join. The run
+inspector renders this projection without re-executing the workflow.
+
+Histories without activation events retain the prior accepted-arrival
+projection; histories with neither event retain their ordinary status and
+progress, and the inspector explicitly reports missing lineage instead of
+reconstructing it from progress text.
 A three-level public-runner regression verifies eight arrivals, successful
 reconstruction, rejection of tampered parent lineage, and rejection of duplicate
-arrival evidence. A nested run has been appended to and reopened from both File
-and SQLite stores; playback reconstructs its two Join activations without
-execution. Package compatibility, failure/cancellation settlement playback,
-runtime duplicate-arrival race coverage, and editing existing region branch
-counts/identities remain open. See [the Blueprint parity roadmap](../roadmap.md) and
+arrival evidence. Public failure/cancellation regressions reconstruct zero and
+partial arrivals as incomplete while preserving the run terminal status. A
+rendered run-inspector proof shows a zero-arrival activation and its accepted
+count at a selected prefix. File and SQLite reopen tests cover zero and partial
+arrivals for both failed and cancelled runs, without re-execution. Package
+compatibility, runtime duplicate-arrival race coverage, and editing existing
+region branch counts/identities remain open. These storage tests establish
+structural consistency and replay, not cryptographic tamper resistance. See [the
+Blueprint parity roadmap](../roadmap.md) and
 [parallel graph behavior](../parallel-graphs.md).

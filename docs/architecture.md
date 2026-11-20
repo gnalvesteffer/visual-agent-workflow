@@ -13,12 +13,15 @@ resource limits, and immutable run identity remain host/runtime checks.
 
 Unified schema 2.0 directly routes parallel arrivals to the activation-aware
 Join executor. Core validates arbitrary finite-depth nested Fork/Join regions
-with unique parent-branch ownership. Each accepted Join arrival is persisted as
-a versioned event containing the Fork activation, branch, and root-to-leaf
-lineage. Core reconstructs accepted branch counts and settlement passively, and
-the run inspector displays that evidence at the selected history prefix. Store
-reopen/package compatibility and failure/cancellation settlement playback are
-still in progress. See [Decision
+with unique parent-branch ownership. Before branch dispatch, each Fork records
+a versioned admission event with its matching Join, expected branches, and
+parent lineage. Each accepted Join arrival remains a separate versioned event
+containing the Fork activation, branch, and root-to-leaf lineage. Core
+reconstructs zero/partial arrivals and Join lifecycle passively, keeping run
+terminal status separate; the run inspector displays that evidence at the
+selected history prefix without execution. File/SQLite reopen tests cover
+success, failure, and cancellation. Package compatibility and editing existing
+regions remain in progress. See [Decision
 0076](decisions/0076-nested-fork-join-composition.md).
 
 The unified schema supports activation-only loops, explicit variable-based
