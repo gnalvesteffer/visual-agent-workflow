@@ -2708,7 +2708,10 @@ public sealed class ArrayIterationVawBodyProofTests
             evt.NodeId == "loop"));
         var stoppedLoops = events.Where(evt => evt.Kind == ExecutionEventKinds.LoopStopped &&
             evt.NodeId == "loop").ToArray();
-        Assert.Equal(new[] { "array-loop/0", "array-loop/1" }, stoppedLoops.Select(evt => evt.ScopeId).ToArray());
+        var stoppedScopes = stoppedLoops.Select(evt => evt.ScopeId).ToArray();
+        Assert.True(new[] { "array-loop/0/loop/2", "array-loop/1/loop/2" }.SequenceEqual(stoppedScopes),
+            string.Join("\n", events.Where(evt => evt.Kind.StartsWith("loop.", StringComparison.Ordinal))
+                .Select(evt => $"{evt.Kind} | {evt.NodeId} | {evt.ScopeId}")));
         foreach (var stoppedLoop in stoppedLoops)
         {
             using var stopReason = JsonDocument.Parse(stoppedLoop.Data!);
@@ -12320,7 +12323,10 @@ public sealed class ArrayIterationVawBodyProofTests
                     if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
                         ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
                         return ValueTask.CompletedTask;
-                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    hybridRecorder.Append(evt with
+                    {
+                        ScopeId = evt.ScopeId is null ? frame.ScopeId : $"{frame.ScopeId}/{evt.ScopeId}"
+                    });
                     return ValueTask.CompletedTask;
                 }
 
@@ -12425,7 +12431,10 @@ public sealed class ArrayIterationVawBodyProofTests
                     if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
                         ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
                         return ValueTask.CompletedTask;
-                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    hybridRecorder.Append(evt with
+                    {
+                        ScopeId = evt.ScopeId is null ? frame.ScopeId : $"{frame.ScopeId}/{evt.ScopeId}"
+                    });
                     return ValueTask.CompletedTask;
                 }
 
@@ -12531,7 +12540,10 @@ public sealed class ArrayIterationVawBodyProofTests
                     if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
                         ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
                         return ValueTask.CompletedTask;
-                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    hybridRecorder.Append(evt with
+                    {
+                        ScopeId = evt.ScopeId is null ? frame.ScopeId : $"{frame.ScopeId}/{evt.ScopeId}"
+                    });
                     return ValueTask.CompletedTask;
                 }
 
@@ -12665,7 +12677,10 @@ public sealed class ArrayIterationVawBodyProofTests
                                     ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
                                     ExecutionEventKinds.Terminated)
                                     return ValueTask.CompletedTask;
-                                recorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                                recorder.Append(evt with
+                                {
+                                    ScopeId = evt.ScopeId is null ? frame.ScopeId : $"{frame.ScopeId}/{evt.ScopeId}"
+                                });
                                 return ValueTask.CompletedTask;
                             }
 
@@ -12759,7 +12774,10 @@ public sealed class ArrayIterationVawBodyProofTests
                     if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
                         ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
                         return ValueTask.CompletedTask;
-                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    hybridRecorder.Append(evt with
+                    {
+                        ScopeId = evt.ScopeId is null ? frame.ScopeId : $"{frame.ScopeId}/{evt.ScopeId}"
+                    });
                     return ValueTask.CompletedTask;
                 }
 
@@ -13991,7 +14009,10 @@ public sealed class ArrayIterationVawBodyProofTests
                     if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
                         ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
                         return ValueTask.CompletedTask;
-                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    hybridRecorder.Append(evt with
+                    {
+                        ScopeId = evt.ScopeId is null ? frame.ScopeId : $"{frame.ScopeId}/{evt.ScopeId}"
+                    });
                     return ValueTask.CompletedTask;
                 }
 
@@ -14013,10 +14034,11 @@ public sealed class ArrayIterationVawBodyProofTests
         var structuredEvents = structuredRecorder.Snapshot();
         var subworkflowEvents = subworkflowRecorder.Snapshot();
         var hybridEvents = hybridRecorder.Snapshot();
-        foreach (var (store, events) in new[]
+        foreach (var (candidate, store, events) in new[]
         {
-            (structuredStore, structuredEvents), (subworkflowStore, subworkflowEvents),
-            (hybridStore, hybridEvents)
+            ("structured", structuredStore, structuredEvents),
+            ("fresh-subworkflow", subworkflowStore, subworkflowEvents),
+            ("hybrid", hybridStore, hybridEvents)
         })
         {
             AssertPersistedSequence(store, events, "completed");
@@ -14025,7 +14047,9 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.Equal(6, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
             var stoppedLoops = events.Where(evt => evt.Kind == ExecutionEventKinds.LoopStopped &&
                 evt.NodeId == "loop").ToArray();
-            Assert.Equal(["array-loop/0", "array-loop/1"], stoppedLoops.Select(evt => evt.ScopeId));
+            Assert.True(new[] { "array-loop/0/loop/2", "array-loop/1/loop/2" }
+                    .SequenceEqual(stoppedLoops.Select(evt => evt.ScopeId)),
+                $"{candidate}: " + string.Join(", ", stoppedLoops.Select(evt => evt.ScopeId)));
             foreach (var stoppedLoop in stoppedLoops)
             {
                 using var stopReason = JsonDocument.Parse(stoppedLoop.Data!);
@@ -14066,14 +14090,14 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
             Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
-                evt.NodeId == "loop" && evt.ScopeId == "array-loop/0");
+                evt.NodeId == "loop" && evt.ScopeId == "array-loop/0/loop/1");
             Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
-                evt.NodeId == "loop" && evt.ScopeId == "array-loop/0");
+                evt.NodeId == "loop" && evt.ScopeId == "array-loop/0/loop/1");
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopStopped && evt.NodeId == "loop");
             Assert.True(events.Any(evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
-                evt.NodeId == "agent" && evt.ScopeId == "array-loop/0"),
+                evt.NodeId == "agent" && evt.ScopeId == "array-loop/0/loop/2"),
                 string.Join("\n", events.Select(evt => $"{evt.Kind} | {evt.NodeId} | {evt.ScopeId} | {evt.Data}")));
-            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+            Assert.DoesNotContain(events, evt => evt.ScopeId?.StartsWith("array-loop/1/", StringComparison.Ordinal) == true);
         }
         Assert.Equal(FailedLoopShape(structured.Events), FailedLoopShape(subworkflow.Events));
         Assert.Equal(FailedLoopShape(structured.Events), FailedLoopShape(hybrid.Events));
@@ -14122,7 +14146,10 @@ public sealed class ArrayIterationVawBodyProofTests
                                     ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
                                     ExecutionEventKinds.Terminated)
                                     return ValueTask.CompletedTask;
-                                recorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                                recorder.Append(evt with
+                                {
+                                    ScopeId = evt.ScopeId is null ? frame.ScopeId : $"{frame.ScopeId}/{evt.ScopeId}"
+                                });
                                 return ValueTask.CompletedTask;
                             }
 
@@ -14178,17 +14205,19 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
             Assert.DoesNotContain(events, evt => evt.NodeId is null && evt.Kind is
                 (ExecutionEventKinds.Completed or ExecutionEventKinds.Failed));
-            Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
-                evt.NodeId == "loop" && evt.ScopeId == "array-loop/0"));
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "loop" && evt.ScopeId == "array-loop/0/loop/1");
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "loop" && evt.ScopeId == "array-loop/0/loop/2");
             Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
-                evt.NodeId == "loop" && evt.ScopeId == "array-loop/0");
+                evt.NodeId == "loop" && evt.ScopeId == "array-loop/0/loop/1");
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopStopped && evt.NodeId == "loop");
             var cancelledAgent = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
-                evt.NodeId == "agent" && evt.ScopeId == "array-loop/0");
+                evt.NodeId == "agent" && evt.ScopeId == "array-loop/0/loop/2");
             Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
                 evt.NodeId == "agent" && evt.InvocationId == cancelledAgent.InvocationId &&
                 evt.ScopeId == cancelledAgent.ScopeId);
-            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+            Assert.DoesNotContain(events, evt => evt.ScopeId?.StartsWith("array-loop/1/", StringComparison.Ordinal) == true);
             AssertPersistedSequence(candidate.Store, events, "cancelled");
             Assert.Equal(events, candidate.Store.ReopenStore().Get(candidate.Store.RunId)!.Events);
         }
@@ -14241,7 +14270,10 @@ public sealed class ArrayIterationVawBodyProofTests
                                 ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
                                 ExecutionEventKinds.Terminated)
                                 return ValueTask.CompletedTask;
-                            recorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                            recorder.Append(evt with
+                            {
+                                ScopeId = evt.ScopeId is null ? frame.ScopeId : $"{frame.ScopeId}/{evt.ScopeId}"
+                            });
                             return ValueTask.CompletedTask;
                         }
 

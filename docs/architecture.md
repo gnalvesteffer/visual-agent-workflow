@@ -561,6 +561,14 @@ scope and carry the loop iteration separately, so playback reconstructs state
 across passes without merging distinct workflow-call stores. This does not
 enable array iteration, nested loops, or Break.
 
+The private `StructuredActivationGraphPlan` compiles the descriptor-derived
+loop topology proof into immutable maps for loop regions, direct body ownership,
+and nearest-loop Break targets. The normal unified-schema Loop executor uses
+the compiled parent owner when creating a pass frame; Break dispatch does not
+consume the compiled target yet. The plan is not part of validation,
+serialization, or package admission, so public workflows containing nested
+loops or proof-only Break nodes remain unsupported.
+
 ## Reconciliation assessment and operator assertions
 
 Core's optional `IWorkflowRunReconciliationObserver` supplies cursor-bound metadata without changing the original observer contract. A pure work projection preserves unsettled model/tool/approval facts even after terminal status; new model/tool call IDs distinguish repeated calls without changing event envelopes. Hosting combines that evidence with checkpoint validation; SQLite reads both under one transaction. The protected observation group adds only a GET assessment route, and the Core-only HTTP client plus embeddable reconciliation panel validate identity/cursor alignment. The panel suppresses stale eligibility on source changes or outage and remains independent of playback. The optional `IWorkflowRunReconciliationDecisionStore` stores a separate append-only human assertion, with exact target and current-head checks in one SQLite write transaction. Assertions never alter the assessment or recovery gates. There is no HTTP mutation route or Studio control; a consuming host must provide authenticated actor identity and authorize access before exposing the capability. See [run reconciliation](run-reconciliation.md).

@@ -168,6 +168,15 @@ the historical promotion chain.
   its historical event scopes remain unchanged. This is runtime groundwork
   only: it does not execute array iterators or Break, own Sequence settlement,
   or admit nested Loop candidates. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  An internal `StructuredActivationGraphPlan` now compiles the descriptor-derived
+  topology proof into immutable loop-region, body-owner, and Break-target maps.
+  Regressions cover three nested levels, nearest-loop Break ownership, malformed
+  feedback, and rejection outside unified schema; Core passes 727/727. The
+  ordinary unified Loop dispatcher now uses the compiled region owner to select
+  its parent activation frame. Eight focused Agent Framework array/Loop
+  activation cases pass across the structured, fresh-subworkflow, and hybrid
+  candidates. The compiled Break targets are not dispatched yet, and nested
+  candidates remain rejected by public validation and package creation.
   Other malformed/ambiguous legacy shapes and nested production authoring,
   validation, runtime, persistence, and playback evidence remain open.
   Sequence/Break production settlement remains a separate gate and cannot be

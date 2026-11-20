@@ -254,6 +254,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
         if (!sequenceWorkflowCallProof && !skipValidationForInternalProof)
             WorkflowValidator.ThrowIfInvalid(revision.Definition);
+        StructuredActivationGraphPlan? activationGraphPlan = null;
+        if (!skipValidationForInternalProof && !sequenceWorkflowCallProof && activationFrame is null &&
+            revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+            sequencePlan is null && revision.Definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Loop))
+        {
+            if (!StructuredActivationGraphPlan.TryCreate(revision.Definition, out activationGraphPlan,
+                    out var topologyIssues))
+                throw new InvalidOperationException("The loop activation topology could not be compiled: " +
+                    string.Join(" ", topologyIssues.Select(issue => issue.Message)));
+        }
         var collaborationRegion = revision.Definition.ParallelCollaborationRegions?.Values.SingleOrDefault();
         if (revision.Definition.ParallelCollaborationRegions is { Count: > 1 })
             throw new InvalidOperationException("A workflow can execute only one collaborative parallel region in this runtime version.");
@@ -292,7 +302,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         var workflow = sequencePlan is null
             ? BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 collaborationRuntime, variableStore, afterNodeStarted: afterNodeStarted,
-                activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds)
+                activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds,
+                activationGraphPlan: activationGraphPlan)
             : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 callScopeCancellation, afterNodeStarted, sequenceDispatchSession);
 
@@ -498,7 +509,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         CheckpointBoundaryTracker? boundaryTracker = null,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
         StructuredActivationFrame? activationFrame = null,
-        IReadOnlySet<string>? proofBreakNodeIds = null)
+        IReadOnlySet<string>? proofBreakNodeIds = null,
+        StructuredActivationGraphPlan? activationGraphPlan = null)
     {
         var definition = revision.Definition;
         var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition)
@@ -512,7 +524,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 afterNodeStarted: afterNodeStarted,
                 activationBreakNode: proofBreakNodeIds?.Contains(n.Key) == true,
                 proofBreakNodeIds: proofBreakNodeIds,
-                variableEvidenceUsesActivationScope: false));
+                variableEvidenceUsesActivationScope: false,
+                activationGraphPlan: activationGraphPlan,
+                graphEntryActivationFrame: activationFrame));
         if (collaborationRuntime is not null)
         {
             var region = collaborationRuntime.Region;
@@ -650,6 +664,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             for (StructuredActivationFrame? current = this; current is not null; current = current.Parent)
                 if (!string.IsNullOrWhiteSpace(current.LoopNodeId)) return current;
             throw new InvalidOperationException("The activation is not inside an iterator.");
+        }
+
+        public StructuredActivationFrame? FindLoop(string loopNodeId)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(loopNodeId);
+            for (StructuredActivationFrame? current = this; current is not null; current = current.Parent)
+                if (current.LoopNodeId == loopNodeId) return current;
+            return null;
         }
 
         public StructuredActivationBreakSignal ConsumeNearestBreak(StructuredActivationBreakRequest request)
@@ -1693,7 +1715,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         bool activationBreakNode = false,
         IReadOnlySet<string>? proofBreakNodeIds = null,
         Func<SequenceMessageLineage, StructuredActivationBreakRequest, ValueTask>? onSequenceBreakRequested = null,
-        bool variableEvidenceUsesActivationScope = true)
+        bool variableEvidenceUsesActivationScope = true,
+        StructuredActivationGraphPlan? activationGraphPlan = null,
+        StructuredActivationFrame? graphEntryActivationFrame = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -2355,6 +2379,23 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     var loop = node.Loop!;
                     var shouldContinue = loop.ContinueWhile.Evaluate(result);
+                    StructuredActivationFrame? loopParentFrame = null;
+                    if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                    {
+                        var region = activationGraphPlan?.RegionsByLoopNodeId.GetValueOrDefault(Id);
+                        if (activationGraphPlan is not null && region is null)
+                            throw new InvalidOperationException($"Loop '{Id}' has no compiled activation region.");
+                        loopParentFrame = region?.ParentLoopNodeId is { } parentLoopNodeId
+                            ? received.ActivationFrame?.FindLoop(parentLoopNodeId) ??
+                              throw new InvalidOperationException($"Loop '{Id}' was activated without its owning loop frame '{parentLoopNodeId}'.")
+                            : activationGraphPlan is not null
+                                ? received.ActivationFrame?.FindLoop(Id) is { } currentLoopFrame
+                                    ? currentLoopFrame.Parent
+                                    : received.ActivationFrame ?? graphEntryActivationFrame
+                                : received.ActivationFrame is { } currentFrame && currentFrame.LoopNodeId == Id
+                                    ? currentFrame.Parent
+                                    : received.ActivationFrame;
+                    }
                     if (received.LoopIteration > 0)
                         await Emit(ExecutionEventKinds.LoopIterationCompleted, Id, invocation, null, JsonSerializer.Serialize(new { iteration = received.LoopIteration }));
                     if (shouldContinue && received.LoopIteration < loop.MaximumIterations)
@@ -2363,13 +2404,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         nextLoopIteration++;
                         if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
                         {
-                            var parentFrame = received.ActivationFrame is { } currentFrame &&
-                                currentFrame.LoopNodeId == Id
-                                ? currentFrame.Parent
-                                : received.ActivationFrame;
                             var frameParameters = CurrentParameters?.ToImmutableSortedDictionary(StringComparer.Ordinal)
                                 ?? ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
-                            nextActivationFrame = new StructuredActivationFrame(Guid.NewGuid(), parentFrame,
+                            nextActivationFrame = new StructuredActivationFrame(Guid.NewGuid(), loopParentFrame,
                                 Id, nextLoopIteration, result, frameParameters);
                         }
                         await Emit(ExecutionEventKinds.LoopIterationStarted, Id, invocation, null,

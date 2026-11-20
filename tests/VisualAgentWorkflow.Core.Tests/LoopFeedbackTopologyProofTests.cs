@@ -59,6 +59,57 @@ public sealed class LoopFeedbackTopologyProofTests
             WorkflowLayout.Create(definition)));
     }
 
+    [Fact]
+    public void Structured_activation_plan_derives_loop_and_break_ownership_from_the_graph()
+    {
+        var definition = LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(
+            ThreeNestedLoopsWithSequenceExitsCandidate());
+
+        var created = StructuredActivationGraphPlan.TryCreate(definition, out var plan, out var issues);
+
+        Assert.True(created, string.Join(Environment.NewLine, issues));
+        Assert.NotNull(plan);
+        Assert.Equal("outer-loop", plan.RegionsByLoopNodeId["inner-loop"].ParentLoopNodeId);
+        Assert.Equal("inner-loop", plan.RegionsByLoopNodeId["deep-loop"].ParentLoopNodeId);
+        Assert.Equal("outer-loop", plan.OwningLoopByBodyNodeId["inner-loop"]);
+        Assert.Equal("inner-loop", plan.OwningLoopByBodyNodeId["deep-loop"]);
+        Assert.Equal("inner-loop", plan.TargetLoopByBreakNodeId["inner-break"]);
+        Assert.Equal("inner-loop", plan.TargetLoopByBreakNodeId["inner-abort"]);
+    }
+
+    [Fact]
+    public void Structured_activation_plan_rejects_invalid_topology_and_non_unified_schema()
+    {
+        var definition = LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(
+            ThreeNestedLoopsWithSequenceExitsCandidate());
+        var missingReturn = definition with
+        {
+            ExecutionConnections = definition.ExecutionConnections!.Remove("deep-return")
+        };
+
+        Assert.False(StructuredActivationGraphPlan.TryCreate(missingReturn, out var invalidPlan,
+            out var topologyIssues));
+        Assert.Null(invalidPlan);
+        Assert.NotEmpty(topologyIssues);
+
+        Assert.False(StructuredActivationGraphPlan.TryCreate(definition with { SchemaVersion = "1.8" },
+            out var legacyPlan, out var schemaIssues));
+        Assert.Null(legacyPlan);
+        Assert.Contains(schemaIssues, issue => issue.Code == "activation.plan.schema");
+    }
+
+    [Fact]
+    public void Structured_activation_plan_resolves_the_existing_inferred_feedback_shape()
+    {
+        var created = StructuredActivationGraphPlan.TryCreate(NestedLoopCandidate(), out var plan,
+            out var issues);
+
+        Assert.True(created, string.Join(Environment.NewLine, issues));
+        Assert.NotNull(plan);
+        Assert.Equal("outer-return", plan.RegionsByLoopNodeId["outer-loop"].FeedbackConnectionId);
+        Assert.Equal("inner-return", plan.RegionsByLoopNodeId["inner-loop"].FeedbackConnectionId);
+    }
+
     [Theory]
     [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
     [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]

@@ -1247,6 +1247,15 @@ public sealed partial class WorkflowRunner
 
         var definition = revision.Definition;
         var resolvedParameters = WorkflowParameters.Resolve(definition, parameters);
+        StructuredActivationGraphPlan? activationGraphPlan = null;
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+            definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Loop))
+        {
+            if (!StructuredActivationGraphPlan.TryCreate(definition, out activationGraphPlan,
+                    out var topologyIssues))
+                throw new InvalidOperationException("The proof loop activation topology could not be compiled: " +
+                    string.Join(" ", topologyIssues.Select(issue => issue.Message)));
+        }
         var variableStore = activationVariableStore?.Invoke(activationFrame?.Id) ?? new WorkflowVariableStore(definition);
         var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition)
             ? retainedDataEvaluator ?? new ExplicitGraphDataEvaluator(definition, input, resolvedParameters)
@@ -1263,7 +1272,9 @@ public sealed partial class WorkflowRunner
                 tools, agents, dataEvaluator, variableStore,
                 retainedSession is null ? EmitNodeEvent : retainedSession.RecordNodeEventAsync,
                 gate, null, revision, [], collaborationOptions, afterNodeStarted: afterNodeStarted,
-                activationVariableStore: activationVariableStore));
+                activationVariableStore: activationVariableStore,
+                activationGraphPlan: activationGraphPlan,
+                graphEntryActivationFrame: activationFrame));
         if (retainedSession is not null)
         {
             if (createsExecutorSet)
