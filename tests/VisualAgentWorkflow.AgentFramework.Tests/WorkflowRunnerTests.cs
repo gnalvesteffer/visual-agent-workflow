@@ -63,6 +63,30 @@ public class WorkflowRunnerTests
     }
 
     [Fact]
+    public async Task ExecutesNestedForkJoinAuthoredOnAnExplicitExecutionEdge()
+    {
+        var original = NestedForkDefinition();
+        var definition = GraphEditing.InsertParallelRegionAtExecutionConnection(original, "inner-b-agent");
+        var insertedForkId = definition.Nodes.Keys.Except(original.Nodes.Keys, StringComparer.Ordinal)
+            .Single(id => definition.Nodes[id].Type == NodeTypes.ParallelFork);
+        var insertedJoinId = definition.Nodes.Keys.Except(original.Nodes.Keys, StringComparer.Ordinal)
+            .Single(id => definition.Nodes[id].Type == NodeTypes.ParallelJoin);
+        var revision = WorkflowRevision.Create(definition, "nested-inserted-parallel-runner");
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(agents: new EchoNestedAgentExecutor())
+            .ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "research input", null,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; })
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(result.Failed);
+        Assert.True(result.HasOutput);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == insertedForkId);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == insertedJoinId);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "inner-join");
+    }
+
+    [Fact]
     public async Task NestedForkFailureDoesNotProduceAnyJoinedResult()
     {
         var revision = WorkflowRevision.Create(NestedForkDefinition(), "nested-public-runner-failure");

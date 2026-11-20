@@ -17,12 +17,15 @@ owner; it also supports sequential root regions and rejects a child shared
 across sibling owners or a join paired to a different fork. The public
 runner completes a normally validated graph combining three nested levels
 with a later sequential root region, and public-path failure/cancellation
-regressions verify that no partial joined result is emitted. Studio can now
-select and remove a nested region: it previews the matching Fork/Join, removes
-descendant regions, and reconnects execution within the owning branch. Surviving
-data consumers are named in the confirmation and left as an editable invalid
-draft. Nested persistence/playback, package compatibility, and full nested
-region creation/editing remain unverified. The
+regressions verify that no partial joined result is emitted. In Studio, right-
+clicking an eligible execution edge and choosing **Insert parallel region**
+creates a two-branch Fork/Join skeleton in schema 2.0. Insertion rewrites only
+that execution route; data wires remain untouched and can be connected
+explicitly afterward. Studio can also select and remove a nested region: it
+previews the matching Fork/Join, removes descendant regions, and reconnects
+execution within the owning branch. Surviving data consumers are named in the
+confirmation and left as an editable invalid draft. Nested persistence/playback,
+package compatibility, and full nested-region editing remain unverified. The
 accepted end contract has no separate schema, capability, or fixed-depth gate.
 See [Decision 0076](decisions/0076-nested-fork-join-composition.md).
 
@@ -43,7 +46,7 @@ flowchart LR
 
 Choose **Parallel block** from the node library while an ordinary string connection is selected. Studio inserts a fork, two named branch anchors, and a matching join. If the old path continued into a string node, Studio adds a root JSON selector after the join so that continuation remains valid. If the old path ended at Output, Output becomes JSON typed. The first block uses schema 1.14 or preserves a newer existing schema. Adding a second block upgrades the draft to schema 1.20, which supports up to four sequential blocks while leaving earlier schema definitions limited to one.
 
-To add another block, select a string connection after the previous block's selector and insert **Parallel block** again. Each block has its own join, progress events, and JSON result. In unified schema 2.0, selecting a fork, branch, join, or node inside a nested region and choosing **Remove parallel block…** previews the smallest containing region and its matching Join. Removing a nested region preserves its parent and reconnects execution inside the owning branch. If removed data outputs fed surviving nodes, the preview identifies them; removal leaves those consumers disconnected in a saveable draft with Problems to resolve. Nested region creation and general editing remain in progress.
+To add another legacy block, select a string connection after the previous block's selector and insert **Parallel block** again. Each block has its own join, progress events, and JSON result. In unified schema 2.0, right-click an eligible execution wire and choose **Insert parallel region** to add a nested or root two-branch execution skeleton. The edit keeps data wires unchanged; connect node data pins separately where needed. Insertions at branch-anchor and barrier inputs are unavailable because they would break region ownership. To remove a unified-schema region, select its Fork, Branch, Join, or a node inside it and choose **Remove parallel block…**. Studio previews the smallest containing region and its matching Join. Removing a nested region preserves its parent and reconnects execution inside the owning branch. If removed data outputs fed surviving nodes, the preview identifies them; removal leaves those consumers disconnected in a saveable draft with Problems to resolve. Editing existing regions' branch count, identity, and order remains in progress.
 
 In legacy schemas 1.14–1.31, add deterministic text operations, Agent nodes, or MCP tools after either branch anchor. In historical schema 1.32 regions, branches use straight Agent paths. Current schema 2.0 also permits direct MCP nodes in these static branches; each has its own configured binding, arguments, node grant, invocation identity, and audit events. Tool denial or failure aborts the region without a joined result, and cancellation propagates through active calls. Completed external effects in sibling branches are not rolled back. Approval nodes, loops, and other unsupported control-flow nodes remain invalid; nested regions follow the bounded support status described above. The branch anchors must remain the first nodes after the fork, and each path must connect to the join input with the same branch ID. These paths are acyclic. Schema 1.33 adds one rendezvous to the schema 1.32 topology and keeps its before/after Agent paths linear. Schema 1.34 is the bounded exception described below. Schema 1.35 defines two ordered rendezvous phases with separate phase-scoped snapshots and grants; its full contract is in [two-phase parallel Agent collaboration](parallel-agent-collaboration-phases.md). Existing compatible pin rewiring is available; drafts with incomplete or mismatched paths show validation issues and cannot be published or run. The JSON selector can turn the complete result or one named field back into text.
 

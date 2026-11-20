@@ -1,6 +1,6 @@
 # Decision 0076: Nested Fork/Join composition
 
-**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, and nested-region removal in Studio are implemented; persistence/playback, package coverage, and full nested authoring remain open
+**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, and Studio insertion/removal of nested regions are implemented; persistence/playback, package coverage, and editing existing region branch counts/identities remain open
 
 **Date:** 2026-11-20
 
@@ -9,7 +9,9 @@
 Unreal Blueprint graphs can compose control flow by placing a parallel region
 inside another branch. VAW supports static Fork/Join regions. Core now validates
 strictly owned nested regions and the public runner has a three-level success
-proof, but Studio does not yet author or edit nested regions. The private production-body
+proof. Studio can insert a two-branch execution skeleton on an eligible explicit
+execution edge and remove the smallest containing region, but does not yet edit
+the branch count or identities of an existing region. The private production-body
 proofs now run the same static inner Fork and Join concurrently under separate
 outer branches, restore the parent lineage, and cover success, failure,
 cancellation, duplicate arrivals after join completion, unexpected branch IDs,
@@ -106,10 +108,13 @@ region. Its removal preview identifies the matching Join and all removed nodes;
 removal deletes contained descendants, preserves the parent region, and
 reconnects the owner branch to the removed region's continuation. Surviving
 data consumers are listed and remain in a saveable invalid draft when their
-inputs are disconnected. Core tests cover selecting/removing nested and deep
-regions, parent preservation, continuation routing, and root removal without
-schema/output-type changes. File/SQLite persistence and passive playback for
+inputs are disconnected. Studio insertion is one undoable edit and preserves
+all data connections; authors wire branch data separately. A public runner
+regression executes a nested region inserted inside an existing owned branch.
+Core tests cover selecting/removing nested and deep regions, parent
+preservation, continuation routing, and root removal without schema/output-type
+changes. File/SQLite persistence and passive playback for
 normal-path outcomes, malformed parent-lineage tampering, duplicate arrivals
-before completion, package compatibility, and full nested region creation and
-editing remain open. See [the Blueprint parity roadmap](../roadmap.md) and
+before completion, package compatibility, and editing existing region branch
+counts/identities remain open. See [the Blueprint parity roadmap](../roadmap.md) and
 [parallel graph behavior](../parallel-graphs.md).

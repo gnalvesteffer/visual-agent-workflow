@@ -64,6 +64,7 @@ public partial class WorkflowGraphCanvas
     private WorkflowDefinition? orderedDefinition;
     private WorkflowLayout? lastLayout;
     private bool revealUpdatedReadOnlyLayout;
+    private bool fitAfterNextRender;
     private ImmutableArray<string> Order = [];
     private bool CanEdit => !ReadOnly && !Disabled && LayoutChanged.HasDelegate && !disposed;
     private double Width => Math.Max(1200, Layout.Nodes.Values.Max(p => p.Position.X) + 480);
@@ -273,6 +274,12 @@ public partial class WorkflowGraphCanvas
             if (browserSession is not null)
             {
                 await browserSession.InvokeVoidAsync("refresh");
+                if (fitAfterNextRender)
+                {
+                    fitAfterNextRender = false;
+                    zoom = Math.Clamp(await browserSession.InvokeAsync<double>("fit"), 0.25, 1.5);
+                    StateHasChanged();
+                }
                 if (revealUpdatedReadOnlyLayout)
                 {
                     revealUpdatedReadOnlyLayout = false;
@@ -315,6 +322,8 @@ public partial class WorkflowGraphCanvas
             return await browserSession.InvokeAsync<string[]>("selection");
         return selectedNode is { } id ? [id] : [];
     }
+
+    public void FitAfterNextRender() => fitAfterNextRender = true;
 
     [JSInvokable]
     public Task CopySelection(string[] ids) => ClipboardCopyRequested.InvokeAsync(ids);

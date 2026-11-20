@@ -70,6 +70,61 @@ public sealed class ConfigurableParallelGraphTests
     }
 
     [Fact]
+    public void UnifiedGraphParallelRegionInsertionCreatesExecutionTopologyAndLeavesDataWiresUntouched()
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "parallel-insert", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("data-path", new(new("input", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("execution-path", Execution("input", "then", "output", "execute"))
+        };
+
+        var inserted = GraphEditing.InsertParallelRegionAtExecutionConnection(definition, "execution-path");
+
+        Assert.Equal(WorkflowSchemaVersions.UnifiedWorkflowGraph, inserted.SchemaVersion);
+        Assert.Equal(definition.Connections, inserted.Connections);
+        Assert.Equal(6, inserted.Nodes.Count);
+        Assert.Empty(WorkflowValidator.Validate(inserted));
+        var fork = Assert.Single(inserted.Nodes, entry => entry.Value.Type == NodeTypes.ParallelFork);
+        var join = Assert.Single(inserted.Nodes, entry => entry.Value.Type == NodeTypes.ParallelJoin);
+        Assert.Contains(inserted.ExecutionConnections!.Values, edge => edge.Source == new PortReference("input", "then") &&
+            edge.Target == new PortReference(fork.Key, "execute"));
+        Assert.Contains(inserted.ExecutionConnections.Values, edge => edge.Source == new PortReference(join.Key, "then") &&
+            edge.Target == new PortReference("output", "execute"));
+    }
+
+    [Fact]
+    public void UnifiedGraphCanInsertParallelRegionInsideAnOwnedNestedBranch()
+    {
+        var definition = NestedUnifiedParallelDefinition();
+        var originalData = definition.Connections;
+
+        var inserted = GraphEditing.InsertParallelRegionAtExecutionConnection(definition, "inner-anchor-b-agent");
+
+        Assert.Equal(WorkflowSchemaVersions.UnifiedWorkflowGraph, inserted.SchemaVersion);
+        Assert.Equal(originalData, inserted.Connections);
+        Assert.Equal(definition.Nodes.Count + 4, inserted.Nodes.Count);
+        Assert.Equal(3, inserted.Nodes.Count(entry => entry.Value.Type == NodeTypes.ParallelFork));
+        Assert.Equal(3, inserted.Nodes.Count(entry => entry.Value.Type == NodeTypes.ParallelJoin));
+        Assert.Empty(WorkflowValidator.Validate(inserted));
+    }
+
+    [Theory]
+    [InlineData("outer-review")]
+    [InlineData("inner-agent-a-join")]
+    public void UnifiedGraphParallelInsertionRejectsBranchAnchorAndBarrierInputs(string executionConnectionId)
+    {
+        var definition = NestedUnifiedParallelDefinition();
+
+        Assert.Throws<ArgumentException>(() =>
+            GraphEditing.InsertParallelRegionAtExecutionConnection(definition, executionConnectionId));
+    }
+
+    [Fact]
     public void NestedRegionSelectionResolvesTheInnermostOwnedForkJoinBlock()
     {
         var definition = NestedUnifiedParallelDefinition();

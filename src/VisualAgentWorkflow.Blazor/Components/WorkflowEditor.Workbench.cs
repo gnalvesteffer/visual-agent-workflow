@@ -237,6 +237,92 @@ public partial class WorkflowEditor
         return false;
     }
 
+    private static bool TryGetExecutionConnectionId(string? canvasConnectionId, out string connectionId)
+    {
+        const string prefix = "execution:";
+        if (canvasConnectionId is not null && canvasConnectionId.StartsWith(prefix, StringComparison.Ordinal) &&
+            canvasConnectionId.Length > prefix.Length)
+        {
+            connectionId = canvasConnectionId[prefix.Length..];
+            return true;
+        }
+
+        connectionId = string.Empty;
+        return false;
+    }
+
+    private bool CanInsertParallelRegion(GraphContextRequest context)
+    {
+        if (!IsUnifiedGraph || !TryGetExecutionConnectionId(context.ConnectionId, out var connectionId)) return false;
+        try
+        {
+            _ = GraphEditing.InsertParallelRegionAtExecutionConnection(Definition, connectionId);
+            return true;
+        }
+        catch (ArgumentException) { return false; }
+    }
+
+    private async Task InsertParallelRegion(GraphContextRequest context)
+    {
+        if (!CanInsertParallelRegion(context) || !TryGetExecutionConnectionId(context.ConnectionId, out var connectionId)) return;
+        await CloseMenu(context);
+        if (ReadOnly || Disabled) return;
+        try
+        {
+            var next = GraphEditing.InsertParallelRegionAtExecutionConnection(Definition, connectionId);
+            var added = next.Nodes.Keys.Where(id => !Definition.Nodes.ContainsKey(id)).ToArray();
+            var forkId = added.Single(id => next.Nodes[id].Type == NodeTypes.ParallelFork);
+            var firstBranch = added.Where(id => next.Nodes[id].Type == NodeTypes.ParallelBranch)
+                .OrderBy(id => next.Nodes[id].ParallelBranch!.BranchId, StringComparer.Ordinal).ToArray();
+            var joinId = added.Single(id => next.Nodes[id].Type == NodeTypes.ParallelJoin);
+            var layout = PlaceParallelRegion(EffectiveLayout.Reconcile(next), context.Position,
+                forkId, firstBranch, joinId);
+            canvas?.FitAfterNextRender();
+            await CommitEdit(next, layout, forkId);
+        }
+        catch (ArgumentException exception) { error = $"The graph edit is invalid: {exception.Message}"; }
+    }
+
+    private WorkflowLayout PlaceParallelRegion(WorkflowLayout layout, GraphPoint pointer,
+        string forkId, string[] branchIds, string joinId)
+    {
+        const double horizontalStep = 360;
+        const double verticalStep = 180;
+        const double collisionWidth = 320;
+        const double collisionHeight = 440;
+        var existingPositions = Definition.Nodes.Keys.Select(id => layout.Nodes[id].Position).ToArray();
+        var fork = new GraphPoint(Math.Max(0, pointer.X - horizontalStep), Math.Max(verticalStep, pointer.Y));
+        var positions = new GraphPoint[4];
+        var found = false;
+        for (var attempt = 0; attempt < 512 && !found; attempt++)
+        {
+            var rowOffset = attempt % 16;
+            var columnOffset = attempt / 16;
+            var candidate = new GraphPoint(
+                Math.Min(WorkflowLayoutJson.MaximumCoordinate - horizontalStep * 2,
+                    fork.X + columnOffset * collisionWidth),
+                Math.Min(WorkflowLayoutJson.MaximumCoordinate - verticalStep,
+                    fork.Y + rowOffset * collisionHeight));
+            positions =
+            [
+                candidate,
+                new(candidate.X + horizontalStep, candidate.Y - verticalStep),
+                new(candidate.X + horizontalStep, candidate.Y + verticalStep),
+                new(candidate.X + horizontalStep * 2, candidate.Y)
+            ];
+            found = positions.All(position => existingPositions.All(existing =>
+                Math.Abs(position.X - existing.X) >= collisionWidth || Math.Abs(position.Y - existing.Y) >= collisionHeight));
+        }
+
+        if (!found) throw new ArgumentException("No clear canvas space is available for the parallel region.");
+        var nodes = layout.Nodes
+            .SetItem(forkId, layout.Nodes[forkId] with { Position = positions[0] })
+            .SetItem(branchIds[0], layout.Nodes[branchIds[0]] with { Position = positions[1] })
+            .SetItem(branchIds[1], layout.Nodes[branchIds[1]] with { Position = positions[2] })
+            .SetItem(joinId, layout.Nodes[joinId] with { Position = positions[3] });
+        return layout with { Nodes = nodes };
+    }
+
     private IReadOnlyList<WorkflowNodeLibraryEntry> UnifiedLibraryEntries()
     {
         var canAdd = !ReadOnly && !Disabled && Definition.Nodes.Count < 256;

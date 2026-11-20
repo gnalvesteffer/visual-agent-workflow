@@ -955,6 +955,53 @@ public static class GraphEditing
         return Checked(definition with { SchemaVersion = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? definition.SchemaVersion : schemaVersion, Nodes = nodes, Connections = connections });
     }
 
+    /// <summary>Inserts a current-schema Fork/Join on one explicit execution edge without changing data wiring.</summary>
+    public static WorkflowDefinition InsertParallelRegionAtExecutionConnection(WorkflowDefinition definition,
+        string executionConnectionId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph || definition.ExecutionConnections is null)
+            throw new ArgumentException("Parallel regions are inserted on explicit execution paths in unified schema 2.0.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!definition.ExecutionConnections.TryGetValue(executionConnectionId, out var edge) ||
+            edge.Target.PortId != "execute" || definition.Nodes[edge.Target.NodeId].Type == NodeTypes.ParallelBranch)
+            throw new ArgumentException("Select an execution edge entering a node's execute pin, not a branch anchor or barrier input.", nameof(executionConnectionId));
+        if (definition.Nodes.Count > 252 || definition.Connections.Count + definition.ExecutionConnections.Count > 505)
+            throw new ArgumentException("The parallel region would exceed the unified workflow graph limits.", nameof(definition));
+
+        var forkId = NewId("parallel-fork");
+        var firstAnchorId = NewId("parallel-branch");
+        var secondAnchorId = NewId("parallel-branch");
+        var joinId = NewId("parallel-join");
+        const string firstBranchId = "branch_1";
+        const string secondBranchId = "branch_2";
+        var branches = ImmutableArray.Create(
+            new ParallelBranchDescriptor(firstBranchId, "Branch 1", firstAnchorId),
+            new ParallelBranchDescriptor(secondBranchId, "Branch 2", secondAnchorId));
+        var nodes = definition.Nodes
+            .Add(forkId, new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(branches) })
+            .Add(firstAnchorId, new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new(forkId, firstBranchId) })
+            .Add(secondAnchorId, new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new(forkId, secondBranchId) })
+            .Add(joinId, new(NodeTypes.ParallelJoin, "1.0.0")
+            {
+                ParallelJoin = new(forkId, [firstBranchId, secondBranchId])
+            });
+        var execution = definition.ExecutionConnections.Remove(executionConnectionId)
+            .Add(NewId("execution-link"), new(edge.Source, new(forkId, "execute"), "execution"))
+            .Add(NewId("execution-link"), new(new(forkId, ParallelBranchLimits.PinId(firstBranchId)), new(firstAnchorId, "execute"), "execution"))
+            .Add(NewId("execution-link"), new(new(forkId, ParallelBranchLimits.PinId(secondBranchId)), new(secondAnchorId, "execute"), "execution"))
+            .Add(NewId("execution-link"), new(new(firstAnchorId, "then"), new(joinId, ParallelBranchLimits.PinId(firstBranchId)), "execution"))
+            .Add(NewId("execution-link"), new(new(secondAnchorId, "then"), new(joinId, ParallelBranchLimits.PinId(secondBranchId)), "execution"))
+            .Add(NewId("execution-link"), new(new(joinId, "then"), edge.Target, "execution"));
+
+        return Checked(definition with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Nodes = nodes,
+            ExecutionConnections = execution
+        });
+    }
+
     public static WorkflowDefinition InsertBoundedLoopAfter(WorkflowDefinition definition, string sourceId, string portId)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
