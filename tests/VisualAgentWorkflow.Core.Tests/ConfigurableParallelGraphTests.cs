@@ -70,6 +70,40 @@ public sealed class ConfigurableParallelGraphTests
     }
 
     [Fact]
+    public void NestedConfigurableBranchEditsUseTheSelectedForkAndItsMatchingJoin()
+    {
+        var definition = NestedUnifiedParallelDefinition();
+        var originalOuterFork = definition.Nodes["fork"].ParallelFork;
+        var originalOuterJoin = definition.Nodes["join"].ParallelJoin;
+
+        var added = GraphEditing.AddConfigurableParallelBranch(definition, "inner-fork");
+        var addedBranch = Assert.Single(added.Nodes["inner-fork"].ParallelFork!.Branches,
+            branch => branch.Id == "branch_1");
+        Assert.Equal(3, added.Nodes["inner-join"].ParallelJoin!.BranchIds.Length);
+        Assert.Equal(originalOuterFork, added.Nodes["fork"].ParallelFork);
+        Assert.Equal(originalOuterJoin, added.Nodes["join"].ParallelJoin);
+        Assert.Empty(WorkflowValidator.Validate(added));
+
+        var reordered = GraphEditing.MoveConfigurableParallelBranch(added, "inner-fork", "inner_b", -1);
+        Assert.Equal(["inner_b", "inner_a", "branch_1"],
+            reordered.Nodes["inner-fork"].ParallelFork!.Branches.Select(branch => branch.Id));
+        Assert.Equal(["inner_b", "inner_a", "branch_1"],
+            reordered.Nodes["inner-join"].ParallelJoin!.BranchIds.ToArray());
+        Assert.Equal(added.ExecutionConnections, reordered.ExecutionConnections);
+        Assert.Empty(WorkflowValidator.Validate(reordered));
+
+        var removed = GraphEditing.RemoveEmptyConfigurableParallelBranch(reordered, "inner-fork", "branch_1");
+        Assert.DoesNotContain(addedBranch.AnchorNodeId, removed.Nodes.Keys);
+        Assert.Equal(["inner_b", "inner_a"],
+            removed.Nodes["inner-fork"].ParallelFork!.Branches.Select(branch => branch.Id));
+        Assert.Equal(["inner_b", "inner_a"],
+            removed.Nodes["inner-join"].ParallelJoin!.BranchIds.ToArray());
+        Assert.Equal(originalOuterFork, removed.Nodes["fork"].ParallelFork);
+        Assert.Equal(originalOuterJoin, removed.Nodes["join"].ParallelJoin);
+        Assert.Empty(WorkflowValidator.Validate(removed));
+    }
+
+    [Fact]
     public void UnifiedGraphParallelRegionInsertionCreatesExecutionTopologyAndLeavesDataWiresUntouched()
     {
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "parallel-insert", "input",

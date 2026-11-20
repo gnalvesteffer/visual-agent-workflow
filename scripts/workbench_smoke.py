@@ -58,6 +58,116 @@ def new_blank(designer):
     settings(designer, False)
 
 
+def nested_parallel_branch_authoring_check(page, designer):
+    """Nested Fork branch controls target their own matching Join."""
+    new_blank(designer)
+    workflow_id = designer.locator("[data-vaw-workflow-selector]").input_value()
+    definition = {
+        "schemaVersion": "2.0", "workflowId": workflow_id,
+        "displayName": "Nested parallel branch editing smoke", "entryNodeId": "input",
+        "nodes": {
+            "input": {"type": "core.input", "typeVersion": "1.0.0"},
+            "outer-fork": {"type": "core.parallel.fork", "typeVersion": "1.0.0", "parallelFork": {"branches": [
+                {"id": "research", "label": "Research", "anchorNodeId": "outer-research"},
+                {"id": "review", "label": "Review", "anchorNodeId": "outer-review"}]}},
+            "outer-research": {"type": "core.parallel.branch", "typeVersion": "1.0.0",
+                               "parallelBranch": {"forkNodeId": "outer-fork", "branchId": "research"}},
+            "outer-review": {"type": "core.parallel.branch", "typeVersion": "1.0.0",
+                             "parallelBranch": {"forkNodeId": "outer-fork", "branchId": "review"}},
+            "research-agent": {"type": "core.agent", "typeVersion": "1.0.0", "agent": {
+                "providerId": "demo.scripted", "instructions": "Return the provided input.", "tools": []}},
+            "inner-fork": {"type": "core.parallel.fork", "typeVersion": "1.0.0", "parallelFork": {"branches": [
+                {"id": "inner_a", "label": "Inner A", "anchorNodeId": "inner-a"},
+                {"id": "inner_b", "label": "Inner B", "anchorNodeId": "inner-b"}]}},
+            "inner-a": {"type": "core.parallel.branch", "typeVersion": "1.0.0",
+                        "parallelBranch": {"forkNodeId": "inner-fork", "branchId": "inner_a"}},
+            "inner-b": {"type": "core.parallel.branch", "typeVersion": "1.0.0",
+                        "parallelBranch": {"forkNodeId": "inner-fork", "branchId": "inner_b"}},
+            "inner-agent-a": {"type": "core.agent", "typeVersion": "1.0.0", "agent": {
+                "providerId": "demo.scripted", "instructions": "Return the provided input.", "tools": []}},
+            "inner-agent-b": {"type": "core.agent", "typeVersion": "1.0.0", "agent": {
+                "providerId": "demo.scripted", "instructions": "Return the provided input.", "tools": []}},
+            "review-agent": {"type": "core.agent", "typeVersion": "1.0.0", "agent": {
+                "providerId": "demo.scripted", "instructions": "Return the reviewed input.", "tools": []}},
+            "inner-join": {"type": "core.parallel.join", "typeVersion": "1.0.0",
+                           "parallelJoin": {"forkNodeId": "inner-fork", "branchIds": ["inner_a", "inner_b"]}},
+            "outer-join": {"type": "core.parallel.join", "typeVersion": "1.0.0",
+                           "parallelJoin": {"forkNodeId": "outer-fork", "branchIds": ["research", "review"]}},
+            "output": {"type": "core.output", "typeVersion": "1.0.0", "outputDataType": "json"}},
+        "connections": {
+            "research-input": {"source": {"nodeId": "input", "portId": "out"},
+                               "target": {"nodeId": "research-agent", "portId": "in"}, "kind": "data"},
+            "inner-a-input": {"source": {"nodeId": "input", "portId": "out"},
+                              "target": {"nodeId": "inner-agent-a", "portId": "in"}, "kind": "data"},
+            "inner-b-input": {"source": {"nodeId": "input", "portId": "out"},
+                              "target": {"nodeId": "inner-agent-b", "portId": "in"}, "kind": "data"},
+            "review-input": {"source": {"nodeId": "input", "portId": "out"},
+                             "target": {"nodeId": "review-agent", "portId": "in"}, "kind": "data"},
+            "join-output": {"source": {"nodeId": "outer-join", "portId": "out"},
+                            "target": {"nodeId": "output", "portId": "in"}, "kind": "data"}},
+        "executionConnections": {
+            "start": {"source": {"nodeId": "input", "portId": "then"},
+                      "target": {"nodeId": "outer-fork", "portId": "execute"}, "kind": "execution"},
+            "outer-research-start": {"source": {"nodeId": "outer-fork", "portId": "branch.research"},
+                                     "target": {"nodeId": "outer-research", "portId": "execute"}, "kind": "execution"},
+            "outer-review-start": {"source": {"nodeId": "outer-fork", "portId": "branch.review"},
+                                   "target": {"nodeId": "outer-review", "portId": "execute"}, "kind": "execution"},
+            "research-agent": {"source": {"nodeId": "outer-research", "portId": "then"},
+                               "target": {"nodeId": "research-agent", "portId": "execute"}, "kind": "execution"},
+            "research-join": {"source": {"nodeId": "research-agent", "portId": "out"},
+                              "target": {"nodeId": "outer-join", "portId": "branch.research"}, "kind": "execution"},
+            "review-inner-start": {"source": {"nodeId": "outer-review", "portId": "then"},
+                                   "target": {"nodeId": "inner-fork", "portId": "execute"}, "kind": "execution"},
+            "inner-a-start": {"source": {"nodeId": "inner-fork", "portId": "branch.inner_a"},
+                              "target": {"nodeId": "inner-a", "portId": "execute"}, "kind": "execution"},
+            "inner-b-start": {"source": {"nodeId": "inner-fork", "portId": "branch.inner_b"},
+                              "target": {"nodeId": "inner-b", "portId": "execute"}, "kind": "execution"},
+            "inner-a-agent": {"source": {"nodeId": "inner-a", "portId": "then"},
+                              "target": {"nodeId": "inner-agent-a", "portId": "execute"}, "kind": "execution"},
+            "inner-b-agent": {"source": {"nodeId": "inner-b", "portId": "then"},
+                              "target": {"nodeId": "inner-agent-b", "portId": "execute"}, "kind": "execution"},
+            "inner-a-join": {"source": {"nodeId": "inner-agent-a", "portId": "out"},
+                             "target": {"nodeId": "inner-join", "portId": "branch.inner_a"}, "kind": "execution"},
+            "inner-b-join": {"source": {"nodeId": "inner-agent-b", "portId": "out"},
+                             "target": {"nodeId": "inner-join", "portId": "branch.inner_b"}, "kind": "execution"},
+            "inner-review-agent": {"source": {"nodeId": "inner-join", "portId": "then"},
+                                   "target": {"nodeId": "review-agent", "portId": "execute"}, "kind": "execution"},
+            "review-agent-outer-join": {"source": {"nodeId": "review-agent", "portId": "out"},
+                                        "target": {"nodeId": "outer-join", "portId": "branch.review"}, "kind": "execution"},
+            "outer-output": {"source": {"nodeId": "outer-join", "portId": "then"},
+                             "target": {"nodeId": "output", "portId": "execute"}, "kind": "execution"}}}
+
+    saved_draft = page.request.put(BASE + f"/api/workflows/{workflow_id}/draft",
+                                   data={"definition": definition, "expectedGeneration": 0})
+    assert saved_draft.ok, saved_draft.text()
+    page.reload(wait_until="networkidle")
+    designer = page.get_by_role("region", name="Workflow designer", exact=True)
+    designer.locator("[data-vaw-workflow-selector]").select_option(workflow_id, force=True)
+
+    canvas = designer.locator(".vaw-graph-editor")
+    selected_inner_fork = canvas.locator('li[data-node-id="inner-fork"] [data-drag-node]')
+    selected_inner_fork.click()
+    expect(selected_inner_fork).to_have_attribute("aria-pressed", "true")
+    controls = designer.get_by_role("group", name="Parallel branch labels", exact=True)
+    add = controls.get_by_role("button", name="Add parallel branch", exact=True)
+    expect(add).to_be_enabled()
+    add.click()
+    branch_removers = controls.get_by_role("button", name=re.compile("^Remove empty branch "))
+    expect(branch_removers).to_have_count(3)
+    remove = controls.get_by_role("button", name="Remove empty branch branch_1", exact=True)
+    expect(remove).to_be_enabled()
+    remove.click()
+    expect(branch_removers).to_have_count(2)
+    designer.get_by_role("button", name="Save", exact=True).click()
+    expect(designer.get_by_text("Draft saved.", exact=True)).to_be_visible()
+
+    saved = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
+    assert [branch["id"] for branch in saved["nodes"]["inner-fork"]["parallelFork"]["branches"]] == ["inner_a", "inner_b"]
+    assert saved["nodes"]["inner-join"]["parallelJoin"]["branchIds"] == ["inner_a", "inner_b"]
+    assert [branch["id"] for branch in saved["nodes"]["outer-fork"]["parallelFork"]["branches"]] == ["research", "review"]
+    expect(designer.get_by_role("button", name="Run workflow", exact=True)).to_be_enabled()
+
+
 def json_array_node_authoring_check(page, designer, screenshots):
     new_blank(designer)
     show_library(designer)
@@ -859,9 +969,11 @@ def check(browser, screenshots):
     unified_graph_authoring_check(page, designer)
     print("Explicit pin authoring and execution passed.")
     graph_function_authoring_check(page, designer)
+    nested_parallel_branch_authoring_check(page, designer)
+    print("Nested Fork branch add/remove and save/reopen passed.")
     assert not errors,errors
     page.close()
-    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, explicit typed-graph authoring/execution/replay, Boolean branch authoring, typed Boolean primitive upgrade/configuration, bounded branch topology upgrade and node authoring, pure function editor pin wiring, immutable function revisions, pinned workflow call insertion, selected subgraph function extraction with derived boundaries and undo/redo, draft save, and MCP tool detail review passed.")
+    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, explicit typed-graph authoring/execution/replay, Boolean branch authoring, typed Boolean primitive upgrade/configuration, bounded branch topology upgrade and node authoring, pure function editor pin wiring, immutable function revisions, pinned workflow call insertion, selected subgraph function extraction with derived boundaries and undo/redo, nested Fork branch editing, draft save, and MCP tool detail review passed.")
 
 
 if __name__=="__main__":

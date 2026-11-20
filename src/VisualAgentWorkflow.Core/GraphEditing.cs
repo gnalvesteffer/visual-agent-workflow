@@ -705,9 +705,14 @@ public static class GraphEditing
             !definition.Nodes.TryGetValue(forkNodeId, out var fork) || fork.Type != NodeTypes.ParallelFork ||
             fork.ParallelFork is not { } forkConfiguration || definition.ExecutionConnections is null)
             throw new ArgumentException("Choose a configurable parallel fork in a schema 1.32 graph.", nameof(forkNodeId));
-        var joinEntry = definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.ParallelJoin);
-        if (joinEntry.Value?.ParallelJoin is not { } joinConfiguration || joinConfiguration.ForkNodeId != forkNodeId)
+        var joinEntries = definition.Nodes
+            .Where(entry => entry.Value.Type == NodeTypes.ParallelJoin &&
+                entry.Value.ParallelJoin?.ForkNodeId == forkNodeId)
+            .Take(2)
+            .ToArray();
+        if (joinEntries.Length != 1 || joinEntries[0].Value.ParallelJoin is not { } joinConfiguration)
             throw new ArgumentException("The selected fork has no matching join.", nameof(forkNodeId));
+        var joinEntry = joinEntries[0];
         return (fork, forkConfiguration, joinEntry.Key, joinEntry.Value, joinConfiguration);
     }
 

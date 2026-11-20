@@ -211,8 +211,10 @@ public partial class WorkflowEditor
             !Definition.Nodes.TryGetValue(forkNodeId, out var fork) || fork.ParallelFork is not { } configuration ||
             configuration.Branches.Length <= ParallelBranchLimits.MinimumBranches || Definition.ExecutionConnections is not { } execution)
             return false;
-        var join = Definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.ParallelJoin);
-        if (join.Value is null) return false;
+        var joins = Definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelJoin &&
+            entry.Value.ParallelJoin?.ForkNodeId == forkNodeId).Take(2).ToArray();
+        if (joins.Length != 1) return false;
+        var join = joins[0];
         var routes = execution.Values.Where(edge => edge.Source.NodeId == branch.AnchorNodeId).ToArray();
         return routes.Length == 1 && routes[0].Target.NodeId == join.Key &&
             routes[0].Target.PortId == ParallelBranchLimits.PinId(branch.Id);
