@@ -6,6 +6,36 @@ namespace VisualAgentWorkflow.Core.Tests;
 
 public sealed class LoopFeedbackTopologyProofTests
 {
+    [Fact]
+    public void Supported_loop_topology_matches_after_public_validation_and_package_round_trips()
+    {
+        var definition = SupportedExplicitLoop();
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var beforePackage = LoopFeedbackTopologyProofAnalyzer.Analyze(definition,
+            LoopFeedbackPinShape.ExplicitFeedbackInput);
+        Assert.True(beforePackage.IsValid, string.Join(Environment.NewLine, beforePackage.Issues));
+
+        var packageJson = WorkflowPackageJson.Serialize(definition, WorkflowLayout.Create(definition));
+        var imported = WorkflowPackageJson.Deserialize(packageJson);
+        Assert.Empty(WorkflowValidator.Validate(imported.Definition));
+        var afterPackage = LoopFeedbackTopologyProofAnalyzer.Analyze(imported.Definition,
+            LoopFeedbackPinShape.ExplicitFeedbackInput);
+
+        var release = WorkflowProjectPackageJson.Read(WorkflowProjectPackageJson.CreateArchive("project",
+            "Loop proof", [imported]));
+        var releasedDefinition = release.Workflows[definition.WorkflowId].Definition;
+        Assert.Empty(WorkflowValidator.Validate(releasedDefinition));
+        var afterRelease = LoopFeedbackTopologyProofAnalyzer.Analyze(releasedDefinition,
+            LoopFeedbackPinShape.ExplicitFeedbackInput);
+
+        Assert.True(afterPackage.IsValid, string.Join(Environment.NewLine, afterPackage.Issues));
+        Assert.Equal(ProjectRegions(beforePackage), ProjectRegions(afterPackage));
+        Assert.True(afterRelease.IsValid, string.Join(Environment.NewLine, afterRelease.Issues));
+        Assert.Equal(ProjectRegions(beforePackage), ProjectRegions(afterRelease));
+        Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash(releasedDefinition));
+    }
+
     [Theory]
     [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
     [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]
@@ -648,4 +678,37 @@ public sealed class LoopFeedbackTopologyProofTests
 
     private static ConnectionDefinition Edge(string source, string sourcePort, string target, string targetPort) =>
         new(new(source, sourcePort), new(target, targetPort), "execution");
+
+    private static WorkflowDefinition SupportedExplicitLoop()
+    {
+        var nodes = new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["loop"] = new(NodeTypes.Loop, "1.0.0") { Loop = new(new("contains", "continue"), 3) },
+            ["body"] = new(NodeTypes.LoopBody, "1.0.0"),
+            ["step"] = new(NodeTypes.SequenceReverse, "1.0.0"),
+            ["output"] = new(NodeTypes.Output, "1.0.0")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("step-input", new(new("input", "out"), new("step", "in"), "data"))
+            .Add("result", new(new("step", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("start", Edge("input", "then", "loop", "execute"))
+            .Add("body-start", Edge("loop", "body", "body", "execute"))
+            .Add("body-step", Edge("body", "then", "step", "execute"))
+            .Add("return", Edge("step", "then", "loop", "feedback"))
+            .Add("done", Edge("loop", "done", "output", "execute"));
+        return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "supported-loop-topology", "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static string[] ProjectRegions(LoopFeedbackTopologyProof proof) =>
+        proof.Regions.Select(region => string.Join("|", region.LoopNodeId,
+            region.ParentLoopNodeId ?? "", region.BodyAnchorNodeId, region.InitialConnectionId,
+            region.FeedbackConnectionId, string.Join(",", region.BodyNodeIds),
+            string.Join(",", region.BreakNodeIds), string.Join(",", region.BreakRoutes.Select(route =>
+                string.Join(":", route.LoopNodeId, route.BreakNodeId, route.SequenceNodeId,
+                    route.SequenceOutputPinId))))).ToArray();
 }

@@ -147,6 +147,13 @@ the historical promotion chain.
   implicit `then` assumption. Focused topology/descriptor tests pass 82/82; the
   Core suite passes 697/697. This metadata remains non-authoritative and does
   not enable nested loops in public/package validation or production.
+  The topology-first gate now has one cross-path regression: a supported
+  unified-schema explicit-feedback loop passes Core validation, workflow-package
+  import, and project-release import, with identical derived owner, body, and
+  feedback connection identities after both round-trips. Focused topology tests
+  pass 41/41 and Core passes 723/723. This proves topology convergence only for
+  the already-supported single-loop shape; nested loops and Break remain
+  rejected and unimplemented.
   Other malformed/ambiguous legacy shapes and nested production authoring,
   validation, runtime, persistence, and playback evidence remain open.
   Sequence/Break production settlement remains a separate gate and cannot be

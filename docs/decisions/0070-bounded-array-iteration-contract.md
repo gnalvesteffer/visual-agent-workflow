@@ -4610,3 +4610,25 @@ correlated unresolved work and incomplete evidence separately. Existing
 reopened-history coverage asserts this distinction across settlement order,
 terminal-write rejection, cancellation, and Sequence Break. Do not introduce a
 duplicate aggregate API or reopen root-status precedence absent new evidence.
+
+### Topology-first sequencing re-review and first convergence proof (2026-11-20)
+
+A fresh three-role review returned **REVISE** on the next implementation
+sequence. Derive topology and ownership from the graph before extracting an
+ordinary production activation coordinator; otherwise the coordinator would
+inherit the proof harness's hand-supplied loop and Break identities. Sequence
+settlement reuse remains part of the later runtime gate, not a substitute for
+activation ownership. No public iterator pins or Break contract are selected.
+
+The first convergence regression uses a currently supported unified-schema
+explicit-feedback loop. It derives the loop region from the graph, validates
+the definition, round-trips through both `WorkflowPackageJson` and
+`WorkflowProjectPackageJson`, and confirms the same owner, body, initial edge,
+and feedback edge after import. The focused topology class passes 41/41 and the
+Core suite passes 723/723. This is deliberately limited evidence: current
+package paths agree for the supported single-loop shape; nested loops and
+proof-only Break candidates remain rejected by public/package validation.
+The next step must extend plan evidence for the nested multi-route candidate
+without exposing it, then prove independent validation/package derivation at
+the boundary where that topology is introduced. See the roadmap's [active
+array-iteration workstream](../roadmap.md#next-parity-workstream-first-class-collections).
