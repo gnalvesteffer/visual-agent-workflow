@@ -92,6 +92,17 @@ Schema support, or Blueprint parity.
 
 ## Evidence and follow-up
 
+The first proof-only implementation adds an internal candidate mapper for one
+required, closed object containing scalar leaves. Property segments use RFC 6901
+escaping and nested pin IDs derive from the exact case-sensitive pointer using
+SHA-256. Focused MCP tests cover delimiter escaping, literal-dot distinction,
+rename/case identity changes, property reordering, requiredness, bounds, and
+rejection of open or multiple nested objects. The mapper is internal and is not
+used by descriptor projection, workflow persistence, runtime admission, or
+Studio. It does not yet prove pin-contract validation, static/connected
+reconstruction, redaction, broker enforcement, or compatibility; none of the
+gates below are considered complete.
+
 The current implementation already supports nested MCP values on JSON pins and
 retains normalized nested schema metadata. It does not yet provide the
 path-level pin contract, end-to-end evidence privacy, or migration guarantees
