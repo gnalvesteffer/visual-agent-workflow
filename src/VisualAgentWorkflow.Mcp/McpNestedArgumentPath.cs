@@ -1,6 +1,9 @@
+using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
-using System.Collections.Immutable;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Mcp;
 
@@ -11,6 +14,9 @@ namespace VisualAgentWorkflow.Mcp;
 /// </remarks>
 internal static class McpNestedArgumentPath
 {
+    private const string InvalidArgumentsDiagnostic =
+        "Nested MCP argument values do not match the pinned closed-object contract.";
+
     public static bool TryCreatePins(McpToolSchemaDescriptor descriptor,
         out ImmutableArray<McpNestedArgumentPinProof> pins)
     {
@@ -46,6 +52,52 @@ internal static class McpNestedArgumentPath
 
         pins = ordered;
         return true;
+    }
+
+    public static bool TryReconstructArguments(JsonElement schema, JsonElement staticArguments,
+        IReadOnlyDictionary<string, JsonElement> connectedValues, out JsonElement arguments, out string diagnostic)
+    {
+        ArgumentNullException.ThrowIfNull(connectedValues);
+        arguments = default;
+        diagnostic = InvalidArgumentsDiagnostic;
+        try
+        {
+            var descriptor = McpToolInputSchemas.Describe(schema);
+            if (!TryCreatePins(descriptor, out var pins) || staticArguments.ValueKind != JsonValueKind.Object)
+                return false;
+
+            var nestedObjectName = descriptor.Root.Properties.Single(field => field.JsonType == "object").Name;
+            var reconstructed = JsonNode.Parse(staticArguments.GetRawText())!.AsObject();
+            foreach (var (pinId, value) in connectedValues)
+            {
+                var pin = pins.SingleOrDefault(candidate => candidate.Id == pinId);
+                if (pin is null) return false;
+
+                JsonObject nested;
+                if (reconstructed.TryGetPropertyValue(nestedObjectName, out var existing))
+                {
+                    if (existing is not JsonObject existingObject) return false;
+                    nested = existingObject;
+                }
+                else
+                {
+                    nested = new JsonObject();
+                    reconstructed[nestedObjectName] = nested;
+                }
+
+                nested[pin.Name] = JsonNode.Parse(value.GetRawText());
+            }
+
+            using var candidateDocument = JsonDocument.Parse(reconstructed.ToJsonString());
+            _ = McpToolInputSchemas.ToCallArguments(schema, candidateDocument.RootElement);
+            arguments = candidateDocument.RootElement.Clone();
+            diagnostic = string.Empty;
+            return true;
+        }
+        catch (Exception exception) when (exception is ToolInvocationException or JsonException or InvalidOperationException or ArgumentException)
+        {
+            return false;
+        }
     }
 
     public static string ToPointer(IReadOnlyList<string> segments)

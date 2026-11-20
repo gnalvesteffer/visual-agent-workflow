@@ -87,4 +87,86 @@ public sealed class McpNestedArgumentPathTests
         Assert.False(McpNestedArgumentPath.TryCreatePins(McpToolInputSchemas.Describe(schema.RootElement), out var pins));
         Assert.Empty(pins);
     }
+
+    [Fact]
+    public void TryReconstructArguments_ConnectedLeafOverridesStaticLeafAndPreservesSiblings()
+    {
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","additionalProperties":false,"properties":{"query":{"type":"string"},"request":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10}},"required":["name"]}},"required":["request"]}
+            """);
+        using var staticArguments = JsonDocument.Parse("""
+            {"query":"repository scope","request":{"name":"static name","limit":4}}
+            """);
+        using var connectedValue = JsonDocument.Parse("\"connected name\"");
+        var namePinId = McpNestedArgumentPath.ToPinId(["request", "name"]);
+
+        var reconstructed = McpNestedArgumentPath.TryReconstructArguments(schema.RootElement,
+            staticArguments.RootElement,
+            new Dictionary<string, JsonElement> { [namePinId] = connectedValue.RootElement },
+            out var arguments, out var diagnostic);
+
+        Assert.True(reconstructed);
+        Assert.Empty(diagnostic);
+        Assert.Equal("repository scope", arguments.GetProperty("query").GetString());
+        Assert.Equal("connected name", arguments.GetProperty("request").GetProperty("name").GetString());
+        Assert.Equal(4, arguments.GetProperty("request").GetProperty("limit").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("{\"request\":{\"name\":\"safe\"}}", "99", "limit")]
+    [InlineData("{\"request\":{\"name\":\"safe\",\"limit\":\"secret\"}}", "42", "name")]
+    public void TryReconstructArguments_RejectsInvalidValuesWithRedactedDiagnostic(
+        string staticArgumentsJson, string connectedValueJson, string pinName)
+    {
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","additionalProperties":false,"properties":{"request":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10}},"required":["name"]}},"required":["request"]}
+            """);
+        using var staticArguments = JsonDocument.Parse(staticArgumentsJson);
+        using var connectedValue = JsonDocument.Parse(connectedValueJson);
+        var pinId = McpNestedArgumentPath.ToPinId(["request", pinName]);
+
+        var reconstructed = McpNestedArgumentPath.TryReconstructArguments(schema.RootElement,
+            staticArguments.RootElement,
+            new Dictionary<string, JsonElement> { [pinId] = connectedValue.RootElement },
+            out _, out var diagnostic);
+
+        Assert.False(reconstructed);
+        Assert.Equal("Nested MCP argument values do not match the pinned closed-object contract.", diagnostic);
+        Assert.DoesNotContain("secret", diagnostic, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TryReconstructArguments_RejectsMissingRequiredNestedValue()
+    {
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","additionalProperties":false,"properties":{"request":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"}},"required":["name"]}},"required":["request"]}
+            """);
+        using var staticArguments = JsonDocument.Parse("{}");
+
+        var reconstructed = McpNestedArgumentPath.TryReconstructArguments(schema.RootElement,
+            staticArguments.RootElement, new Dictionary<string, JsonElement>(), out _, out var diagnostic);
+
+        Assert.False(reconstructed);
+        Assert.Equal("Nested MCP argument values do not match the pinned closed-object contract.", diagnostic);
+    }
+
+    [Fact]
+    public void TryReconstructArguments_RejectsUnknownParentPathPin()
+    {
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","additionalProperties":false,"properties":{"request":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"}},"required":["name"]}},"required":["request"]}
+            """);
+        using var staticArguments = JsonDocument.Parse("{}");
+        using var connectedValue = JsonDocument.Parse("\"private\"");
+        var parentPinId = McpNestedArgumentPath.ToPinId(["request"]);
+
+        var reconstructed = McpNestedArgumentPath.TryReconstructArguments(schema.RootElement,
+            staticArguments.RootElement,
+            new Dictionary<string, JsonElement> { [parentPinId] = connectedValue.RootElement },
+            out _, out var diagnostic);
+
+        Assert.False(reconstructed);
+        Assert.Equal("Nested MCP argument values do not match the pinned closed-object contract.", diagnostic);
+        Assert.DoesNotContain("private", diagnostic, StringComparison.Ordinal);
+    }
 }
