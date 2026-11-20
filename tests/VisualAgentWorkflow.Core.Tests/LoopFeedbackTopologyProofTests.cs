@@ -36,6 +36,29 @@ public sealed class LoopFeedbackTopologyProofTests
         Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash(releasedDefinition));
     }
 
+    [Fact]
+    public void Nested_multi_exit_topology_is_derived_but_not_publicly_serializable()
+    {
+        var definition = LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(
+            ThreeNestedLoopsWithSequenceExitsCandidate());
+        var plan = LoopFeedbackTopologyProofAnalyzer.Analyze(definition,
+            LoopFeedbackPinShape.ExplicitFeedbackInput);
+        Assert.True(plan.IsValid, string.Join(Environment.NewLine, plan.Issues));
+        var outer = Assert.Single(plan.Regions, region => region.LoopNodeId == "outer-loop");
+        var middle = Assert.Single(plan.Regions, region => region.LoopNodeId == "inner-loop");
+        var inner = Assert.Single(plan.Regions, region => region.LoopNodeId == "deep-loop");
+        Assert.Null(outer.ParentLoopNodeId);
+        Assert.Equal("outer-loop", middle.ParentLoopNodeId);
+        Assert.Equal("inner-loop", inner.ParentLoopNodeId);
+        Assert.Equal(["inner-abort", "inner-break"], middle.BreakRoutes
+            .Select(route => route.BreakNodeId).Order(StringComparer.Ordinal).ToArray());
+        Assert.Contains(WorkflowValidator.Validate(definition), issue =>
+            issue.Path == "nodes.inner-break" && issue.Code == "node.unsupported");
+        Assert.Throws<ArgumentException>(() => WorkflowJson.Serialize(definition));
+        Assert.Throws<ArgumentException>(() => WorkflowPackageJson.Create(definition,
+            WorkflowLayout.Create(definition)));
+    }
+
     [Theory]
     [InlineData(nameof(LoopFeedbackPinShape.InferredFromBodyTopology))]
     [InlineData(nameof(LoopFeedbackPinShape.ExplicitFeedbackInput))]

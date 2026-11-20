@@ -4628,7 +4628,12 @@ and feedback edge after import. The focused topology class passes 41/41 and the
 Core suite passes 723/723. This is deliberately limited evidence: current
 package paths agree for the supported single-loop shape; nested loops and
 proof-only Break candidates remain rejected by public/package validation.
-The next step must extend plan evidence for the nested multi-route candidate
-without exposing it, then prove independent validation/package derivation at
-the boundary where that topology is introduced. See the roadmap's [active
-array-iteration workstream](../roadmap.md#next-parity-workstream-first-class-collections).
+The topology proof now also derives all three owners and the exact nearest
+Sequence-output routes for a multi-exit nested Break candidate. Both ordinary
+definition serialization and package creation reject that candidate, as
+required while the contract remains unselected. The focused topology suite
+passes 42/42 and Core passes 724/724. The next gate is to carry this derived
+plan through independent public and package topology validation for the
+supported nested contract; the private analyzer and rejection assertions do
+not establish that agreement. See the roadmap's [active array-iteration
+workstream](../roadmap.md#next-parity-workstream-first-class-collections).

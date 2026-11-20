@@ -153,7 +153,12 @@ the historical promotion chain.
   feedback connection identities after both round-trips. Focused topology tests
   pass 41/41 and Core passes 723/723. This proves topology convergence only for
   the already-supported single-loop shape; nested loops and Break remain
-  rejected and unimplemented.
+  rejected and unimplemented. A three-level, multi-exit Break candidate now
+  derives each loop owner and nearest Sequence-output route from graph metadata;
+  standard definition serialization and package creation correctly still reject
+  it. Its focused topology group now passes 42/42 and Core passes 724/724. The
+  independent public/package topology-derivation agreement for a future
+  supported nested topology remains open.
   Other malformed/ambiguous legacy shapes and nested production authoring,
   validation, runtime, persistence, and playback evidence remain open.
   Sequence/Break production settlement remains a separate gate and cannot be
