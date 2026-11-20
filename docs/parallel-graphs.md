@@ -14,6 +14,9 @@ Nested Fork/Join is a parity target for unified schema 2.0, not current
 supported behavior. The accepted end contract is arbitrary finite-depth
 composition with activation-scoped arrivals and statically validated region
 ownership; there will be no separate schema, capability, or fixed-depth gate.
+Each nested region must have one parent-branch owner; a static child region
+shared across sibling owners is outside the reviewed topology contract unless
+a parent-aware routing design is reviewed separately.
 See [Decision 0076](decisions/0076-nested-fork-join-composition.md). Until the
 Core ownership analyzer, runtime settlement proofs, Studio editing, package
 compatibility, and passive playback are implemented together, validation

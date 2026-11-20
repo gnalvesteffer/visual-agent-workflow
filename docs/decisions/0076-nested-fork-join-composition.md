@@ -33,14 +33,21 @@ to encode one-level assumptions in saved definitions.
 
 The static validator must establish region ownership and matching joins before
 publication or execution. Runtime correlation must use activation lineage, not
-static Fork identity alone. A static nested Fork may receive concurrent
-activations from multiple valid parent branch contexts; its arrivals must
-remain isolated and its Join must restore the correct parent context.
+static Fork identity alone. Each nested region belongs to exactly one parent
+branch; it rejoins there and continues within that owner. Do not share one
+static nested region or continuation across sibling parent branches under this
+contract. The private shared-Fork proof verifies isolated arrivals and parent
+lineage restoration, but it cancels before proving that the continuation can
+route to the correct outer branch-specific Join input. Supporting that shape
+would require a separately reviewed parent-aware routing contract.
 
 ## Contract requirements
 
 - Every declared Fork branch has one stable anchor and reaches exactly one
   matching Join input. Results from different Fork activations cannot mix.
+- Every nested region has exactly one parent-branch owner; the child Join
+  returns execution to that owner. A static child region cannot be shared
+  across sibling owners.
 - Nested regions cannot cross ownership boundaries, escape or bypass their
   matching Join, arrive through a wrong Join, or have ambiguous branch
   ownership. Malformed parent lineage fails closed.
@@ -72,8 +79,9 @@ remain isolated and its Join must restore the correct parent context.
    persistence, and passive playback without introducing a schema gate.
 4. If useful, ship one nested level as an intermediate slice. Before claiming
    nested parallel parity, demonstrate deeper nesting and concurrent reuse of
-   one static inner Fork under distinct parent branches across the full
-   cross-layer contract.
+   one static inner Fork under repeated activations of its same parent owner
+   across the full cross-layer contract. Reject sibling-owner shared regions
+   unless a separately reviewed parent-aware routing contract is introduced.
 
 ## Current status
 
