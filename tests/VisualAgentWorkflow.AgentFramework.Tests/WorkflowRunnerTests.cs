@@ -62,6 +62,48 @@ public class WorkflowRunnerTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "post-join");
     }
 
+    [Fact]
+    public async Task NestedForkFailureDoesNotProduceAnyJoinedResult()
+    {
+        var revision = WorkflowRevision.Create(NestedForkDefinition(), "nested-public-runner-failure");
+        var events = new List<ExecutionEvent>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await new WorkflowRunner(agents: new NestedForkFailureAgentExecutor())
+                .ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "research input", null,
+                    evt => { events.Add(evt); return ValueTask.CompletedTask; })
+                .WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "deep-agent-x");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId is "deep-join" or "inner-join" or "outer-join" or "post-join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed);
+    }
+
+    [Fact]
+    public async Task NestedForkCancellationDoesNotProduceAnyJoinedResult()
+    {
+        var revision = WorkflowRevision.Create(NestedForkDefinition(), "nested-public-runner-cancellation");
+        var events = new List<ExecutionEvent>();
+        var agents = new NestedForkCancellationAgentExecutor();
+        using var cancellation = new CancellationTokenSource();
+
+        var execution = new WorkflowRunner(agents: agents)
+            .ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "research input", null,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }, cancellation.Token);
+
+        await agents.DeepBranchStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await execution.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId is "deep-join" or "inner-join" or "outer-join" or "post-join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Cancelled);
+    }
+
     private static WorkflowDefinition NestedForkDefinition()
     {
         var outerBranches = ImmutableArray.Create(
@@ -166,6 +208,42 @@ public class WorkflowRunnerTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult(input);
+        }
+    }
+
+    private sealed class NestedForkFailureAgentExecutor : IAgentNodeExecutor
+    {
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("test.nested-echo", "Nested echo", "test", true)]);
+
+        public Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return invocation.NodeId == "deep-agent-x"
+                ? Task.FromException<string>(new InvalidOperationException("Nested branch failed."))
+                : Task.FromResult(input);
+        }
+    }
+
+    private sealed class NestedForkCancellationAgentExecutor : IAgentNodeExecutor
+    {
+        public TaskCompletionSource DeepBranchStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("test.nested-echo", "Nested echo", "test", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId == "deep-agent-x")
+            {
+                DeepBranchStarted.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            return input;
         }
     }
 

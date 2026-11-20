@@ -98,7 +98,10 @@ sibling ownership and joins paired with another Fork. Unified validation
 also supports sequential root regions. Regressions cover two and three nested
 levels, sequential roots, and malformed ownership/pairing cases. The
 public runner also executes a normally validated graph with three nested levels
-and a later sequential root region to a successful joined result. Malformed parent-lineage tampering, duplicate
-arrivals before completion, normal-path failure/cancellation and replay
-coverage, package compatibility, and Studio authoring remain open. See [the
+and a later sequential root region to a successful joined result. Public-runner
+failure and cancellation regressions now verify that no nested Join or final
+Output reports a completed result when a required branch does not succeed.
+File/SQLite persistence and passive playback for those normal-path outcomes
+remain open. Malformed parent-lineage tampering, duplicate arrivals before
+completion, package compatibility, and Studio authoring also remain open. See [the
 Blueprint parity roadmap](../roadmap.md) and [parallel graph behavior](../parallel-graphs.md).

@@ -8222,7 +8222,7 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(1, recorded.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
         Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right");
         Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
-        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "join");
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress && evt.NodeId == "join");
         Assert.DoesNotContain(recorded, evt => (evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.ExecutionActivated) &&
             evt.NodeId == "output" &&
             evt.ScopeId == "array-loop/0");
@@ -8309,8 +8309,8 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-middle");
         Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break-left");
         Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right");
-        Assert.DoesNotContain(recorded, evt =>
-            (evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted) && evt.NodeId == "join");
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress && evt.NodeId == "join");
         Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
         Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
         AssertPersistedSequence(runStore, recorded, "completed");
@@ -8366,8 +8366,8 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "mcp-second");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break-left");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right");
-        Assert.DoesNotContain(events, evt =>
-            (evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted) && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress && evt.NodeId == "join");
         Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
         AssertPersistedSequence(runStore, events, "completed");
@@ -8376,7 +8376,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var playback = await RenderPlayback(reopened);
         Assert.Contains("mcp-second · node.completed", playback, StringComparison.Ordinal);
         Assert.Contains("· Break", playback, StringComparison.Ordinal);
-        Assert.Contains("Parallel join join · no event recorded at this position", playback, StringComparison.Ordinal);
+        Assert.Contains("Parallel join join · in progress", playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -8409,6 +8409,7 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == failedNode);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "proof-break-left");
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Equal(mixed, events.Any(evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress && evt.NodeId == "join"));
         Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
         AssertPersistedSequence(runStore, events, "failed");
@@ -8419,7 +8420,8 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains("Iteration 1 · Incomplete &#xB7; run ended", playback, StringComparison.Ordinal);
         Assert.Contains("An MCP call was authorized, but no outcome event was recorded. Its external effect may be unknown.",
             playback, StringComparison.Ordinal);
-        Assert.Contains("Parallel join join · no event recorded at this position", playback, StringComparison.Ordinal);
+        Assert.Contains(mixed ? "Parallel join join · in progress" : "Parallel join join · no event recorded at this position",
+            playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -8462,6 +8464,7 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain && evt.NodeId == failedNode);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "proof-break-left");
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Equal(mixed, events.Any(evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress && evt.NodeId == "join"));
         Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
         AssertPersistedSequence(runStore, events, "outcome-unknown");
@@ -8471,7 +8474,8 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains("Latest run status: outcome-unknown", playback, StringComparison.Ordinal);
         Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
         Assert.Contains("Iteration 1 · Outcome unknown", playback, StringComparison.Ordinal);
-        Assert.Contains("Parallel join join · no event recorded at this position", playback, StringComparison.Ordinal);
+        Assert.Contains(mixed ? "Parallel join join · in progress" : "Parallel join join · no event recorded at this position",
+            playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -8515,6 +8519,7 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == cancelledNode);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "proof-break-left");
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Equal(mixed, events.Any(evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress && evt.NodeId == "join"));
         Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
         AssertPersistedSequence(runStore, events, "cancelled");
@@ -8524,7 +8529,8 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains("Latest run status: cancelled", playback, StringComparison.Ordinal);
         Assert.Contains(ExecutionEventKinds.ToolUncertain, playback, StringComparison.Ordinal);
         Assert.Contains("Iteration 1 · Cancelled", playback, StringComparison.Ordinal);
-        Assert.Contains("Parallel join join · no event recorded at this position", playback, StringComparison.Ordinal);
+        Assert.Contains(mixed ? "Parallel join join · in progress" : "Parallel join join · no event recorded at this position",
+            playback, StringComparison.Ordinal);
     }
 
     [Fact]
