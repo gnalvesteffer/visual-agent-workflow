@@ -65,9 +65,11 @@ Before enabling nested pins in authoring or runtime admission:
    emit `connection.received` events for direct-MCP data wires. Redaction
    happens before observation/persistence and does not change runtime values.
    Focused runner and broker regressions verify the actual argument/result
-   flow. File/SQLite reopen tests preserve redacted broker outcomes, while
-   lifecycle and data-evaluation redaction are checked at the runner callback;
-   rendered playback is not yet directly asserted. This is
+   flow. File/SQLite reopen tests preserve redacted broker outcomes and also
+   execute the configured nested direct-MCP path through each store, reopen
+   the run, and verify that node lifecycle and data-evaluation events contain
+   neither nested secret value and retain their redaction markers. Rendered
+   playback is not yet directly asserted. This is
    not an end-to-end confidentiality guarantee: arbitrary
    downstream nodes and Sequence aggregation events can still record derived
    values; static literals remain in workflow definitions;
@@ -108,14 +110,18 @@ the reconstructed nested object, rejects invalid argument values and changed
 pinned contracts, and enforces a missing node grant. The mapper is internal and
 is not used by descriptor projection, workflow persistence, runtime admission,
 or Studio. Broker evidence for the nested request is checked for redaction, and
-a runner regression confirms configured nested direct-MCP values do not appear
-in node lifecycle or data-evaluation events. That runner test uses the existing
-static JSON argument path; nested field pins themselves remain unadmitted. A
+runner regressions confirm configured nested direct-MCP values do not appear
+in node lifecycle or data-evaluation events, both at the observer callback and
+after File/SQLite persistence and reopen. The persistence regression verifies
+the reopened run snapshot, which is the input to passive playback, but does not
+assert the rendered playback UI. These runner tests use the existing static
+JSON argument path; nested field pins themselves remain unadmitted. A
 separate real stdio fixture advertises a schema with unsupported `format`
 metadata, and the broker rejects it during discovery. This closes the bounded
-broker/schema/grant proof for the tested shape. Persisted-store and
-rendered-playback redaction and compatibility remain unproven; gates 4 and 5
-remain open, so the overall proof and authoring stay gated.
+broker/schema/grant proof for the tested shape. The tested event payloads now
+remain redacted through File/SQLite reopen. Rendered-playback behavior and
+compatibility remain unproven; gates 4 and 5 remain open, so the overall proof
+and authoring stay gated.
 
 The current implementation already supports nested MCP values on JSON pins and
 retains normalized nested schema metadata. It does not yet provide the

@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
+using System.IO;
 using System.Text.Json;
 using VisualAgentWorkflow.AgentFramework;
 using VisualAgentWorkflow.Core;
+using VisualAgentWorkflow.Hosting;
 using Xunit;
 
 namespace VisualAgentWorkflow.AgentFramework.Tests;
@@ -95,6 +97,67 @@ public sealed class DirectMcpExecutionTests
         Assert.NotEmpty(evaluations);
         Assert.All(evaluations, AssertRedacted);
     }
+
+    [Theory]
+    [InlineData("file")]
+    [InlineData("sqlite")]
+    public async Task Configured_nested_direct_mcp_values_remain_redacted_after_store_reopen(string storeKind)
+    {
+        const string privateName = "persisted-private-nested-name";
+        const string privateLabel = "persisted-private-nested-label";
+        var configuredArguments = JsonSerializer.Serialize(new
+        {
+            payload = new { request = new { name = privateName, count = 3 }, labels = new[] { privateLabel } }
+        });
+        var baseline = Definition();
+        var definition = baseline with
+        {
+            Nodes = baseline.Nodes.SetItem("tool", baseline.Nodes["tool"] with
+            {
+                McpArgumentsJson = configuredArguments
+            })
+        };
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-nested-mcp-redaction-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var revision = WorkflowRevision.Create(definition, "nested-mcp-redaction");
+            var storePath = storeKind == "sqlite" ? Path.Combine(directory, "runs.db") : Path.Combine(directory, "runs");
+            IWorkflowRunStore store = CreateStore(storeKind, storePath);
+            var created = store.Create(revision, "{}");
+            var broker = new RecordingBroker();
+
+            var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(created.Header.RunId,
+                revision, "{}", null, evt =>
+                {
+                    store.Append(evt);
+                    return ValueTask.CompletedTask;
+                });
+
+            Assert.False(result.Failed);
+            Assert.Equal(configuredArguments, broker.Input);
+
+            IWorkflowRunStore reopened = CreateStore(storeKind, storePath);
+            var snapshot = Assert.IsType<RunSnapshot>(reopened.Get(created.Header.RunId));
+            Assert.Equal("completed", snapshot.Status);
+            Assert.NotEmpty(snapshot.Events);
+            Assert.DoesNotContain(snapshot.Events, evt => evt.Data?.Contains(privateName, StringComparison.Ordinal) == true);
+            Assert.DoesNotContain(snapshot.Events, evt => evt.Data?.Contains(privateLabel, StringComparison.Ordinal) == true);
+            Assert.All(snapshot.Events.Where(evt =>
+                evt.NodeId == "tool" && evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted), AssertRedacted);
+            var dataEvaluations = snapshot.Events.Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated).ToArray();
+            Assert.NotEmpty(dataEvaluations);
+            Assert.All(dataEvaluations, AssertRedacted);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    private static IWorkflowRunStore CreateStore(string storeKind, string path) => storeKind == "sqlite"
+        ? new SqliteWorkflowRunStore(path)
+        : new FileRunJournal(path);
 
     [Theory]
     [InlineData("1.37")]
