@@ -251,7 +251,8 @@ public sealed class ArrayIterationVawBodyProofTests
             runStore.RunId, revision, input, "index", null, Record,
             arrayElementType: WorkflowDataTypes.Json);
 
-        Assert.False(result.Failed);
+        Assert.False(result.Failed, string.Join(" | ", events.Where(evt => evt.Kind == ExecutionEventKinds.NodeFailed)
+            .Select(evt => $"{evt.NodeId}:{evt.Data}:{evt.ScopeId}")));
         Assert.Equal("[null,{\"seed\":1.00},{\"name\":\"alpha\",\"n\":1.00}];[null,{\"seed\":1.00},[null,true,{\"n\":2.00}]]",
             result.Output);
         AssertPersistedSequence(runStore, events, "completed");
@@ -7304,7 +7305,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 }, itemParameterId: "item");
 
         var events = recorder.Snapshot();
-        Assert.False(result.Failed);
+        Assert.False(result.Failed, string.Join(" | ", events.Where(evt => evt.Kind == ExecutionEventKinds.NodeFailed)
+            .Select(evt => $"{evt.NodeId}:{evt.Data}:{evt.ScopeId}")));
         Assert.False(result.Cancelled);
         Assert.True(result.HasOutput);
         Assert.Equal(8, agents.Inputs.Length);
@@ -12459,12 +12461,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 Assert.Equal(expectedItems[index], ReadVariableValue(activation,
                     ExecutionEventKinds.VariableRead, "get"));
                 Assert.Equal(expectedItems[index], ReadEvaluatedValue(activation, "get"));
-                var agentResult = ReadRuntimeOutput(activation, "agent", "data:agent-tool");
-                using (var agentPayload = JsonDocument.Parse(agentResult))
-                    Assert.Equal(expectedItems[index].ToUpperInvariant() + ":" + index,
-                        agentPayload.RootElement.GetProperty("query").GetString());
-                Assert.Equal("echo:" + expectedItems[index].ToUpperInvariant() + ":" + index,
-                    ReadRuntimeOutput(activation, "tool", "data:tool-output"));
+                AssertRuntimeOutputRedacted(activation, "agent", "data:agent-tool");
+                AssertRuntimeOutputRedacted(activation, "tool", "data:tool-output");
             }
         }
 
@@ -12477,12 +12475,13 @@ public sealed class ArrayIterationVawBodyProofTests
             IEnumerable<ExecutionEvent> events) => events.Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated)
             .Select(evt => (evt.NodeId, evt.ScopeId, evt.ConnectionId, evt.Data)).ToArray();
 
-        static string ReadRuntimeOutput(IEnumerable<ExecutionEvent> events, string nodeId, string connectionId)
+        static void AssertRuntimeOutputRedacted(IEnumerable<ExecutionEvent> events, string nodeId, string connectionId)
         {
             var evt = Assert.Single(events, item => item.Kind == ExecutionEventKinds.DataEvaluated &&
                 item.NodeId == nodeId && item.ConnectionId == connectionId);
             using var payload = JsonDocument.Parse(evt.Data!);
-            return payload.RootElement.GetProperty("value").GetString()!;
+            Assert.Equal("redacted", payload.RootElement.GetProperty("payloadState").GetString());
+            Assert.True(payload.RootElement.GetProperty("valueCharacters").GetInt32() > 0, evt.Data);
         }
     }
 
@@ -25057,6 +25056,222 @@ public sealed class ArrayIterationVawBodyProofTests
         }
 
         public ExecutionEvent[] Snapshot() { lock (gate) return [.. events]; }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyNestedForkJoinRestoresConcurrentOuterLineage(bool sqlite)
+    {
+        var definition = NestedParallelForkGraphDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Inner array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "nested-fork-lineage-fail-first");
+        const string outerItems = "[\"north\",\"south\"]";
+        const string innerItems = "[\"alpha\",\"beta\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+
+        var result = await new WorkflowRunner(agents: new EchoAgentExecutor())
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision, outerItems, innerItems,
+                "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item", allowNestedForksProof: true)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        var events = recorder.Snapshot();
+        Assert.False(result.Failed, string.Join(" | ", events.Where(evt => evt.Kind == ExecutionEventKinds.NodeFailed)
+            .Select(evt => $"{evt.NodeId}:{evt.Data}:{evt.ScopeId}")));
+        Assert.False(result.Cancelled);
+        Assert.True(result.HasOutput);
+        Assert.Equal(8, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId is "inner-join-left" or "inner-join-right"));
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "outer-join"));
+        for (var outerIndex = 0; outerIndex < 2; outerIndex++)
+        for (var innerIndex = 0; innerIndex < 2; innerIndex++)
+        {
+            var scope = $"outer-loop/{outerIndex}/inner-loop/{innerIndex}";
+            var scoped = events.Where(evt => evt.ScopeId == scope).ToArray();
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId is "inner-join-left" or "inner-join-right"));
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "outer-join");
+        }
+        AssertPersistedSequence(runStore, events, "completed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        var playback = await RenderPlayback(reopened);
+        Assert.Equal(4, CountOccurrences(playback, "Parallel join inner-join-left · completed"));
+        Assert.Equal(4, CountOccurrences(playback, "Parallel join inner-join-right · completed"));
+
+        static int CountOccurrences(string text, string value) =>
+            (text.Length - text.Replace(value, string.Empty, StringComparison.Ordinal).Length) / value.Length;
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ProductionBodyNestedForkJoinFailureAndCancellationSettle(bool sqlite, bool cancel)
+    {
+        var definition = NestedParallelForkGraphDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Inner array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "nested-fork-lineage-settlement-proof");
+        const string outerItems = "[\"north\",\"south\"]";
+        const string innerItems = "[\"alpha\",\"beta\"]";
+        using var runStore = new ProofRunStore(revision, outerItems, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new NestedForkSettlementAgentExecutor(cancel);
+        using var cancellation = new CancellationTokenSource();
+        var execution = new WorkflowRunner(agents: agents)
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision, outerItems, innerItems,
+                "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, cancellation.Token, itemParameterId: "item", allowNestedForksProof: true);
+        if (cancel)
+        {
+            await agents.AllInnerBranchesStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            cancellation.Cancel();
+        }
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var events = recorder.Snapshot();
+        Assert.Equal(cancel, result.Cancelled);
+        Assert.Equal(!cancel, result.Failed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId is "inner-join-left" or "inner-join-right" or "outer-join");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "outer-loop/0/inner-loop/1");
+        AssertPersistedSequence(runStore, events, cancel ? "cancelled" : "failed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Contains(cancel ? "Latest run status: cancelled" : "Latest run status: failed",
+            await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
+    private static WorkflowDefinition NestedParallelForkGraphDefinition()
+    {
+        var outerBranches = ImmutableArray.Create(
+            new ParallelBranchDescriptor("left", "Outer left", "outer-anchor-left"),
+            new ParallelBranchDescriptor("right", "Outer right", "outer-anchor-right"));
+        var innerBranchesLeft = ImmutableArray.Create(
+            new ParallelBranchDescriptor("a", "Inner A", "inner-anchor-left-a"),
+            new ParallelBranchDescriptor("b", "Inner B", "inner-anchor-left-b"));
+        var innerBranchesRight = ImmutableArray.Create(
+            new ParallelBranchDescriptor("a", "Inner A", "inner-anchor-right-a"),
+            new ParallelBranchDescriptor("b", "Inner B", "inner-anchor-right-b"));
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("outer-fork", new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(outerBranches) })
+            .Add("outer-anchor-left", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("outer-fork", "left") })
+            .Add("outer-anchor-right", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("outer-fork", "right") })
+            .Add("inner-fork-left", new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(innerBranchesLeft) })
+            .Add("inner-fork-right", new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(innerBranchesRight) })
+            .Add("inner-anchor-left-a", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("inner-fork-left", "a") })
+            .Add("inner-anchor-left-b", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("inner-fork-left", "b") })
+            .Add("inner-anchor-right-a", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("inner-fork-right", "a") })
+            .Add("inner-anchor-right-b", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("inner-fork-right", "b") })
+            .Add("inner-agent-left-a", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.echo-agent", null, "Inner left A", [])))
+            .Add("inner-agent-left-b", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.echo-agent", null, "Inner left B", [])))
+            .Add("inner-agent-right-a", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.echo-agent", null, "Inner right A", [])))
+            .Add("inner-agent-right-b", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.echo-agent", null, "Inner right B", [])))
+            .Add("outer-agent-left", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.echo-agent", null, "Outer left", [])))
+            .Add("outer-agent-right", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.echo-agent", null, "Outer right", [])))
+            .Add("inner-join-left", new(NodeTypes.ParallelJoin, "1.0.0")
+            {
+                ParallelJoin = new("inner-fork-left", ["a", "b"])
+            })
+            .Add("inner-join-right", new(NodeTypes.ParallelJoin, "1.0.0")
+            {
+                ParallelJoin = new("inner-fork-right", ["a", "b"])
+            })
+            .Add("outer-join", new(NodeTypes.ParallelJoin, "1.0.0")
+            {
+                ParallelJoin = new("outer-fork", ["left", "right"])
+            })
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.Json });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-inner-left-a", new(new("input", "out"), new("inner-agent-left-a", "in"), "data"))
+            .Add("input-inner-left-b", new(new("input", "out"), new("inner-agent-left-b", "in"), "data"))
+            .Add("input-inner-right-a", new(new("input", "out"), new("inner-agent-right-a", "in"), "data"))
+            .Add("input-inner-right-b", new(new("input", "out"), new("inner-agent-right-b", "in"), "data"))
+            .Add("inner-left-to-outer-agent", new(new("inner-join-left", "out"), new("outer-agent-left", "in"), "data"))
+            .Add("inner-right-to-outer-agent", new(new("inner-join-right", "out"), new("outer-agent-right", "in"), "data"))
+            .Add("outer-result", new(new("outer-join", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-outer-fork", Edge("input", "then", "outer-fork", "execute"))
+            .Add("outer-left", Edge("outer-fork", ParallelBranchLimits.PinId("left"), "outer-anchor-left", "execute"))
+            .Add("outer-right", Edge("outer-fork", ParallelBranchLimits.PinId("right"), "outer-anchor-right", "execute"))
+            .Add("left-inner-fork", Edge("outer-anchor-left", "then", "inner-fork-left", "execute"))
+            .Add("right-inner-fork", Edge("outer-anchor-right", "then", "inner-fork-right", "execute"))
+            .Add("inner-left-a", Edge("inner-fork-left", ParallelBranchLimits.PinId("a"), "inner-anchor-left-a", "execute"))
+            .Add("inner-left-b", Edge("inner-fork-left", ParallelBranchLimits.PinId("b"), "inner-anchor-left-b", "execute"))
+            .Add("inner-right-a", Edge("inner-fork-right", ParallelBranchLimits.PinId("a"), "inner-anchor-right-a", "execute"))
+            .Add("inner-right-b", Edge("inner-fork-right", ParallelBranchLimits.PinId("b"), "inner-anchor-right-b", "execute"))
+            .Add("inner-left-a-agent", Edge("inner-anchor-left-a", "then", "inner-agent-left-a", "execute"))
+            .Add("inner-left-b-agent", Edge("inner-anchor-left-b", "then", "inner-agent-left-b", "execute"))
+            .Add("inner-right-a-agent", Edge("inner-anchor-right-a", "then", "inner-agent-right-a", "execute"))
+            .Add("inner-right-b-agent", Edge("inner-anchor-right-b", "then", "inner-agent-right-b", "execute"))
+            .Add("inner-left-join-a", Edge("inner-agent-left-a", "out", "inner-join-left", "branch.a"))
+            .Add("inner-left-join-b", Edge("inner-agent-left-b", "out", "inner-join-left", "branch.b"))
+            .Add("inner-right-join-a", Edge("inner-agent-right-a", "out", "inner-join-right", "branch.a"))
+            .Add("inner-right-join-b", Edge("inner-agent-right-b", "out", "inner-join-right", "branch.b"))
+            .Add("inner-left-to-outer-agent", Edge("inner-join-left", "then", "outer-agent-left", "execute"))
+            .Add("inner-right-to-outer-agent", Edge("inner-join-right", "then", "outer-agent-right", "execute"))
+            .Add("outer-left-agent", Edge("outer-agent-left", "out", "outer-join", "branch.left"))
+            .Add("outer-right-join", Edge("outer-agent-right", "out", "outer-join", "branch.right"))
+            .Add("outer-join-output", Edge("outer-join", "then", "output", "execute"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "nested-parallel-fork-proof", "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private sealed class NestedForkSettlementAgentExecutor(bool blockAll) : IAgentNodeExecutor
+    {
+        private readonly ConcurrentDictionary<string, byte> startedNodes = new(StringComparer.Ordinal);
+        private readonly TaskCompletionSource siblingSucceeded =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource AllInnerBranchesStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.nested-fork", "Nested fork proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (blockAll)
+            {
+                startedNodes.TryAdd(invocation.NodeId, 0);
+                if (startedNodes.Count >= 4) AllInnerBranchesStarted.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("A cancelled nested fork Agent unexpectedly resumed.");
+            }
+
+            if (invocation.NodeId == "inner-agent-left-a")
+            {
+                await siblingSucceeded.Task.WaitAsync(cancellationToken);
+                throw new InvalidOperationException("The nested fork branch failed after its sibling completed.");
+            }
+            if (invocation.NodeId == "inner-agent-left-b") siblingSucceeded.TrySetResult();
+            return JsonSerializer.Serialize(new { query = $"{input}-{invocation.NodeId}" });
+        }
     }
 
     private sealed class ParallelActivationBarrier

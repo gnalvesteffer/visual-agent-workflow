@@ -1014,7 +1014,8 @@ public sealed partial class WorkflowRunner
         StructuredActivationRunBudget? runBudget = null,
         IReadOnlySet<string>? proofBreakNodeIds = null,
         SequenceProductionPlan? sequencePlan = null,
-        int maximumConcurrentSequenceOutputs = 1)
+        int maximumConcurrentSequenceOutputs = 1,
+        bool allowNestedForksProof = false)
     {
         ArgumentNullException.ThrowIfNull(bodyRevision);
         ArgumentNullException.ThrowIfNull(outerItemsJson);
@@ -1092,7 +1093,8 @@ public sealed partial class WorkflowRunner
                         evt => Emit(evt.Kind, evt.NodeId, evt.InvocationId,
                             evt.ScopeId ?? innerFrame.ScopeId, evt.Data, evt.ConnectionId), cancellationToken,
                         activationFrame: innerFrame, proofBreakNodeIds: proofBreakNodeIds,
-                        sequencePlan: sequencePlan, sequenceDispatchSession: sequenceDispatchSession);
+                        sequencePlan: sequencePlan, sequenceDispatchSession: sequenceDispatchSession,
+                        allowNestedForksProof: allowNestedForksProof);
 
                     switch (bodyOutcome.Disposition)
                     {

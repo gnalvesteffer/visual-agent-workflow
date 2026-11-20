@@ -95,7 +95,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Action<StructuredActivationBreakRequest>? onBreakRequested = null,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
         SequenceProductionPlan? sequencePlan = null,
-        SequenceProductionDispatchSession? sequenceDispatchSession = null)
+        SequenceProductionDispatchSession? sequenceDispatchSession = null,
+        bool allowNestedForksProof = false)
     {
         ArgumentNullException.ThrowIfNull(record);
         string? terminalNodeId = null;
@@ -128,9 +129,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         if (proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node => node.Type == NodeTypes.Sequence) &&
             sequenceDispatchSession is null)
             throw new NotSupportedException("The production Break proof does not yet cover Sequence settlement.");
-        if (proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node => node.Type == NodeTypes.ParallelFork))
+        if (!allowNestedForksProof && proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node => node.Type == NodeTypes.ParallelFork))
             ValidateStaticForkBreakProofTopology(revision.Definition, proofBreakNodeIds);
-        if (proofBreakNodeIds.Count > 0 && sequencePlan is null)
+        if (!allowNestedForksProof && proofBreakNodeIds.Count > 0 && sequencePlan is null)
             WorkflowValidator.ThrowIfInvalid(ValidationProjection(revision.Definition));
 
         async ValueTask RecordBodyEvent(ExecutionEvent evt)
@@ -161,7 +162,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         {
             var result = await ExecuteCoreAsync(runId, revision, input, parameters, RecordBodyEvent, gate,
                 cancellationToken, sequencePlan: sequencePlan, allowOutcomeUnknown: true,
-                skipValidationForInternalProof: proofBreakNodeIds.Count > 0, emitRunLifecycle: false,
+                skipValidationForInternalProof: proofBreakNodeIds.Count > 0 || allowNestedForksProof, emitRunLifecycle: false,
                 afterNodeStarted: afterNodeStarted,
                 activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds,
                 sequenceDispatchSession: sequenceDispatchSession,
@@ -568,12 +569,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         WorkflowApprovalPermit? Approval = null, string DataType = "string", int LoopIteration = 0,
         bool TerminationSignal = false, bool FailureSignal = false,
         Guid? ParallelActivationId = null, string? ParallelBranchId = null, string? ParallelForkNodeId = null,
+        ImmutableDictionary<string, ParallelForkLineageEntry>? ParallelForkLineage = null,
         string? CollaborationTargetBranchId = null, bool CollaborationTransition = false,
         SequenceMessageLineage? SequenceLineage = null, bool HasValue = true,
         StructuredActivationFrame? ActivationFrame = null,
         ParallelCollaborationRuntime? CollaborationRuntime = null,
         StructuredActivationBreakRequest? ActivationBreakRequest = null,
         SequenceAggregateCompletionSignal? SequenceAggregateCompletion = null);
+
+    private sealed record ParallelForkLineageEntry(string ForkNodeId, Guid? ActivationId, string? BranchId,
+        string? ParentForkNodeId, Guid? ParentActivationId, string? ParentBranchId);
 
     internal sealed class ActivationAbortScope
     {
@@ -1835,12 +1840,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     ParallelActivationId: received.ParallelActivationId,
                     ParallelBranchId: received.ParallelBranchId,
                     ParallelForkNodeId: received.ParallelForkNodeId,
+                    ParallelForkLineage: received.ParallelForkLineage,
                     CollaborationRuntime: received.CollaborationRuntime);
             var internalTerminationHandoff = node.Type == NodeTypes.Output && received.TerminationSignal;
             if (gate is not null && !internalTerminationHandoff) await gate.WaitForBoundaryAsync(Id, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             var message = received.Text;
-            var joinActivation = node.Type == NodeTypes.ParallelJoin ? GetParallelJoinActivation(received) : null;
+            var joinActivation = node.Type == NodeTypes.ParallelJoin
+                ? GetParallelJoinActivation(received, node.ParallelJoin?.ForkNodeId)
+                : null;
             var invocation = node.Type == NodeTypes.ParallelJoin &&
                 UsesConfigurableParallelGraph && received.ParallelActivationId is { } activation
                 ? activation
@@ -1921,15 +1929,23 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         data: configurable ? $"Waiting for {expectedCount} parallel branch results." : "Waiting for both parallel branch results.");
                     await Emit(ExecutionEventKinds.ParallelJoinProgress, Id, invocation, data: progress);
                     if (!complete) return new("", Id, "parallel.pending", DataType: "json",
-                        ActivationFrame: received.ActivationFrame);
+                        ActivationFrame: received.ActivationFrame,
+                        ParallelActivationId: received.ParallelActivationId,
+                        ParallelBranchId: received.ParallelBranchId,
+                        ParallelForkNodeId: received.ParallelForkNodeId,
+                        ParallelForkLineage: received.ParallelForkLineage);
                     if (configurable)
                     {
                         using var document = JsonDocument.Parse(result!);
                         dataEvaluator!.SetRuntimeOutput(Id, "out", "json", document.RootElement.Clone());
                     }
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
+                    var joinedContext = RestoreParentForkContext(received, node.ParallelJoin?.ForkNodeId);
                     return new(result!, Id, configurable ? "then" : "out", DataType: "json",
-                        ParallelActivationId: received.ParallelActivationId, ParallelForkNodeId: received.ParallelForkNodeId,
+                        ParallelActivationId: joinedContext.ActivationId,
+                        ParallelBranchId: joinedContext.BranchId,
+                        ParallelForkNodeId: joinedContext.ForkNodeId,
+                        ParallelForkLineage: joinedContext.Lineage,
                         SequenceLineage: received.SequenceLineage,
                         ActivationFrame: received.ActivationFrame);
                 }
@@ -2378,9 +2394,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     {
                         var branchId = configurable && edge.Source.PortId.StartsWith("branch.", StringComparison.Ordinal)
                             ? edge.Source.PortId["branch.".Length..] : null;
+                        var forkLineage = configurable
+                            ? AddForkContext(received, Id, activationId, branchId)
+                            : received.ParallelForkLineage;
                         await dispatch(new GraphMessage(result, Id, edge.Source.PortId, DataType: "string",
                             ParallelActivationId: activationId, ParallelBranchId: branchId,
                             ParallelForkNodeId: configurable ? Id : null,
+                            ParallelForkLineage: forkLineage,
                             SequenceLineage: received.SequenceLineage,
                             ActivationFrame: received.ActivationFrame,
                             CollaborationRuntime: received.CollaborationRuntime), edge.Target.NodeId, cancellationToken);
@@ -2402,6 +2422,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 boundaryTracker?.PublishTransition(Id, port, next?.Target.NodeId, next?.Target.PortId, nextLoopIteration);
                 return new(result, internalTerminationHandoff ? received.SourceNode : Id, terminated ? "terminated" : port, permit, outputType, nextLoopIteration,
                     terminated, failureSignal, received.ParallelActivationId, received.ParallelBranchId, received.ParallelForkNodeId,
+                    ParallelForkLineage: received.ParallelForkLineage,
                     SequenceLineage: received.SequenceLineage, HasValue: resultAvailable,
                     ActivationFrame: received.ActivationFrame,
                     CollaborationRuntime: received.CollaborationRuntime);
@@ -2466,10 +2487,56 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 sourceNode.Type == NodeTypes.ParallelBranch;
         }
 
-        private ParallelJoinActivationState GetParallelJoinActivation(GraphMessage message) =>
-            parallelJoinActivations.GetOrAdd(
-                new ParallelJoinActivationKey(message.ActivationFrame?.Id, message.ParallelActivationId),
+        private ParallelJoinActivationState GetParallelJoinActivation(GraphMessage message, string? forkNodeId)
+        {
+            var activationId = forkNodeId is not null && message.ParallelForkLineage is { } lineage &&
+                lineage.TryGetValue(forkNodeId, out var context)
+                    ? context.ActivationId
+                    : message.ParallelActivationId;
+            return parallelJoinActivations.GetOrAdd(
+                new ParallelJoinActivationKey(message.ActivationFrame?.Id, activationId),
                 static key => new ParallelJoinActivationState(key.FrameId, key.ForkActivationId));
+        }
+
+        private static ImmutableDictionary<string, ParallelForkLineageEntry> AddForkContext(
+            GraphMessage message, string forkNodeId, Guid? activationId, string? branchId)
+        {
+            var lineage = message.ParallelForkLineage ?? ImmutableDictionary<string, ParallelForkLineageEntry>.Empty
+                .WithComparers(StringComparer.Ordinal);
+            if (lineage.ContainsKey(forkNodeId))
+                throw new InvalidOperationException($"Fork {forkNodeId} is already active in this message lineage.");
+
+            ParallelForkLineageEntry? parent = null;
+            if (message.ParallelForkNodeId is { } parentForkId && lineage.TryGetValue(parentForkId, out var foundParent))
+            {
+                if (foundParent.ActivationId != message.ParallelActivationId || foundParent.BranchId != message.ParallelBranchId)
+                    throw new InvalidOperationException("The active parallel fork context does not match its lineage entry.");
+                parent = foundParent;
+            }
+            else if (message.ParallelForkNodeId is not null)
+                throw new InvalidOperationException("A nested fork is missing its parent activation lineage.");
+
+            return lineage.Add(forkNodeId, new(forkNodeId, activationId, branchId,
+                parent?.ForkNodeId, parent?.ActivationId, parent?.BranchId));
+        }
+
+        private static (Guid? ActivationId, string? BranchId, string? ForkNodeId,
+            ImmutableDictionary<string, ParallelForkLineageEntry>? Lineage) RestoreParentForkContext(
+            GraphMessage message, string? forkNodeId)
+        {
+            if (forkNodeId is null || message.ParallelForkLineage is not { } lineage ||
+                !lineage.TryGetValue(forkNodeId, out var joined))
+                return (message.ParallelActivationId, message.ParallelBranchId, message.ParallelForkNodeId,
+                    message.ParallelForkLineage);
+
+            var remaining = lineage.Remove(forkNodeId);
+            if (joined.ParentForkNodeId is not { } parentForkId)
+                return (null, null, null, remaining);
+            if (!remaining.TryGetValue(parentForkId, out var parent) ||
+                parent.ActivationId != joined.ParentActivationId || parent.BranchId != joined.ParentBranchId)
+                throw new InvalidOperationException("A parallel join cannot restore a missing or mismatched parent fork context.");
+            return (parent.ActivationId, parent.BranchId, parent.ForkNodeId, remaining);
+        }
 
         private static Guid ParallelJoinInvocation(ParallelJoinActivationState activation)
         {
@@ -2595,13 +2662,26 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var fork = revision.Definition.Nodes[configuration.ForkNodeId];
             var expectedBranches = configuration.BranchIds.ToHashSet(StringComparer.Ordinal);
             var branchId = inputPort.StartsWith("branch.", StringComparison.Ordinal) ? inputPort["branch.".Length..] : "";
-            if (message.ParallelActivationId is not { } activationId || message.ParallelForkNodeId != configuration.ForkNodeId ||
-                message.ParallelBranchId != branchId || !expectedBranches.Contains(branchId) || fork.Type != NodeTypes.ParallelFork)
+            var forkContext = message.ParallelForkLineage is { } lineage &&
+                lineage.TryGetValue(configuration.ForkNodeId, out var foundContext)
+                    ? foundContext
+                    : null;
+            var activationId = forkContext?.ActivationId ?? message.ParallelActivationId;
+            var observedForkNodeId = forkContext?.ForkNodeId ?? message.ParallelForkNodeId;
+            var observedBranchId = forkContext?.BranchId ?? message.ParallelBranchId;
+            if (activationId is null || observedForkNodeId != configuration.ForkNodeId ||
+                observedBranchId != branchId || !expectedBranches.Contains(branchId) || fork.Type != NodeTypes.ParallelFork)
                 throw new InvalidOperationException("The parallel join received a result from an unexpected fork or branch.");
+            if (forkContext is { ParentForkNodeId: { } parentForkId } &&
+                (message.ParallelForkLineage is not { } parentLineage ||
+                 !parentLineage.TryGetValue(parentForkId, out var parentContext) ||
+                 parentContext.ActivationId != forkContext.ParentActivationId ||
+                 parentContext.BranchId != forkContext.ParentBranchId))
+                throw new InvalidOperationException("The parallel join received a result outside its expected parent fork activation.");
 
             lock (activation.Sync)
             {
-                if (activation.Key.ForkActivationId is { } expectedActivation && expectedActivation != activationId)
+                if (activation.Key.ForkActivationId is { } expectedActivation && expectedActivation != activationId.Value)
                     throw new InvalidOperationException("A parallel join cannot combine results from different fork activations.");
                 if (!activation.Inputs.TryAdd(branchId, message.Text))
                     throw new InvalidOperationException("The parallel join received a duplicate branch result.");

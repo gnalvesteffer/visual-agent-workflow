@@ -429,8 +429,19 @@ introduced.
   Framework Fork/Join independently for each inner typed-array activation
   across two outer frames (2/2 file/SQLite cases). All four joins, eight Agent
   completions, nested iteration settlements, and passive playback survive
-  reopen. This covers Fork/Join as an inner-activation body composition; it
-  does not prove a Fork nested inside another Fork or public iterator support.
+  reopen. This covers Fork/Join as an inner-activation body composition. A
+  separate private proof now nests distinct inner Fork/Join regions inside the
+  two branches of an outer Fork, carries activation and parent-branch lineage
+  through each inner join, and restores the outer context before its join.
+  Success, inner-branch failure, and host cancellation pass against file and
+  SQLite stores with playback (6 focused cases). The nested graph is admitted
+  only by proof scaffolding that bypasses public validation; Core validation
+  still rejects nested forks, so this is runtime evidence only and does not
+  establish public iterator or nested-fork support. Shared inner-fork identity
+  across outer branches, broader composition, and the full iterator gate remain
+  open. The complete Agent Framework suite passed 1,012/1,012 tests on rerun;
+  one reservation-count assertion failed in the preceding full run, then passed
+  in isolation and in the repeat run.
   The same composition now covers branch failure after its sibling succeeds
   and host cancellation while both branches are active (4/4 file/SQLite cases).
   Failure suppresses the join and later inner/outer activations; cancellation

@@ -4527,3 +4527,28 @@ Break terminal is emitted, and both stores reopen with matching playback (4
 cases). This completes the single-stream failure/unknown/cancellation
 precedence cases after accepted Break; cross-frame races and broader concurrent
 drain remain open.
+
+## Private nested-Fork lineage proof
+
+The private production-body proof now exercises an outer two-branch Fork whose
+branches each contain a distinct inner two-branch Fork/Join. The inner joins
+complete concurrently under their respective outer branches, then relay Agent
+nodes carry their results to the outer Join. Runtime messages now retain an
+immutable, fork-keyed lineage entry for the active fork and its parent
+activation/branch. Join arrivals resolve against the configured fork identity,
+validate their parent lineage, and remove only the joined fork context before
+resuming the parent branch. This prevents one inner join from clearing or
+relabeling its sibling outer branch's context.
+
+The proof passes success, one inner branch failing after its sibling succeeds,
+and host cancellation while all inner Agents are active against file and SQLite
+stores; playback verifies the persisted result in all six cases. A targeted
+suite also confirms MCP-adjacent data evidence remains redacted. The fixture
+uses distinct inner Fork node identities. It does not qualify reuse of one
+static inner Fork concurrently under multiple parent branches, arbitrary
+barrier-to-barrier routes, or public validation/admission. The proof-only entry
+point bypasses public graph validation for this invalid nested topology; the
+public validator remains unchanged and continues to reject nested Forks. This
+evidence therefore narrows runtime uncertainty but does not declare nested
+Forks or iterator composition supported, nor does it select the public runtime
+architecture.
