@@ -110,10 +110,12 @@ is not used by descriptor projection, workflow persistence, runtime admission,
 or Studio. Broker evidence for the nested request is checked for redaction, and
 a runner regression confirms configured nested direct-MCP values do not appear
 in node lifecycle or data-evaluation events. That runner test uses the existing
-static JSON argument path; nested field pins themselves remain unadmitted.
-Rejecting an unsupported live schema through the broker, persisted-store and
-rendered-playback redaction, and compatibility remain unproven; none of the gates
-below are considered complete.
+static JSON argument path; nested field pins themselves remain unadmitted. A
+separate real stdio fixture advertises a schema with unsupported `format`
+metadata, and the broker rejects it during discovery. This closes the bounded
+broker/schema/grant proof for the tested shape. Persisted-store and
+rendered-playback redaction and compatibility remain unproven; gates 4 and 5
+remain open, so the overall proof and authoring stay gated.
 
 The current implementation already supports nested MCP values on JSON pins and
 retains normalized nested schema metadata. It does not yet provide the

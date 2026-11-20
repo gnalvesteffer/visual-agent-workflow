@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using ModelContextProtocol.Client;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
 using Xunit;
@@ -22,6 +23,34 @@ public class BrokerTests
         var studio = Path.Combine(root.FullName, "src", "VisualAgentWorkflow.Studio", "bin", configuration, "net10.0", "VisualAgentWorkflow.Studio.dll");
         var runtimeRoot = Directory.GetParent(RuntimeEnvironment.GetRuntimeDirectory().TrimEnd(Path.DirectorySeparatorChar))!.Parent!.Parent!.FullName;
         return DemoMcpServer.Registrations(Path.Combine(runtimeRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet"), [studio, "--mcp-demo-server"]);
+    }
+
+    private static McpToolRegistration InvalidSchemaFixtureRegistration()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "VisualAgentWorkflow.slnx"))) root = root.Parent;
+        if (root is null) throw new InvalidOperationException("Cannot locate the solution root.");
+        var configuration = Directory.GetParent(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar))!.Name;
+        var fixture = Path.Combine(root.FullName, "tests", "InvalidSchemaMcpFixture", "bin", configuration,
+            "net10.0", "InvalidSchemaMcpFixture.dll");
+        var runtimeRoot = Directory.GetParent(RuntimeEnvironment.GetRuntimeDirectory().TrimEnd(Path.DirectorySeparatorChar))!.Parent!.Parent!.FullName;
+        var dotnet = Path.Combine(runtimeRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+
+        async Task<McpClient> Connect(CancellationToken cancellationToken)
+        {
+            var transport = new StdioClientTransport(new()
+            {
+                Name = "Invalid schema fixture",
+                Command = dotnet,
+                Arguments = [fixture],
+                InheritEnvironmentVariables = false,
+                EnvironmentVariables = new Dictionary<string, string?> { ["DOTNET_ROOT"] = runtimeRoot }
+            });
+            return await McpClient.CreateAsync(transport,
+                new McpClientOptions { ProtocolVersion = "2025-11-25" }, cancellationToken: cancellationToken);
+        }
+
+        return new("proof.invalid-schema", "Proof · invalid schema", "proof-fixture", "invalid_schema", Connect, ReadOnly: true);
     }
 
     private static WorkflowRevision Revision(ToolBindingDescriptor binding)
@@ -120,6 +149,17 @@ public class BrokerTests
         await using var deniedScope = restrictedBroker.OpenScope(Invocation(Revision(binding), []));
         await Assert.ThrowsAsync<ToolAccessDeniedException>(() =>
             deniedScope.InvokeJsonAsync(binding.BindingId, arguments));
+    }
+
+    [Fact]
+    public async Task BrokerRejectsUnsupportedSchemaAdvertisedByLiveStdioServer()
+    {
+        var registration = InvalidSchemaFixtureRegistration();
+        var broker = new McpToolBroker([registration], new DemoToolPolicy(), TimeSpan.FromSeconds(10));
+
+        var failure = await Assert.ThrowsAsync<ToolInvocationException>(() => broker.ListBindingsAsync());
+
+        Assert.Contains("Unsupported JSON Schema keyword 'format'", failure.Message, StringComparison.Ordinal);
     }
 
     [Fact]

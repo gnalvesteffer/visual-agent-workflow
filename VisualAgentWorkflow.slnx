@@ -15,6 +15,7 @@
     <Project Path="src/VisualAgentWorkflow.Studio/VisualAgentWorkflow.Studio.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/InvalidSchemaMcpFixture/InvalidSchemaMcpFixture.csproj" />
     <Project Path="tests/VisualAgentWorkflow.AgentFramework.Tests/VisualAgentWorkflow.AgentFramework.Tests.csproj" />
     <Project Path="tests/VisualAgentWorkflow.Core.Tests/VisualAgentWorkflow.Core.Tests.csproj" />
     <Project Path="tests/VisualAgentWorkflow.Hosting.Tests/VisualAgentWorkflow.Hosting.Tests.csproj" />

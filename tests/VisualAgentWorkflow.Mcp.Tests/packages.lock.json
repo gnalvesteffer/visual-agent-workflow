@@ -303,6 +303,9 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
+      "invalidschemamcpfixture": {
+        "type": "Project"
+      },
       "visualagentworkflow.agentframework": {
         "type": "Project",
         "dependencies": {
