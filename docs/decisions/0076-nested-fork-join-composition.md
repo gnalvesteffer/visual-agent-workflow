@@ -251,18 +251,20 @@ the parent delivery lineage, and child events pass through the root event
 sequencer with one nested call scope. Focused regressions cover a passthrough
 child, a child Fork/Join, rejection of a second call depth, and shared delivery
 capacity (4/4). A deterministic File/SQLite test now reopens and passively
-renders a successful call-bearing child Fork/Join history (2/2), including
-reconstruction of the completed call and child Join event scope. The earlier
+renders successful, failed, and cancelled call-bearing child Fork/Join histories
+(6/6), including reconstruction of each call disposition and the completed
+child Join event scope on success. Child failure suppresses the parent Output;
+host cancellation settles the child call as cancelled. The earlier
 duplicate-injection proof also admits the extra delivery before either branch
 starts; the shared ledger holds Join release until that admitted delivery
 settles, and the persisted duplicate outcome has no Join completion or Output
 dispatch. These close only proof-scheduler success-history persistence and the
-bounded admitted-duplicate case. This remains proof-only and does not change
-public execution or resolve the production scheduler race.
+failure/cancellation history persistence and bounded admitted-duplicate case.
+This remains proof-only and does not change public execution or resolve the
+production scheduler race.
 It does not yet qualify parent-fork call composition, `WorkflowInterfaceCall`,
-recursive or arbitrary-depth calls, child failure/cancellation/evidence-write
-cleanup beyond the depth-bound failure case, approval or MCP interactions,
-loops, or failure/cancellation call-history persistence. Those boundaries must
-be proven before treating nested calls as a general scheduler capability.
+recursive or arbitrary-depth calls, evidence-write cleanup, approval or MCP
+interactions, or loops. Those boundaries must be proven before treating nested
+calls as a general scheduler capability.
 Architecture and user-guide pages are unchanged because this increment adds
 test-only evidence and makes no user-visible or production runtime change.

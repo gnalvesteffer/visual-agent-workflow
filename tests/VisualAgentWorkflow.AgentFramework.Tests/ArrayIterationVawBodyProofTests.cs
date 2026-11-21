@@ -17016,6 +17016,58 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains("Latest run status: completed", await RenderPlayback(reopened), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task StructuredSchedulerProof_PersistsAndReplaysPinnedChildForkJoinFailureAndCancellation(
+        bool sqlite, bool cancel)
+    {
+        var childDefinition = ParallelBodyDefinition() with
+        {
+            WorkflowId = "structured-proof-call-terminal-child"
+        };
+        WorkflowValidator.ThrowIfInvalid(childDefinition);
+        var child = WorkflowRevision.Create(childDefinition, "structured-proof-call-terminal-child");
+        var parent = CreateWorkflowCallRevision("structured-proof-call-terminal-parent", child);
+        using var runStore = new ProofRunStore(parent, "north", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var heldAgent = cancel ? new HeldRightBranchAgentExecutor() : null;
+        IAgentNodeExecutor agents = cancel
+            ? heldAgent!
+            : new EchoAgentExecutor(failNodeId: "agent-left");
+        using var cancellation = new CancellationTokenSource();
+
+        var execution = new WorkflowRunner(agents: agents).ExecuteStructuredSchedulerProofAsync(
+            runStore.RunId, parent, "north", null,
+            evt => { recorder.Append(evt); return ValueTask.CompletedTask; },
+            cancellationToken: cancellation.Token,
+            proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal));
+        if (cancel)
+        {
+            await heldAgent!.RightBranchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+        }
+
+        var failure = await Record.ExceptionAsync(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.NotNull(failure);
+        Assert.Equal(cancel, failure is OperationCanceledException);
+        var expectedState = cancel ? "cancelled" : "failed";
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, expectedState);
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(reopened.Events, out var calls));
+        Assert.NotNull(calls);
+        Assert.Equal(expectedState, Assert.Single(calls.Calls).State);
+        Assert.DoesNotContain(reopened.Events, evt => evt.NodeId == "output" &&
+            evt.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.Contains($"Latest run status: {expectedState}", await RenderPlayback(reopened),
+            StringComparison.Ordinal);
+    }
+
     private static WorkflowRevision CreatePassthroughRevision(string workflowId)
     {
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input",
