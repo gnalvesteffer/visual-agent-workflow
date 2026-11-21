@@ -102,10 +102,13 @@ required, closed object segments. Other static fields, including bounded arrays,
 remain intact. Property segments use RFC 6901 escaping and nested pin IDs derive
 from the exact case-sensitive pointer using SHA-256. Focused MCP tests cover
 delimiter escaping, literal-dot distinction, rename/case identity changes,
-property reordering, requiredness, bounds, and rejection of open or multiple
-nested objects. An internal reconstruction proof combines connected scalar
+property reordering, requiredness, bounds, rejection of open or multiple
+nested objects, and collisions against top-level argument IDs. Mixed nested
+objects can expose supported scalar leaves while array and object siblings stay
+in static JSON. An internal reconstruction proof combines connected scalar
 leaves with static JSON, gives connected leaves precedence while preserving
-sibling values, and validates the complete result against the MCP input schema.
+complex siblings, does not apply schema defaults, and validates the complete
+result against the MCP input schema.
 Invalid types, bounds, missing required values, and unknown pin IDs fail with a
 generic diagnostic that does not echo values. A real stdio broker test dispatches
 the reconstructed nested object, rejects invalid argument values and changed

@@ -89,6 +89,68 @@ public sealed class McpNestedArgumentPathTests
     }
 
     [Fact]
+    public void TryCreatePins_LeavesComplexNestedSiblingsAsStaticJson()
+    {
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","additionalProperties":false,"properties":{"request":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"limit":{"type":"integer","default":7},"tags":{"type":"array","items":{"type":"string"},"maxItems":4},"metadata":{"type":"object","additionalProperties":false,"properties":{"source":{"type":"string"}}}},"required":["name"]}},"required":["request"]}
+            """);
+
+        var mapped = McpNestedArgumentPath.TryCreatePins(McpToolInputSchemas.Describe(schema.RootElement), out var pins);
+
+        Assert.True(mapped);
+        Assert.Collection(pins,
+            pin =>
+            {
+                Assert.Equal("/request/limit", pin.Path);
+                Assert.False(pin.Required);
+            },
+            pin =>
+            {
+                Assert.Equal("/request/name", pin.Path);
+                Assert.True(pin.Required);
+            });
+    }
+
+    [Fact]
+    public void TryReconstructArguments_PreservesComplexSiblingsAndDoesNotApplySchemaDefaults()
+    {
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","additionalProperties":false,"properties":{"request":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"limit":{"type":"integer","default":7},"tags":{"type":"array","items":{"type":"string"},"maxItems":4},"metadata":{"type":"object","additionalProperties":false,"properties":{"source":{"type":"string"}}}},"required":["name"]}},"required":["request"]}
+            """);
+        using var staticArguments = JsonDocument.Parse("""
+            {"request":{"name":"static","tags":["blue","green"],"metadata":{"source":"caller"}}}
+            """);
+        using var connectedValue = JsonDocument.Parse("\"connected\"");
+
+        var reconstructed = McpNestedArgumentPath.TryReconstructArguments(schema.RootElement, staticArguments.RootElement,
+            new Dictionary<string, JsonElement>
+            {
+                [McpNestedArgumentPath.ToPinId(["request", "name"])] = connectedValue.RootElement
+            }, out var arguments, out var diagnostic);
+
+        Assert.True(reconstructed);
+        Assert.Empty(diagnostic);
+        Assert.Equal("connected", arguments.GetProperty("request").GetProperty("name").GetString());
+        Assert.Equal(new[] { "blue", "green" }, arguments.GetProperty("request").GetProperty("tags")
+            .EnumerateArray().Select(value => value.GetString()));
+        Assert.Equal("caller", arguments.GetProperty("request").GetProperty("metadata").GetProperty("source").GetString());
+        Assert.False(arguments.GetProperty("request").TryGetProperty("limit", out _));
+    }
+
+    [Fact]
+    public void TryCreatePins_RejectsNestedIdentityCollisionWithTopLevelArgument()
+    {
+        var nestedPinId = McpNestedArgumentPath.ToPinId(["request", "name"]);
+        var collidingTopLevelName = nestedPinId["arg.".Length..];
+        using var schema = JsonDocument.Parse($$$"""
+            {"type":"object","additionalProperties":false,"properties":{"request":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"}},"required":["name"]},"{{{collidingTopLevelName}}}":{"type":"string"}},"required":["request"]}
+            """);
+
+        Assert.False(McpNestedArgumentPath.TryCreatePins(McpToolInputSchemas.Describe(schema.RootElement), out var pins));
+        Assert.Empty(pins);
+    }
+
+    [Fact]
     public void TryReconstructArguments_ConnectedLeafOverridesStaticLeafAndPreservesSiblings()
     {
         using var schema = JsonDocument.Parse("""

@@ -31,12 +31,11 @@ internal static class McpNestedArgumentPath
         if (candidateObjects.Count != 1) return false;
 
         var (nestedObject, objectPath) = candidateObjects[0];
-        var candidates = ImmutableArray.CreateBuilder<McpNestedArgumentPinProof>(nestedObject.Properties.Length);
-        foreach (var field in nestedObject.Properties)
+        var scalarFields = nestedObject.Properties.Where(property =>
+            property.JsonType is "string" or "integer" or "number" or "boolean").ToArray();
+        var candidates = ImmutableArray.CreateBuilder<McpNestedArgumentPinProof>(scalarFields.Length);
+        foreach (var field in scalarFields)
         {
-            if (field.JsonType is not ("string" or "integer" or "number" or "boolean"))
-                return false;
-
             var segments = objectPath.Add(field.Name);
             candidates.Add(new(ToPointer(segments), ToPinId(segments), field.Name,
                 field.JsonType, field.Required, field.Bounds, segments));
@@ -44,7 +43,9 @@ internal static class McpNestedArgumentPath
 
         var ordered = candidates.OrderBy(pin => pin.Path, StringComparer.Ordinal).ToImmutableArray();
         if (ordered.Select(pin => pin.Path).Distinct(StringComparer.Ordinal).Count() != ordered.Length ||
-            ordered.Select(pin => pin.Id).Distinct(StringComparer.Ordinal).Count() != ordered.Length)
+            ordered.Select(pin => pin.Id).Distinct(StringComparer.Ordinal).Count() != ordered.Length ||
+            ordered.Any(pin => descriptor.Root.Properties.Any(property =>
+                string.Equals($"arg.{property.Name}", pin.Id, StringComparison.Ordinal))))
             return false;
 
         pins = ordered;
@@ -60,7 +61,7 @@ internal static class McpNestedArgumentPath
             var path = parentPath.Add(field.Name);
             if (path.Length > MaximumObjectPathDepth) continue;
 
-            if (!field.Properties.IsDefaultOrEmpty && field.Properties.All(property =>
+            if (!field.Properties.IsDefaultOrEmpty && field.Properties.Any(property =>
                     property.JsonType is "string" or "integer" or "number" or "boolean"))
             {
                 candidates.Add((field, path));
