@@ -16,6 +16,10 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
     private bool terminal;
     private bool disposed;
     private bool cancellationRequested;
+    private readonly HashSet<string> breakpoints = new(StringComparer.Ordinal);
+    private string? skipBreakpointOnce;
+    private bool stepNextNode;
+    private bool pauseAfterSteppedNode;
     private long sequence;
     private WorkflowApprovalRequest? pendingApproval;
     private TaskCompletionSource<bool>? approvalSignal;
@@ -63,7 +67,46 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             RequireOwnedExecution();
             if (!pauseRequested) return;
             RecordControl(ExecutionEventKinds.Resumed);
+            skipBreakpointOnce = waitingForNode;
             pauseRequested = false; paused = false;
+            signal = resumed;
+            resumed = NewSignal();
+        }
+        signal.TrySetResult();
+    }
+
+    public void SetBreakpoints(IReadOnlyCollection<string> nodeIds)
+    {
+        ArgumentNullException.ThrowIfNull(nodeIds);
+        if (nodeIds.Count > 256 || nodeIds.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 128 ||
+                !WorkflowDebugging.SupportsBreakpoint(header.Definition, id)))
+            throw new ArgumentException("Breakpoints must reference executable workflow node boundaries (maximum 256).", nameof(nodeIds));
+        lock (gate)
+        {
+            RequireOwnedExecution();
+            if (breakpoints.SetEquals(nodeIds)) return;
+            breakpoints.Clear();
+            breakpoints.UnionWith(nodeIds);
+            Append(new(header.RunId, header.RevisionId, 0, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.BreakpointsChanged, Data: JsonSerializer.Serialize(new { nodeIds = breakpoints.Order(StringComparer.Ordinal).ToArray() })));
+        }
+    }
+
+    public void Step()
+    {
+        TaskCompletionSource signal;
+        lock (gate)
+        {
+            RequireOwnedExecution();
+            if (!paused || string.IsNullOrWhiteSpace(waitingForNode))
+                throw new InvalidOperationException("Step requires a paused run waiting before a workflow node.");
+            if (!WorkflowDebugging.SupportsNodeStepping(header.Definition))
+                throw new InvalidOperationException("Node stepping is currently supported for sequential workflows without branching, loops, parallel regions, or nested workflow calls.");
+            RecordControl(ExecutionEventKinds.Resumed, waitingForNode);
+            skipBreakpointOnce = waitingForNode;
+            pauseRequested = false;
+            paused = false;
+            stepNextNode = true;
             signal = resumed;
             resumed = NewSignal();
         }
@@ -83,6 +126,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
 
     public async ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken)
     {
+        var boundaryEvaluated = false;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -92,6 +136,21 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
                 RequireOwnedExecution();
                 inFlight = false;
                 waitingForNode = nextNodeId;
+                if (pauseAfterSteppedNode)
+                {
+                    pauseAfterSteppedNode = false;
+                    pauseRequested = true;
+                }
+                if (!boundaryEvaluated && nextNodeId is not null && breakpoints.Contains(nextNodeId) && skipBreakpointOnce != nextNodeId)
+                {
+                    Append(new(header.RunId, header.RevisionId, 0, DateTimeOffset.UtcNow,
+                        ExecutionEventKinds.BreakpointHit, nextNodeId,
+                        Data: JsonSerializer.Serialize(new { nodeId = nextNodeId })));
+                    RecordControl(ExecutionEventKinds.PauseRequested, nextNodeId);
+                    pauseRequested = true;
+                }
+                if (!boundaryEvaluated && skipBreakpointOnce == nextNodeId) skipBreakpointOnce = null;
+                boundaryEvaluated = true;
                 if (pauseRequested)
                 {
                     AcknowledgePause(nextNodeId);
@@ -99,6 +158,11 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
                 }
                 else if (holdsExecutionSlot)
                 {
+                    if (stepNextNode)
+                    {
+                        stepNextNode = false;
+                        pauseAfterSteppedNode = true;
+                    }
                     inFlight = true;
                     return;
                 }

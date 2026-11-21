@@ -348,6 +348,8 @@ For fast workflows, check **Start paused** before **Start independent run**, or 
 
 Playback shows **State at recorded position** separately from the latest status. Scrubbing over a recorded pause is observation only. Host restart interrupts unfinished runs; it cannot resume their old continuation. See [run-control guarantees and API](run-control.md).
 
+For a live run, select the small breakpoint control on an executable node to stop before it is admitted. Pure data nodes have no separate admission point and do not show a breakpoint control. Select **Continue** to resume normally, or **Step node** while paused to finish the next node and stop at the following boundary. A node's model requests and tool calls finish as part of that node. Node stepping is available for sequential graphs; conditional routes, loops, parallel regions, nested workflow calls, and routed Agent outputs need additional debugger semantics. Breakpoint settings belong to the live host run, not the workflow source, and appear in the recorded event history.
+
 ## Reuse a section or published workflow
 
 1. Create a named section containing consecutive processing nodes. Exclude input/output terminals.

@@ -34,6 +34,18 @@
         <WorkflowGraphCanvas @key="Snapshot.Header.RunId" Definition="Snapshot.Header.Definition" Layout="Presentation" ReadOnly="true" NodesLabel="@(WorkflowGraph.HasRouting(Snapshot.Header.Definition) ? "Workflow nodes in topological display order" : "Workflow nodes in execution order")" NodeClass="NodeStateClass" DeliveredConnections="Delivered" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" InspectorTitle="Execution details">
             <ToolbarContent>
         <div class="vaw-controls" aria-label="Playback controls">
+            @if (follow && !Snapshot.IsTerminal && RunControl is not null)
+            {
+                @if (Snapshot.Status is "paused" or "pausing")
+                {
+                    <button type="button" @onclick="ResumeRun" disabled="@debugCommandPending">Continue</button>
+                    <button type="button" @onclick="StepRun" disabled="@(debugCommandPending || Snapshot.Status != "paused" || DebugControl is null || !WorkflowDebugging.SupportsNodeStepping(Snapshot.Header.Definition))" title="@(WorkflowDebugging.SupportsNodeStepping(Snapshot.Header.Definition) ? "Run the next node, then pause at the following boundary" : "Stepping is currently supported for sequential workflows only")">Step node</button>
+                }
+                else
+                {
+                    <button type="button" @onclick="PauseRun" disabled="@debugCommandPending">Pause</button>
+                }
+            }
             <button type="button" @onclick="Previous" disabled="@(Position == 0)">Previous event</button>
             <button type="button" @onclick="Next" disabled="@(Position >= Snapshot.Events.Length)">Next event</button>
             <button type="button" @onclick="() => follow = true">Follow latest</button>
@@ -42,6 +54,7 @@
             </label>
             <span>@Position / @Snapshot.Events.Length events</span>
         </div>
+        @if (debugCommandError is not null) { <p class="vaw-error" role="alert">@debugCommandError</p> }
             </ToolbarContent>
             <NodeContent Context="nodeId">
                 @{
@@ -74,6 +87,12 @@
                     <button type="button" class="vaw-node-events-button" aria-label="View events for @nodeId" @onclick:stopPropagation="true" @onclick="() => OpenNodeEvents(nodeId)">
                         <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.25" /><path d="M8 5v3l2 1.5" /></svg>
                     </button>
+                    @if (follow && !Snapshot.IsTerminal && DebugControl is not null && WorkflowDebugging.SupportsBreakpoint(Snapshot.Header.Definition, nodeId))
+                    {
+                        <button type="button" class="vaw-breakpoint-button" aria-label="@(HasBreakpoint(nodeId) ? $"Remove breakpoint from {nodeId}" : $"Set breakpoint on {nodeId}")" aria-pressed="@(HasBreakpoint(nodeId) ? "true" : "false")" disabled="@debugCommandPending" @onclick:stopPropagation="true" @onclick="() => ToggleBreakpoint(nodeId)">
+                            <span aria-hidden="true">●</span>
+                        </button>
+                    }
                 </div>
                 @if (outcome is not null) { <p class="vaw-node-outcome @(state?.Kind == ExecutionEventKinds.NodeCancelled ? "is-cancelled" : "is-failed")">@outcome</p> }
                 @if (selectedNode == nodeId && state is { Kind: ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled })
@@ -274,10 +293,63 @@
 @code {
     [Parameter] public RunSnapshot? Snapshot { get; set; }
     [Parameter] public IWorkflowApprovalClient? ApprovalClient { get; set; }
+    [Parameter] public IWorkflowRunControl? RunControl { get; set; }
+    [Parameter] public IWorkflowDebugControl? DebugControl { get; set; }
     [Parameter] public EventCallback ApprovalChanged { get; set; }
+    private HashSet<string> breakpoints = new(StringComparer.Ordinal);
+    private bool debugCommandPending;
+    private string? debugCommandError;
     private RunSnapshot? VisibleSnapshot => Snapshot is null ? null : follow ? Snapshot : Snapshot with { Events = Snapshot.Events.Take(Position).ToImmutableArray() };
     private WorkflowApprovalRequest? PendingApproval => VisibleSnapshot is { } visible ? WorkflowApprovalEvidence.Pending(visible) : null;
     [Parameter] public WorkflowLayout? Layout { get; set; }
+
+    private bool HasBreakpoint(string nodeId) => breakpoints.Contains(nodeId);
+    private async Task ToggleBreakpoint(string nodeId)
+    {
+        if (Snapshot is null || DebugControl is null) return;
+        var wasSet = breakpoints.Remove(nodeId);
+        if (!wasSet) breakpoints.Add(nodeId);
+        debugCommandPending = true;
+        debugCommandError = null;
+        try { await DebugControl.SetBreakpointsAsync(Snapshot.Header.RunId, breakpoints.ToArray()); }
+        catch
+        {
+            if (wasSet) breakpoints.Add(nodeId); else breakpoints.Remove(nodeId);
+            debugCommandError = "Could not update breakpoints. The run may no longer be controlled by this host.";
+        }
+        finally { debugCommandPending = false; }
+    }
+    private Task PauseRun() => ControlRun(resume: false);
+    private Task ResumeRun() => ControlRun(resume: true);
+    private async Task StepRun()
+    {
+        if (Snapshot is null || DebugControl is null) return;
+        debugCommandPending = true;
+        debugCommandError = null;
+        try
+        {
+            await DebugControl.StepRunAsync(Snapshot.Header.RunId);
+            follow = true;
+            await ApprovalChanged.InvokeAsync();
+        }
+        catch { debugCommandError = "Could not step this run. It must be paused before a node boundary."; }
+        finally { debugCommandPending = false; }
+    }
+    private async Task ControlRun(bool resume)
+    {
+        if (Snapshot is null || RunControl is null) return;
+        debugCommandPending = true;
+        debugCommandError = null;
+        try
+        {
+            if (resume) await RunControl.ResumeRunAsync(Snapshot.Header.RunId);
+            else await RunControl.PauseRunAsync(Snapshot.Header.RunId);
+            follow = true;
+            await ApprovalChanged.InvokeAsync();
+        }
+        catch { debugCommandError = "Could not control this run. The host may no longer own its live continuation."; }
+        finally { debugCommandPending = false; }
+    }
     private WorkflowLayout Presentation = default!;
     private IEnumerable<ExecutionEvent> RootEvents => VisibleEvents.Where(e => e.ScopeId is null);
     private ExecutionEvent? State(string id) => RootEvents.LastOrDefault(e => e.NodeId == id && e.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
@@ -906,11 +978,26 @@
     protected override void OnParametersSet()
     {
         if (Snapshot is not null) Presentation = Layout ?? (currentRun == Snapshot.Header.RunId && Presentation is not null ? Presentation : WorkflowLayout.Create(Snapshot.Header.Definition));
-        if (currentRun == Snapshot?.Header.RunId) return;
-        currentRun = Snapshot?.Header.RunId;
-        selectedNode = Snapshot?.Header.Definition.EntryNodeId;
-        cursor = 0;
-        follow = true;
+        if (currentRun != Snapshot?.Header.RunId)
+        {
+            currentRun = Snapshot?.Header.RunId;
+            selectedNode = Snapshot?.Header.Definition.EntryNodeId;
+            cursor = 0;
+            follow = true;
+            breakpoints.Clear();
+            debugCommandError = null;
+        }
+        if (Snapshot is not null && Snapshot.Events.LastOrDefault(evt => evt.Kind == ExecutionEventKinds.BreakpointsChanged) is { Data: { } data })
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(data);
+                if (document.RootElement.TryGetProperty("nodeIds", out var ids) && ids.ValueKind == JsonValueKind.Array)
+                    breakpoints = ids.EnumerateArray().Where(id => id.ValueKind == JsonValueKind.String)
+                        .Select(id => id.GetString()!).ToHashSet(StringComparer.Ordinal);
+            }
+            catch (JsonException) { breakpoints.Clear(); }
+        }
     }
 
     private Task SelectNode(string id) { selectedNode = id; return Task.CompletedTask; }

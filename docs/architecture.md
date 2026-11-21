@@ -520,6 +520,18 @@ Schema 1.7 optionally embeds reviewed text-only skill revisions and per-agent st
 
 Schema 1.30 optionally gives an Agent node authored execution routes. Each stable route ID maps to an execution output pin, while labels and descriptions are authoring metadata. The Agent Framework adapter provides an internal `select_route` function whose enum only includes those IDs; it is invocation-scoped, is not an MCP capability, and cannot invoke another node. The runner latches the proposal and only commits it after the agent finishes successfully with exactly one valid choice. Missing, duplicate, or unknown selections fail closed, and a choice made before a later model/tool/limit failure is discarded. Event evidence distinguishes proposed, rejected, committed, and discarded selections; route activation uses the normal execution event path, so playback remains passive. Providers must support function calling. Removing a route leaves now-invalid outgoing edges visible as draft validation issues rather than silently deleting user-authored wires. The Studio saves such incomplete drafts but blocks publish and execution until validation passes. See [agent-selected routes](graph-values.md#agent-selected-routes).
 
+Live debugging builds on the host-owned `IWorkflowExecutionGate` and optional
+`IWorkflowDebugControl`. Breakpoint sets live in the active continuation and
+are recorded as `debug.breakpoints.changed`; a hit records the target node and
+pauses before admission. One-node stepping resumes that same continuation and
+pauses at the next boundary. Neither control changes workflow source, cancels
+in-flight provider/tool work, nor reconstructs execution from history. Step is
+currently offered only when the graph has sequential node boundaries; routed,
+conditional, loop, parallel, and nested-call stepping needs explicit activation
+semantics. Only nodes with a runtime execution-admission boundary expose a
+breakpoint; pure data nodes are evaluated as dependencies of an admitted node.
+Playback reads the recorded breakpoint and pause events only.
+
 ## Versioned agent profiles
 
 Schema 1.11 embeds immutable agent-profile revisions; schema 1.12 adds optional pinned coordination-channel membership to those profiles. The local Studio Agent Designer authors and organizes profile versions, while assigning a profile snapshots its stable model connection ID, instructions, MCP tool contract and description hashes, optional inference controls, selected skill text, and channel IDs into the workflow. Model/endpoint versions are mutable host settings, not dependencies of the profile. Profile package requirements remain explicit; there are no endpoints, credentials, or policy grants in the profile or export.

@@ -165,6 +165,45 @@ public sealed class ApiParityTests : IDisposable
     }
 
     [Fact]
+    public async Task DebuggerEndpointsConfigureBreakpointsAndStepARecordedRun()
+    {
+        await StartApp();
+        Assert.Equal(HttpStatusCode.Created, (await PostJson("workflows", new { name = "debug-workflow" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await PostJson("workflows/debug-workflow/publish", new { expectedGeneration = 1 })).StatusCode);
+        var started = await PostJson("workflows/debug-workflow/runs", new { input = "debug", startPaused = true });
+        Assert.Equal(HttpStatusCode.Accepted, started.StatusCode);
+        using var startedJson = await ParseJson(started);
+        var runId = startedJson.RootElement.GetProperty("runId").GetString()!;
+
+        var configured = await PostJson($"runs/{runId}/breakpoints", new { nodeIds = new[] { "output" } });
+        Assert.Equal(HttpStatusCode.Accepted, configured.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await PostJson($"runs/{runId}/step", new { })).StatusCode);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        JsonDocument? latest = null;
+        try
+        {
+            while (true)
+            {
+                latest?.Dispose();
+                latest = await ParseJson(await http!.GetAsync($"projects/test/runs/{runId}/events", timeout.Token));
+                var events = latest.RootElement.EnumerateArray().ToArray();
+                if (events.Any(evt => evt.GetProperty("kind").GetString() == ExecutionEventKinds.Paused &&
+                                      evt.GetProperty("nodeId").GetString() == "step-1"))
+                {
+                    Assert.Contains(events, evt => evt.GetProperty("kind").GetString() == ExecutionEventKinds.NodeStarted &&
+                                                   evt.GetProperty("nodeId").GetString() == "input");
+                    Assert.DoesNotContain(events, evt => evt.GetProperty("kind").GetString() == ExecutionEventKinds.NodeStarted &&
+                                                         evt.GetProperty("nodeId").GetString() == "step-1");
+                    break;
+                }
+                await Task.Delay(20, timeout.Token);
+            }
+        }
+        finally { latest?.Dispose(); }
+    }
+
+    [Fact]
     public async Task ObservationEndpointsExist()
     {
         await StartApp();

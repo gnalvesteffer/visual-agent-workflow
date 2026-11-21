@@ -93,7 +93,7 @@
             </div>
             <div hidden="@(workspaceView != "run")">
             @if (IdeMode) { <div class="vaw-inspection-document-bar"><button type="button" @onclick="ShowDesigner">Back to workflow</button><span>Execution inspection</span>@if (snapshot is { IsTerminal: false }) { <button type="button" @onclick="Cancel">Cancel selected run</button> }</div> }
-            <WorkflowRunViewer Snapshot="snapshot" Layout="runLayout" ApprovalClient="@(Client as IWorkflowApprovalClient)" ApprovalChanged="Refresh" />
+            <WorkflowRunViewer Snapshot="snapshot" Layout="runLayout" ApprovalClient="@(Client as IWorkflowApprovalClient)" RunControl="@(Client as IWorkflowRunControl)" DebugControl="@(Client as IWorkflowDebugControl)" ApprovalChanged="Refresh" />
             </div>
         </section>
     </div>

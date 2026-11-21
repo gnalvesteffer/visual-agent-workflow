@@ -3,7 +3,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Hosting;
 
 public sealed class PublishedWorkflowClient(IWorkflowCatalog catalog, LocalWorkflowRuntime runtime) : IPublishedWorkflowClient,
-    IParameterizedPublishedWorkflowClient, IParameterizedWorkflowClient, IPublishedWorkflowRunControl, IWorkflowApprovalClient
+    IParameterizedPublishedWorkflowClient, IParameterizedWorkflowClient, IPublishedWorkflowRunControl, IWorkflowDebugControl, IWorkflowApprovalClient
 {
     public async Task<RunSnapshot> StartPublishedRunAsync(Guid revisionId, string input)
     {
@@ -39,6 +39,8 @@ public sealed class PublishedWorkflowClient(IWorkflowCatalog catalog, LocalWorkf
         IReadOnlyDictionary<string, string>? parameters) => StartDirectRunAsync(definition, input, parameters, startPaused: true);
     public Task PauseRunAsync(Guid runId) => runtime.PauseRunAsync(runId);
     public Task ResumeRunAsync(Guid runId) => runtime.ResumeRunAsync(runId);
+    public Task SetBreakpointsAsync(Guid runId, IReadOnlyCollection<string> nodeIds) => runtime.SetBreakpointsAsync(runId, nodeIds);
+    public Task StepRunAsync(Guid runId) => runtime.StepRunAsync(runId);
 
     public Task<RunSnapshot> StartRunAsync(WorkflowDefinition definition, string input) => StartDirectRunAsync(definition, input, null);
 

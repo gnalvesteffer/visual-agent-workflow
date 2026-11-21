@@ -65,6 +65,8 @@ public static class ExecutionEventKinds
     public const string PauseRequested = "run.pause-requested";
     public const string Paused = "run.paused";
     public const string Resumed = "run.resumed";
+    public const string BreakpointHit = "debug.breakpoint.hit";
+    public const string BreakpointsChanged = "debug.breakpoints.changed";
     public const string ToolRequested = "tool.requested";
     public const string ToolDenied = "tool.denied";
     public const string ToolAuthorized = "tool.authorized";

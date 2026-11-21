@@ -57,6 +57,61 @@ public sealed class PauseResumeTests : IDisposable
     }
 
     [Fact]
+    public async Task StepAdmitsOneNodeAndPausesAtTheNextBoundary()
+    {
+        using var runtime = Runtime();
+        await runtime.StartAsync(CancellationToken.None);
+        try
+        {
+            var run = await runtime.StartPausedRunAsync(WorkflowTemplates.Create("uppercase-reverse"), "abc");
+            await runtime.StepRunAsync(run.Header.RunId);
+            var first = await WaitFor(runtime, run.Header.RunId, r => r.Status == "paused" && r.Events.Any(e => e.Kind == ExecutionEventKinds.Paused));
+
+            Assert.Contains(first.Events, e => e.Kind == ExecutionEventKinds.NodeStarted && e.NodeId == "input");
+            Assert.DoesNotContain(first.Events, e => e.Kind == ExecutionEventKinds.NodeStarted && e.NodeId == "step-1");
+            Assert.Equal("step-1", first.Events.Last(e => e.Kind == ExecutionEventKinds.Paused).NodeId);
+
+            await runtime.StepRunAsync(run.Header.RunId);
+            var second = await WaitFor(runtime, run.Header.RunId, r => r.Status == "paused" && r.Events.Count(e => e.Kind == ExecutionEventKinds.NodeCompleted) == 2);
+            Assert.Contains(second.Events, e => e.Kind == ExecutionEventKinds.NodeStarted && e.NodeId == "step-1");
+            Assert.DoesNotContain(second.Events, e => e.Kind == ExecutionEventKinds.NodeStarted && e.NodeId == "step-2");
+
+            await runtime.ResumeRunAsync(run.Header.RunId);
+            var completed = await WaitFor(runtime, run.Header.RunId, r => r.IsTerminal);
+            Assert.Equal("CBA", completed.Events[^1].Data);
+            Assert.Equal(Enumerable.Range(1, completed.Events.Length).Select(i => (long)i), completed.Events.Select(e => e.Sequence));
+        }
+        finally { await runtime.StopAsync(CancellationToken.None); }
+    }
+
+    [Fact]
+    public async Task BreakpointPausesBeforeNodeAndContinueSkipsOnlyThatHit()
+    {
+        using var runtime = Runtime();
+        await runtime.StartAsync(CancellationToken.None);
+        try
+        {
+            var run = await runtime.StartPausedRunAsync(WorkflowTemplates.Create("uppercase-reverse"), "abc");
+            await runtime.SetBreakpointsAsync(run.Header.RunId, ["output"]);
+            await runtime.ResumeRunAsync(run.Header.RunId);
+            var paused = await WaitFor(runtime, run.Header.RunId, r => r.Status == "paused" && r.Events.Any(e => e.Kind == ExecutionEventKinds.BreakpointHit));
+
+            Assert.DoesNotContain(paused.Events, e => e.Kind == ExecutionEventKinds.NodeStarted && e.NodeId == "output");
+            Assert.Equal("output", paused.Events.Last(e => e.Kind == ExecutionEventKinds.Paused).NodeId);
+            Assert.Single(paused.Events, e => e.Kind == ExecutionEventKinds.BreakpointHit && e.NodeId == "output");
+
+            await runtime.StepRunAsync(run.Header.RunId);
+            var stepped = await WaitFor(runtime, run.Header.RunId, r => r.Status == "paused" && r.Events.Any(e => e.Kind == ExecutionEventKinds.NodeCompleted && e.NodeId == "output"));
+            Assert.DoesNotContain(stepped.Events, e => e.Kind == ExecutionEventKinds.Completed);
+            await runtime.ResumeRunAsync(run.Header.RunId);
+            var completed = await WaitFor(runtime, run.Header.RunId, r => r.IsTerminal);
+            Assert.Equal("CBA", completed.Events[^1].Data);
+            Assert.Single(completed.Events, e => e.Kind == ExecutionEventKinds.BreakpointHit);
+        }
+        finally { await runtime.StopAsync(CancellationToken.None); }
+    }
+
+    [Fact]
     public async Task ActiveNodeFinishesBeforePauseAndResumeDoesNotRepeatCompletedWork()
     {
         var agent = new ControlledAgent();

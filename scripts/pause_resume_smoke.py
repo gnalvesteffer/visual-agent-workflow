@@ -1,14 +1,12 @@
-"""Check process-owned pause/resume through APIs and real Studio controls.
+"""Check process-owned pause/resume and sequential debugger controls.
 
 Creates only disposable deterministic local workflows/runs. Pause is cooperative
 between nodes; this does not test or claim crash-resumable checkpoints.
 """
 
-from workbench_browser import workbench, inspect_control, show_runs
 import argparse
 import copy
 from pathlib import Path
-import re
 import uuid
 from playwright.sync_api import sync_playwright, expect
 
@@ -41,17 +39,29 @@ def check(browser, screenshots):
 
     def ready():
         page.goto(BASE)
-        show_runs(page)
-        expect(page.get_by_role("button",name="Start independent run",exact=True)).to_be_enabled()
+        expect(page.locator(".vaw-ide-run-table")).to_be_visible()
 
     def select(run_id):
-        page.locator(".vaw-history button").filter(has_text=run_id[:8]).click()
-        expect(page.get_by_role("button",name="Resume selected run",exact=True)).to_be_enabled()
+        page.get_by_role("button",name=f"Inspect run {run_id}",exact=True).click()
+        expect(page.get_by_role("region",name="Workflow run viewer",exact=True)).to_be_visible()
 
     ready(); select(first_id)
     viewer=page.get_by_role("region",name="Workflow run viewer",exact=True)
     expect(viewer.locator(".vaw-run-header")).to_contain_text("Latest run status: paused")
     expect(viewer.get_by_role("button",name="input core.input Paused before execution",exact=True)).to_be_visible()
+    viewer.get_by_role("button",name="Set breakpoint on output",exact=True).click()
+    viewer.get_by_role("button",name="Continue",exact=True).click()
+    page.wait_for_function("""async id => {
+        const run=await (await fetch('/api/runs/'+id)).json();
+        return run.status==='paused' && run.events.some(event=>event.kind==='debug.breakpoint.hit' && event.nodeId==='output');
+    }""",arg=first_id)
+    assert not any(e["kind"]=="node.started" and e["nodeId"]=="output" for e in get(f"/api/runs/{first_id}")["events"])
+    viewer.get_by_role("button",name="Step node",exact=True).click()
+    page.wait_for_function("""async id => {
+        const run=await (await fetch('/api/runs/'+id)).json();
+        return run.status==='paused' && run.events.some(event=>event.kind==='node.completed' && event.nodeId==='output');
+    }""",arg=first_id)
+    assert not any(e["kind"]=="run.completed" for e in get(f"/api/runs/{first_id}")["events"])
 
     # Another run must complete even while this continuation stays paused.
     other=post("/api/runs",{"definition":definition,"input":"other run"})
@@ -62,12 +72,13 @@ def check(browser, screenshots):
     assert get(f"/api/runs/{first_id}")["status"]=="paused"
     # A browser reload loses its UI instance, not the backend pause/continuation.
     ready(); select(first_id)
-    page.get_by_role("button",name="Resume selected run",exact=True).click()
+    page.get_by_role("button",name="Continue",exact=True).click()
     viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(viewer.get_by_role("region",name="Selected node payloads").locator("pre").last).to_have_text("ESUAP IPA")
     finished=get(f"/api/runs/{first_id}")
     assert finished["header"]["revisionId"]==paused["header"]["revisionId"]
-    assert sum(e["kind"]=="node.started" for e in finished["events"])==4
+    admitted_nodes={e["nodeId"] for e in finished["events"] if e["kind"]=="node.started"}
+    assert admitted_nodes=={"input","output"},admitted_nodes
     before=len(finished["events"])
     post(f"/api/runs/{first_id}/resume",status=409)
     post(f"/api/runs/{first_id}/pause",status=409)
@@ -77,24 +88,10 @@ def check(browser, screenshots):
     rejected=page.request.post(BASE+f"/api/runs/{first_id}/pause",headers={"Origin":"https://untrusted.example"})
     assert rejected.status==403
 
-    # Start-paused UI makes a fast workflow controllable without racing its execution.
-    page.get_by_label("Input",exact=True).fill("ui pause")
-    page.get_by_label("Start paused",exact=True).check()
-    page.get_by_role("button",name="Start independent run",exact=True).click()
-    expect(page.get_by_role("button",name="Resume selected run",exact=True)).to_be_enabled()
-    expect(viewer.locator(".vaw-run-header")).to_contain_text("Latest run status: paused")
-    ui_id=re.search(r"Run ([0-9a-f-]{36})",viewer.locator(".vaw-run-header").inner_text())[1]
-    assert not any(e["kind"]=="node.started" for e in get(f"/api/runs/{ui_id}")["events"])
-    ready(); select(ui_id)
-    page.get_by_role("button",name="Resume selected run",exact=True).click()
-    viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
-    expect(viewer.get_by_role("region",name="Selected node payloads").locator("pre").last).to_have_text("ESUAP IU")
-
-    # Cancellation is available while paused and must not require a resume.
-    page.get_by_label("Start paused",exact=True).check()
-    page.get_by_role("button",name="Start independent run",exact=True).click()
-    expect(page.get_by_role("button",name="Resume selected run",exact=True)).to_be_enabled()
-    cancel_id=re.search(r"Run ([0-9a-f-]{36})",viewer.locator(".vaw-run-header").inner_text())[1]
+    # Cancellation is available while paused and does not require a resume.
+    cancel=post("/api/runs",{"definition":definition,"input":"cancel","startPaused":True})
+    cancel_id=cancel["header"]["runId"]
+    ready(); select(cancel_id)
     page.get_by_role("button",name="Cancel selected run",exact=True).click()
     expect(viewer.locator(".vaw-run-header")).to_contain_text("Latest run status: cancelled")
     cancelled=get(f"/api/runs/{cancel_id}")
@@ -122,41 +119,32 @@ def check(browser, screenshots):
     assert done["header"]["revisionId"]==revision_id
     assert done["events"][-1]["data"]=="CBA"
 
-    ready()
-    designer=page.get_by_role("region",name="Workflow designer",exact=True)
-    expect(workbench(designer).get_by_role("button",name="Save draft",exact=True)).to_be_enabled()
-    workbench(designer).get_by_label("Saved workflow",exact=True).select_option(workflow_id)
-    workbench(designer).get_by_label("Published version",exact=True).select_option(revision_id)
-    workbench(designer).get_by_label("Start published run paused",exact=True).check()
-    workbench(designer).get_by_label("Published run input",exact=True).fill("published pause")
-    workbench(designer).get_by_role("button",name="Run selected version",exact=True).click()
-    expect(page.get_by_role("button",name="Resume selected run",exact=True)).to_be_enabled()
-    expect(viewer.locator(".vaw-run-header")).to_contain_text("Latest run status: paused")
-    published_ui_id=re.search(r"Run ([0-9a-f-]{36})",viewer.locator(".vaw-run-header").inner_text())[1]
-    recorded=get(f"/api/runs/{published_ui_id}")
+    ready(); select(pinned_id)
+    expect(viewer.locator(".vaw-run-header")).to_contain_text("Latest run status: completed")
+    recorded=get(f"/api/runs/{pinned_id}")
     assert recorded["header"]["revisionId"]==revision_id
     if screenshots:
-        viewer.screenshot(path=str(screenshots/"paused-run.png"))
-    page.get_by_role("button",name="Resume selected run",exact=True).click()
+        viewer.screenshot(path=str(screenshots/"debugger-playback.png"))
     viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
-    expect(viewer.get_by_role("region",name="Selected node payloads").locator("pre").last).to_have_text("ESUAP DEHSILBUP")
-    recorded=get(f"/api/runs/{published_ui_id}")
+    expect(viewer.get_by_role("region",name="Selected node payloads").locator("pre").last).to_have_text("CBA")
     pause_sequence=next(e["sequence"] for e in recorded["events"] if e["kind"]=="run.paused")
     slider=viewer.get_by_label("Recorded position",exact=True)
     slider.evaluate("""(input,position)=>{input.value=position;input.dispatchEvent(new Event('input',{bubbles:true}));}""",pause_sequence)
     expect(viewer.get_by_text("State at recorded position: paused",exact=True)).to_be_visible()
     expect(viewer.locator(".vaw-run-header")).to_contain_text("Latest run status: completed")
-    assert get(f"/api/runs/{published_ui_id}")==recorded,"Playback changed execution evidence"
+    assert get(f"/api/runs/{pinned_id}")==recorded,"Playback changed execution evidence"
     assert not errors,errors
-    print("Pause/resume API, paused start, independent runs, browser reload, UI resume/cancel, pinned publication, terminal/unknown/origin rejection, and recorded pause playback passed.")
+    print("Pause/resume API, sequential UI breakpoints and stepping, browser reload, UI cancel/continue, pinned publication, terminal/origin rejection, and passive playback passed.")
     page.close()
 
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--browser-executable")
+    parser.add_argument("--base-url",default=BASE)
     parser.add_argument("--screenshots",type=Path)
     args=parser.parse_args()
+    BASE=args.base_url.rstrip("/")
     if args.screenshots:args.screenshots.mkdir(parents=True,exist_ok=True)
     with sync_playwright() as p:
         options={"headless":True}

@@ -42,6 +42,7 @@ public static class WorkflowHostingExtensions
             provider.GetService<IWorkflowAdmissionSnapshotProvider>()));
         services.TryAddSingleton<IWorkflowClient>(provider => provider.GetRequiredService<LocalWorkflowRuntime>());
         services.TryAddSingleton<IWorkflowRunControl>(provider => provider.GetRequiredService<LocalWorkflowRuntime>());
+        services.TryAddSingleton<IWorkflowDebugControl>(provider => provider.GetRequiredService<LocalWorkflowRuntime>());
         services.TryAddSingleton<IWorkflowApprovalClient>(provider => provider.GetRequiredService<LocalWorkflowRuntime>());
         services.AddHostedService(provider => provider.GetRequiredService<LocalWorkflowRuntime>());
         return services;

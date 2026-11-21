@@ -100,6 +100,7 @@ builder.Services.AddScoped<IPublishedWorkflowClient>(services => services.GetReq
 builder.Services.AddScoped<IWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddScoped<IWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddScoped<IPublishedWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
+builder.Services.AddScoped<IWorkflowDebugControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddScoped<IWorkflowApprovalClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddScoped<ISkillLibrary>(services => services.GetRequiredService<StudioProjectWorkspace>().Skills);
 builder.Services.AddScoped<IAgentProfileLibrary>(services => services.GetRequiredService<StudioProjectWorkspace>().AgentProfiles);
@@ -362,26 +363,6 @@ app.MapPost("/api/runs/{id:guid}/cancel", async (Guid id, IWorkflowClient client
     if (await client.GetRunAsync(id) is null) return Results.NotFound();
     await client.CancelRunAsync(id);
     return Results.NoContent();
-});
-app.MapPost("/api/runs/{id:guid}/pause", async (Guid id, IWorkflowRunControl controls, IWorkflowClient client) =>
-{
-    try
-    {
-        await controls.PauseRunAsync(id);
-        return Results.Accepted($"/api/runs/{id}", await client.GetRunAsync(id));
-    }
-    catch (KeyNotFoundException) { return Results.NotFound(); }
-    catch (WorkflowRunControlException) { return Results.Conflict(new { error = "This runtime no longer owns an active continuation for that run." }); }
-});
-app.MapPost("/api/runs/{id:guid}/resume", async (Guid id, IWorkflowRunControl controls, IWorkflowClient client) =>
-{
-    try
-    {
-        await controls.ResumeRunAsync(id);
-        return Results.Accepted($"/api/runs/{id}", await client.GetRunAsync(id));
-    }
-    catch (KeyNotFoundException) { return Results.NotFound(); }
-    catch (WorkflowRunControlException) { return Results.Conflict(new { error = "This runtime no longer owns an active continuation for that run." }); }
 });
 app.MapPost("/api/runs/{id:guid}/approvals/{requestId:guid}/decision", async (Guid id, Guid requestId, ApprovalDecisionRequest request,
     IWorkflowApprovalClient approvals, IWorkflowClient client) =>

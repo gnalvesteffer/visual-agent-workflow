@@ -5,6 +5,8 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Studio;
 
+public sealed record BreakpointRequest(IReadOnlyCollection<string>? NodeIds);
+
 public static class WorkflowEndpoints
 {
     internal static IResult AdmissionError(WorkflowAdmissionException admission)
@@ -286,6 +288,10 @@ public static class WorkflowEndpoints
             {
                 return Results.NotFound(new { error = "Run not found." });
             }
+            catch (WorkflowRunControlException)
+            {
+                return Results.Conflict(new { error = "This runtime no longer owns an active continuation for that run." });
+            }
         });
 
         group.MapPost("/runs/{runId:guid}/resume", async (Guid runId, IWorkflowRunControl control) =>
@@ -299,6 +305,35 @@ public static class WorkflowEndpoints
             {
                 return Results.NotFound(new { error = "Run not found." });
             }
+            catch (WorkflowRunControlException)
+            {
+                return Results.Conflict(new { error = "This runtime no longer owns an active continuation for that run." });
+            }
+        });
+
+        group.MapPost("/runs/{runId:guid}/breakpoints", async (Guid runId, BreakpointRequest request, IWorkflowDebugControl control) =>
+        {
+            if (request.NodeIds is null) return Results.BadRequest();
+            try
+            {
+                await control.SetBreakpointsAsync(runId, request.NodeIds);
+                return Results.Accepted($"/api/runs/{runId}");
+            }
+            catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
+            catch (KeyNotFoundException) { return Results.NotFound(new { error = "Run not found." }); }
+            catch (WorkflowRunControlException) { return Results.Conflict(new { error = "This runtime no longer owns an active continuation for that run." }); }
+        });
+
+        group.MapPost("/runs/{runId:guid}/step", async (Guid runId, IWorkflowDebugControl control) =>
+        {
+            try
+            {
+                await control.StepRunAsync(runId);
+                return Results.Accepted($"/api/runs/{runId}");
+            }
+            catch (KeyNotFoundException) { return Results.NotFound(new { error = "Run not found." }); }
+            catch (WorkflowRunControlException) { return Results.Conflict(new { error = "This runtime no longer owns an active continuation for that run." }); }
+            catch (InvalidOperationException error) { return Results.Conflict(new { error = error.Message }); }
         });
 
         // Program owns the richer unscoped /api/runs endpoints. These summaries

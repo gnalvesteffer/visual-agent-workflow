@@ -6,6 +6,31 @@ namespace VisualAgentWorkflow.Core.Tests;
 public sealed class RunControlStatusTests
 {
     [Fact]
+    public void NodeSteppingIsLimitedToSequentialGraphBoundaries()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var linear = new WorkflowDefinition(WorkflowSchemaVersions.CurrentAuthoringSchema, "debug-test", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty);
+        Assert.True(WorkflowDebugging.SupportsNodeStepping(linear));
+        Assert.True(WorkflowDebugging.SupportsBreakpoint(linear, "input"));
+        Assert.True(WorkflowDebugging.SupportsBreakpoint(linear, "output"));
+
+        foreach (var unsupported in new[]
+        {
+            NodeTypes.Condition, NodeTypes.BooleanBranch, NodeTypes.Merge,
+            NodeTypes.ParallelFork, NodeTypes.ParallelBranch, NodeTypes.ParallelJoin,
+            NodeTypes.ParallelRendezvous, NodeTypes.Loop, NodeTypes.LoopBody,
+            NodeTypes.Sequence, NodeTypes.WorkflowCall, NodeTypes.WorkflowInterfaceCall
+        })
+        {
+            var definition = linear with { Nodes = linear.Nodes.Add("unsupported", new(unsupported, "1.0.0")) };
+            Assert.False(WorkflowDebugging.SupportsNodeStepping(definition));
+        }
+    }
+
+    [Fact]
     public void OutcomeUnknownIsTerminalAndKeepsItsDistinctStatus()
     {
         var header = new RunHeader(Guid.NewGuid(), Guid.NewGuid(), null, "test", DateTimeOffset.UtcNow, "", null!, "");

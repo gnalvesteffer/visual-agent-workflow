@@ -12,7 +12,7 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
     INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null,
     ParallelCollaborationRuntimeOptions? collaborationOptions = null,
     IWorkflowAdmissionSnapshotProvider? admissionProvider = null)
-    : BackgroundService, IWorkflowClient, IParameterizedWorkflowClient, IWorkflowRunControl, IWorkflowApprovalClient
+    : BackgroundService, IWorkflowClient, IParameterizedWorkflowClient, IWorkflowRunControl, IWorkflowDebugControl, IWorkflowApprovalClient
 {
     // Preserve the original constructor for existing source and binary consumers.
     public LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools = null,
@@ -149,6 +149,8 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
 
     public Task PauseRunAsync(Guid runId) { RequireOwnedRun(runId).RequestPause(); return Task.CompletedTask; }
     public Task ResumeRunAsync(Guid runId) { RequireOwnedRun(runId).Resume(); return Task.CompletedTask; }
+    public Task SetBreakpointsAsync(Guid runId, IReadOnlyCollection<string> nodeIds) { RequireOwnedRun(runId).SetBreakpoints(nodeIds); return Task.CompletedTask; }
+    public Task StepRunAsync(Guid runId) { RequireOwnedRun(runId).Step(); return Task.CompletedTask; }
     public Task CancelRunAsync(Guid runId)
     {
         if (ownedRuns.TryGetValue(runId, out var run)) run.Cancel();
