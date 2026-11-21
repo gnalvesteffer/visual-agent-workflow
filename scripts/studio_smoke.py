@@ -440,8 +440,20 @@ def nested_mcp_authoring_check(browser):
     expect(nested_node).to_contain_text("payload › request › name")
     reloaded_definition = get("/api/workflows/" + nested_workflow_id)["definition"]
     assert reloaded_definition["nodes"]["step-1"]["mcpInputPorts"] == nested_ports
+    static_payload = {"request": {"name": "Ada", "count": 7}, "labels": ["green"]}
+    inspect_control(nested_designer, "Operation for step-1")
+    nested_designer.get_by_label("MCP argument payload", exact=True).fill(
+        json.dumps(static_payload, separators=(",", ":")))
+    nested_designer.get_by_role("button", name="Save", exact=True).click()
+    nested_designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
+    edited_definition = get("/api/workflows/" + nested_workflow_id)["definition"]
+    assert json.loads(edited_definition["nodes"]["step-1"]["mcpArgumentsJson"])["payload"] == static_payload
+    nested_page.goto(BASE + "/projects/default?workflow=" + nested_workflow_id, wait_until="networkidle")
+    inspect_control(nested_designer, "Operation for step-1")
+    expect(nested_designer.locator('li[data-node-id="step-1"]')).to_contain_text("payload › request › count")
+    assert json.loads(nested_designer.get_by_label("MCP argument payload", exact=True).input_value()) == static_payload
     nested_page.close()
-    print("Browser schema 2.0 nested MCP pin authoring, save, and reopen passed.")
+    print("Browser schema 2.0 nested MCP pin authoring, static-value editing, save, and reopen passed.")
 
 
 def agent_designer_check(browser):

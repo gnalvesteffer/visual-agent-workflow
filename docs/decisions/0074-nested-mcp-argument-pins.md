@@ -128,10 +128,10 @@ nested connected value plus static siblings. The proof confirms the broker
 rejects a changed pinned contract and a missing grant before authorization.
 Connected nested values also run through File and SQLite stores; reopened
 passive playback redacts node lifecycle and evaluation evidence while retaining
-the declared root result. Studio browser authoring, save, and reopen are
-verified, including nested scalar pins without an overlapping parent pin.
-Remaining proof: browser editing of existing nested pins, package import/edit
-coverage, plus broader schema-drift and explicit migration coverage.
+the declared root result. Studio browser authoring, static nested-value editing,
+save, and reopen are verified, including nested scalar pins without an
+overlapping parent pin. Remaining proof: package import/edit coverage plus
+broader schema-drift and explicit migration coverage.
 Approval-wrapped direct MCP calls remain excluded until Decision
 0075 defines the protected exact-action payload lifecycle. This bounded
 increment does not establish array-item pins, unrestricted JSON Schema support,
