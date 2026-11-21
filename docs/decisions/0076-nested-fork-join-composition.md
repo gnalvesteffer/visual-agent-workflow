@@ -185,3 +185,26 @@ that no Join completion or downstream continuation occurs; it must also prove
 that ordinary unique arrivals complete and each activation dispatches at most
 once. Duplicates delivered after commit remain a separate failure case and
 cannot undo work already dispatched.
+
+On 2026-11-21, the pinned Agent Framework 1.26.0 source was inspected at commit
+[`9c8a3514a15a702f81bfda456d80c7ccaa4d2712`](https://github.com/microsoft/agent-framework/tree/9c8a3514a15a702f81bfda456d80c7ccaa4d2712).
+`InProcessRunner.DeliverMessagesAsync` processes one receiver's queued messages
+sequentially and calls that executor's `OnMessageDeliveryFinishedAsync` in a
+`finally` block. `RunSuperstepAsync` runs receiver groups concurrently and
+awaits all receiver tasks before advancing. Therefore the callback closes one
+executor's current delivery batch; it does not prove that another executor has
+no queued or in-flight work capable of reaching this Join in a later step.
+Buffering a Join result until this callback alone is insufficient.
+
+The next authorized investigation is a **proof-only scheduler prototype** that
+owns every VAW message dispatch and its admission/settlement bookkeeping. Before
+using a ledger in production, define one bounded work identity per admitted
+delivery, prove successor reservation and current-work settlement are atomic,
+and prove nested Fork fan-out and child-Join collapse preserve ancestor
+accounting. Its deterministic cases must cover an admitted duplicate held while
+the final unique arrival is ready, unique-arrival success, nested accounting,
+an unrelated descendant that must not delay the Join, failure/cancellation,
+dispatch or evidence-write failure, stale lineage, and bounded cleanup. The
+prototype is not Agent Framework integration, checkpoint recovery, or public
+runtime evidence. No production runtime change is selected until this
+end-to-end proof passes and the lifecycle/boundary rules are specified.
