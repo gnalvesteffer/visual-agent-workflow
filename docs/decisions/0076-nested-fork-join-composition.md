@@ -276,3 +276,14 @@ reopen successful, failed, and host-cancelled call branches (6/6); neither
 failure nor cancellation emits a joined result or starts Output. Architecture,
 parallel-graph, and user-guide references describe this current boundary. The
 production duplicate-arrival race remains open.
+
+On 2026-11-21, the private scheduler proof was extended to execute a root
+`WorkflowInterfaceCall` and its pinned implementation through the same root
+ledger, event sequencer, and delivery bound. File and SQLite regressions cover
+the implementation's nested Fork/Join unique-success path and a duplicate
+admitted before Join commit; the duplicate fails the child Join and prevents
+the caller's Output from starting (4/4). This proves only the bounded
+proof-scheduler path. Interface calls inside static parallel branches,
+recursive or arbitrary-depth calls, approval/MCP policy, and production
+dispatch integration remain unqualified. The public scheduler and schema
+admission were not changed.

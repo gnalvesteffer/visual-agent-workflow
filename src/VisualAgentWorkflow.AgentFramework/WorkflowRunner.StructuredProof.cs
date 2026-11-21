@@ -1277,9 +1277,6 @@ public sealed partial class WorkflowRunner
         var definition = revision.Definition;
         var dispatchLedger = sharedProofDispatchLedger ??
             (proofDuplicateForkDeliveries is null ? null : new StructuredProofDispatchLedger());
-        if (dispatchLedger is not null && definition.Nodes.Values.Any(node =>
-                node.Type == NodeTypes.WorkflowInterfaceCall))
-            throw new NotSupportedException("The structured scheduler proof does not yet schedule WorkflowInterfaceCall nodes.");
         var ledgerActivations = new ConcurrentDictionary<Guid, Guid>();
         var stagedJoinMessages = new ConcurrentDictionary<Guid, GraphMessage>();
         var resolvedParameters = WorkflowParameters.Resolve(definition, parameters);
@@ -1519,7 +1516,8 @@ public sealed partial class WorkflowRunner
                     else
                         forkTasks.Add(DispatchBranch(target, outgoing, ct, forkCancellation, null));
                     return ValueTask.CompletedTask;
-                }, token, dispatchLedger is not null && node.Type == NodeTypes.WorkflowCall
+                }, token, dispatchLedger is not null &&
+                    node.Type is (NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall)
                     ? ExecuteProofWorkflowCall
                     : null);
 
@@ -1635,7 +1633,8 @@ public sealed partial class WorkflowRunner
                         childInput, childParameters, RecordChild, childToken, activationScopeId: null, emitRunLifecycle: true,
                         gate, afterNodeStarted, stageForkTargetsBeforeDispatch, afterForkTargetStaged,
                         null, null, null, null, null, activationFrameOwner: null,
-                        proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal),
+                        proofDuplicateForkDeliveries: proofDuplicateForkDeliveries ??
+                            new Dictionary<string, int>(StringComparer.Ordinal),
                         sharedProofDispatchLedger: dispatchLedger, initialProofDelivery: childDelivery,
                         proofWorkflowCallDepth: proofWorkflowCallDepth + 1);
                     return childResult.Execution;

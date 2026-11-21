@@ -16983,6 +16983,53 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task StructuredSchedulerProof_AccountsForWorkflowInterfaceChildForkJoin(bool sqlite,
+        bool injectDuplicate)
+    {
+        var revision = NestedParallelWorkflowInterfaceCallRevision();
+        using var runStore = new ProofRunStore(revision, "north", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var duplicateDeliveries = injectDuplicate
+            ? new Dictionary<string, int>(StringComparer.Ordinal) { ["fork:left"] = 1 }
+            : new Dictionary<string, int>(StringComparer.Ordinal);
+        var execution = new WorkflowRunner(agents: new EchoAgentExecutor())
+            .ExecuteStructuredSchedulerProofAsync(runStore.RunId, revision, "north", null, evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }, proofDuplicateForkDeliveries: duplicateDeliveries);
+
+        if (injectDuplicate)
+            await Assert.ThrowsAsync<InvalidOperationException>(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+        else
+            Assert.False((await execution.WaitAsync(TimeSpan.FromSeconds(5))).Failed);
+
+        var events = recorder.Snapshot();
+        Assert.Equal(injectDuplicate ? 2 : 1, events.Count(evt => evt.NodeId == "agent-left" &&
+            evt.Kind == ExecutionEventKinds.NodeCompleted));
+        Assert.Equal(injectDuplicate ? 1 : 0, events.Count(evt => evt.NodeId == "join" && evt.ScopeId == "call" &&
+            evt.Kind == ExecutionEventKinds.NodeFailed));
+        Assert.Equal(injectDuplicate ? 0 : 1, events.Count(evt => evt.NodeId == "join" && evt.ScopeId == "call" &&
+            evt.Kind == ExecutionEventKinds.NodeCompleted));
+        Assert.Equal(injectDuplicate ? 0 : 1, events.Count(evt => evt.NodeId == "output" && evt.ScopeId is null &&
+            evt.Kind == ExecutionEventKinds.NodeStarted));
+        Assert.Contains(events, evt => evt.Kind == (injectDuplicate
+                ? ExecutionEventKinds.SubworkflowFailed
+                : ExecutionEventKinds.SubworkflowCompleted) && evt.ScopeId == "call");
+        Assert.Equal(events.Length, events.Select(evt => evt.Sequence).Distinct().Count());
+        AssertPersistedSequence(runStore, events, injectDuplicate ? "failed" : "completed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(reopened.Events, out var calls));
+        Assert.Equal(injectDuplicate ? "failed" : "completed", Assert.Single(calls!.Calls).State);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task StructuredSchedulerProof_PersistsAndReplaysPinnedChildForkJoin(bool sqlite)
