@@ -16982,6 +16982,40 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(events.Count, events.Select(evt => evt.Sequence).Distinct().Count());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredSchedulerProof_PersistsAndReplaysPinnedChildForkJoin(bool sqlite)
+    {
+        var childDefinition = ParallelBodyDefinition() with
+        {
+            WorkflowId = "structured-proof-call-persisted-child"
+        };
+        WorkflowValidator.ThrowIfInvalid(childDefinition);
+        var child = WorkflowRevision.Create(childDefinition, "structured-proof-call-persisted-child");
+        var parent = CreateWorkflowCallRevision("structured-proof-call-persisted-parent", child);
+        using var runStore = new ProofRunStore(parent, "north", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+
+        var result = await new WorkflowRunner(agents: new EchoAgentExecutor())
+            .ExecuteStructuredSchedulerProofAsync(runStore.RunId, parent, "north", null,
+                evt => { recorder.Append(evt); return ValueTask.CompletedTask; },
+                proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal));
+
+        Assert.False(result.Failed);
+        Assert.NotNull(result.Output);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "completed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(reopened.Events, out var calls));
+        Assert.NotNull(calls);
+        Assert.Equal("completed", Assert.Single(calls.Calls).State);
+        Assert.Contains(reopened.Events, evt => evt.ScopeId == "call" &&
+            evt.NodeId == "join" && evt.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.Contains("Latest run status: completed", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
     private static WorkflowRevision CreatePassthroughRevision(string workflowId)
     {
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input",

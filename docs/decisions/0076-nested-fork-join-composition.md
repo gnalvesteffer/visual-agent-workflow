@@ -1,6 +1,6 @@
 # Decision 0076: Nested Fork/Join composition
 
-**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, Studio insertion/removal and existing-region branch-count editing, versioned activation/arrival playback, File/SQLite reopen, and three-level workflow/project-package round trips are implemented; scheduler-level concurrent duplicate-arrival proof remains open
+**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, Studio insertion/removal and existing-region branch-count editing, versioned activation/arrival playback, File/SQLite reopen, and three-level workflow/project-package round trips are implemented; proof-only admission/drain scheduler passes its duplicate-arrival cases, while production scheduler integration remains open
 
 **Date:** 2026-11-20
 
@@ -250,10 +250,19 @@ ledger while retaining the parent call delivery. Child Fork/Join work inherits
 the parent delivery lineage, and child events pass through the root event
 sequencer with one nested call scope. Focused regressions cover a passthrough
 child, a child Fork/Join, rejection of a second call depth, and shared delivery
-capacity (4/4). This remains proof-only and does not change public execution.
+capacity (4/4). A deterministic File/SQLite test now reopens and passively
+renders a successful call-bearing child Fork/Join history (2/2), including
+reconstruction of the completed call and child Join event scope. The earlier
+duplicate-injection proof also admits the extra delivery before either branch
+starts; the shared ledger holds Join release until that admitted delivery
+settles, and the persisted duplicate outcome has no Join completion or Output
+dispatch. These close only proof-scheduler success-history persistence and the
+bounded admitted-duplicate case. This remains proof-only and does not change
+public execution or resolve the production scheduler race.
 It does not yet qualify parent-fork call composition, `WorkflowInterfaceCall`,
 recursive or arbitrary-depth calls, child failure/cancellation/evidence-write
 cleanup beyond the depth-bound failure case, approval or MCP interactions,
-loops, or File/SQLite persistence and playback for call-bearing scheduler
-histories. Those boundaries must be proven before treating nested calls as a
-general scheduler capability.
+loops, or failure/cancellation call-history persistence. Those boundaries must
+be proven before treating nested calls as a general scheduler capability.
+Architecture and user-guide pages are unchanged because this increment adds
+test-only evidence and makes no user-visible or production runtime change.
