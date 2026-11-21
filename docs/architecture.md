@@ -506,10 +506,15 @@ Schemas 1.14–1.31 support up to four sequential two-branch blocks. Schema 1.32
 Current schema 2.0 allows direct MCP nodes as steps inside a static fork/join
 region. Each invocation retains its node-scoped host grant and audit identity;
 denial, failure, or cancellation suppresses the joined value. Branch-local
-approvals and loops remain unsupported; nested regions have the Core-validation and
-public-runner success support described in the parallel graph contract, while
-Studio authoring and failure/replay behavior remain in progress. Historical schemas
-keep their prior admission rules. See [Decision 0071](decisions/0071-direct-mcp-parallel-branches.md).
+approvals and loops remain unsupported. A pinned WorkflowCall returning
+`string` is also a supported branch step: the child settles before its value
+reaches the Join, and its grants remain host-owned. JSON-result calls are
+rejected by this branch contract. Nested Fork/Join regions have the Core
+validation and public-runner success support described in the parallel graph
+contract, while Studio authoring and failure/replay behavior remain in progress.
+Historical schemas keep their prior admission rules. See [Decision
+0071](decisions/0071-direct-mcp-parallel-branches.md) and [Decision
+0076](decisions/0076-nested-fork-join-composition.md).
 
 Schema 1.7 optionally embeds reviewed text-only skill revisions and per-agent structured user-message parts, plus an optional low/medium/high reasoning effort request. Schema 1.8 adds typed scalar parameters and can expose an allowlisted choice parameter as an agent reasoning-effort input. The agent's existing `instructions` remain the system message; the user-message template resolves only incoming text and declared parameters. A run records the resolved model request, reasoning preference, and exact assigned skill IDs, versions, and content hashes. Providers advertise whether the adapter can send this option; compatible endpoints may still ignore it. Imported skill text cannot grant MCP access. Schema 1.29 adds mutually exclusive static-or-parameter bindings for an Agent node’s per-response output-token cap and parent-plus-delegate total-token budget. Their integer workflow parameters are range-checked both at definition validation and run admission; the resolved value is recorded in `agent.started`, while the full effective parameter map is stored on the run header. Model identity and capability grants remain host-resolved. Studio's local Skill library manages revisions and folders, while the published definition carries the assigned revision text; a consumer service can execute it without Studio. This is a bounded text capability, not arbitrary skill scripts or remote skill resources.
 

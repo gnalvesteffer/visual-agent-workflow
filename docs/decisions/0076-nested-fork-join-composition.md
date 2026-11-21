@@ -1,6 +1,6 @@
 # Decision 0076: Nested Fork/Join composition
 
-**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, Studio insertion/removal and existing-region branch-count editing, versioned activation/arrival playback, File/SQLite reopen, and three-level workflow/project-package round trips are implemented; proof-only admission/drain scheduler passes its duplicate-arrival cases, while production scheduler integration remains open
+**Status:** Accepted target; static schema-2.0 ownership validation, public success/failure/cancellation proofs, Studio insertion/removal and existing-region branch-count editing, versioned activation/arrival playback, File/SQLite reopen, and three-level workflow/project-package round trips are implemented. A string-result WorkflowCall is allowed in a static branch; public runner and File/SQLite proofs cover child success, failure, and host cancellation with no partial Join result. Proof-only admission/drain scheduler passes its duplicate-arrival cases, while production duplicate-arrival integration remains open.
 
 **Date:** 2026-11-20
 
@@ -258,13 +258,21 @@ host cancellation settles the child call as cancelled. The earlier
 duplicate-injection proof also admits the extra delivery before either branch
 starts; the shared ledger holds Join release until that admitted delivery
 settles, and the persisted duplicate outcome has no Join completion or Output
-dispatch. These close only proof-scheduler success-history persistence and the
-failure/cancellation history persistence and bounded admitted-duplicate case.
+dispatch. These close only proof-scheduler success-history persistence, failure/
+cancellation history persistence, and the bounded admitted-duplicate case.
 This remains proof-only and does not change public execution or resolve the
 production scheduler race.
-It does not yet qualify parent-fork call composition, `WorkflowInterfaceCall`,
-recursive or arbitrary-depth calls, evidence-write cleanup, approval or MCP
-interactions, or loops. Those boundaries must be proven before treating nested
-calls as a general scheduler capability.
-Architecture and user-guide pages are unchanged because this increment adds
-test-only evidence and makes no user-visible or production runtime change.
+At this stage, it did not yet qualify parent-fork call composition,
+`WorkflowInterfaceCall`, recursive or arbitrary-depth calls, evidence-write
+cleanup, approval or MCP interactions, or loops. Those boundaries must be
+proven before treating nested calls as a general scheduler capability. The
+following public-runner increment has since closed the bounded parent-fork
+call-composition case.
+Unified schema 2.0 now admits a pinned string-result WorkflowCall as a
+static branch step, and the public runner waits for the child result before
+completing the parent Join. Core regressions accept string results, reject JSON
+results, and verify canonical serialization. Public File/SQLite regressions
+reopen successful, failed, and host-cancelled call branches (6/6); neither
+failure nor cancellation emits a joined result or starts Output. Architecture,
+parallel-graph, and user-guide references describe this current boundary. The
+production duplicate-arrival race remains open.

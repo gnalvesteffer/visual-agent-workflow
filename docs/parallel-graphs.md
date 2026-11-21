@@ -10,6 +10,13 @@ external effects in sibling branches are not rolled back. Approval nodes,
 loops, and other unsupported control-flow nodes remain invalid inside these
 regions. Historical schemas retain their previous branch rules.
 
+Unified schema 2.0 also allows a pinned `WorkflowCall` with a string result as
+a branch step. The child call must settle before that branch can arrive at its
+matching Join. JSON-result calls remain invalid as branch steps because this
+Join contract accepts branch values as strings. Host grants and child workflow
+identity continue to be validated and enforced by the existing call and tool
+boundaries; a branch placement does not grant capabilities.
+
 Nested Fork/Join is a parity target for unified schema 2.0, not yet a complete
 supported authoring/runtime feature. Core validation now admits arbitrary
 finite-depth nested regions when each child has exactly one parent-branch

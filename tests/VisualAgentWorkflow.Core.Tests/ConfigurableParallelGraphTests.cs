@@ -53,6 +53,68 @@ public sealed class ConfigurableParallelGraphTests
         Assert.Empty(WorkflowValidator.Validate(definition));
     }
 
+    [Theory]
+    [InlineData("string", true)]
+    [InlineData("json", false)]
+    public void UnifiedGraphAllowsOnlyStringResultWorkflowCallsInsideStaticBranches(string outputType,
+        bool expectedValid)
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = outputType });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty;
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty;
+        if (outputType == WorkflowDataTypes.Json)
+        {
+            nodes = nodes.Add("agent", new(NodeTypes.Agent, "1.0.0",
+                Agent: new("test.parallel", null, "Structured child result", [])
+                { RequireStructuredResult = true }));
+            data = data
+                .Add("input-agent", new(new("input", "out"), new("agent", "in"), "data"))
+                .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data"));
+            execution = execution
+                .Add("input-agent", Execution("input", "then", "agent", "execute"))
+                .Add("agent-output", Execution("agent", "out", "output", "execute"));
+        }
+        else
+        {
+            data = data.Add("input-output", new(new("input", "out"), new("output", "in"), "data"));
+            execution = execution.Add("input-output", Execution("input", "then", "output", "execute"));
+        }
+        var childDefinition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "parallel-call-contract-child", "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+        var child = WorkflowRevision.Create(childDefinition, "parallel-call-child");
+        var nested = NestedUnifiedParallelDefinition();
+        var definition = nested with
+        {
+            Nodes = nested.Nodes.SetItem("agent-research",
+                new(NodeTypes.WorkflowCall, "1.0.0")
+                {
+                    WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1,
+                        child.ContentHash, child.Definition)
+                }),
+            Connections = nested.Connections.SetItem("input-call-research",
+                new(new("input", "out"), new("agent-research", "in"), "data"))
+        };
+
+        var issues = WorkflowValidator.Validate(definition);
+
+        if (expectedValid)
+        {
+            Assert.Empty(issues);
+            var serialized = WorkflowJson.Serialize(definition);
+            var restored = WorkflowJson.Deserialize(serialized);
+            Assert.Equal(serialized, WorkflowJson.Serialize(restored));
+            Assert.Equal(WorkflowSchemaVersions.UnifiedWorkflowGraph, restored.SchemaVersion);
+        }
+        else
+            Assert.Contains(issues, issue => issue.Code == "parallel.branch.node" &&
+                issue.Path == "nodes.agent-research");
+    }
+
     [Fact]
     public void UnifiedGraphAllowsNestedForkJoinOwnedByOneOuterBranch()
     {

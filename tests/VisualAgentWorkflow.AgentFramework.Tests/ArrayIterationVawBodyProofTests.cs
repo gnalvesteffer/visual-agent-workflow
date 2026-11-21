@@ -17068,6 +17068,81 @@ public sealed class ArrayIterationVawBodyProofTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UnifiedParallelBranchWaitsForPinnedStringWorkflowCallBeforeJoin(bool sqlite)
+    {
+        var child = CreateParallelStringResultRevision("parallel-call-child");
+        var parent = CreateParallelWorkflowCallRevision("parallel-call-parent", child);
+        using var runStore = new ProofRunStore(parent, "north", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+
+        var result = await new WorkflowRunner(agents: new EchoAgentExecutor())
+            .ExecuteWithOutcomeAsync(runStore.RunId, parent, "north", null,
+                evt => { recorder.Append(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        using var output = JsonDocument.Parse(Assert.IsType<string>(result.Output));
+        Assert.Equal("{\"query\":\"north-agent-left\"}", output.RootElement.GetProperty("left").GetString());
+        Assert.Equal("{\"query\":\"north-agent-right\"}",
+            output.RootElement.GetProperty("right").GetString());
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "completed");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowEvidence &&
+            evt.NodeId == "agent-left");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(reopened.Events, out var calls));
+        Assert.NotNull(calls);
+        Assert.Equal("completed", Assert.Single(calls.Calls).State);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task UnifiedParallelBranchCallFailureOrCancellationSuppressesJoin(bool sqlite, bool cancel)
+    {
+        var child = CreateStringAgentRevision("parallel-call-terminal-child", cancel ? "agent-right" : "child-agent");
+        var parent = CreateParallelWorkflowCallRevision("parallel-call-terminal-parent", child);
+        using var runStore = new ProofRunStore(parent, "north", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var heldAgent = cancel ? new HeldRightBranchAgentExecutor() : null;
+        IAgentNodeExecutor agents = cancel
+            ? heldAgent!
+            : new EchoAgentExecutor(failNodeId: "child-agent");
+        using var cancellation = new CancellationTokenSource();
+
+        var execution = new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(runStore.RunId, parent, "north",
+            null, evt => { recorder.Append(evt); return ValueTask.CompletedTask; }, cancellation.Token);
+        if (cancel)
+        {
+            await heldAgent!.RightBranchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+        }
+
+        var failure = await Record.ExceptionAsync(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.NotNull(failure);
+        Assert.Equal(cancel, failure is OperationCanceledException);
+        var expectedState = cancel ? "cancelled" : "failed";
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, expectedState);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "join" &&
+            evt.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "output" &&
+            evt.Kind == ExecutionEventKinds.NodeStarted);
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(reopened.Events, out var calls));
+        Assert.NotNull(calls);
+        Assert.Equal(expectedState, Assert.Single(calls.Calls).State);
+    }
+
     private static WorkflowRevision CreatePassthroughRevision(string workflowId)
     {
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input",
@@ -17080,6 +17155,47 @@ public sealed class ArrayIterationVawBodyProofTests
             ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
                 .WithComparers(StringComparer.Ordinal)
                 .Add("input-output", Edge("input", "then", "output", "execute"))
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return WorkflowRevision.Create(definition, workflowId + "-proof");
+    }
+
+    private static WorkflowRevision CreateStringAgentRevision(string workflowId, string agentNodeId)
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add(agentNodeId, new(NodeTypes.Agent, "1.0.0",
+                    Agent: new("proof.echo-agent", null, "Child agent", [])))
+                .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input-agent", new(new("input", "out"), new(agentNodeId, "in"), "data"))
+                .Add("agent-output", new(new(agentNodeId, "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .WithComparers(StringComparer.Ordinal)
+                .Add("input-agent", Edge("input", "then", agentNodeId, "execute"))
+                .Add("agent-output", Edge(agentNodeId, "out", "output", "execute"))
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return WorkflowRevision.Create(definition, workflowId + "-proof");
+    }
+
+    private static WorkflowRevision CreateParallelStringResultRevision(string workflowId)
+    {
+        var definition = ParallelBodyDefinition();
+        var output = definition.Nodes["output"] with { OutputDataType = WorkflowDataTypes.String };
+        definition = definition with
+        {
+            WorkflowId = workflowId,
+            Nodes = definition.Nodes.SetItem("output", output)
+                .Add("select-left", new(NodeTypes.JsonSelectString, "1.0.0")
+                {
+                    JsonPropertySelection = new("/left")
+                }),
+            Connections = definition.Connections.Remove("join-output")
+                .Add("join-select-left", new(new("join", "out"), new("select-left", "in"), "data"))
+                .Add("select-left-output", new(new("select-left", "out"), new("output", "in"), "data"))
         };
         WorkflowValidator.ThrowIfInvalid(definition);
         return WorkflowRevision.Create(definition, workflowId + "-proof");
@@ -17109,6 +17225,25 @@ public sealed class ArrayIterationVawBodyProofTests
                 .Add("call-output", Edge("call", "out", "output", "execute"))
         };
         WorkflowValidator.ThrowIfInvalid(definition);
+        return WorkflowRevision.Create(definition, workflowId + "-proof");
+    }
+
+    private static WorkflowRevision CreateParallelWorkflowCallRevision(string workflowId, WorkflowRevision child)
+    {
+        var definition = ParallelBodyDefinition();
+        var callNode = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1,
+                child.ContentHash, child.Definition)
+        };
+        definition = definition with
+        {
+            WorkflowId = workflowId,
+            Nodes = definition.Nodes.SetItem("agent-left", callNode),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("left-agent")
+                .Add("anchor-call", Edge("anchor-left", "then", "agent-left", "execute"))
+        };
         return WorkflowRevision.Create(definition, workflowId + "-proof");
     }
 

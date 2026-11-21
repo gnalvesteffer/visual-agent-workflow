@@ -2926,11 +2926,13 @@ public static class WorkflowValidator
                         return ContinueFrom(childOutput[0]);
                     }
                     if (!definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) || target is null ||
-                        target.Type is not (NodeTypes.Agent or NodeTypes.BooleanBranch or NodeTypes.McpTool) ||
+                        target.Type is not (NodeTypes.Agent or NodeTypes.BooleanBranch or NodeTypes.McpTool or NodeTypes.WorkflowCall) ||
+                        target.Type == NodeTypes.WorkflowCall &&
+                            WorkflowPorts.Outputs(target).SingleOrDefault()?.DataType != WorkflowDataTypes.String ||
                         target.Type == NodeTypes.McpTool && definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph ||
                         edge.Target.PortId != "execute")
                     {
-                        error("parallel.branch.node", $"nodes.{edge.Target.NodeId}", "A branch outcome must remain inside its owner and reach its matching join.");
+                        error("parallel.branch.node", $"nodes.{edge.Target.NodeId}", "A branch outcome must remain inside its owner and reach its matching join; WorkflowCall steps must return string values.");
                         return false;
                     }
                     return WalkPath(edge.Target.NodeId, isAnchor: false);
@@ -2957,11 +2959,12 @@ public static class WorkflowValidator
                         NodeTypes.BooleanBranch => new[] { "true", "false" },
                         NodeTypes.Agent when node.Agent?.Routes is not { IsDefaultOrEmpty: false } => new[] { "out" },
                         NodeTypes.McpTool => new[] { "then" },
+                        NodeTypes.WorkflowCall when WorkflowPorts.Outputs(node).SingleOrDefault()?.DataType == WorkflowDataTypes.String => new[] { "out" },
                         _ => []
                     };
                     if (expectedPins.Length == 0)
                     {
-                        error("parallel.branch.node", $"nodes.{current}", "A parallel branch may contain its anchor, supported Agent and MCP steps, Boolean Branches, and nested Fork/Join regions.");
+                        error("parallel.branch.node", $"nodes.{current}", "A parallel branch may contain its anchor, Agents, direct MCP tools, string-result WorkflowCalls, Boolean Branches, and nested Fork/Join regions.");
                         path.Remove(current);
                         return false;
                     }
