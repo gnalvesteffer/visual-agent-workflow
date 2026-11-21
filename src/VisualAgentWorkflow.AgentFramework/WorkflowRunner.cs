@@ -2061,12 +2061,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         /// <summary>Invokes node behavior while leaving all execution-edge scheduling to the caller.</summary>
         public ValueTask<GraphMessage> HandleForStructuredSchedulerAsync(GraphMessage received,
             Func<GraphMessage, string, CancellationToken, ValueTask> dispatch,
-            CancellationToken cancellationToken = default) =>
-            HandleCoreAsync(received, dispatch, cancellationToken);
+            CancellationToken cancellationToken = default,
+            Func<WorkflowCallConfiguration, string, IReadOnlyDictionary<string, string>?, string?,
+                CancellationToken, Task<WorkflowExecutionResult>>? structuredProofWorkflowCall = null) =>
+            HandleCoreAsync(received, dispatch, cancellationToken, structuredProofWorkflowCall);
 
         private async ValueTask<GraphMessage> HandleCoreAsync(GraphMessage received,
             Func<GraphMessage, string, CancellationToken, ValueTask> dispatch,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            Func<WorkflowCallConfiguration, string, IReadOnlyDictionary<string, string>?, string?,
+                CancellationToken, Task<WorkflowExecutionResult>>? structuredProofWorkflowCall = null)
         {
             var activeCollaborationRuntime = received.CollaborationRuntime ?? collaborationRuntime;
             using var activationScope = dataEvaluator?.EnterActivation(received.ActivationFrame);
@@ -2351,9 +2355,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                             childCall = new WorkflowCallConfiguration(child.WorkflowId, child.RevisionId,
                                 child.Version, child.ContentHash, child.Definition);
                         }
-                        childOutcome = await ExecuteWorkflowCall(childCall!, message, cancellationToken,
-                            CurrentParameters, activeActivationFrame.Value?.ScopeId ?? scopeId,
-                            callScopeCancellation);
+                        childOutcome = structuredProofWorkflowCall is null
+                            ? await ExecuteWorkflowCall(childCall!, message, cancellationToken,
+                                CurrentParameters, activeActivationFrame.Value?.ScopeId ?? scopeId,
+                                callScopeCancellation)
+                            : await structuredProofWorkflowCall(childCall!, message, CurrentParameters,
+                                activeActivationFrame.Value?.ScopeId ?? scopeId, cancellationToken);
                         callSettlement?.TrySettleChild(childOutcome.OutcomeUnknown
                             ? SequenceWorkflowCallSettlementState.Unknown
                             : childOutcome.Failed

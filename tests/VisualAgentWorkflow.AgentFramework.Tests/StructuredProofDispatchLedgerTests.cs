@@ -119,4 +119,21 @@ public sealed class StructuredProofDispatchLedgerTests
         Assert.Equal(0, arrivalLedger.OutstandingDeliveryCount);
         await Assert.ThrowsAsync<OperationCanceledException>(() => pending);
     }
+
+    [Fact]
+    public void ChildDeliverySharesAdmissionBoundAndRetainsParentUntilChildSettles()
+    {
+        var ledger = new StructuredProofDispatchLedger(maximumOutstandingDeliveries: 2);
+        var parent = ledger.CreateRoot();
+        var child = ledger.AdmitChildDelivery(parent);
+
+        Assert.Equal(2, ledger.OutstandingDeliveryCount);
+        Assert.Throws<InvalidOperationException>(() => ledger.AdmitChildDelivery(parent));
+        Assert.Equal(2, ledger.OutstandingDeliveryCount);
+
+        Assert.Empty(ledger.Transition(child, []));
+        Assert.Equal(1, ledger.OutstandingDeliveryCount);
+        Assert.Empty(ledger.Transition(parent, []));
+        Assert.Equal(0, ledger.OutstandingDeliveryCount);
+    }
 }

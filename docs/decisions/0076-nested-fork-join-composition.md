@@ -241,3 +241,19 @@ semantics remain open. MCP authority and evidence boundaries, failed/cancelled
 collaboration persistence/playback, nested workflow-call integration, and
 production scheduler persistence/playback integration remain open before any
 production runtime decision.
+
+On 2026-11-21, a three-role review adjudicated the next proof boundary for
+nested workflow calls. Separate child ledgers were rejected for this increment
+because they do not establish a root-wide outstanding-work bound. The private
+proof scheduler now admits one pinned `WorkflowCall` child root into the same
+ledger while retaining the parent call delivery. Child Fork/Join work inherits
+the parent delivery lineage, and child events pass through the root event
+sequencer with one nested call scope. Focused regressions cover a passthrough
+child, a child Fork/Join, rejection of a second call depth, and shared delivery
+capacity (4/4). This remains proof-only and does not change public execution.
+It does not yet qualify parent-fork call composition, `WorkflowInterfaceCall`,
+recursive or arbitrary-depth calls, child failure/cancellation/evidence-write
+cleanup beyond the depth-bound failure case, approval or MCP interactions,
+loops, or File/SQLite persistence and playback for call-bearing scheduler
+histories. Those boundaries must be proven before treating nested calls as a
+general scheduler capability.

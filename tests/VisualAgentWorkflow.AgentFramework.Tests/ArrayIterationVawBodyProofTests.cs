@@ -16913,6 +16913,120 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Fact]
+    public async Task StructuredSchedulerProof_SharesDispatchLedgerAcrossPinnedWorkflowCall()
+    {
+        var child = CreatePassthroughRevision("structured-proof-call-child");
+        var parent = CreateWorkflowCallRevision("structured-proof-call-parent", child);
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), parent,
+            "call input", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal));
+
+        Assert.Equal("call input", result.Output);
+        Assert.Equal(events.Count, events.Select(evt => evt.Sequence).Distinct().Count());
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowStarted && evt.NodeId is null);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.NodeId is null);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowEvidence && evt.NodeId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
+    }
+
+    [Fact]
+    public async Task StructuredSchedulerProof_RejectsWorkflowCallBeyondBoundedChildDepth()
+    {
+        var grandchild = CreatePassthroughRevision("structured-proof-call-grandchild");
+        var child = CreateWorkflowCallRevision("structured-proof-call-child", grandchild);
+        var parent = CreateWorkflowCallRevision("structured-proof-call-parent", child);
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner().ExecuteStructuredSchedulerProofAsync(
+            Guid.NewGuid(), parent, "call input", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal)));
+
+        Assert.IsType<NotSupportedException>(failure);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
+    }
+
+    [Fact]
+    public async Task StructuredSchedulerProof_AccountsForChildForkJoinInRootLedger()
+    {
+        var childDefinition = ParallelBodyDefinition() with
+        {
+            WorkflowId = "structured-proof-call-parallel-child"
+        };
+        WorkflowValidator.ThrowIfInvalid(childDefinition);
+        var child = WorkflowRevision.Create(childDefinition, "structured-proof-call-parallel-child");
+        var parent = CreateWorkflowCallRevision("structured-proof-call-parallel-parent", child);
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(agents: new EchoAgentExecutor()).ExecuteStructuredSchedulerProofAsync(
+            Guid.NewGuid(), parent, "north", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal));
+
+        using var output = JsonDocument.Parse(Assert.IsType<string>(result.Output));
+        Assert.Equal("{\"query\":\"north-agent-left\"}", output.RootElement.GetProperty("left").GetString());
+        Assert.Equal("{\"query\":\"north-agent-right\"}", output.RootElement.GetProperty("right").GetString());
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join" &&
+            evt.ScopeId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted);
+        Assert.Equal(events.Count, events.Select(evt => evt.Sequence).Distinct().Count());
+    }
+
+    private static WorkflowRevision CreatePassthroughRevision(string workflowId)
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input-output", new(new("input", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .WithComparers(StringComparer.Ordinal)
+                .Add("input-output", Edge("input", "then", "output", "execute"))
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return WorkflowRevision.Create(definition, workflowId + "-proof");
+    }
+
+    private static WorkflowRevision CreateWorkflowCallRevision(string workflowId, WorkflowRevision child)
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("call", new(NodeTypes.WorkflowCall, "1.0.0")
+                {
+                    WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1,
+                        child.ContentHash, child.Definition)
+                })
+                .Add("output", new(NodeTypes.Output, "1.0.0")
+                {
+                    OutputDataType = child.Definition.Nodes["output"].OutputDataType ?? WorkflowDataTypes.String
+                }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input-call", new(new("input", "out"), new("call", "in"), "data"))
+                .Add("call-output", new(new("call", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .WithComparers(StringComparer.Ordinal)
+                .Add("input-call", Edge("input", "then", "call", "execute"))
+                .Add("call-output", Edge("call", "out", "output", "execute"))
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return WorkflowRevision.Create(definition, workflowId + "-proof");
+    }
+
+    [Fact]
     public async Task StructuredSchedulerLedger_HoldsAdmittedDuplicateUntilJoinFailsWithoutCompletion()
     {
         var revision = WorkflowRevision.Create(ParallelBodyDefinition(), "structured-ledger-duplicate-proof");

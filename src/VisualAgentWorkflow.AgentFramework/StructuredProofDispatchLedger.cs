@@ -50,6 +50,21 @@ internal sealed class StructuredProofDispatchLedger(int maximumOutstandingDelive
         }
     }
 
+    /// <summary>Admits child-workflow root work while retaining the parent call delivery.</summary>
+    public Delivery AdmitChildDelivery(Delivery parent)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+        lock (sync)
+        {
+            EnsureActive(parent);
+            EnsureCapacity(1);
+            var child = new Delivery(Guid.NewGuid(), parent.Lineage);
+            active.Add(child.Id, child);
+            IncrementLineage(child, 1);
+            return child;
+        }
+    }
+
     public (Guid ActivationId, ImmutableArray<Delivery> Deliveries) Fork(Delivery current,
         IEnumerable<string> branchIds)
     {

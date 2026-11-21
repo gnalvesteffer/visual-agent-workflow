@@ -1258,7 +1258,10 @@ public sealed partial class WorkflowRunner
         StructuredProofSession? retainedSession,
         IReadOnlySet<string>? proofBreakNodeIds,
         StructuredActivationFrameOwner? activationFrameOwner = null,
-        IReadOnlyDictionary<string, int>? proofDuplicateForkDeliveries = null)
+        IReadOnlyDictionary<string, int>? proofDuplicateForkDeliveries = null,
+        StructuredProofDispatchLedger? sharedProofDispatchLedger = null,
+        StructuredProofDispatchLedger.Delivery? initialProofDelivery = null,
+        int proofWorkflowCallDepth = 0)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
@@ -1272,10 +1275,11 @@ public sealed partial class WorkflowRunner
         var collaborationTimeout = ResolveCollaborationTimeout(collaborationRegion, collaborationOptions);
 
         var definition = revision.Definition;
-        var dispatchLedger = proofDuplicateForkDeliveries is null ? null : new StructuredProofDispatchLedger();
-        if (dispatchLedger is not null && definition.Nodes.Values.Any(node => node.Type is
-                NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall))
-            throw new NotSupportedException("The proof dispatch ledger does not yet schedule nested workflow-call nodes.");
+        var dispatchLedger = sharedProofDispatchLedger ??
+            (proofDuplicateForkDeliveries is null ? null : new StructuredProofDispatchLedger());
+        if (dispatchLedger is not null && definition.Nodes.Values.Any(node =>
+                node.Type == NodeTypes.WorkflowInterfaceCall))
+            throw new NotSupportedException("The structured scheduler proof does not yet schedule WorkflowInterfaceCall nodes.");
         var ledgerActivations = new ConcurrentDictionary<Guid, Guid>();
         var stagedJoinMessages = new ConcurrentDictionary<Guid, GraphMessage>();
         var resolvedParameters = WorkflowParameters.Resolve(definition, parameters);
@@ -1360,7 +1364,7 @@ public sealed partial class WorkflowRunner
             var rootMessage = new GraphMessage(input, null, null, DataType: inputType,
                 ActivationFrame: activationFrame, CollaborationRuntime: collaborationRuntime);
             var output = await DispatchNode(definition.EntryNodeId, rootMessage, schedulerCancellation.Token,
-                dispatchLedger?.CreateRoot());
+                initialProofDelivery ?? dispatchLedger?.CreateRoot());
             if (output is null) throw new InvalidOperationException("The structured proof produced no workflow output.");
             if (output.ActivationBreakRequest is { } breakRequest)
                 return new(new(null, false, HasOutput: false), breakRequest);
@@ -1515,7 +1519,9 @@ public sealed partial class WorkflowRunner
                     else
                         forkTasks.Add(DispatchBranch(target, outgoing, ct, forkCancellation, null));
                     return ValueTask.CompletedTask;
-                }, token);
+                }, token, dispatchLedger is not null && node.Type == NodeTypes.WorkflowCall
+                    ? ExecuteProofWorkflowCall
+                    : null);
 
                 if (result.ActivationBreakRequest is not null) return result;
 
@@ -1580,6 +1586,60 @@ public sealed partial class WorkflowRunner
                 }
                 if (result.SourcePort == "parallel.pending") return null;
                 return await DispatchScheduledResult(nodeId, result, token, proofDelivery);
+
+                async Task<WorkflowExecutionResult> ExecuteProofWorkflowCall(WorkflowCallConfiguration call,
+                    string childInput, IReadOnlyDictionary<string, string>? currentParameters,
+                    string? currentScopeId, CancellationToken childToken)
+                {
+                    if (proofWorkflowCallDepth != 0)
+                        throw new NotSupportedException("The structured scheduler proof currently bounds WorkflowCall nesting to one child level.");
+                    var parentDelivery = proofDelivery
+                        ?? throw new InvalidOperationException("Proof WorkflowCall dispatch has no admitted delivery identity.");
+                    var childDelivery = dispatchLedger!.AdmitChildDelivery(parentDelivery);
+                    var childRevision = WorkflowRevision.Rehydrate(call.RevisionId, call.Definition,
+                        "embedded-workflow-prefab", null, DateTimeOffset.UnixEpoch, call.ContentHash);
+                    var childScope = currentScopeId is null ? nodeId : $"{currentScopeId}/{nodeId}";
+                    IReadOnlyDictionary<string, string>? childParameters = call.ParameterMappings is { Length: > 0 } mappings
+                        ? mappings.ToDictionary(mapping => mapping.ChildParameterId,
+                            mapping => currentParameters![mapping.ParentParameterId], StringComparer.Ordinal)
+                        : null;
+
+                    async ValueTask RecordChild(ExecutionEvent childEvent)
+                    {
+                        var kind = childEvent.Kind switch
+                        {
+                            ExecutionEventKinds.Started => ExecutionEventKinds.SubworkflowStarted,
+                            ExecutionEventKinds.Completed => ExecutionEventKinds.SubworkflowCompleted,
+                            ExecutionEventKinds.Terminated => ExecutionEventKinds.SubworkflowTerminated,
+                            ExecutionEventKinds.Failed => ExecutionEventKinds.SubworkflowFailed,
+                            ExecutionEventKinds.Cancelled => ExecutionEventKinds.SubworkflowCancelled,
+                            ExecutionEventKinds.OutcomeUnknown => ExecutionEventKinds.SubworkflowOutcomeUnknown,
+                            _ => childEvent.Kind
+                        };
+                        var nestedScope = childEvent.ScopeId is null
+                            ? childScope
+                            : $"{childScope}/{childEvent.ScopeId}";
+                        await Emit(kind, childEvent.NodeId, childEvent.InvocationId, childEvent.ConnectionId,
+                            childEvent.Data, nestedScope);
+                        if (kind is ExecutionEventKinds.SubworkflowStarted or ExecutionEventKinds.SubworkflowCompleted or
+                            ExecutionEventKinds.SubworkflowTerminated or ExecutionEventKinds.SubworkflowFailed or
+                            ExecutionEventKinds.SubworkflowCancelled or ExecutionEventKinds.SubworkflowOutcomeUnknown)
+                            await Emit(ExecutionEventKinds.SubworkflowEvidence, nodeId, childEvent.InvocationId,
+                                childEvent.ConnectionId,
+                                new WorkflowCallLifecycleEvidence(kind, nodeId, childRevision.Definition.WorkflowId,
+                                    childRevision.RevisionId, childRevision.ContentHash, nestedScope,
+                                    childEvent.Data).Serialize(), nestedScope);
+                    }
+
+                    var childResult = await ExecuteStructuredSchedulerProofCoreAsync(runId, childRevision,
+                        childInput, childParameters, RecordChild, childToken, activationScopeId: null, emitRunLifecycle: true,
+                        gate, afterNodeStarted, stageForkTargetsBeforeDispatch, afterForkTargetStaged,
+                        null, null, null, null, null, activationFrameOwner: null,
+                        proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal),
+                        sharedProofDispatchLedger: dispatchLedger, initialProofDelivery: childDelivery,
+                        proofWorkflowCallDepth: proofWorkflowCallDepth + 1);
+                    return childResult.Execution;
+                }
 
                 async Task<(GraphMessage? Message, Exception? Error)> DispatchBranch(string target,
                     GraphMessage outgoing, CancellationToken branchToken, CancellationTokenSource? sharedCancellation,
