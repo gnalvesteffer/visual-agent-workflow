@@ -614,6 +614,15 @@ public static class WorkflowNodeDescriptorResolver
         var inputPorts = descriptor.Ports
             .Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data)
             .ToArray();
+        var persistedPaths = new List<ImmutableArray<string>>(persisted.Length);
+        foreach (var argument in persisted)
+        {
+            if (argument is null || !WorkflowMcpInputPath.TryGetSegments(argument, out var path) ||
+                persistedPaths.Any(existing => WorkflowMcpInputPath.IsOverlappingPath(existing, path)))
+                return false;
+            persistedPaths.Add(path);
+        }
+
         var resolved = ImmutableArray.CreateBuilder<WorkflowMcpArgumentDescriptor>(inputPorts.Length);
         foreach (var port in inputPorts)
         {
@@ -671,7 +680,7 @@ public static class WorkflowNodeDescriptorResolver
                 ? mcpInputs?.FirstOrDefault(candidate => candidate is not null && candidate.Id == port.Id)
                 : null;
             ports.Add(new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType,
-                DisplayName: interfaceField?.DisplayName)
+                DisplayName: interfaceField?.DisplayName ?? (mcpPort is not null ? WorkflowMcpInputPath.DisplayName(mcpPort) : null))
             {
                 Description = effectiveNode.Type == NodeTypes.McpTool && discoveredMcpInputDescriptions is not null &&
                     discoveredMcpInputDescriptions.TryGetValue(port.Id, out var description) ? description : null,

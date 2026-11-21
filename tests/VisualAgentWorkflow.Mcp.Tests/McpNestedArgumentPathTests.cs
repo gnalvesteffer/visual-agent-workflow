@@ -112,6 +112,23 @@ public sealed class McpNestedArgumentPathTests
     }
 
     [Fact]
+    public void CreateNestedInputPorts_EmitsPersistableDefinitionsForNestedFields()
+    {
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","additionalProperties":false,"properties":{"request":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["name"]}},"required":["request"]}
+            """);
+
+        var ports = McpToolInputSchemas.CreateNestedInputPorts(schema.RootElement);
+
+        var name = Assert.Single(ports);
+        Assert.Equal("name", name.Name);
+        Assert.Equal("string", name.DataType);
+        Assert.True(name.Required);
+        Assert.Equal("/request/name", name.JsonPointer);
+        Assert.Matches("^arg\\.nested\\.[0-9a-f]{64}$", name.Id);
+    }
+
+    [Fact]
     public void TryReconstructArguments_PreservesComplexSiblingsAndDoesNotApplySchemaDefaults()
     {
         using var schema = JsonDocument.Parse("""

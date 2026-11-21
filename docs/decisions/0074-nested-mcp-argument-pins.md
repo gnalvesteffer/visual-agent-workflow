@@ -1,6 +1,6 @@
 # Decision 0074: Bounded proof for nested MCP argument pins
 
-**Status:** REVISE; bounded non-approval evidence redaction is implemented, nested pin proof and authoring remain gated
+**Status:** REVISE; bounded unified-schema non-approval nested pins are being integrated; broader proof and approval paths remain gated
 
 **Date:** 2026-11-19
 
@@ -25,12 +25,14 @@ authority.
 
 ## Adjudicated direction
 
-The three-role review returned **REVISE**. Proceed with a bounded, non-public
-proof for explicit nested object field pins. Do not add Studio authoring,
-public/package admission, or new persisted invocation-value evidence until the
-proof establishes an argument-redaction contract and compatibility behavior.
-Existing top-level pins and JSON-valued object/array inputs keep their current
-meaning and remain available throughout the proof.
+The three-role review returned **REVISE** and ordered the work as mapper hardening
+followed by a bounded unified-schema integration. The mapper defects are fixed.
+The current increment now integrates canonical nested paths into schema 2.0
+persistence, Core descriptors, validation, Studio discovery, and the production
+runner for non-approval calls. This remains a bounded vertical slice, not a
+claim that all proof gates or Blueprint parity are complete. Preserve existing
+top-level pin IDs and JSON-valued arrays/complex siblings. Approval-wrapped
+calls remain gated by the protected exact-action path in Decision 0075.
 
 The eventual representation should identify schema fields by stable property
 paths rather than display labels, property ordering, or discovery-time numeric
@@ -40,9 +42,9 @@ Pins for overlapping parent and descendant paths must be rejected rather than
 resolved by incidental ordering. Defaults remain annotations and are not
 silently inserted. Broker schema and grant checks remain mandatory at dispatch.
 
-## Required proof gates
+## Remaining proof gates
 
-Before enabling nested pins in authoring or runtime admission:
+Before considering the nested-pin slice complete:
 
 1. Prove one bounded closed-object shape with deterministic property-path and
    pin identity, one required scalar child, one optional child, and a static
@@ -96,49 +98,30 @@ Schema support, or Blueprint parity.
 
 ## Evidence and follow-up
 
-The first proof-only implementation adds an internal candidate mapper for one
-required, closed object containing scalar leaves, reachable through at most two
-required, closed object segments. Other static fields, including bounded arrays,
-remain intact. Property segments use RFC 6901 escaping and nested pin IDs derive
-from the exact case-sensitive pointer using SHA-256. Focused MCP tests cover
-delimiter escaping, literal-dot distinction, rename/case identity changes,
-property reordering, requiredness, bounds, rejection of open or multiple
-nested objects, and collisions against top-level argument IDs. Mixed nested
-objects can expose supported scalar leaves while array and object siblings stay
-in static JSON. An internal reconstruction proof combines connected scalar
-leaves with static JSON, gives connected leaves precedence while preserving
-complex siblings, does not apply schema defaults, and validates the complete
-result against the MCP input schema.
-Invalid types, bounds, missing required values, and unknown pin IDs fail with a
-generic diagnostic that does not echo values. A real stdio broker test dispatches
-the reconstructed nested object, rejects invalid argument values and changed
-pinned contracts, and enforces a missing node grant. The mapper is internal and
-is not used by descriptor projection, workflow persistence, runtime admission,
-or Studio. Broker evidence for the nested request is checked for redaction, and
-runner regressions confirm configured nested direct-MCP values do not appear
-in node lifecycle or data-evaluation events, both at the observer callback and
-after File/SQLite persistence and reopen. The regression renders each reopened
-snapshot through `WorkflowRunViewer` and verifies that the visible event table
-shows redaction metadata without either secret value. Rendering uses recorded
-evidence only; it does not invoke an executor or MCP service. These runner
-tests use the existing static JSON argument path; nested field pins themselves
-remain unadmitted. A
-separate real stdio fixture advertises a schema with unsupported `format`
-metadata, and the broker rejects it during discovery. This closes the bounded
-broker/schema/grant proof for the tested shape. Gate 4 is now proven for this
-bounded direct-MCP evidence path through File/SQLite reopen and rendered
-inspector playback. Old-definition/package compatibility remains unproven, so
-gate 5 and the overall proof and authoring stay gated.
+The bounded mapper proof establishes one eligible closed nested object with
+scalar leaves, reachable through at most two object segments. RFC 6901 escaping
+and case-sensitive SHA-256 pin IDs are stable under property reordering. Arrays
+and complex siblings are retained in static JSON, defaults remain annotations,
+and the broker validates the complete reconstructed object. Focused MCP and
+real-stdio tests cover supported shape, requiredness, schema bounds, malformed
+schemas, changed contracts, and missing grants.
 
-The first gate-5 compatibility fixture now round-trips a schema-1.37 workflow
-package containing top-level MCP pins. It verifies byte-identical package
-serialization, unchanged definition hash and pin IDs after a rediscovery that
-advertises an additional argument, and successful validation of the restored
-definition. This covers one historical package/pin shape; independent old-reader
-interpretation and broader schema/package migration compatibility remain open.
+The subsequent unified-schema integration adds optional `JsonPointer` metadata
+to persisted MCP input definitions. Null is omitted so historical top-level
+pin JSON and hashes remain unchanged. Core resolves the same canonical mapping
+for descriptor projection, overlap and identity validation, required static
+paths, and production argument reconstruction. The Studio generates nested
+scalar pins for eligible bindings, labels them by path, and removes the
+conflicting top-level object pin while retaining arrays and other complex
+values in static JSON. Runtime tests verify connected-over-static precedence
+for the selected leaf and preservation of static siblings. Schema-2.0
+package/hash round-trip and descriptor tests cover the persisted identity.
 
-The current implementation already supports nested MCP values on JSON pins and
-retains normalized nested schema metadata. It does not yet provide the
-path-level pin contract, end-to-end evidence privacy, or migration guarantees
-above. Track the implementation and verification gates in the [Blueprint parity matrix](../blueprint-capability-matrix.md)
-and [roadmap](../roadmap.md#planned-phase-blueprint-inspired-authoring-contracts-and-ergonomics).
+Remaining proof before calling this slice complete: browser authoring/edit/save
+and reopen; package import/edit coverage; broker schema and grant enforcement
+through a persisted connected nested pin; and File/SQLite reopen plus passive
+playback redaction for those connected pins. Schema drift and explicit
+migration behavior still need wider coverage. Approval-wrapped direct MCP calls
+remain excluded until Decision 0075 defines the protected exact-action payload
+lifecycle. This bounded increment does not establish array-item pins,
+unrestricted JSON Schema support, end-to-end secrecy, or full Blueprint parity.

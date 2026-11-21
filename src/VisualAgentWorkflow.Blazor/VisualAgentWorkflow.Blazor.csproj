@@ -2,5 +2,6 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../VisualAgentWorkflow.Core/VisualAgentWorkflow.Core.csproj" />
+    <ProjectReference Include="../VisualAgentWorkflow.Mcp/VisualAgentWorkflow.Mcp.csproj" />
   </ItemGroup>
 </Project>

@@ -107,7 +107,7 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     /// <summary>Optional static JSON arguments for a direct MCP tool node; credentials and grants are never stored here.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? McpArgumentsJson { get; init; }
-    /// <summary>Schema-driven top-level argument pins for direct MCP calls.</summary>
+    /// <summary>Schema-driven argument pins for direct MCP calls, with optional nested JSON Pointers.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableArray<McpInputPortDefinition>? McpInputPorts { get; init; }
     /// <summary>Stable variable declaration ID used by VariableGet and VariableSet nodes.</summary>
@@ -116,7 +116,12 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
 }
 
 /// <summary>Portable, normalized metadata for one direct MCP argument pin.</summary>
-public sealed record McpInputPortDefinition(string Id, string Name, string DataType, bool Required);
+public sealed record McpInputPortDefinition(string Id, string Name, string DataType, bool Required)
+{
+    /// <summary>RFC 6901 path for a nested argument pin; null identifies a top-level argument.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? JsonPointer { get; init; }
+}
 
 /// <summary>Copy-on-insert source identity; informational provenance, never a grant or runtime resolver.</summary>
 public sealed record NodeOrigin(string WorkflowId, Guid RevisionId, int Version, string ContentHash, string NodeId);

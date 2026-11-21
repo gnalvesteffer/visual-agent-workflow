@@ -106,6 +106,54 @@ public sealed class DirectMcpGraphTests
     }
 
     [Fact]
+    public void Unified_nested_mcp_pin_pointer_survives_package_round_trip_and_hashing()
+    {
+        var baseline = PinDefinition();
+        var nested = new McpInputPortDefinition(WorkflowMcpInputPath.NestedPinId("/request/name"),
+            "name", WorkflowDataTypes.String, false) { JsonPointer = "/request/name" };
+        var definition = baseline with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Nodes = baseline.Nodes.SetItem("tool", baseline.Nodes["tool"] with
+            {
+                McpInputPorts = [.. baseline.Nodes["tool"].McpInputPorts!.Value, nested]
+            })
+        };
+
+        var hash = WorkflowJson.ComputeHash(definition);
+        var restored = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(definition, WorkflowLayout.Create(definition)));
+
+        Assert.Equal(hash, WorkflowJson.ComputeHash(restored.Definition));
+        Assert.Equal("/request/name", restored.Definition.Nodes["tool"].McpInputPorts!.Value.Single(port => port.JsonPointer is not null).JsonPointer);
+        Assert.Empty(WorkflowValidator.Validate(restored.Definition));
+    }
+
+    [Fact]
+    public void Unified_nested_mcp_required_pin_is_satisfied_by_its_static_json_path()
+    {
+        var baseline = PinDefinition();
+        var nested = new McpInputPortDefinition(WorkflowMcpInputPath.NestedPinId("/request/name"),
+            "name", WorkflowDataTypes.String, true) { JsonPointer = "/request/name" };
+        var tool = baseline.Nodes["tool"] with
+        {
+            McpArgumentsJson = "{\"request\":{\"name\":\"static\"}}",
+            McpInputPorts = [new("arg.maxBytes", "maxBytes", WorkflowDataTypes.Integer, false), nested]
+        };
+        var definition = baseline with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Nodes = baseline.Nodes.Remove("path").SetItem("tool", tool),
+            Connections = baseline.Connections.Remove("path")
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        Assert.Contains(WorkflowValidator.Validate(definition with
+        {
+            Nodes = definition.Nodes.SetItem("tool", tool with { McpArgumentsJson = "{\"request\":{}}" })
+        }), issue => issue.Code == "data.degree" && issue.Path.Contains(nested.Id, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Legacy_direct_mcp_pin_package_round_trip_preserves_hash_and_pin_identity_after_new_discovery()
     {
         var definition = PinDefinition();

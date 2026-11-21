@@ -1410,7 +1410,7 @@
     };
     private static string ToolInputSummary(ToolBindingDescriptor binding) => binding.InputSummary;
     private static System.Collections.Immutable.ImmutableArray<McpInputPortDefinition> McpInputPorts(
-        ToolBindingDescriptor binding, bool supportsTypedArrays)
+        ToolBindingDescriptor binding, bool supportsUnifiedFeatures)
     {
         try
         {
@@ -1420,8 +1420,18 @@
             var required = document.RootElement.TryGetProperty("required", out var requiredValues) && requiredValues.ValueKind == System.Text.Json.JsonValueKind.Array
                 ? requiredValues.EnumerateArray().Where(value => value.ValueKind == System.Text.Json.JsonValueKind.String).Select(value => value.GetString()!).ToHashSet(StringComparer.Ordinal)
                 : new HashSet<string>(StringComparer.Ordinal);
-            return [.. properties.EnumerateObject().Select(property => new McpInputPortDefinition(
-                $"arg.{property.Name}", property.Name, McpPortDataType(property.Value, supportsTypedArrays), required.Contains(property.Name)))];
+            var topLevel = properties.EnumerateObject().Select(property => new McpInputPortDefinition(
+                $"arg.{property.Name}", property.Name, McpPortDataType(property.Value, supportsUnifiedFeatures), required.Contains(property.Name))).ToArray();
+            var nested = supportsUnifiedFeatures
+                ? VisualAgentWorkflow.Mcp.McpToolInputSchemas.CreateNestedInputPorts(document.RootElement)
+                : [];
+            if (nested.IsDefaultOrEmpty) return [.. topLevel];
+
+            var nestedAncestors = nested.Select(argument => argument.JsonPointer!.Split('/', StringSplitOptions.RemoveEmptyEntries)[1]
+                .Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal))
+                .ToHashSet(StringComparer.Ordinal);
+            return [.. topLevel.Where(argument => !nestedAncestors.Contains(argument.Name) ||
+                    properties.GetProperty(argument.Name).ValueKind != System.Text.Json.JsonValueKind.Object), .. nested];
         }
         catch (System.Text.Json.JsonException)
         {

@@ -1,16 +1,14 @@
 using System.Collections.Immutable;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Mcp;
 
-/// <summary>Proof-only canonical identity for a nested MCP object property path.</summary>
+/// <summary>Canonical mapping for the bounded nested MCP object property-path contract.</summary>
 /// <remarks>
-/// This helper is intentionally internal. Nested paths are not admitted into workflow
-/// definitions, graph pins, packages, or runtime dispatch by this proof increment.
+/// Path identity and shape discovery are shared with persisted workflow pins. The broker
+/// remains authoritative for validating the complete argument object at dispatch.
 /// </remarks>
 internal static class McpNestedArgumentPath
 {
@@ -134,8 +132,7 @@ internal static class McpNestedArgumentPath
     public static string ToPinId(IReadOnlyList<string> segments)
     {
         var pointer = ToPointer(segments);
-        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(pointer)));
-        return $"arg.nested.{hash}";
+        return WorkflowMcpInputPath.NestedPinId(pointer);
     }
 
     private static string Escape(string segment) => segment.Replace("~", "~0", StringComparison.Ordinal)

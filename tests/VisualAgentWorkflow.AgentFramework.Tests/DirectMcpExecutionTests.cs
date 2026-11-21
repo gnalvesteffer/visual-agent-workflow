@@ -65,6 +65,47 @@ public sealed class DirectMcpExecutionTests
     }
 
     [Fact]
+    public async Task Unified_direct_mcp_nested_pin_updates_its_path_and_preserves_static_siblings()
+    {
+        var broker = new RecordingBroker();
+        var nested = new McpInputPortDefinition(WorkflowMcpInputPath.NestedPinId("/request/name"),
+            "name", WorkflowDataTypes.String, true) { JsonPointer = "/request/name" };
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "nested-mcp-runtime", "input", new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["name"] = new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("connected") },
+                ["tool"] = new(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest("demo.nested", new string('a', 64)))
+                {
+                    McpArgumentsJson = "{\"request\":{\"name\":\"static\",\"kind\":\"fixed\",\"labels\":[\"a\"]}}",
+                    McpInputPorts = [nested]
+                },
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["name"] = new(new("name", "out"), new("tool", nested.Id), "data"),
+                ["result"] = new(new("tool", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["activate"] = new(new("input", "then"), new("tool", "execute"), "execution"),
+                ["complete"] = new(new("tool", "then"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+        };
+
+        var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "ignored", null, _ => ValueTask.CompletedTask);
+
+        Assert.False(result.Failed);
+        using var actual = JsonDocument.Parse(broker.Input!);
+        Assert.Equal("connected", actual.RootElement.GetProperty("request").GetProperty("name").GetString());
+        Assert.Equal("fixed", actual.RootElement.GetProperty("request").GetProperty("kind").GetString());
+        Assert.Equal("a", actual.RootElement.GetProperty("request").GetProperty("labels")[0].GetString());
+    }
+
+    [Fact]
     public async Task Configured_nested_direct_mcp_values_are_redacted_from_runtime_evidence()
     {
         const string privateName = "private-nested-name";

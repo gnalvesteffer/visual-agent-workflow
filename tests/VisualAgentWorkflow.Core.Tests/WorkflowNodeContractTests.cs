@@ -791,6 +791,29 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Persisted_mcp_nested_argument_descriptor_preserves_canonical_path_and_rejects_overlap()
+    {
+        var nested = new McpInputPortDefinition(WorkflowMcpInputPath.NestedPinId("/request/name"),
+            "name", WorkflowDataTypes.String, true) { JsonPointer = "/request/name" };
+        var node = new NodeDefinition(NodeTypes.McpTool, "1.0.0")
+        {
+            McpInputPorts = [new("arg.query", "query", WorkflowDataTypes.String, false), nested]
+        };
+
+        Assert.True(WorkflowNodeDescriptorResolver.TryResolveMcpArguments(node, out var arguments));
+        Assert.Equal("/request/name", Assert.Single(arguments.Where(argument => argument.Argument.JsonPointer is not null)).Argument.JsonPointer);
+        Assert.Equal("request › name", Assert.Single(WorkflowPorts.Explicit(node).Where(port => port.Id == nested.Id)).DisplayName);
+        Assert.False(WorkflowNodeDescriptorResolver.TryResolveMcpArguments(node with
+        {
+            McpInputPorts = [.. node.McpInputPorts.Value, new("arg.request", "request", WorkflowDataTypes.Json, false)]
+        }, out _));
+        Assert.False(WorkflowNodeDescriptorResolver.TryResolveMcpArguments(node with
+        {
+            McpInputPorts = [nested with { Id = "arg.nested.invalid" }]
+        }, out _));
+    }
+
+    [Fact]
     public void Persisted_mcp_argument_descriptor_fails_closed_on_duplicate_pin_identity()
     {
         var node = new NodeDefinition(NodeTypes.McpTool, "1.0.0")

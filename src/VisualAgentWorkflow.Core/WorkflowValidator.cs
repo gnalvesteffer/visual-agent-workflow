@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace VisualAgentWorkflow.Core;
 
@@ -916,7 +917,7 @@ public static class WorkflowValidator
         foreach (var argument in arguments)
         {
             var count = incoming.GetValueOrDefault((id, argument.Port.Id));
-            if (count > 1 || count == 0 && argument.Port.Required && !HasStaticArgument(node.McpArgumentsJson, argument.Argument.Name))
+            if (count > 1 || count == 0 && argument.Port.Required && !HasStaticArgument(node.McpArgumentsJson, argument.Argument))
                 error("data.degree", $"nodes.{id}.inputs.{argument.Port.Id}", "Each MCP argument accepts one data edge or a configured static value; required arguments must be supplied.");
         }
     }
@@ -1840,7 +1841,7 @@ public static class WorkflowValidator
                 {
                     if (port.Cardinality == WorkflowPortCardinality.AtMostOne && count > 1)
                         error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Each MCP argument pin accepts at most one data edge.");
-                    else if (count == 0 && inputPort.Port.Required && !HasStaticArgument(node.McpArgumentsJson, inputPort.Argument.Name))
+                    else if (count == 0 && inputPort.Port.Required && !HasStaticArgument(node.McpArgumentsJson, inputPort.Argument))
                         error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Every required MCP argument must be connected or configured as a static argument.");
                 }
                 else if (node.Type == NodeTypes.McpTool && port.Id == "in" && hasConfiguredMcpArguments)
@@ -1896,15 +1897,16 @@ public static class WorkflowValidator
                 error("graph.unreachable", $"nodes.{id}", "Every pure data node must contribute to a tool input or output value.");
     }
 
-    private static bool HasStaticArgument(string? arguments, string name)
+    private static bool HasStaticArgument(string? arguments, McpInputPortDefinition argument)
     {
         if (arguments is null) return false;
         try
         {
-            using var document = JsonDocument.Parse(arguments);
-            return document.RootElement.TryGetProperty(name, out _);
+            if (!WorkflowMcpInputPath.TryGetSegments(argument, out var path)) return false;
+            var root = JsonNode.Parse(arguments);
+            return root is JsonObject && WorkflowMcpInputPath.ContainsValue(root, path);
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException)
         {
             return false;
         }

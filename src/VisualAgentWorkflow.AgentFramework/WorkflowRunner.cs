@@ -2875,7 +2875,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     if (connection.Value is null) continue;
                     var evaluation = dataEvaluator!.ResolveInput(targetId, argument.Port.Id);
                     evaluations.Add(evaluation);
-                    arguments[argument.Argument.Name] = ToJsonNode(evaluation.Result);
+                    if (!WorkflowMcpInputPath.TryGetSegments(argument.Argument, out var path) ||
+                        !WorkflowMcpInputPath.TrySetValue(arguments, path, ToJsonNode(evaluation.Result)))
+                        throw new InvalidOperationException("A connected MCP argument conflicts with the configured JSON object path.");
                 }
             }
             return JsonSerializer.SerializeToElement(arguments, new JsonSerializerOptions(JsonSerializerDefaults.Web));

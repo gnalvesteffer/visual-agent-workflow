@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Collections.Immutable;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Mcp;
@@ -24,6 +25,18 @@ public static class McpToolInputSchemas
     /// <summary>Builds a bounded, read-only schema view for authoring and diagnostics.</summary>
     /// <remarks>The descriptor is derived metadata; it is not a workflow field or a runtime authority.</remarks>
     public static McpToolSchemaDescriptor Describe(JsonElement schema) => McpInputSchema.Describe(schema);
+
+    /// <summary>Creates stable input-pin definitions for the bounded supported nested-object fields.</summary>
+    /// <remarks>Only eligible scalar leaves are exposed. Arrays and complex siblings stay in the static JSON configuration.</remarks>
+    public static ImmutableArray<McpInputPortDefinition> CreateNestedInputPorts(JsonElement schema)
+    {
+        if (!IsSupported(schema)) return [];
+        if (!McpNestedArgumentPath.TryCreatePins(Describe(schema), out var pins)) return [];
+        return [.. pins.Select(pin => new McpInputPortDefinition(pin.Id, pin.Name, pin.DataType, pin.Required)
+        {
+            JsonPointer = pin.Path
+        })];
+    }
 
     /// <summary>Validates JSON arguments against the supported schema subset and converts them to MCP call values.</summary>
     public static IReadOnlyDictionary<string, object?> ToCallArguments(JsonElement schema, JsonElement arguments) =>
