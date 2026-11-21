@@ -163,22 +163,101 @@ the historical promotion chain.
   activation frame for each body pass and carries it through the normal
   Agent-Framework dispatch path. The frame records the loop scope and pass
   index; repeated passes share the enclosing frame instead of becoming false
-  nested iterations. A production-runner regression checks matching start and
-  completion scopes for every body pass, while a legacy-schema check confirms
-  its historical event scopes remain unchanged. This is runtime groundwork
+  nested iterations. Production-runner regressions check matching start and
+  completion scopes for the LoopBody marker and ordinary VariableSet and
+  VariableGet executors throughout every body pass, while a legacy-schema
+  check confirms its historical event scopes remain unchanged. This is runtime groundwork
   only: it does not execute array iterators or Break, own Sequence settlement,
   or admit nested Loop candidates. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   An internal `StructuredActivationGraphPlan` now compiles the descriptor-derived
   topology proof into immutable loop-region, body-owner, and Break-target maps.
   Regressions cover three nested levels, nearest-loop Break ownership, malformed
-  feedback, and rejection outside unified schema; Core passes 727/727. The
-  ordinary unified Loop dispatcher now uses the compiled region owner to select
-  its parent activation frame. Eight focused Agent Framework array/Loop
-  activation cases pass across the structured, fresh-subworkflow, and hybrid
-  candidates. The compiled Break targets are not dispatched yet, and nested
-  candidates remain rejected by public validation and package creation.
+  feedback, and rejection outside unified schema; Core passes 727/727. A private
+  `StructuredActivationFrameOwner` now uses that plan to resolve loop parent
+  frames, create each ordinary unified Loop body-pass frame, and verify proof
+  Break consumption against the plan's Break-to-Loop map and active frame.
+  It now owns the shared array-evidence budget for each workflow invocation and
+  enforces a total body-pass ceiling derived from all authored Loop limits in
+  the compiled graph. The evaluator and every variable store created by that
+  owner use the same 65,536-byte evidence budget. A focused owner regression
+  proves the shared budget reference and rejects work beyond the derived
+  ceiling. A full Agent Framework run found that the structured proof reuses a
+  body graph across item activations; its initial single-graph ceiling wrongly
+  rejected two valid File/SQLite cases. The owner now multiplies the ceiling by
+  the graph's activation count, and the two cases plus the owner regression
+  pass 3/3. The corrected full Agent Framework suite passes 1035/1035.
+  The ordinary owner now also serializes root event recording and sequence
+  assignment, updating the activation ledger only after the recorder accepts
+  each event; `ExecuteCoreAsync` still chooses the root terminal outcome. The
+  callback-failure ordering regression and focused loop/variable/graph,
+  collaboration, and Sequence tests pass 164/164; the full Agent Framework
+  suite passes 1037/1037 after lifecycle enforcement. Persisted File/SQLite
+  settlement specifically when the derived Loop-pass guard rejects work
+  remains open. Sequence event delivery now stages lifecycle facts and advances
+  the coordinator cursor only after each recorder call succeeds; an ambiguous
+  callback failure blocks automatic replay. A File/SQLite lost-ack regression
+  now commits one Sequence dispatch event and throws before acknowledgment;
+  reopened histories retain that exact prefix and passive playback reconstructs
+  the dispatched output without fabricating a terminal. File/SQLite lost-ack
+  cases now also cover `SequenceOutputCompleted` and `SequenceCompleted`; the
+  root owner suppresses conflicting terminal writes, and playback preserves
+  the accepted Sequence prefix while root run status remains running. This guard
+  is applied only to ambiguous Sequence recorder failures, preserving ordinary
+  reserved-failure handling. The focused current Sequence/owner selection passes
+  9/9; the full Agent Framework suite passes 1046/1046, including the aggregate
+  terminal cases. General lost-ack reconciliation, multi-event atomicity,
+  byte/event budget policy, and broader playback proofs remain open. Sequence
+  output work is now tracked by the shared accepted-event activation ledger:
+  accepted dispatch evidence opens an active-work entry, and only matching
+  accepted completion/failure/cancellation evidence closes it. Successful root
+  terminal recording rejects unresolved node or Sequence output work; failed,
+  cancelled, and outcome-unknown roots remain abort boundaries that preserve
+  active work as incomplete evidence. Skipped outputs do not create work. The
+  Sequence coordinator remains the sole owner
+  of output admission and state. Focused ledger/owner/production/fork regressions
+  pass 98/98; the process-loss readiness probes plus concurrent reservation proof
+  pass 5/5. Their readiness window now allows 30 seconds and kills a child process
+  on timeout with stdout/stderr in the failure report. The full Agent Framework
+  suite passes 1049/1049. Focused
+  graph-dispatched and nested Break regressions pass 3/3. Eight focused Agent
+  Framework array/Loop activation cases pass across the structured,
+  fresh-subworkflow, and hybrid candidates. This does not admit authored Break or nested Loop candidates;
+  public validation and package creation continue to reject them.
   Other malformed/ambiguous legacy shapes and nested production authoring,
   validation, runtime, persistence, and playback evidence remain open.
+  A private test-only activation allowance now forces the ordinary Loop guard
+  to reject a second pass after one completed pass. File and SQLite reopen
+  regressions confirm the run is failed, the first pass remains paired in
+  passive playback, and the rejected pass emits no body-start evidence (2/2).
+  Playback now prefers the explicit one-based iteration in lifecycle payloads
+  over interpreting a scope identity as an iteration number. The focused
+  bounded-loop, activation-ledger, Sequence-coordinator, and Sequence-production
+  suites pass 98/98; this defensive guard proof does not admit public array
+  iteration or Break, and the full Agent Framework suite was cancelled before
+  a result was observed.
+  A follow-up three-role review returned REVISE: continue a private integrated
+  production proof and keep public admission closed. The accepted-work ledger
+  now also tracks Loop-pass starts/completions at the accepted recorder
+  boundary, pairing by scope or explicit iteration rather than Loop-node
+  invocation ID. Both ordinary Loop execution and the private production-body
+  array coordinator use this ledger; SequenceRuntimeCoordinator remains the
+  Sequence state authority. Ledger regressions pass 6/6, and production-body
+  array/Sequence/Break/sibling-drain/cancellation regressions pass 8/8. This
+  does not yet prove all shared reservation cases: a File/SQLite race regression
+  with two outer activations competing for the final nested Loop slot now
+  accepts exactly one nested start, fails at the shared limit, and reopens with
+  the same contiguous event prefix (2/2). This proves that budget boundary only;
+  public iteration/Break admission remains closed. The private production proof
+  now records cancellation evidence for pending joins when Break ends their
+  frame. Sequence Break evidence settles a generic Sequence node only if that
+  exact activation is still open; production Sequence dispatch may already have
+  completed the node. Four File/SQLite and direct-MCP/mixed playback variants
+  pass 4/4. Both nested File/SQLite append-failure cases pass 2/2 in isolation;
+  one File variant timed out waiting for its controlled Agent during an
+  expanded focused run, then passed on isolation. The full single-worker Agent
+  Framework suite passes 1054/1054. Public array and Break admission remains
+  closed pending shared reservation, topology, ownership, and persistence/
+  playback proof.
   Sequence/Break production settlement remains a separate gate and cannot be
   inferred from the feedback-pin contract. The nested held-Agent scheduling
   probe now confirms Branch completion while the Agent is held and observes
@@ -1852,7 +1931,39 @@ introduced.
       architecture review. Checkpoint recovery remains separately excluded.
       Root status is settled as execution disposition; the existing read-only
       reconciliation projection reports correlated unresolved work and
-      incomplete evidence separately. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+      incomplete evidence separately. The reviewed sequencing order has now
+      connected the private owner to shared production evidence accounting and
+      moved ordinary root event recording/sequence assignment into that owner.
+      Root terminal selection remains in `ExecuteCoreAsync`. The focused
+      callback-failure ordering test and cross-path Agent Framework selection
+      pass 164/164; the complete Agent Framework suite passes 1037/1037. The
+      owner still does not coordinate public array activation admission or
+      Sequence settlement, and persisted settlement at Loop-pass guard
+      rejection remains open. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Route ordinary Loop frame creation and variable/data array evidence
+      through one private per-invocation owner. Enforce the graph-derived sum
+      of authored Loop activation bounds without adding a configurable cap.
+      Focused loop/variable/Break coverage passes 54/54. Root event recording
+      and sequence assignment are now also serialized by this owner; its
+      callback-failure regression is covered in the 164-test focused selection
+      and the full Agent Framework suite passes 1037/1037. Persisted File/SQLite
+      settlement specifically on Loop-pass guard exhaustion is not yet proven.
+    - [x] Stage Sequence lifecycle delivery and acknowledge each event only
+      after the recorder accepts it. Mark delivery uncertain and prohibit
+      automatic replay after a callback exception; preserve the coordinator as
+      the authority for admission, Break, and terminal projection. Focused
+      Sequence settlement commit-then-throw proofs cover both File and SQLite:
+      lost dispatch, output-completion, and aggregate-completion acknowledgments
+      preserve contiguous prefixes and passive playback, while the owner blocks
+      a conflicting root terminal for the uncertain Sequence write. This narrow
+      latch does not change ordinary recorder rejection handling. The focused
+      current Sequence/owner selection passes 9/9; the full Agent Framework suite
+      passes 1046/1046. The process-loss checkpoint is published with an atomic
+      rename, and concurrent unknown-outcome fixtures wait until each dispatched
+      call records uncertainty before propagating failure. General lost-ack
+      reconciliation, multi-event atomicity, shared
+      budget, broader playback, and integrated owner settlement remain open.
     - [x] Run the same production nested body and private typed Break graph
       through the structured dispatcher, a fresh Agent Framework subworkflow
       per item, and the hybrid runner. Item and zero-based index values reach
@@ -2468,8 +2579,8 @@ Make every Blueprint-inspired authoring affordance traceable to a stable definit
 - [x] **Bounded numeric operator slice:** ship one pure finite-number operator across definition, typed pins, validator, runtime, evidence, function editor, compatibility, and regression tests. See [finite number addition](decisions/0010-finite-number-addition.md).
 - [x] **Unified direct JSON-array count:** allow schema 2.0 caller JSON input to flow through the bounded array refinement and length operator to an integer Output, without schema promotion; preserve the historical 1.x topology path. Broader array placements remain gated on independent runtime/evidence proofs. See [Decision 0061](decisions/0061-unified-json-array-input-chain.md).
 - [x] **Contract inventory:** define the identity and compatibility rules for assets, graphs, nodes, ports, types, edges, parameters, dependencies, grants, and immutable revisions. See [Blueprint contract inventory](blueprint-contract-inventory.md). The inventory records the remaining descriptor-registry, type-system, migration, and capability-report gaps without presenting them as shipped.
-- [x] **Pin semantics:** preserve the execution-wire/data-wire distinction; specify types, nullability, defaults, conversions, multiplicity, dynamic-port identity, stable labels, and invalid-connection diagnostics. Core resolves configured MCP, Agent, Sequence, parallel, and graph-function pins with stable identities while preserving schema/runtime boundaries; MCP exposes bounded normalized schema metadata. Direct-MCP incidental evidence is redacted at broker, data evaluation, and node lifecycle capture points. The declared root workflow result remains caller-visible in `run.completed`, including direct MCP-to-Output flows. Explicit graph schemas separate control transfers from data dependencies and omit `connection.received` for direct-MCP data wires. This does not provide end-to-end secrecy through downstream transformations or Sequence aggregation; static literals, approval evidence, agent-loop tool events, and legacy histories retain their existing behavior. Bounded unified-schema nested field pins are integrated for eligible non-approval MCP calls; browser authoring/save/reopen is verified, while package import/edit and broader migration proofs remain open in [Decision 0074](decisions/0074-nested-mcp-argument-pins.md). See [dynamic pin descriptor resolution](decisions/0012-dynamic-pin-descriptor-resolution.md) and [MCP schema descriptor](decisions/0020-mcp-schema-descriptor.md).
-- [ ] **Nested MCP argument field pins — bounded schema 2.0 slice:** current-schema non-approval MCP nodes persist canonical RFC 6901 paths on nested scalar pins. Core validates stable path IDs and rejects parent/child overlap; Studio discovers one eligible closed nested object, exposes supported scalar leaves as labeled pins without a conflicting parent pin, and keeps arrays/complex siblings in static JSON; the runner applies connected values at the exact path while preserving static siblings. Required static nested paths are validated. Package/hash round-trip includes connected pins and edges. Production runner tests against the real stdio broker prove argument reconstruction and rejection of contract drift and missing grants before authorization. Connected nested values pass File/SQLite reopen and passive-playback checks, which redact incidental evidence while preserving the declared root result. Browser authoring, static-value editing, save, and reopen are verified. Remaining proof: package import/edit coverage and broader migration/schema-drift behavior. Historical pin IDs and absent `jsonPointer` serialization are preserved. Arrays remain JSON-valued; approval-wrapped calls remain excluded pending [Decision 0075](decisions/0075-approval-payload-privacy.md). See [Decision 0074](decisions/0074-nested-mcp-argument-pins.md).
+- [x] **Pin semantics:** preserve the execution-wire/data-wire distinction; specify types, nullability, defaults, conversions, multiplicity, dynamic-port identity, stable labels, and invalid-connection diagnostics. Core resolves configured MCP, Agent, Sequence, parallel, and graph-function pins with stable identities while preserving schema/runtime boundaries; MCP exposes bounded normalized schema metadata. Direct-MCP incidental evidence is redacted at broker, data evaluation, and node lifecycle capture points. The declared root workflow result remains caller-visible in `run.completed`, including direct MCP-to-Output flows. Explicit graph schemas separate control transfers from data dependencies and omit `connection.received` for direct-MCP data wires. This does not provide end-to-end secrecy through downstream transformations or Sequence aggregation; static literals, approval evidence, agent-loop tool events, and legacy histories retain their existing behavior. Bounded unified-schema nested field pins are integrated for eligible non-approval MCP calls; browser authoring, package import/edit, save, and reopen are verified. Broader migration/schema-drift proofs remain open in [Decision 0074](decisions/0074-nested-mcp-argument-pins.md). See [dynamic pin descriptor resolution](decisions/0012-dynamic-pin-descriptor-resolution.md) and [MCP schema descriptor](decisions/0020-mcp-schema-descriptor.md).
+- [x] **Nested MCP argument field pins — bounded schema 2.0 slice:** current-schema non-approval MCP nodes persist canonical RFC 6901 paths on nested scalar pins. Core validates stable path IDs and rejects parent/child overlap; Studio discovers one eligible closed nested object, exposes supported scalar leaves as labeled pins without a conflicting parent pin, and keeps arrays/complex siblings in static JSON; the runner applies connected values at the exact path while preserving static siblings. Required static nested paths are validated. Package/hash round-trip includes connected pins and edges. Production runner tests against the real stdio broker prove argument reconstruction and rejection of contract drift and missing grants before authorization. Connected nested values pass File/SQLite reopen and passive-playback checks, which redact incidental evidence while preserving the declared root result. Browser authoring, static-value editing, package import, save, and reopen are verified. Remaining proof: broader migration/schema-drift behavior. Historical pin IDs and absent `jsonPointer` serialization are preserved. Arrays remain JSON-valued; approval-wrapped calls remain excluded pending [Decision 0075](decisions/0075-approval-payload-privacy.md). See [Decision 0074](decisions/0074-nested-mcp-argument-pins.md).
 - [ ] **Nested Fork/Join parity:** make arbitrary finite-depth nested Fork/Join part of unified schema 2.0, without a schema/capability/depth gate. Each nested region must have exactly one parent-branch owner; sharing static child regions across sibling owners would require a separately reviewed parent-aware routing contract. Build activation-lineage settlement, Studio authoring/edit/removal, package compatibility, and passive playback as one cross-layer contract. A one-level first release is an implementation milestone only; prove deeper nesting before claiming parity. **Implemented:** Core static ownership validation admits strict single-owner nested regions at arbitrary finite depth; Core regressions cover two and three levels, sequential root regions, sibling-owner sharing rejection, and wrong-Fork Join rejection. Current-schema production Join routing and malformed existing-Fork identity rejection are also implemented. A normally validated workflow combining three nested levels with a later sequential root region succeeds through the public Agent Framework runner. Public-path regressions prove nested failure and cancellation produce no joined result. Studio can insert a two-branch execution region on an eligible root or nested execution edge without changing data wires; it also removes the smallest selected region while preserving its parent and previewing disconnected data consumers. Existing nested regions can now add, reorder, and remove empty branches through their matching Join, preserving other regions and data wires; branch IDs remain stable as wires' semantic identities. The rendered Studio regression exercises add/remove on an inner Fork with an outer Fork/Join present. Schema 2.0 records a versioned Fork-activation-admitted event before branch dispatch, then versioned accepted-arrival lineage for each branch result. Core validates both against the graph and reconstructs zero/partial arrivals, nesting depth, and Join lifecycle without assigning the run's failure/cancellation cause to an unfinished Join. The inspector displays accepted counts at the selected recorded position, including zero arrivals, without re-running the workflow. Three-level runner tests verify eight arrivals, activation/branch lineage, successful reconstruction, tamper rejection, and failure/cancellation states. Focused File and SQLite proofs reopen zero- and partial-arrival failed/cancelled histories and reconstruct them passively. Histories without activation events retain their arrival-based compatibility behavior. A current three-level nested workflow round-trips through a workflow package and project release with definition/layout hashes and serialized bytes preserved. The Join activation now latches duplicate/failed arrivals and rejects later queued results, with a focused duplicate-then-final state regression. The 2026-11-20 three-role review confirmed that the per-activation semaphore cannot prevent a final-first handler from emitting `NodeCompleted` before a queued duplicate is processed; a late failure cannot retract downstream work. The remaining guarantee is limited to duplicates already admitted before Join commit and requires a scheduler admission/drain or branch-settlement boundary, which is not yet established. An atomic dispatch claim, priority rule, yield, or quiet-period delay is insufficient. A deterministic scheduler proof must demonstrate that an admitted duplicate prevents Join completion and downstream continuation before commit, while unique arrivals still complete and each activation dispatches at most once. A duplicate delivered after commit can fail the activation but cannot undo already-dispatched work. This contract remains open pending a reviewed scheduler boundary. Changing a branch ID in place or removing a populated branch as a single edit is not supported. See [Decision 0076](decisions/0076-nested-fork-join-composition.md).
 - [ ] **Approval payload privacy:** preserve exact-action review while separating protected action details from ordinary run evidence. The current approval event stores plaintext input and is the source for the pending reviewer panel. Specify authorization, payload/request binding, retention, process loss, fail-closed behavior, and legacy playback before changing the evidence shape. Approval-wrapped nested MCP pins remain gated. See [Decision 0075](decisions/0075-approval-payload-privacy.md).
 - [x] **Sequence Agent topology proof seam:** analyze persisted Sequence output paths for direct-MCP-only or single terminal plain-text Agent shapes, with stable diagnostics for mixed paths, sharing, cycles, unsupported capabilities, and unreachable nodes. This is intentionally non-authoritative: public Agent-path admission, Studio admission, runtime plan derivation, package compatibility, and playback proof remain deferred to a newly reviewed additive schema (currently expected to be 1.46). See [Sequence Agent topology analyzer](decisions/0021-sequence-agent-topology-analyzer.md).

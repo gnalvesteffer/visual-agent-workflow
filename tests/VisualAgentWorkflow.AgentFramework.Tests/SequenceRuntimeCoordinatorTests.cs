@@ -27,6 +27,70 @@ public sealed class SequenceRuntimeCoordinatorTests
     }
 
     [Fact]
+    public void Event_delivery_advances_only_after_each_event_is_accepted()
+    {
+        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence", ["first"],
+            new Dictionary<string, string> { ["first"] = "connection-a" }, allowSingleOutput: true);
+        var startBatch = coordinator.BeginEventDelivery();
+
+        Assert.Single(startBatch.Events);
+        Assert.Equal(ExecutionEventKinds.SequenceStarted, startBatch.Events[0].Kind);
+        Assert.Throws<InvalidOperationException>(() => coordinator.BeginEventDelivery());
+
+        coordinator.AcceptDeliveredEvent(startBatch.DeliveryId, startBatch.Events[0]);
+        var activationId = Guid.NewGuid();
+        coordinator.DispatchNext(activationId);
+        coordinator.Complete(activationId, SequenceTerminalState.Completed);
+
+        var settlementBatch = coordinator.BeginEventDelivery();
+        Assert.Equal(new[]
+        {
+            ExecutionEventKinds.SequenceOutputDispatched,
+            ExecutionEventKinds.SequenceOutputCompleted,
+            ExecutionEventKinds.SequenceCompleted
+        }, settlementBatch.Events.Select(evt => evt.Kind));
+        coordinator.AcceptDeliveredEvent(settlementBatch.DeliveryId, settlementBatch.Events[0]);
+        Assert.Throws<InvalidOperationException>(() => coordinator.BeginEventDelivery());
+        coordinator.AcceptDeliveredEvent(settlementBatch.DeliveryId, settlementBatch.Events[1]);
+        coordinator.AcceptDeliveredEvent(settlementBatch.DeliveryId, settlementBatch.Events[2]);
+
+        var emptyBatch = coordinator.BeginEventDelivery();
+        Assert.Equal(Guid.Empty, emptyBatch.DeliveryId);
+        Assert.Empty(emptyBatch.Events);
+    }
+
+    [Fact]
+    public void Recorder_failure_marks_staged_sequence_delivery_uncertain_and_prevents_replay()
+    {
+        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence", ["first"],
+            new Dictionary<string, string> { ["first"] = "connection-a" }, allowSingleOutput: true);
+        var initial = coordinator.BeginEventDelivery();
+        coordinator.AcceptDeliveredEvent(initial.DeliveryId, initial.Events[0]);
+        var activationId = Guid.NewGuid();
+        coordinator.DispatchNext(activationId);
+        coordinator.Complete(activationId, SequenceTerminalState.Completed);
+        var settlement = coordinator.BeginEventDelivery();
+
+        coordinator.AcceptDeliveredEvent(settlement.DeliveryId, settlement.Events[0]);
+        coordinator.MarkEventDeliveryUncertain(settlement.DeliveryId);
+
+        var retry = Assert.Throws<InvalidOperationException>(() => coordinator.BeginEventDelivery());
+        Assert.Contains("reconcile persisted history", retry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Event_delivery_rejects_acknowledging_an_out_of_order_fact()
+    {
+        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence", ["first"],
+            new Dictionary<string, string> { ["first"] = "connection-a" }, allowSingleOutput: true);
+        var batch = coordinator.BeginEventDelivery();
+
+        Assert.Throws<InvalidOperationException>(() => coordinator.AcceptDeliveredEvent(batch.DeliveryId,
+            batch.Events[0] with { Kind = ExecutionEventKinds.SequenceFailed }));
+        coordinator.AcceptDeliveredEvent(batch.DeliveryId, batch.Events[0]);
+    }
+
+    [Fact]
     public void Failure_records_later_outputs_as_skipped()
     {
         var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence",

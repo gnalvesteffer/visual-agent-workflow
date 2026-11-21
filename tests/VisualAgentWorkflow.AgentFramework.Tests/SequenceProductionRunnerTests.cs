@@ -3,12 +3,103 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 using VisualAgentWorkflow.Core;
+using VisualAgentWorkflow.Hosting;
 using Xunit;
 
 namespace VisualAgentWorkflow.AgentFramework.Tests;
 
 public sealed class SequenceProductionRunnerTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Sequence_dispatch_commit_with_lost_ack_preserves_passive_store_prefix(bool sqlite)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"vaw-sequence-delivery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var innerStore = sqlite
+            ? (IWorkflowRunStore)new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
+            : new FileRunJournal(directory);
+        try
+        {
+            var revision = WorkflowRevision.Create(PersistedSequenceDefinition(), "sequence-delivery-prefix");
+            var runId = innerStore.Create(revision, "input").Header.RunId;
+            var store = new CommitThenThrowRunStore(innerStore, ExecutionEventKinds.SequenceOutputDispatched);
+            ValueTask Record(ExecutionEvent evt)
+            {
+                store.Append(evt.RunId, evt.Sequence - 1, [evt]);
+                return ValueTask.CompletedTask;
+            }
+
+            await Assert.ThrowsAnyAsync<Exception>(() => new WorkflowRunner().ExecuteWithOutcomeAsync(
+                runId, revision, "input", null, Record));
+
+            var persisted = innerStore.Get(runId)!.Events;
+            Assert.Equal(Enumerable.Range(1, persisted.Length).Select(value => (long)value),
+                persisted.Select(evt => evt.Sequence));
+            Assert.Single(persisted, evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched);
+            Assert.DoesNotContain(persisted, evt => evt.Kind is ExecutionEventKinds.SequenceOutputCompleted or
+                ExecutionEventKinds.SequenceFailed or ExecutionEventKinds.Completed or ExecutionEventKinds.Failed);
+            Assert.True(SequenceEvidence.TryReconstructPlayback(persisted, out var playback));
+            Assert.Equal("running", playback!.Status);
+            Assert.Contains(playback.Outputs, output => output.State == "dispatched");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, ExecutionEventKinds.SequenceOutputCompleted)]
+    [InlineData(true, ExecutionEventKinds.SequenceOutputCompleted)]
+    [InlineData(false, ExecutionEventKinds.SequenceCompleted)]
+    [InlineData(true, ExecutionEventKinds.SequenceCompleted)]
+    public async Task Sequence_settlement_commit_with_lost_ack_blocks_conflicting_root_terminal(bool sqlite,
+        string eventKind)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"vaw-sequence-settlement-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var innerStore = sqlite
+            ? (IWorkflowRunStore)new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
+            : new FileRunJournal(directory);
+        try
+        {
+            var revision = WorkflowRevision.Create(PersistedSequenceDefinition(), "sequence-settlement-prefix");
+            var runId = innerStore.Create(revision, "input").Header.RunId;
+            var store = new CommitThenThrowRunStore(innerStore, eventKind);
+            var attempted = new List<ExecutionEvent>();
+            ValueTask Record(ExecutionEvent evt)
+            {
+                attempted.Add(evt);
+                store.Append(evt.RunId, evt.Sequence - 1, [evt]);
+                return ValueTask.CompletedTask;
+            }
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner()
+                .ExecuteWithOutcomeAsync(runId, revision, "input", null, Record));
+
+            var persisted = innerStore.Get(runId)!.Events;
+            Assert.Equal(Enumerable.Range(1, persisted.Length).Select(value => (long)value),
+                persisted.Select(evt => evt.Sequence));
+            Assert.Contains(persisted, evt => evt.Kind == eventKind);
+            Assert.DoesNotContain(attempted, evt => evt.NodeId is null && evt.Kind is
+                ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+                ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown);
+            Assert.DoesNotContain(persisted, evt => evt.NodeId is null && evt.Kind is
+                ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+                ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown);
+            Assert.True(SequenceEvidence.TryReconstructPlayback(persisted, out var playback));
+            Assert.Equal(eventKind == ExecutionEventKinds.SequenceCompleted ? "completed" : "running", playback!.Status);
+            Assert.Equal("running", innerStore.Get(runId)!.Status);
+            Assert.Contains(playback.Outputs, output => output.State == "completed");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -1842,6 +1933,26 @@ public sealed class SequenceProductionRunnerTests
             }
 
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class CommitThenThrowRunStore(IWorkflowRunStore inner, string eventKind) : IWorkflowRunStore
+    {
+        private bool committedAndThrown;
+
+        public RunSnapshot Create(WorkflowRevision revision, string input) => inner.Create(revision, input);
+        public RunSnapshot? Get(Guid runId) => inner.Get(runId);
+        public IReadOnlyList<RunSnapshot> List() => inner.List();
+
+        public RunSnapshot Append(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events)
+        {
+            var snapshot = inner.Append(runId, expectedSequence, events);
+            if (!committedAndThrown && events.Any(evt => evt.Kind == eventKind))
+            {
+                committedAndThrown = true;
+                throw new IOException($"Injected committed {eventKind} append with lost acknowledgment.");
+            }
+            return snapshot;
         }
     }
 

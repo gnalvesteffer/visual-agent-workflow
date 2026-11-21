@@ -78,16 +78,35 @@ public sealed partial class WorkflowRunner
         ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
             string? scopeId = null, string? data = null, string? connectionId = null) =>
             runContext.EmitAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
+        using var sequenceEventGate = new SemaphoreSlim(1, 1);
         async ValueTask FlushSequenceEvents()
         {
-            foreach (var runtimeEvent in coordinator.DrainEvents())
+            await sequenceEventGate.WaitAsync();
+            try
             {
-                var data = runtimeEvent.BreakAcceptance?.Serialize() ?? SequenceEvidence.Serialize(
-                    new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
-                        runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
-                        runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason));
-                await Emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
-                    runtimeEvent.ScopeId ?? frame.ScopeId, data, runtimeEvent.ConnectionId);
+                var batch = coordinator.BeginEventDelivery();
+                foreach (var runtimeEvent in batch.Events)
+                {
+                    var data = runtimeEvent.BreakAcceptance?.Serialize() ?? SequenceEvidence.Serialize(
+                        new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
+                            runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
+                            runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason));
+                    try
+                    {
+                        await Emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
+                            runtimeEvent.ScopeId ?? frame.ScopeId, data, runtimeEvent.ConnectionId);
+                        coordinator.AcceptDeliveredEvent(batch.DeliveryId, runtimeEvent);
+                    }
+                    catch
+                    {
+                        coordinator.MarkEventDeliveryUncertain(batch.DeliveryId);
+                        throw;
+                    }
+                }
+            }
+            finally
+            {
+                sequenceEventGate.Release();
             }
         }
 
@@ -164,6 +183,7 @@ public sealed partial class WorkflowRunner
         bool reserveIterationSettlements = false) : IDisposable
     {
         private readonly SemaphoreSlim recordGate = new(1, 1);
+        private readonly ExecutionActivationLedger activationLedger = new();
         private readonly StructuredActivationBudgetLedger? ledger = budget is null ? null :
             new(budget, reserveIterationSettlements);
         private long sequence;
@@ -192,9 +212,11 @@ public sealed partial class WorkflowRunner
                 var nextSequence = sequence + 1;
                 var evt = new ExecutionEvent(runId, revisionId, nextSequence, DateTimeOffset.UtcNow,
                     kind, nodeId, invocationId, connectionId, data) { ScopeId = scopeId };
+                activationLedger.Validate(evt);
                 var transition = ledger?.Check(evt);
                 await record(evt);
                 if (transition is { } accepted) ledger!.Commit(evt, accepted);
+                activationLedger.Observe(evt);
                 sequence = nextSequence;
                 if (startsRun) started = true;
                 if (endsRun) terminal = true;
@@ -1232,7 +1254,8 @@ public sealed partial class WorkflowRunner
         StructuredActivationFrame? activationFrame,
         Func<Guid?, WorkflowVariableStore?>? activationVariableStore,
         StructuredProofSession? retainedSession,
-        IReadOnlySet<string>? proofBreakNodeIds)
+        IReadOnlySet<string>? proofBreakNodeIds,
+        StructuredActivationFrameOwner? activationFrameOwner = null)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
@@ -1257,8 +1280,11 @@ public sealed partial class WorkflowRunner
                     string.Join(" ", topologyIssues.Select(issue => issue.Message)));
         }
         var variableStore = activationVariableStore?.Invoke(activationFrame?.Id) ?? new WorkflowVariableStore(definition);
+        activationFrameOwner ??= new StructuredActivationFrameOwner(activationGraphPlan, activationFrame,
+            definition, retainedDataEvaluator?.EvidenceBudget ?? variableStore.ArrayEvidenceBudget);
         var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition)
-            ? retainedDataEvaluator ?? new ExplicitGraphDataEvaluator(definition, input, resolvedParameters)
+            ? retainedDataEvaluator ?? new ExplicitGraphDataEvaluator(definition, input, resolvedParameters,
+                activationFrameOwner.EvidenceBudget)
             : null;
         var executionEdges = WorkflowSchemaVersions.UsesExplicitGraph(definition)
             ? definition.ExecutionConnections!.Values.ToArray()
@@ -1273,8 +1299,7 @@ public sealed partial class WorkflowRunner
                 retainedSession is null ? EmitNodeEvent : retainedSession.RecordNodeEventAsync,
                 gate, null, revision, [], collaborationOptions, afterNodeStarted: afterNodeStarted,
                 activationVariableStore: activationVariableStore,
-                activationGraphPlan: activationGraphPlan,
-                graphEntryActivationFrame: activationFrame));
+                activationFrameOwner: activationFrameOwner));
         if (retainedSession is not null)
         {
             if (createsExecutorSet)
@@ -1607,14 +1632,24 @@ public sealed partial class WorkflowRunner
                 await sequenceEventGate.WaitAsync();
                 try
                 {
-                    foreach (var runtimeEvent in coordinator.DrainEvents())
+                    var batch = coordinator.BeginEventDelivery();
+                    foreach (var runtimeEvent in batch.Events)
                     {
                         var data = runtimeEvent.BreakAcceptance?.Serialize() ?? SequenceEvidence.Serialize(
                             new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
                                 runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
                                 runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason));
-                        await Emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
-                            runtimeEvent.ConnectionId, data, runtimeEvent.ScopeId);
+                        try
+                        {
+                            await Emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
+                                runtimeEvent.ConnectionId, data, runtimeEvent.ScopeId);
+                            coordinator.AcceptDeliveredEvent(batch.DeliveryId, runtimeEvent);
+                        }
+                        catch
+                        {
+                            coordinator.MarkEventDeliveryUncertain(batch.DeliveryId);
+                            throw;
+                        }
                     }
                 }
                 finally
@@ -1664,7 +1699,7 @@ public sealed partial class WorkflowRunner
                         {
                             var activeFrame = message.ActivationFrame
                                 ?? throw new InvalidOperationException("The Sequence Break has no active frame.");
-                            var target = activeFrame.ConsumeNearestBreak(breakRequest);
+                            var target = activationFrameOwner.ConsumeBreak(activeFrame, breakRequest);
                             coordinator.AcceptBreak(lineage, breakRequest, target.TargetFrameId);
                             await FlushSequenceEvents();
                         }
@@ -1783,8 +1818,20 @@ public sealed partial class WorkflowRunner
             _ => throw new ArgumentException("Activation proof input requires a supported array element type.", nameof(arrayElementType))
         }).ToArray();
         var baseParameters = WorkflowParameters.Resolve(bodyRevision.Definition, parameters);
+        StructuredActivationGraphPlan? activationGraphPlan = null;
+        if (bodyRevision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+            bodyRevision.Definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Loop))
+        {
+            if (!StructuredActivationGraphPlan.TryCreate(bodyRevision.Definition, out activationGraphPlan,
+                    out var topologyIssues))
+                throw new InvalidOperationException("The activation body topology could not be compiled: " +
+                    string.Join(" ", topologyIssues.Select(issue => issue.Message)));
+        }
+        var activationFrameOwner = new StructuredActivationFrameOwner(activationGraphPlan, parentFrame,
+            bodyRevision.Definition, graphActivationMultiplicity: items.Length);
         var retainedDataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(bodyRevision.Definition)
-            ? new ExplicitGraphDataEvaluator(bodyRevision.Definition, items.FirstOrDefault() ?? string.Empty, baseParameters)
+            ? new ExplicitGraphDataEvaluator(bodyRevision.Definition, items.FirstOrDefault() ?? string.Empty,
+                baseParameters, activationFrameOwner.EvidenceBudget)
             : null;
         var variableStores = new ConcurrentDictionary<Guid, WorkflowVariableStore>();
         var session = new StructuredProofSession(executorSetCreated);
@@ -1829,7 +1876,8 @@ public sealed partial class WorkflowRunner
                     throw new InvalidOperationException("A nested activation did not resolve its nearest loop frame.");
                 var scopeId = frame.ScopeId;
                 await Emit(ExecutionEventKinds.LoopIterationStarted, activationLoopNodeId, iterationId, scopeId);
-                var variableStore = variableStores.GetOrAdd(iterationId, _ => new WorkflowVariableStore(bodyRevision.Definition));
+                var variableStore = variableStores.GetOrAdd(iterationId,
+                    _ => activationFrameOwner.CreateVariableStore(bodyRevision.Definition));
                 var dispatchResult = await ExecuteStructuredSchedulerProofCoreAsync(runId, bodyRevision, items[index],
                     activationParameters, evt => evt.Kind is ExecutionEventKinds.Started or
                         ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
@@ -1841,10 +1889,11 @@ public sealed partial class WorkflowRunner
                     afterForkTargetStaged: null, retainedDataEvaluator: retainedDataEvaluator,
                     activationFrame: frame, activationVariableStore: id =>
                         id is { } frameId && variableStores.TryGetValue(frameId, out var currentStore) ? currentStore : null,
-                    retainedSession: session, proofBreakNodeIds: proofBreakNodeIds);
+                    retainedSession: session, proofBreakNodeIds: proofBreakNodeIds,
+                    activationFrameOwner: activationFrameOwner);
                 if (dispatchResult.BreakRequest is { } breakRequest)
                 {
-                    var breakSignal = frame.ConsumeNearestBreak(breakRequest);
+                    var breakSignal = activationFrameOwner.ConsumeBreak(frame, breakRequest);
                     await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId, iterationId,
                         scopeId, JsonSerializer.Serialize(new { outcome = "break", breakSignal.SourceNodeId,
                             breakSignal.TargetFrameId }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));

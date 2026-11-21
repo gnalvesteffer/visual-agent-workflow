@@ -376,6 +376,7 @@ public sealed partial class WorkflowRunner
     private Workflow BuildSequenceProductionWorkflow(Guid runId, WorkflowRevision revision,
         SequenceProductionPlan plan, string input, IReadOnlyDictionary<string, string>? parameters,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
+        Action markRecorderUncertain,
         IWorkflowExecutionGate? gate, WorkflowRevision rootRevision,
         ImmutableArray<WorkflowApprovalScope> workflowPath,
         Func<string, CancellationTokenSource?>? callScopeCancellation = null,
@@ -442,14 +443,25 @@ public sealed partial class WorkflowRunner
             await sequenceEventGate.WaitAsync();
             try
             {
-                foreach (var runtimeEvent in coordinator.DrainEvents())
+                var batch = coordinator.BeginEventDelivery();
+                foreach (var runtimeEvent in batch.Events)
                 {
                     var data = runtimeEvent.BreakAcceptance?.Serialize() ?? SequenceEvidence.Serialize(
                         new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
                             runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
                             runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason));
-                    await emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
-                        runtimeEvent.ConnectionId, data, runtimeEvent.ScopeId);
+                    try
+                    {
+                        await emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
+                            runtimeEvent.ConnectionId, data, runtimeEvent.ScopeId);
+                        coordinator.AcceptDeliveredEvent(batch.DeliveryId, runtimeEvent);
+                    }
+                    catch
+                    {
+                        coordinator.MarkEventDeliveryUncertain(batch.DeliveryId);
+                        markRecorderUncertain();
+                        throw;
+                    }
                 }
             }
             finally

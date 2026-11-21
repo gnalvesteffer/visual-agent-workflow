@@ -6929,8 +6929,10 @@ public sealed class ArrayIterationVawBodyProofTests
                 if (evt.Kind == stopAfterEvent &&
                     (string.IsNullOrEmpty(stopAfterNodeId) || evt.NodeId == stopAfterNodeId))
                 {
-                    await File.WriteAllTextAsync(readyPath,
-                        JsonSerializer.Serialize(new { runId = run.Header.RunId }));
+                    var readyContents = JsonSerializer.Serialize(new { runId = run.Header.RunId });
+                    var temporaryReadyPath = readyPath + ".tmp";
+                    await File.WriteAllTextAsync(temporaryReadyPath, readyContents);
+                    File.Move(temporaryReadyPath, readyPath);
                     await Task.Delay(Timeout.InfiniteTimeSpan);
                 }
             }, itemParameterId: "item",
@@ -8314,6 +8316,12 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right");
         Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
         Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress && evt.NodeId == "join");
+        var joinStarted = Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "join");
+        var joinCancelled = Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+            evt.NodeId == "join" && evt.Data == "Parallel join cancelled because its iterator frame ended.");
+        Assert.Equal(joinStarted.InvocationId, joinCancelled.InvocationId);
+        Assert.Equal(joinStarted.ScopeId, joinCancelled.ScopeId);
         Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
         Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
         AssertPersistedSequence(runStore, recorded, "completed");
@@ -8379,7 +8387,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var playback = await RenderPlayback(reopened);
         Assert.Contains("mcp-second · node.completed", playback, StringComparison.Ordinal);
         Assert.Contains("· Break", playback, StringComparison.Ordinal);
-        Assert.Contains("Parallel join join · in progress", playback, StringComparison.Ordinal);
+        Assert.Contains("Parallel join join · cancelled", playback, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -10649,6 +10657,47 @@ public sealed class ArrayIterationVawBodyProofTests
             evt.NodeId == "inner-loop" && evt.ScopeId == "outer-loop/0/inner-loop/0");
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
             evt.NodeId == "outer-loop" && evt.ScopeId == "outer-loop/1");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NestedConcurrentProductionCoordinator_AtomicallyReservesSharedLoopActivationBudget(bool sqlite)
+    {
+        var definition = NestedConcurrentBreakProofDefinition();
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "nested-concurrent-production-atomic-loop-budget-proof");
+        using var runStore = new ProofRunStore(revision, "[\"outer-a\",\"outer-b\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+
+        var result = await new WorkflowRunner()
+            .ExecuteProductionConcurrentBodyBreakSequenceProofAsync(runStore.RunId, revision,
+                "[\"outer-a\",\"outer-b\"]", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item", activationLoopNodeId: "outer-loop",
+                nestedItemsJson: "[\"continue\"]", nestedIndexParameterId: "innerIndex",
+                nestedActivationLoopNodeId: "inner-loop",
+                runBudget: StructuredRunBudget(maximumToolDispatches: 2) with { MaximumLoopActivations = 3 },
+                maximumConcurrentBodies: 2);
+
+        var events = recorder.Snapshot();
+        Assert.True(result.Failed);
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "outer-loop"));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "inner-loop");
+        Assert.Equal(Enumerable.Range(1, events.Length).Select(index => (long)index),
+            events.Select(evt => evt.Sequence));
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
         AssertPersistedSequence(runStore, events, "failed");
@@ -26673,9 +26722,11 @@ public sealed class ArrayIterationVawBodyProofTests
     private sealed class ConcurrentUnknownOutcomeToolBroker(string bindingId, int expectedAuthorizations) : INodeToolBroker
     {
         private readonly TaskCompletionSource allAuthorized = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource allUnknownOutcomesRecorded = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly string registeredBindingId = bindingId;
         private readonly int expectedAuthorizationCount = expectedAuthorizations;
         private int authorizationCount;
+        private int unknownOutcomeCount;
 
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
@@ -26720,6 +26771,9 @@ public sealed class ArrayIterationVawBodyProofTests
                     disposition = ToolInvocationFailureDisposition.OutcomeUnknown.ToString(),
                     reason
                 }));
+                if (Interlocked.Increment(ref owner.unknownOutcomeCount) == owner.expectedAuthorizationCount)
+                    owner.allUnknownOutcomesRecorded.TrySetResult();
+                await owner.allUnknownOutcomesRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 throw new ToolInvocationException(reason, ToolInvocationFailureDisposition.OutcomeUnknown);
             }
 

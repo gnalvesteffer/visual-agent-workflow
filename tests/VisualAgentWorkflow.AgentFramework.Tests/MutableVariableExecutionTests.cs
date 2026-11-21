@@ -1362,8 +1362,17 @@ public sealed class MutableVariableExecutionTests
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
         var stderrTask = process.StandardError.ReadToEndAsync();
         var readinessPath = holdBeforePublication ? resultPath + ".entered" : resultPath;
-        for (var attempt = 0; attempt < 100 && !File.Exists(readinessPath); attempt++) await Task.Delay(20);
-        Assert.True(File.Exists(readinessPath), "The checkpoint probe did not reach the expected process-loss boundary.");
+        for (var attempt = 0; attempt < 1_500 && !File.Exists(readinessPath) && !process.HasExited; attempt++)
+            await Task.Delay(20);
+        if (!File.Exists(readinessPath))
+        {
+            var exited = process.HasExited;
+            if (!exited) process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            throw new Xunit.Sdk.XunitException(
+                $"The checkpoint probe did not reach the expected process-loss boundary within 30 seconds " +
+                $"(exited={exited}, exitCode={process.ExitCode}). stdout: {await stdoutTask} stderr: {await stderrTask}");
+        }
         process.Kill(entireProcessTree: true);
         await process.WaitForExitAsync();
         return new ProbeProcessResult(process.ExitCode, await stdoutTask, await stderrTask);

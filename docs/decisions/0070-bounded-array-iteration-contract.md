@@ -4669,3 +4669,262 @@ it does not implement typed array iteration, Break execution, nested Loop
 admission, or an integrated lifecycle/settlement owner. The focused regression
 in `BoundedLoopExecutionTests` checks each body start/completion pair uses its
 own graph-derived loop scope.
+
+`UnifiedPredicateLoopPropagatesActivationScopeThroughEveryBodyNode` extends
+that production proof through the ordinary `VariableSet` and `VariableGet`
+executors between the LoopBody marker and feedback edge. It verifies that each
+executor's start and completion events carry the same distinct graph-derived
+scope for all three passes. The focused Agent Framework test passes (1/1).
+This confirms dispatcher propagation for ordinary stateful body nodes; it does
+not add an activation lifecycle owner, typed iterator values, Break execution,
+nested Loop admission, or Sequence settlement.
+
+The production workflow now constructs one private `StructuredActivationFrameOwner`
+per executor graph. It resolves the loop's enclosing frame from the compiled
+`StructuredActivationGraphPlan` and creates the immutable frame for each body
+pass. The dispatcher delegates those two ownership operations to this
+graph-derived component instead of reconstructing parent selection and frame
+creation inline in every Loop executor. Legacy execution remains on its
+existing path. The owner is still only a frame-ownership slice: root lifecycle,
+production Break routing, Sequence settlement, and shared work/evidence budgets
+have not been integrated into it.
+
+The owner also validates private proof-path Break consumption against the
+compiled `TargetLoopByBreakNodeId` map and confirms that the matching target
+frame exists in the active lineage. The graph-dispatched single-loop proof and
+nested production-body proof pass (3/3 focused cases). Break authoring and
+production Sequence settlement remain unimplemented; this validation does not
+admit either contract into the public workflow schema.
+
+### Production ownership sequencing review (2026-11-20)
+
+A fresh proponent, opponent, and adjudicator review considered whether the
+ordinary runner should move root lifecycle/event sequencing into the shared
+activation context before production budget accounting is established. The
+adjudicator returned **REVISE**: first connect the activation owner to shared
+production work/evidence accounting while retaining `ExecuteCoreAsync` as the
+ordinary root event-sequence owner. Do not invent aggregate execution/evidence
+caps in this increment; policy and compatibility effects are not yet selected.
+
+The budget seam must prove that all relevant production activations share
+accounting, that exhausted capacity prevents further work, and that outcome,
+iteration, failure, cancellation, and uncertain-work settlements preserve a
+truthful persisted prefix in both File and SQLite stores. After that evidence,
+consolidate ordinary lifecycle/event sequencing into the shared owner and
+verify one root start/terminal, nested lifecycle suppression, callback failure
+sequence behavior, scopes, cancellation, timeout, collaboration abort, and
+passive playback. This review does not complete the integrated-owner gate or
+admit public iterator/Break contracts.
+
+### Private production budget seam (2026-11-20)
+
+The ordinary unified-schema runner now gives `StructuredActivationFrameOwner`
+the responsibility to share one existing `WorkflowArrayEvidenceBudget` with
+the run's data evaluator and variable stores. It also counts Loop body passes
+against a ceiling derived from the compiled Loop regions and their authored
+maximum-iteration settings. Nested region bounds multiply their enclosing
+Loop bounds, and independent region bounds are summed with saturating
+arithmetic. This is a consistency guard derived from existing graph limits,
+not a new author-facing aggregate cap.
+
+The runner wires the owner's budget into its data evaluator and variable
+stores. The focused owner test proves variable-store budget identity and
+verifies that an extra activation is rejected without consuming another slot.
+The structured proof path multiplies this graph-derived ceiling by the number of
+outer item activations when one body graph is reused. Its separate run-budget
+ledger still enforces the outer item limit. The full Agent Framework suite
+initially exposed two File/SQLite regressions where the per-graph ceiling was
+applied once across multiple item activations (1033/1035 passed); the
+multiplicity correction and the two affected cases plus the owner regression
+pass (3/3), and the corrected full suite passed 1035/1035 before the event
+sequencer move.
+
+The ordinary runner now also delegates root event recording and sequence
+assignment to the owner. It serializes concurrent callbacks, increments the
+sequence only after the recorder accepts the event, and updates the activation
+ledger at that same accepted-event boundary. `ExecuteCoreAsync` continues to
+select the root terminal kind; this change centralizes ordering without
+changing root lifecycle decisions. The owner also records accepted root start
+and terminal state, rejects duplicate starts and any event after a terminal,
+and changes those guards only after recorder acceptance. A fail-first callback
+regression proves a rejected event consumes neither a sequence number nor an
+activation-ledger transition; a lifecycle regression proves a failed start
+append can be retried and accepted start/terminal events occur exactly once.
+The focused Agent Framework selection covering loop, variable, graph
+execution, collaboration, and Sequence behavior passes 164/164; the lifecycle
+class passes 11/11; and the full Agent Framework suite passes 1037/1037. This
+does not prove persisted File/SQLite settlement when the Loop-pass guard
+rejects work, nor does it integrate public array admission or Sequence
+settlement. Those remain open before the integrated ownership gate or public
+iterator admission.
+
+### Sequence event delivery-prefix review and proof (2026-11-20)
+
+A fresh proponent/opponent/adjudicator review returned **REVISE** on the next
+integration step: keep `SequenceRuntimeCoordinator` authoritative for output
+admission, state transitions, Break acceptance, and terminal projection, but
+first prove event delivery and persistence-prefix behavior before making the
+activation owner coordinate Sequence settlement. Moving the state machine into
+the owner would duplicate existing admission and projection rules. Direct
+coordinator persistence would preserve a split authority between activation
+settlement and the root recorder.
+
+The review found that `DrainEvents()` advanced its in-memory delivery cursor
+before the recorder accepted any event. Production flushes could therefore
+lose an unaccepted suffix after a partial write, and a thrown recorder callback
+could have an unknown commit result. `SequenceRuntimeCoordinator` now stages
+an immutable event batch, advances its cursor one event at a time only after
+the recorder returns successfully, and marks delivery uncertain after any
+recorder exception. Uncertain delivery cannot be staged again; callers must
+reconcile with persisted history rather than blindly replaying. The ordinary
+Sequence runner and private production proofs use this same delivery contract.
+Coordinator tests cover accepted-prefix progression, ordering and rejection,
+and fail-closed behavior after an ambiguous recorder failure. A File/SQLite
+lost-ack regression commits one `SequenceOutputDispatched` event and then
+throws before acknowledgment; reopening each store preserves the contiguous
+prefix, and passive playback reconstructs the dispatched output without a
+Sequence or root terminal. The focused Sequence coordinator and production
+test selection passes 76/76, and the full Agent Framework suite passed
+1042/1042 at that stage.
+
+Further File/SQLite tests inject commit-then-throw at
+`SequenceOutputCompleted` and `SequenceCompleted`. The root event owner is
+marked uncertain specifically by the Sequence flush path, so fallback root
+failure recording is suppressed instead of retrying a possibly committed
+sequence number. Reopened histories contain the accepted completion prefix,
+no root terminal, and passive playback preserves the Sequence output state. At
+the aggregate terminal boundary, the Sequence can be reconstructed as complete
+while the enclosing run remains running. Ordinary recorder failures are not
+globally poisoned because known evidence-capacity rejections still need their
+reserved root failure event. The focused current Sequence/owner selection
+passes 9/9, and the complete Agent Framework suite passes 1046/1046. The
+child-process checkpoint used by process-loss proofs is published by atomic
+rename; the concurrent unknown-outcome fixture waits for every dispatched call
+to persist its uncertainty before propagating failure, eliminating two
+load-sensitive test-harness races.
+
+This proves an in-process delivery cursor and one persisted dispatch-event
+prefix plus completed-output and aggregate-Sequence-completion prefixes after
+lost acknowledgments. It does not establish atomic persistence of a multi-event batch, general
+commit-with-lost-ack reconciliation, shared budget reservation, exactly-once
+output settlement, or root terminal ordering against admitted work. Those
+proofs remain prerequisites to connecting Sequence settlement to the
+activation owner and to any public iterator/Break contract.
+
+### Shared accepted-work accounting (2026-11-20)
+
+A fresh proponent/opponent/adjudicator review returned **PROCEED** for a narrow
+accounting increment. The root `ExecutionActivationLedger` now includes
+Sequence output work alongside active node invocations. Before a lifecycle event
+is persisted, the ledger validates that dispatch evidence has a complete,
+matching event identity and that terminal evidence matches an accepted active
+output. The ledger changes only after the root recorder accepts the event.
+Skipped outputs do not create active work. `SequenceRuntimeCoordinator`
+remains the only owner of Sequence admission, state, Break, and terminal
+projection, and `ExecuteCoreAsync` remains the root lifecycle owner. Successful
+root terminal recording (`Completed`/`Terminated`) rejects unresolved node or
+Sequence output work.
+
+The first implementation applied the guard to failure and cancellation too,
+which broke existing nested-fork behavior where the run aborts with sibling
+node invocations still active. A second three-role review returned **REVISE**:
+successful exits must wait for all accepted work to settle, while `Failed`,
+`Cancelled`, and `OutcomeUnknown` are abort boundaries that preserve active
+work as incomplete playback evidence. The root event validator now follows
+that distinction, matching the runner's existing successful-exit checks.
+
+After the abort-boundary correction, focused ledger/owner/production/fork
+regressions pass 98/98. The concurrent reservation proof and the affected
+process-loss probes also pass 5/5 in focused execution. Those process probes
+previously failed under the full-suite load because their two-second readiness
+window expired; the helper now waits up to 30 seconds, reports child output on
+failure, and terminates a child that misses the boundary. The full Agent
+Framework suite now passes 1049/1049. This adds shared in-process work
+accounting; it does not add an
+event/byte budget, reconcile a lost recorder acknowledgment, recover execution
+from persisted history, or admit public array iterators or Break. Documentation
+link validation passed.
+
+### Defensive Loop-guard settlement proof (2026-11-21)
+
+The graph-derived Loop activation ceiling is constructed from the authored
+per-node Loop limits, so a valid ordinary graph does not naturally exceed that
+ceiling. To exercise the defensive rejection boundary without changing public
+behavior, `WorkflowRunner` exposes an internal test-only entry point that may
+lower (but never raise) the compiled allowance. File and SQLite regressions run
+one accepted and completed pass, reject the next activation, reopen the run,
+and verify that the persisted prefix has a failed root terminal, retains the
+completed first pass, contains no second body start, and reconstructs that pass
+as “Iteration 1 · Completed” in passive playback. The proof is focused 2/2.
+
+The regression exposed that playback derived the displayed iteration from a
+numeric activation-scope suffix before consulting the explicit lifecycle
+payload. Scope suffixes identify frames and can follow a different indexing
+convention; playback now prefers the recorded one-based `iteration` field and
+uses the legacy scope fallback only when the field is absent. The directly
+affected loop/ledger/Sequence focused suites pass 98/98. This is a defensive
+guard and persisted-prefix proof only: it does not establish a new product
+limit, process-loss recovery, public array iteration, or Break dispatch.
+
+### Shared accepted Loop-pass accounting (2026-11-21)
+
+A fresh three-role review returned **REVISE**: continue the end-to-end private
+production proof, while keeping public array iteration, Break, and Studio
+admission closed. Its immediate requirement was to connect activation work with
+Sequence settlement through the existing coordinator and prove persisted
+prefixes before considering a public contract.
+
+The shared `ExecutionActivationLedger` now tracks accepted Loop iteration
+starts and their matching completions alongside active node invocations and
+Sequence outputs. A successful root terminal is rejected while any of those
+work types remains active; failure, cancellation, and unknown outcome remain
+abort boundaries that preserve incomplete evidence. Current Loop passes pair
+by activation scope, or by the explicit iteration value for unscoped events,
+not by Loop-node invocation ID: the Loop node is invoked again on its feedback
+edge. Both the ordinary activation-frame owner and the private structured
+production run context validate and observe the ledger only at their accepted
+recorder boundary. `SequenceRuntimeCoordinator` remains authoritative for
+Sequence admission and settlement.
+
+The ledger tests pass 6/6, including mismatched iteration rejection, distinct
+feedback invocation IDs, successful-terminal blocking, and failed-root abort
+semantics. Production-body tests combining array activations with per-item
+Sequence settlement, graph-dispatched Break, sibling draining, and cancellation
+pass 8/8. The broader Loop/ledger/Sequence selection from the preceding
+increment passed 98/98. A full Agent Framework suite passed 1,054/1,054 before
+the latest settlement changes. This increment makes accepted Loop-pass work
+visible to the shared accounting logic, but does not prove atomic shared
+budget reservation across concurrent nested activations, general lost-ack
+reconciliation, public array topology admission, or Studio authoring.
+
+### Break settlement for pending joins (2026-11-21)
+
+The first complete Agent Framework run after the shared ledger change found
+stale generic node activations on successful Break paths. A waiting Join had
+accepted one branch and emitted `node.started`, but the Break returned before
+the missing branch could reach it. Before accepting a Break result, the
+activation owner now records matching `node.cancelled` events for pending Join
+invocations in the exact ending frame. The ledger also treats accepted
+`sequence.break.completed` evidence as settlement of its matching generic
+Sequence node activation when that exact activation remains open; ordinary
+production Sequence dispatch can already have completed its generic node
+event. Playback shows the abandoned Join as cancelled instead of indefinitely
+in progress. An expanded focused selection ran 30 cases: 29 passed, while one
+nested-concurrency File variant hit its five-second controlled-Agent startup
+timeout and then failed temporary-journal cleanup. Rerunning both File/SQLite
+variants in isolation passed 2/2. The four File/SQLite and direct-MCP/mixed
+playback variants pass 4/4. The final single-worker full Agent Framework suite
+passes 1,054/1,054. Public array and Break admission remain closed pending the
+remaining shared ownership, budget, persistence, and topology gates.
+
+### Concurrent nested Loop-budget reservation proof (2026-11-21)
+
+The shared structured run context now has a File/SQLite regression with two
+outer production-body activations racing to enter nested Loop bodies while
+only one shared Loop-activation slot remains. Exactly one nested start is
+accepted; the run fails at the configured proof limit, records contiguous
+event sequences and one failed root terminal, and reopens with the same event
+prefix and status (2/2). This demonstrates serialized check-and-commit for
+this nested activation-budget boundary. It does not settle broader concurrent
+reservation policy, other event/byte budgets, arbitrary failure or recorder
+interruption races, public topology admission, or Studio authoring.

@@ -19,4 +19,5 @@ public sealed class ParallelJoinActivationStateTests
         Assert.Equal(1, state.InputCount);
         Assert.Equal(new[] { "a" }, state.InputSnapshot().Keys);
     }
+
 }

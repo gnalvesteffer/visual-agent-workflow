@@ -4,8 +4,9 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.AgentFramework;
 
 /// <summary>
-/// Non-persisted proof coordinator for the future Sequence runtime.
-/// It gives each output lifecycle fact stable invocation, ordinal, and connection identity.
+/// In-memory state coordinator for bounded Sequence dispatch.
+/// It gives each output lifecycle fact stable invocation, ordinal, and connection identity;
+/// delivery is staged and acknowledged through the runner's recorder.
 /// </summary>
 internal sealed class SequenceRuntimeCoordinator
 {
@@ -23,6 +24,10 @@ internal sealed class SequenceRuntimeCoordinator
     private bool terminalEventRecorded;
     private bool breakCompletionRequested;
     private bool admissionStopped;
+    private Guid? activeEventDeliveryId;
+    private ImmutableArray<SequenceRuntimeEvent> activeEventDelivery = [];
+    private int activeEventDeliveryOffset;
+    private bool eventDeliveryUncertain;
 
     public SequenceRuntimeCoordinator(Guid sequenceInvocationId, string sequenceNodeId,
         IReadOnlyList<string> outputIds, IReadOnlyDictionary<string, string> connectionIds,
@@ -89,14 +94,59 @@ internal sealed class SequenceRuntimeCoordinator
 
     private int emittedEventCount;
 
-    /// <summary>Returns lifecycle facts not yet sent through the production recorder.</summary>
-    public IReadOnlyList<SequenceRuntimeEvent> DrainEvents()
+    /// <summary>Stages the current event prefix for ordered persistence without advancing its cursor.</summary>
+    public SequenceRuntimeEventDeliveryBatch BeginEventDelivery()
     {
         lock (gate)
         {
-            var pending = events.Skip(emittedEventCount).ToArray();
-            emittedEventCount = events.Count;
-            return pending;
+            if (eventDeliveryUncertain)
+                throw new InvalidOperationException("Sequence event delivery is uncertain after a recorder failure; reconcile persisted history before any retry.");
+            if (activeEventDeliveryId is not null)
+                throw new InvalidOperationException("A Sequence event delivery batch is already active.");
+            var pending = events.Skip(emittedEventCount).ToImmutableArray();
+            if (pending.IsEmpty) return new(Guid.Empty, pending);
+            var deliveryId = Guid.NewGuid();
+            activeEventDeliveryId = deliveryId;
+            activeEventDelivery = pending;
+            activeEventDeliveryOffset = 0;
+            return new(deliveryId, pending);
+        }
+    }
+
+    /// <summary>Advances the delivery cursor only after the matching event recorder call returns successfully.</summary>
+    public void AcceptDeliveredEvent(Guid deliveryId, SequenceRuntimeEvent acceptedEvent)
+    {
+        ArgumentNullException.ThrowIfNull(acceptedEvent);
+        lock (gate)
+        {
+            if (activeEventDeliveryId != deliveryId || deliveryId == Guid.Empty ||
+                activeEventDeliveryOffset >= activeEventDelivery.Length ||
+                activeEventDelivery[activeEventDeliveryOffset] != acceptedEvent ||
+                emittedEventCount >= events.Count || events[emittedEventCount] != acceptedEvent)
+                throw new InvalidOperationException("The accepted Sequence event does not match the next staged event.");
+
+            emittedEventCount++;
+            activeEventDeliveryOffset++;
+            if (activeEventDeliveryOffset == activeEventDelivery.Length)
+            {
+                activeEventDeliveryId = null;
+                activeEventDelivery = [];
+                activeEventDeliveryOffset = 0;
+            }
+        }
+    }
+
+    /// <summary>Prevents replay after a recorder exception whose commit status may be unknown.</summary>
+    public void MarkEventDeliveryUncertain(Guid deliveryId)
+    {
+        lock (gate)
+        {
+            if (activeEventDeliveryId != deliveryId || deliveryId == Guid.Empty)
+                throw new InvalidOperationException("The failed Sequence delivery does not match the active batch.");
+            eventDeliveryUncertain = true;
+            activeEventDeliveryId = null;
+            activeEventDelivery = [];
+            activeEventDeliveryOffset = 0;
         }
     }
 
@@ -341,6 +391,9 @@ internal sealed class SequenceRuntimeCoordinator
         };
     }
 }
+
+internal sealed record SequenceRuntimeEventDeliveryBatch(Guid DeliveryId,
+    ImmutableArray<SequenceRuntimeEvent> Events);
 
 /// <summary>Private typed collector handoff for one terminal Sequence activation region.</summary>
 internal sealed record SequenceAggregateCompletionSignal(

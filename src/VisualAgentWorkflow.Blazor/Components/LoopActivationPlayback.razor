@@ -182,14 +182,9 @@
 
     private static bool TryIteration(ExecutionEvent evt, out int iteration)
     {
-        if (evt.ScopeId is { } scope &&
-            int.TryParse(scope[(scope.LastIndexOf('/') + 1)..], NumberStyles.None,
-                CultureInfo.InvariantCulture, out var zeroBased) && zeroBased >= 0 && zeroBased < int.MaxValue)
-        {
-            iteration = zeroBased + 1;
-            return true;
-        }
-
+        // Lifecycle payloads carry the authored one-based iteration. Prefer that
+        // over decoding the activation scope, whose numeric suffix is a frame
+        // identity and is not guaranteed to use the same indexing convention.
         try
         {
             using var payload = JsonDocument.Parse(evt.Data ?? "{}");
@@ -200,22 +195,34 @@
         }
         catch (JsonException) { }
 
+        if (evt.ScopeId is { } scope &&
+            int.TryParse(scope[(scope.LastIndexOf('/') + 1)..], NumberStyles.None,
+                CultureInfo.InvariantCulture, out var zeroBased) && zeroBased >= 0 && zeroBased < int.MaxValue)
+        {
+            iteration = zeroBased + 1;
+            return true;
+        }
+
         iteration = 0;
         return false;
     }
 
     private static int Iteration(ExecutionEvent start)
     {
-        if (start.ScopeId is { } scope && int.TryParse(scope[(scope.LastIndexOf('/') + 1)..],
-                NumberStyles.None, CultureInfo.InvariantCulture, out var zeroBased))
-            return zeroBased + 1;
         try
         {
             using var payload = JsonDocument.Parse(start.Data ?? "{}");
-            return payload.RootElement.TryGetProperty("iteration", out var value) &&
-                value.TryGetInt32(out var iteration) && iteration > 0 ? iteration : 1;
+            if (payload.RootElement.ValueKind == JsonValueKind.Object &&
+                payload.RootElement.TryGetProperty("iteration", out var value) &&
+                value.TryGetInt32(out var iteration) && iteration > 0)
+                return iteration;
         }
-        catch (JsonException) { return 1; }
+        catch (JsonException) { }
+
+        if (start.ScopeId is { } scope && int.TryParse(scope[(scope.LastIndexOf('/') + 1)..],
+                NumberStyles.None, CultureInfo.InvariantCulture, out var zeroBased))
+            return zeroBased + 1;
+        return 1;
     }
 
     private static string CompletionStatus(ExecutionEvent completion)

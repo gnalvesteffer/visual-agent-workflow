@@ -241,6 +241,13 @@ recorded decision, transfer, and settlement evidence. This is an additive
 schema 2.0 capability; historical 1.x contracts are unchanged. See
 [Decision 0073](decisions/0073-branchable-sequence-output-contract.md).
 
+The in-memory Sequence coordinator stages lifecycle facts for delivery through
+the runner recorder. Its event cursor advances only after each recorder call
+returns successfully. A callback exception marks delivery uncertain and blocks
+automatic replay; persisted history must be reconciled before retry. This is
+an in-process delivery guarantee, not proof of atomic multi-event persistence
+or commit-with-lost-ack recovery. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 Schema 1.50 adds the bounded public WorkflowCall slice: a Sequence path may
 end in one exact pinned string child call after its direct MCP prefix, and the
 call must connect directly to Output. Ordinary direct-MCP paths remain valid,
@@ -359,6 +366,48 @@ write; it measures compact JSON UTF-8 bytes and does not deduplicate repeated
 values. Data-evaluation evidence is informational; playback updates variable
 state only from explicit variable events. JSON-array variable state remains
 excluded from checkpoints.
+The ordinary unified-schema runner creates one private activation owner per
+workflow invocation. That owner supplies the same evidence-budget instance to
+the data evaluator and all run-scoped variable stores, and counts Loop body
+passes against the theoretical maximum derived from the compiled Loop regions
+and their authored per-node iteration limits. This guard introduces no new
+author-configurable limit; it catches dispatch beyond the graph's existing
+bounds. Private structured proofs that reuse a graph across multiple item
+activations multiply the derived ceiling by that activation count; their
+separate run-budget ledger continues to enforce the outer item bound. Durable
+File/SQLite settlement after this guard fails remains under proof and this is
+not a typed array-iteration guarantee.
+The same owner serializes the ordinary runner's event recorder, assigns the
+monotonic event sequence, and updates the execution activation ledger only
+after the recorder accepts each event. The ledger tracks active node invocations,
+Loop iterations, and Sequence output activations: accepted start/dispatch
+evidence opens work, and only matching accepted completion, failure, or
+cancellation evidence settles it. Loop passes pair by activation scope (or an
+explicit iteration when unscoped), because the Loop node invocation can change
+on its feedback edge. Successful root exits (`Completed` and `Terminated`) are
+rejected while tracked work remains active. Failed, cancelled, and
+outcome-unknown roots remain abort
+boundaries and may preserve active work as incomplete playback evidence. Skipped
+Sequence outputs do not count as dispatched work. `SequenceRuntimeCoordinator`
+remains authoritative for Sequence admission and state; this ledger only checks
+the shared accepted-work boundary. `ExecuteCoreAsync` still chooses the
+root lifecycle outcome; the owner centralizes recording and ordering rather
+than choosing the terminal outcome. It records root start and terminal events
+once, rejects events after an accepted terminal, and advances those lifecycle
+guards only after successful recording.
+In the private array/Break production proof, a Break that ends a frame records
+cancellation for any accepted pending Join in that exact scope before the root
+can complete; Sequence Break lifecycle evidence also settles the generic
+Sequence node activation when that exact activation is still open; it is a
+no-op after production Sequence dispatch has already completed the node. These
+events describe proof execution only and do not admit public array iteration
+or Break.
+When a Sequence event callback has an ambiguous commit result, Sequence delivery
+is poisoned against automatic replay and the root owner suppresses fallback
+terminal writes; the persisted event prefix remains authoritative until history
+is reconciled. This uncertainty latch is raised only by Sequence delivery;
+ordinary recorder rejections retain their existing reserved-failure behavior.
+This does not provide in-process recovery from a lost acknowledgment.
 The existing `array<json>` identity also composes in unified schema 2.0 through
 Array literal, length, get, append, insert, replace, remove, and concatenate.
 It remains a heterogeneous ordered collection of JSON values including null,
