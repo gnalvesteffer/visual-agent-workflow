@@ -1274,9 +1274,8 @@ public sealed partial class WorkflowRunner
         var definition = revision.Definition;
         var dispatchLedger = proofDuplicateForkDeliveries is null ? null : new StructuredProofDispatchLedger();
         if (dispatchLedger is not null && definition.Nodes.Values.Any(node => node.Type is
-                NodeTypes.ParallelRendezvous or NodeTypes.WorkflowCall or
-                NodeTypes.WorkflowInterfaceCall))
-            throw new NotSupportedException("The proof dispatch ledger does not yet schedule collaboration or nested workflow-call nodes.");
+                NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall))
+            throw new NotSupportedException("The proof dispatch ledger does not yet schedule nested workflow-call nodes.");
         var ledgerActivations = new ConcurrentDictionary<Guid, Guid>();
         var stagedJoinMessages = new ConcurrentDictionary<Guid, GraphMessage>();
         var resolvedParameters = WorkflowParameters.Resolve(definition, parameters);
@@ -1350,6 +1349,8 @@ public sealed partial class WorkflowRunner
             collaborationCancellation?.Token ?? cancellationToken);
         var rendezvousArrivals = new Dictionary<string, Dictionary<string, GraphMessage>>(StringComparer.Ordinal);
         var rendezvousInvocations = new Dictionary<string, Dictionary<string, Guid>>(StringComparer.Ordinal);
+        var rendezvousDeliveries = new Dictionary<string,
+            Dictionary<string, StructuredProofDispatchLedger.Delivery>>(StringComparer.Ordinal);
         var rendezvousSync = new object();
 
         try
@@ -1445,7 +1446,7 @@ public sealed partial class WorkflowRunner
                 if (definition.Nodes[nodeId].Type == NodeTypes.Sequence)
                     return await DispatchSequence(nodeId, message, token, proofDelivery);
                 if (definition.Nodes[nodeId].Type == NodeTypes.ParallelRendezvous)
-                    return await DispatchCollaborationRendezvous(nodeId, message, token);
+                    return await DispatchCollaborationRendezvous(nodeId, message, token, proofDelivery);
 
                 var executor = executors[nodeId];
                 var node = definition.Nodes[nodeId];
@@ -1500,7 +1501,8 @@ public sealed partial class WorkflowRunner
                     : null;
                 var result = await executor.HandleForStructuredSchedulerAsync(message, (outgoing, target, ct) =>
                 {
-                    if (node.Type == NodeTypes.ParallelFork && (stageForkTargetsBeforeDispatch || dispatchLedger is not null))
+                    if (node.Type == NodeTypes.ParallelFork && (stageForkTargetsBeforeDispatch ||
+                        dispatchLedger is not null || collaborationRuntime?.Region.ForkNodeId == nodeId))
                     {
                         stagedForkTargets.Add((outgoing, target, ct));
                         return afterForkTargetStaged is null
@@ -1637,7 +1639,7 @@ public sealed partial class WorkflowRunner
         }
 
         async Task<GraphMessage?> DispatchCollaborationRendezvous(string nodeId, GraphMessage message,
-            CancellationToken token)
+            CancellationToken token, StructuredProofDispatchLedger.Delivery? proofDelivery)
         {
             var runtime = message.CollaborationRuntime
                 ?? throw new InvalidOperationException("The structured collaboration rendezvous has no activation runtime.");
@@ -1663,6 +1665,14 @@ public sealed partial class WorkflowRunner
                     rendezvousArrivals.Add(nodeId, arrivals = new(StringComparer.Ordinal));
                 if (!arrivals.TryAdd(branchId, message))
                     throw new InvalidOperationException("A collaboration branch arrived more than once.");
+                if (dispatchLedger is not null)
+                {
+                    if (proofDelivery is null)
+                        throw new InvalidOperationException("Proof collaboration arrival has no admitted delivery identity.");
+                    if (!rendezvousDeliveries.TryGetValue(nodeId, out var deliveries))
+                        rendezvousDeliveries.Add(nodeId, deliveries = new(StringComparer.Ordinal));
+                    deliveries.Add(branchId, proofDelivery);
+                }
                 if (!rendezvousInvocations.TryGetValue(nodeId, out var invocations))
                     rendezvousInvocations.Add(nodeId, invocations = new(StringComparer.Ordinal));
                 invocations.Add(branchId, invocationId);
@@ -1675,10 +1685,13 @@ public sealed partial class WorkflowRunner
 
                 GraphMessage[] arrivals;
                 Guid[] invocations;
+                StructuredProofDispatchLedger.Delivery[]? deliveryTickets = null;
                 lock (rendezvousSync)
                 {
                     arrivals = region.Branches.Select(branch => rendezvousArrivals[nodeId][branch.BranchId]).ToArray();
                     invocations = region.Branches.Select(branch => rendezvousInvocations[nodeId][branch.BranchId]).ToArray();
+                    if (dispatchLedger is not null)
+                        deliveryTickets = region.Branches.Select(branch => rendezvousDeliveries[nodeId][branch.BranchId]).ToArray();
                 }
                 var deliveries = new List<Task<GraphMessage?>>();
                 for (var index = 0; index < region.Branches.Length; index++)
@@ -1689,13 +1702,17 @@ public sealed partial class WorkflowRunner
                         edge.Source.PortId == outputPort)
                         ?? throw new InvalidOperationException($"The collaboration branch '{branch.BranchId}' has no post-rendezvous route.");
                     var source = arrivals[index];
+                    var outgoingDelivery = dispatchLedger is null
+                        ? null
+                        : dispatchLedger.Transition(deliveryTickets![index],
+                            [new StructuredProofDispatchLedger.Successor(deliveryTickets[index].Lineage)]).Single();
                     deliveries.Add(DispatchNode(destination.Target.NodeId, source with
                     {
                         SourceNode = nodeId,
                         SourcePort = outputPort,
                         ParallelBranchId = branch.BranchId,
                         CollaborationRuntime = runtime
-                    }, token));
+                    }, token, outgoingDelivery));
                     await Emit(ExecutionEventKinds.NodeCompleted, nodeId, invocations[index],
                         $"collaboration:{branch.BranchId}", runtime.IsPhased
                             ? $"The {phase} snapshot was released."

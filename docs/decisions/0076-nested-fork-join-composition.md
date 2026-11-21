@@ -213,25 +213,28 @@ The proof-only `StructuredProofDispatchLedger` now tracks unique delivery
 identities, atomic successor reservation before settlement, nested parent
 lineage, held Join arrivals, Join collapse, failure cleanup, and bounded
 admission. It is wired into `ExecuteStructuredSchedulerProofCoreAsync` for
-Fork/Join, Sequence output paths, and ordinary successor dispatch;
-collaboration and nested workflow-call nodes remain unsupported in this private
-mode. File and SQLite proofs persist, reopen, and render passive playback for
-unique-arrival success and duplicate-arrival failure. A deterministic
-duplicate-injection hook exercises the scheduler with a valid graph: both the duplicate and final
-unique Agent finish, the Join fails, and neither Join completion nor Output
+Fork/Join, Sequence output paths, ordinary successor dispatch, and one
+collaboration region with one- or two-phase rendezvous; nested workflow-call
+nodes remain unsupported in this private mode. File and SQLite proofs persist,
+reopen, and render passive playback for unique-arrival success and
+duplicate-arrival failure. A deterministic duplicate-injection hook exercises
+the scheduler with a valid graph: both the duplicate and final unique Agent
+finish, the Join fails, and neither Join completion nor Output
 dispatch occurs. Other proofs verify unique-arrival output and two-level nested
 Join parent-lineage restoration. Ledger-level tests cover stale/tampered
 lineage, failure cleanup, repeat settlement, unrelated activation isolation,
 and outstanding-delivery bounds. Structured-dispatch tests also cover branch
 failure, cancellation with a held sibling, recorder failure before Join
-commit, and a controlled direct-MCP denial that respects node grants and
-suppresses Join/output completion. This broker fixture does not qualify a real
-MCP service or the full authority/evidence boundary. This is still only a
-test-only scheduler prototype: it is not used by
-public Agent Framework execution. The targeted store and playback proofs do not
-establish scheduler crash recovery or checkpoint recovery. Sequence output failure with sibling
-cancellation is covered, while host cancellation and broader Sequence
+commit, collaboration success across both rendezvous shapes, collaboration
+failure suppression, and a controlled direct-MCP denial that respects node
+grants and suppresses Join/output completion. The collaboration proof does not
+yet cover host cancellation, timeout or persistence. This broker fixture does
+not qualify a real MCP service or the full authority/evidence boundary. This is
+still only a test-only scheduler prototype: it is not used by public Agent
+Framework execution. The targeted store and playback proofs do not establish
+scheduler crash recovery or checkpoint recovery. Sequence output failure with
+sibling cancellation is covered, while host cancellation and broader Sequence
 semantics remain open. MCP authority and evidence boundaries, collaboration
-rendezvous, nested workflow-call integration, and production scheduler
-persistence/playback integration also remain open before any production runtime
-decision.
+cancellation, timeout and persistence, nested workflow-call integration, and
+production scheduler persistence/playback integration remain open before any
+production runtime decision.

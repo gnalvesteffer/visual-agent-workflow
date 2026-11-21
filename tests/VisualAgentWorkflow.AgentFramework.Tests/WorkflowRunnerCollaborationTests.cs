@@ -44,6 +44,64 @@ public sealed class WorkflowRunnerCollaborationTests
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationAborted);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredSchedulerLedger_AccountsForCollaborationRendezvousAndJoin(bool phased)
+    {
+        const int branchCount = 3;
+        var definition = phased ? CreatePhasedGraph(branchCount, 30) : CreateGraph(branchCount, 30);
+        var revision = WorkflowRevision.Create(definition, "structured-collaboration-ledger-proof");
+        var executor = phased
+            ? (IAgentNodeExecutor)new PhasedCollaborationAgentExecutor()
+            : new CollaborationAgentExecutor(branchCount);
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(agents: executor)
+            .ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision, "question", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal))
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(result.Failed);
+        Assert.True(result.HasOutput);
+        using var output = JsonDocument.Parse(Assert.IsType<string>(result.Output));
+        Assert.Equal(branchCount, output.RootElement.EnumerateObject().Count());
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationRegionStarted);
+        Assert.Equal(phased ? 2 : 1, events.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationReleased));
+        Assert.Equal(phased ? branchCount * 2 : branchCount,
+            events.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationArrival));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "output");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
+    public async Task StructuredSchedulerLedger_CollaborationFailureSuppressesJoinAndOutput()
+    {
+        const int branchCount = 3;
+        var revision = WorkflowRevision.Create(CreateGraph(branchCount, 30),
+            "structured-collaboration-ledger-failure-proof");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var failure = await Record.ExceptionAsync(() =>
+            new WorkflowRunner(agents: new CollaborationAgentExecutor(branchCount, failPublishBranch: "branch_a"))
+                .ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision, "question", null, evt =>
+                {
+                    events.Enqueue(evt);
+                    return ValueTask.CompletedTask;
+                }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal))
+                .WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.NotNull(failure);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationAborted);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "join" && evt.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "output" && evt.Kind == ExecutionEventKinds.NodeStarted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
     [Fact]
     public async Task Schema135PhaseTwoFailure_RetainsPhaseOneSnapshotAndSuppressesJoin()
     {
