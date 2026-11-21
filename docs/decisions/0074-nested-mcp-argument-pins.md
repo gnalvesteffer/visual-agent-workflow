@@ -1,6 +1,6 @@
 # Decision 0074: Bounded proof for nested MCP argument pins
 
-**Status:** REVISE; bounded unified-schema non-approval nested pins are being integrated; broader proof and approval paths remain gated
+**Status:** Bounded unified-schema non-approval nested pins are integrated; package import/edit, migration, and approval paths remain gated
 
 **Date:** 2026-11-19
 
@@ -57,24 +57,28 @@ Before considering the nested-pin slice complete:
    values, then verify the real broker independently rejects changed pinned
    contracts, invalid live schemas, and missing node grants.
 4. Define and test redaction before nested values can be persisted in
-   `data.evaluated` or exposed in run details, playback, diagnostics, or error
-   messages. The bounded direct-MCP slice now redacts values in direct-node
-   `data.evaluated`, `tool.authorized`, `tool.completed`, direct MCP
-   `node.started`/`node.completed`, and directly sourced Output lifecycle
-   events. It retains event/invocation identity, sequence lineage when
-   present, type, and character-count metadata without plain hashes. Explicit
+   incidental evidence. The bounded direct-MCP slice redacts values in
+   direct-node `data.evaluated`, `tool.authorized`, `tool.completed`, and
+   direct MCP `node.started`/`node.completed` events. The root `run.completed`
+   event intentionally retains the declared workflow result, including when
+   Output is directly connected to MCP; this is caller-visible output persisted
+   and rendered in run history. Redacted evidence retains event/invocation
+   identity, sequence lineage when present, type, and character-count metadata
+   without plain hashes. Explicit
    graph schemas separate control transfers from data dependencies and do not
    emit `connection.received` events for direct-MCP data wires. Redaction
    happens before observation/persistence and does not change runtime values.
    Focused runner and broker regressions verify the actual argument/result
    flow. File/SQLite reopen tests preserve redacted broker outcomes and also
    execute the configured nested direct-MCP path through each store, reopen
-   the run, and verify that node lifecycle, root-completion, and data-evaluation events contain
-   neither nested secret value and retain their redaction markers. The
+   the run, and verify that node lifecycle and data-evaluation events contain
+   neither nested secret value and retain their redaction markers, while the
+   declared root result remains available. The
    reopened snapshots are also rendered through `WorkflowRunViewer`; the event
    evidence table contains redaction metadata and neither secret value. This
    does not invoke an executor or MCP service during rendering. This is
-   not an end-to-end confidentiality guarantee: arbitrary
+   not an end-to-end confidentiality guarantee: the declared result is an
+   explicit disclosure; arbitrary
    downstream nodes and Sequence aggregation events can still record derived
    values; static literals remain in workflow definitions;
    approval events retain exact plaintext input under Decision 0075; agent-loop
@@ -123,10 +127,12 @@ the production runner has been exercised against the real stdio broker with a
 nested connected value plus static siblings. The proof confirms the broker
 rejects a changed pinned contract and a missing grant before authorization.
 Connected nested values also run through File and SQLite stores; reopened
-passive playback retains redaction for node lifecycle, evaluation, and root
-completion evidence. Remaining proof: browser authoring/edit/save/reopen and
-package import/edit coverage, plus broader schema-drift and explicit migration
-coverage. Approval-wrapped direct MCP calls remain excluded until Decision
+passive playback redacts node lifecycle and evaluation evidence while retaining
+the declared root result. Studio browser authoring, save, and reopen are
+verified, including nested scalar pins without an overlapping parent pin.
+Remaining proof: browser editing of existing nested pins, package import/edit
+coverage, plus broader schema-drift and explicit migration coverage.
+Approval-wrapped direct MCP calls remain excluded until Decision
 0075 defines the protected exact-action payload lifecycle. This bounded
 increment does not establish array-item pins, unrestricted JSON Schema support,
 end-to-end secrecy, or full Blueprint parity.

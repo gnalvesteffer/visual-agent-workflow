@@ -131,6 +131,16 @@ it as a JSON number and record typed evidence.
 
 The direct node's properties pane is generated from the selected tool's supported JSON Schema, including scalar values, enums, nested JSON values, arrays, required/optional fields, and field descriptions. Values are workflow data, not secret storage. The host broker still checks the node grant, pinned contract, live schema, and invocation limits on every call; contract drift fails closed. Nested objects and arrays remain JSON pins in schema 1.37. Current graphs can combine direct tools with Agent, branch, bounded loop, and approval nodes; each control region still requires valid topology.
 
+For an eligible closed nested object in the current schema, supported scalar
+leaves appear as their own typed pins, labeled by their property path (for
+example `payload › request › name`). Studio removes the overlapping parent
+object pin, while arrays and other complex siblings remain editable as static
+JSON values in the properties pane. The direct MCP node's `out` pin and the
+workflow Output carry the tool result to callers; run history intentionally
+records that declared workflow result. Incidental MCP argument/result evidence
+is redacted, but downstream transformations, approval evidence, and older run
+histories do not provide end-to-end secrecy.
+
 #### Add run-scoped variables
 
 Open **Workflow settings** (or **Settings** for a folder-backed workflow) and use

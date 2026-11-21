@@ -27,6 +27,7 @@ public sealed class DirectMcpExecutionTests
 
         Assert.False(result.Failed);
         Assert.Equal("tool-result", result.Output);
+        Assert.Equal("tool-result", Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed).Data);
         Assert.Equal("{\"text\":\"hello\"}", broker.Input);
         AssertRedacted(events.Single(evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "tool"));
         AssertRedacted(events.Single(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool"));
@@ -101,15 +102,12 @@ public sealed class DirectMcpExecutionTests
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.False(result.Failed);
-        var output = Assert.IsType<string>(result.Output);
         using var actual = JsonDocument.Parse(broker.Input!);
         Assert.Equal("connected", actual.RootElement.GetProperty("request").GetProperty("name").GetString());
         Assert.Equal("fixed", actual.RootElement.GetProperty("request").GetProperty("kind").GetString());
         Assert.Equal("a", actual.RootElement.GetProperty("request").GetProperty("labels")[0].GetString());
         Assert.DoesNotContain(events, evt => evt.Data?.Contains("connected", StringComparison.Ordinal) == true);
-        using var completed = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed).Data!);
-        Assert.Equal("redacted", completed.RootElement.GetProperty("payloadState").GetString());
-        Assert.Equal(output.Length, completed.RootElement.GetProperty("outputCharacters").GetInt32());
+        Assert.Equal("tool-result", Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed).Data);
     }
 
     [Fact]
@@ -193,6 +191,7 @@ public sealed class DirectMcpExecutionTests
             IWorkflowRunStore reopened = CreateStore(storeKind, storePath);
             var snapshot = Assert.IsType<RunSnapshot>(reopened.Get(created.Header.RunId));
             Assert.Equal("completed", snapshot.Status);
+            Assert.Equal("tool-result", Assert.Single(snapshot.Events, evt => evt.Kind == ExecutionEventKinds.Completed).Data);
             Assert.NotEmpty(snapshot.Events);
             Assert.DoesNotContain(snapshot.Events, evt => evt.Data?.Contains(privateName, StringComparison.Ordinal) == true);
             Assert.DoesNotContain(snapshot.Events, evt => evt.Data?.Contains(privateLabel, StringComparison.Ordinal) == true);
@@ -204,6 +203,7 @@ public sealed class DirectMcpExecutionTests
 
             var playbackHtml = await RenderPlayback(snapshot);
             Assert.Contains("Execution evidence", playbackHtml, StringComparison.Ordinal);
+            Assert.Contains("tool-result", playbackHtml, StringComparison.Ordinal);
             Assert.Contains("payloadState", playbackHtml, StringComparison.Ordinal);
             Assert.DoesNotContain(privateName, playbackHtml, StringComparison.Ordinal);
             Assert.DoesNotContain(privateLabel, playbackHtml, StringComparison.Ordinal);
@@ -272,6 +272,7 @@ public sealed class DirectMcpExecutionTests
             IWorkflowRunStore reopened = CreateStore(storeKind, storePath);
             var snapshot = Assert.IsType<RunSnapshot>(reopened.Get(created.Header.RunId));
             Assert.Equal("completed", snapshot.Status);
+            Assert.Equal("tool-result", Assert.Single(snapshot.Events, evt => evt.Kind == ExecutionEventKinds.Completed).Data);
             Assert.DoesNotContain(snapshot.Events, evt => evt.Data?.Contains(privateName, StringComparison.Ordinal) == true);
             Assert.DoesNotContain(snapshot.Events, evt => evt.Data?.Contains(privateLabel, StringComparison.Ordinal) == true);
             Assert.All(snapshot.Events.Where(evt =>
@@ -280,6 +281,7 @@ public sealed class DirectMcpExecutionTests
 
             var playbackHtml = await RenderPlayback(snapshot);
             Assert.Contains("Execution evidence", playbackHtml, StringComparison.Ordinal);
+            Assert.Contains("tool-result", playbackHtml, StringComparison.Ordinal);
             Assert.DoesNotContain(privateName, playbackHtml, StringComparison.Ordinal);
             Assert.DoesNotContain(privateLabel, playbackHtml, StringComparison.Ordinal);
         }

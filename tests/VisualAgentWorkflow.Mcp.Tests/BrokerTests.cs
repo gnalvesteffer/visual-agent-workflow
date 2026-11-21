@@ -172,13 +172,13 @@ public class BrokerTests
         Assert.False(result.Failed);
         Assert.Equal("Ada:3:blue,green", result.Output);
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
-        Assert.DoesNotContain(events, evt => evt.Data?.Contains("Ada", StringComparison.Ordinal) == true);
+        Assert.DoesNotContain(events.Where(evt => evt.Kind != ExecutionEventKinds.Completed),
+            evt => evt.Data?.Contains("Ada", StringComparison.Ordinal) == true);
         using (var nodeStarted = JsonDocument.Parse(Assert.Single(events,
                    evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "tool").Data!))
             Assert.Equal("redacted", nodeStarted.RootElement.GetProperty("payloadState").GetString());
-        using (var runCompleted = JsonDocument.Parse(Assert.Single(events,
-                   evt => evt.Kind == ExecutionEventKinds.Completed).Data!))
-            Assert.Equal("redacted", runCompleted.RootElement.GetProperty("payloadState").GetString());
+        Assert.Equal("Ada:3:blue,green", Assert.Single(events,
+            evt => evt.Kind == ExecutionEventKinds.Completed).Data);
 
         var changedContract = binding with { ContractHash = new string('0', 64) };
         var driftEvents = new List<ExecutionEvent>();

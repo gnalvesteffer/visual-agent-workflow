@@ -1427,7 +1427,7 @@
                 : [];
             if (nested.IsDefaultOrEmpty) return [.. topLevel];
 
-            var nestedAncestors = nested.Select(argument => argument.JsonPointer!.Split('/', StringSplitOptions.RemoveEmptyEntries)[1]
+            var nestedAncestors = nested.Select(argument => argument.JsonPointer!.Split('/', StringSplitOptions.RemoveEmptyEntries)[0]
                 .Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal))
                 .ToHashSet(StringComparer.Ordinal);
             return [.. topLevel.Where(argument => !nestedAncestors.Contains(argument.Name) ||

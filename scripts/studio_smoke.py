@@ -396,7 +396,6 @@ def mcp_designer_check(browser):
     assert recorded["status"] == "completed" and recorded["events"][-1]["data"] == "cba"
     show_runs(page)
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
-    viewer.get_by_text("Recorded events at this position", exact=False).click()
     viewer.get_by_role("cell", name="tool.completed", exact=True).wait_for()
     assert get("/api/workflows/" + workflow_id)["definition"]["schemaVersion"] == "1.1"
     page.reload()
@@ -406,7 +405,43 @@ def mcp_designer_check(browser):
     expect(inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1", exact=True)).to_have_value(
         "mcp:demo.reverse:" + saved_tool["contractHash"] + ":" + saved_tool["descriptionHash"])
     page.close()
+    nested_mcp_authoring_check(browser)
     print("Browser MCP binding selection, saved-source execution, recorded tool result, and reload passed.")
+
+
+def nested_mcp_authoring_check(browser):
+    from playwright.sync_api import expect
+
+    nested_page = browser.new_page(viewport={"width": 1280, "height": 1000})
+    nested_page.goto(BASE, wait_until="networkidle")
+    nested_designer = nested_page.get_by_role("region", name="Workflow designer", exact=True)
+    new_workflow_fixture(nested_designer, schema_version="2.0")
+    inspect_control(nested_designer, "Operation for step-1").get_by_label(
+        "Operation for step-1", exact=True).select_option(label="MCP · inspect payload")
+    nested_node = nested_designer.locator('li[data-node-id="step-1"]')
+    expect(nested_node).to_have_attribute("data-node-type", "core.mcp-tool")
+    expect(nested_node).to_contain_text("payload › request › count")
+    expect(nested_node).to_contain_text("payload › request › name")
+    assert "arg.payload" not in nested_node.inner_text()
+    nested_workflow_id = nested_designer.locator("[data-vaw-workflow-selector]").input_value()
+    nested_designer.get_by_role("button", name="Save", exact=True).click()
+    nested_designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
+
+    nested_definition = get("/api/workflows/" + nested_workflow_id)["definition"]
+    nested_ports = nested_definition["nodes"]["step-1"]["mcpInputPorts"]
+    assert {port["jsonPointer"] for port in nested_ports} == {
+        "/payload/request/count", "/payload/request/name"}
+    assert all(port["id"] != "arg.payload" for port in nested_ports)
+
+    nested_page.goto(BASE + "/projects/default?workflow=" + nested_workflow_id, wait_until="networkidle")
+    nested_node = nested_designer.locator('li[data-node-id="step-1"]')
+    expect(nested_node).to_have_attribute("data-node-type", "core.mcp-tool")
+    expect(nested_node).to_contain_text("payload › request › count")
+    expect(nested_node).to_contain_text("payload › request › name")
+    reloaded_definition = get("/api/workflows/" + nested_workflow_id)["definition"]
+    assert reloaded_definition["nodes"]["step-1"]["mcpInputPorts"] == nested_ports
+    nested_page.close()
+    print("Browser schema 2.0 nested MCP pin authoring, save, and reopen passed.")
 
 
 def agent_designer_check(browser):
