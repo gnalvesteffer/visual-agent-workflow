@@ -1274,9 +1274,9 @@ public sealed partial class WorkflowRunner
         var definition = revision.Definition;
         var dispatchLedger = proofDuplicateForkDeliveries is null ? null : new StructuredProofDispatchLedger();
         if (dispatchLedger is not null && definition.Nodes.Values.Any(node => node.Type is
-                NodeTypes.Sequence or NodeTypes.ParallelRendezvous or NodeTypes.WorkflowCall or
+                NodeTypes.ParallelRendezvous or NodeTypes.WorkflowCall or
                 NodeTypes.WorkflowInterfaceCall))
-            throw new NotSupportedException("The proof dispatch ledger does not yet schedule Sequence, collaboration, or nested workflow-call nodes.");
+            throw new NotSupportedException("The proof dispatch ledger does not yet schedule collaboration or nested workflow-call nodes.");
         var ledgerActivations = new ConcurrentDictionary<Guid, Guid>();
         var stagedJoinMessages = new ConcurrentDictionary<Guid, GraphMessage>();
         var resolvedParameters = WorkflowParameters.Resolve(definition, parameters);
@@ -1443,7 +1443,7 @@ public sealed partial class WorkflowRunner
                     };
                 }
                 if (definition.Nodes[nodeId].Type == NodeTypes.Sequence)
-                    return await DispatchSequence(nodeId, message, token);
+                    return await DispatchSequence(nodeId, message, token, proofDelivery);
                 if (definition.Nodes[nodeId].Type == NodeTypes.ParallelRendezvous)
                     return await DispatchCollaborationRendezvous(nodeId, message, token);
 
@@ -1490,7 +1490,7 @@ public sealed partial class WorkflowRunner
 
                     ledgerActivations.TryRemove(message.ParallelActivationId!.Value, out _);
                     var continuation = dispatchLedger.CollapseJoin(activationId);
-                    return await DispatchResult(nodeId, joinedResult, token, continuation);
+                    return await DispatchScheduledResult(nodeId, joinedResult, token, continuation);
                 }
 
                 var forkTasks = new List<Task<(GraphMessage? Message, Exception? Error)>>();
@@ -1577,7 +1577,7 @@ public sealed partial class WorkflowRunner
                     return result;
                 }
                 if (result.SourcePort == "parallel.pending") return null;
-                return await DispatchResult(nodeId, result, token, proofDelivery);
+                return await DispatchScheduledResult(nodeId, result, token, proofDelivery);
 
                 async Task<(GraphMessage? Message, Exception? Error)> DispatchBranch(string target,
                     GraphMessage outgoing, CancellationToken branchToken, CancellationTokenSource? sharedCancellation,
@@ -1601,28 +1601,6 @@ public sealed partial class WorkflowRunner
                     }
                 }
 
-                async ValueTask<GraphMessage?> DispatchResult(string sourceNode, GraphMessage nodeResult,
-                    CancellationToken dispatchToken, StructuredProofDispatchLedger.Delivery? currentDelivery)
-                {
-                    var nextNodeId = nodeResult.TerminationSignal
-                        ? definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Output).Key
-                        : executionEdges.SingleOrDefault(edge => edge.Source.NodeId == sourceNode &&
-                            edge.Source.PortId == nodeResult.SourcePort)?.Target.NodeId;
-                    if (nextNodeId is null)
-                    {
-                        if (dispatchLedger is not null && currentDelivery is not null)
-                            dispatchLedger.Transition(currentDelivery, []);
-                        return null;
-                    }
-
-                    if (dispatchLedger is null)
-                        return await DispatchNode(nextNodeId, nodeResult, dispatchToken);
-                    if (currentDelivery is null)
-                        throw new InvalidOperationException("Proof dispatch transition has no current delivery identity.");
-                    var successor = dispatchLedger.Transition(currentDelivery,
-                        [new StructuredProofDispatchLedger.Successor(currentDelivery.Lineage)]).Single();
-                    return await DispatchNode(nextNodeId, nodeResult, dispatchToken, successor);
-                }
             }
             catch (Exception error)
             {
@@ -1633,6 +1611,29 @@ public sealed partial class WorkflowRunner
                 }
                 throw;
             }
+        }
+
+        async ValueTask<GraphMessage?> DispatchScheduledResult(string sourceNode, GraphMessage nodeResult,
+            CancellationToken dispatchToken, StructuredProofDispatchLedger.Delivery? currentDelivery)
+        {
+            var nextNodeId = nodeResult.TerminationSignal
+                ? definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Output).Key
+                : executionEdges.SingleOrDefault(edge => edge.Source.NodeId == sourceNode &&
+                    edge.Source.PortId == nodeResult.SourcePort)?.Target.NodeId;
+            if (nextNodeId is null)
+            {
+                if (dispatchLedger is not null && currentDelivery is not null)
+                    dispatchLedger.Transition(currentDelivery, []);
+                return null;
+            }
+
+            if (dispatchLedger is null)
+                return await DispatchNode(nextNodeId, nodeResult, dispatchToken);
+            if (currentDelivery is null)
+                throw new InvalidOperationException("Proof dispatch transition has no current delivery identity.");
+            var successor = dispatchLedger.Transition(currentDelivery,
+                [new StructuredProofDispatchLedger.Successor(currentDelivery.Lineage)]).Single();
+            return await DispatchNode(nextNodeId, nodeResult, dispatchToken, successor);
         }
 
         async Task<GraphMessage?> DispatchCollaborationRendezvous(string nodeId, GraphMessage message,
@@ -1721,7 +1722,8 @@ public sealed partial class WorkflowRunner
             }
         }
 
-        async Task<GraphMessage?> DispatchSequence(string nodeId, GraphMessage message, CancellationToken token)
+        async Task<GraphMessage?> DispatchSequence(string nodeId, GraphMessage message, CancellationToken token,
+            StructuredProofDispatchLedger.Delivery? sequenceDelivery)
         {
             var sequence = definition.Nodes[nodeId].Sequence
                 ?? throw new InvalidOperationException("The Sequence node has no configured outputs.");
@@ -1774,10 +1776,23 @@ public sealed partial class WorkflowRunner
             using var outputsCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
             await Emit(ExecutionEventKinds.NodeStarted, nodeId, sequenceInvocationId, data: message.Text);
             await FlushSequenceEvents();
+            StructuredProofDispatchLedger.Delivery[]? outputDeliveries = null;
+            StructuredProofDispatchLedger.Delivery? continuationDelivery = null;
+            if (dispatchLedger is not null)
+            {
+                if (sequenceDelivery is null)
+                    throw new InvalidOperationException("Proof Sequence dispatch has no admitted delivery identity.");
+                var reserved = dispatchLedger.Transition(sequenceDelivery,
+                    outputEdges.Select(_ => new StructuredProofDispatchLedger.Successor(sequenceDelivery.Lineage))
+                        .Append(new(sequenceDelivery.Lineage))).ToArray();
+                outputDeliveries = reserved[..outputEdges.Length];
+                continuationDelivery = reserved[^1];
+            }
             try
             {
-                var outputTasks = outputEdges.Select(async output =>
+                var outputTasks = outputEdges.Select(async (output, outputIndex) =>
                 {
+                    var outputDelivery = outputDeliveries?[outputIndex];
                     var activationId = Guid.NewGuid();
                     var activation = message.ActivationFrame is { } frame
                         ? frame.BreakScope.TryAdmit(() => coordinator.DispatchNext(activationId))
@@ -1787,6 +1802,8 @@ public sealed partial class WorkflowRunner
                         // A Break closes admission while its request event is being
                         // persisted. Do not publish skipped-output settlement until
                         // the Break request itself has been accepted.
+                        if (dispatchLedger is not null && outputDelivery is not null)
+                            dispatchLedger.Transition(outputDelivery, []);
                         return (ActivationId: activationId, OutputId: output.OutputId,
                             Result: (GraphMessage?)null, Error: (Exception?)null,
                             Lineage: (SequenceMessageLineage?)null);
@@ -1803,7 +1820,8 @@ public sealed partial class WorkflowRunner
                                 ParallelBranchId: message.ParallelBranchId,
                                 ParallelForkNodeId: message.ParallelForkNodeId,
                                 SequenceLineage: lineage, ActivationFrame: message.ActivationFrame,
-                                CollaborationRuntime: message.CollaborationRuntime), outputsCancellation.Token);
+                                CollaborationRuntime: message.CollaborationRuntime), outputsCancellation.Token,
+                            outputDelivery);
                         if (result is null)
                             return (ActivationId: activationId, OutputId: output.OutputId, Result: (GraphMessage?)null,
                                 Error: (Exception?)new InvalidOperationException($"Sequence output '{output.OutputId}' produced no result."),
@@ -1855,6 +1873,8 @@ public sealed partial class WorkflowRunner
                     await Emit("sequence.aborted", nodeId, sequenceInvocationId,
                         data: JsonSerializer.Serialize(breakRequest,
                             new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                    if (dispatchLedger is not null && continuationDelivery is not null)
+                        dispatchLedger.Transition(continuationDelivery, []);
                     return breakOutcome.Result;
                 }
 
@@ -1866,6 +1886,8 @@ public sealed partial class WorkflowRunner
                 await Emit(ExecutionEventKinds.NodeCompleted, nodeId, sequenceInvocationId,
                     data: "All Sequence outputs completed.");
                 var firstOutputResult = outcomes[0].Result!;
+                if (dispatchLedger is not null && continuationDelivery is not null)
+                    dispatchLedger.Transition(continuationDelivery, []);
                 return firstOutputResult with { Text = deterministicResult };
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)

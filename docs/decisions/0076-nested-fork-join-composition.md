@@ -213,8 +213,9 @@ The proof-only `StructuredProofDispatchLedger` now tracks unique delivery
 identities, atomic successor reservation before settlement, nested parent
 lineage, held Join arrivals, Join collapse, failure cleanup, and bounded
 admission. It is wired into `ExecuteStructuredSchedulerProofCoreAsync` for
-Fork/Join and ordinary successor dispatch; Sequence, collaboration, and nested
-workflow-call nodes remain unsupported in this private mode. A deterministic duplicate-injection
+Fork/Join, Sequence output paths, and ordinary successor dispatch;
+collaboration and nested workflow-call nodes remain unsupported in this private
+mode. A deterministic duplicate-injection
 hook exercises the scheduler with a valid graph: both the duplicate and final
 unique Agent finish, the Join fails, and neither Join completion nor Output
 dispatch occurs. Other proofs verify unique-arrival output and two-level nested
@@ -224,5 +225,8 @@ and outstanding-delivery bounds. Structured-dispatch tests also cover branch
 failure, cancellation with a held sibling, and recorder failure before Join
 commit. This is still only a test-only scheduler prototype: it is not used by
 public Agent Framework execution and does not establish persistence, passive
-playback, or checkpoint recovery. Sequence, MCP, collaboration, and nested
-workflow-call integration remain open before any production runtime decision.
+playback, or checkpoint recovery. Sequence output failure with sibling
+cancellation is covered, while host cancellation and broader Sequence
+semantics remain open. MCP authority and evidence boundaries, collaboration
+rendezvous, nested workflow-call integration, persistence, and playback
+integration also remain open before any production runtime decision.

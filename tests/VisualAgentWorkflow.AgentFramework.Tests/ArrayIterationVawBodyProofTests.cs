@@ -17031,6 +17031,50 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Fact]
+    public async Task StructuredSchedulerLedger_SequenceSettlesEveryAdmittedOutputBeforeCompleting()
+    {
+        var revision = WorkflowRevision.Create(SequenceBodyDefinition(), "structured-ledger-sequence-proof");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var tools = new EchoToolBroker();
+        var result = await new WorkflowRunner(tools: tools)
+            .ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision, "research", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal));
+
+        Assert.False(result.Failed);
+        Assert.True(result.HasOutput);
+        Assert.Equal(2, tools.Queries.Length);
+        Assert.Equal(2, events.Count(evt => evt.NodeId == "output" && evt.Kind == ExecutionEventKinds.NodeCompleted));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
+    public async Task StructuredSchedulerLedger_SequenceFailureCancelsSiblingAndSuppressesCompletion()
+    {
+        var revision = WorkflowRevision.Create(SequenceBodyDefinition(), "structured-ledger-sequence-failure-proof");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var tools = new FailSequenceOutputToolBroker("proof.inventory", "proof.architecture");
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new WorkflowRunner(tools).ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision, "research", null,
+                evt =>
+                {
+                    events.Enqueue(evt);
+                    return ValueTask.CompletedTask;
+                }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal))
+                .WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.Contains("first Sequence output failed", failure.Message, StringComparison.Ordinal);
+        Assert.True(tools.FailingOutputReachedSibling);
+        Assert.True(tools.SiblingObservedCancellation);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "sequence");
+    }
+
+    [Fact]
     public async Task StructuredSchedulerProof_FailedMcpBranchCancelsBlockedSiblingAndSuppressesJoin()
     {
         var revision = WorkflowRevision.Create(ParallelMcpDefinition(), "array-iteration-structured-failure-proof");
