@@ -17145,11 +17145,34 @@ public sealed class ArrayIterationVawBodyProofTests
             {
                 events.Enqueue(evt);
                 return ValueTask.CompletedTask;
-            }).WaitAsync(TimeSpan.FromSeconds(5)));
+            }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal))
+            .WaitAsync(TimeSpan.FromSeconds(5)));
 
         Assert.NotNull(failure);
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "tool-research");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "tool-review");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
+    public async Task StructuredSchedulerLedger_DeniedMcpCallPreservesNodeGrantBoundaryAndSuppressesJoin()
+    {
+        var revision = WorkflowRevision.Create(ParallelMcpDefinition(), "structured-ledger-mcp-denial-proof");
+        var tools = new ParallelMcpBroker(denyNode: "tool-research");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(tools: tools)
+            .ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision, "north", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal))
+            .WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.IsType<ToolAccessDeniedException>(failure);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ToolDenied && evt.NodeId == "tool-research");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized && evt.NodeId == "tool-research");
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
     }

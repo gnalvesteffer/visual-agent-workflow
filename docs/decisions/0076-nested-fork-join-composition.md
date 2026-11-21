@@ -223,8 +223,11 @@ dispatch occurs. Other proofs verify unique-arrival output and two-level nested
 Join parent-lineage restoration. Ledger-level tests cover stale/tampered
 lineage, failure cleanup, repeat settlement, unrelated activation isolation,
 and outstanding-delivery bounds. Structured-dispatch tests also cover branch
-failure, cancellation with a held sibling, and recorder failure before Join
-commit. This is still only a test-only scheduler prototype: it is not used by
+failure, cancellation with a held sibling, recorder failure before Join
+commit, and a controlled direct-MCP denial that respects node grants and
+suppresses Join/output completion. This broker fixture does not qualify a real
+MCP service or the full authority/evidence boundary. This is still only a
+test-only scheduler prototype: it is not used by
 public Agent Framework execution. The targeted store and playback proofs do not
 establish scheduler crash recovery or checkpoint recovery. Sequence output failure with sibling
 cancellation is covered, while host cancellation and broader Sequence
