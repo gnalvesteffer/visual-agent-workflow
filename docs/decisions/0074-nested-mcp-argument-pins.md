@@ -69,7 +69,7 @@ Before considering the nested-pin slice complete:
    Focused runner and broker regressions verify the actual argument/result
    flow. File/SQLite reopen tests preserve redacted broker outcomes and also
    execute the configured nested direct-MCP path through each store, reopen
-   the run, and verify that node lifecycle and data-evaluation events contain
+   the run, and verify that node lifecycle, root-completion, and data-evaluation events contain
    neither nested secret value and retain their redaction markers. The
    reopened snapshots are also rendered through `WorkflowRunViewer`; the event
    evidence table contains redaction metadata and neither secret value. This
@@ -78,8 +78,9 @@ Before considering the nested-pin slice complete:
    downstream nodes and Sequence aggregation events can still record derived
    values; static literals remain in workflow definitions;
    approval events retain exact plaintext input under Decision 0075; agent-loop
-   tool evidence and old histories keep their existing shape. Nested pin proof
-   must still cover nested path metadata and these residual boundaries.
+   tool evidence and old histories keep their existing shape. Connected nested
+   path values are covered by these persistence/playback checks; the residual
+   boundaries listed above remain.
 5. Define explicit migration and schema-drift behavior. Existing top-level
    pin IDs, definitions, hashes, package behavior, and old-reader interpretation
    must remain stable; no discovery refresh may silently rewrite authored pins
@@ -117,11 +118,15 @@ values in static JSON. Runtime tests verify connected-over-static precedence
 for the selected leaf and preservation of static siblings. Schema-2.0
 package/hash round-trip and descriptor tests cover the persisted identity.
 
-Remaining proof before calling this slice complete: browser authoring/edit/save
-and reopen; package import/edit coverage; broker schema and grant enforcement
-through a persisted connected nested pin; and File/SQLite reopen plus passive
-playback redaction for those connected pins. Schema drift and explicit
-migration behavior still need wider coverage. Approval-wrapped direct MCP calls
-remain excluded until Decision 0075 defines the protected exact-action payload
-lifecycle. This bounded increment does not establish array-item pins,
-unrestricted JSON Schema support, end-to-end secrecy, or full Blueprint parity.
+The persisted connected-pin package/hash round trip now includes its edge, and
+the production runner has been exercised against the real stdio broker with a
+nested connected value plus static siblings. The proof confirms the broker
+rejects a changed pinned contract and a missing grant before authorization.
+Connected nested values also run through File and SQLite stores; reopened
+passive playback retains redaction for node lifecycle, evaluation, and root
+completion evidence. Remaining proof: browser authoring/edit/save/reopen and
+package import/edit coverage, plus broader schema-drift and explicit migration
+coverage. Approval-wrapped direct MCP calls remain excluded until Decision
+0075 defines the protected exact-action payload lifecycle. This bounded
+increment does not establish array-item pins, unrestricted JSON Schema support,
+end-to-end secrecy, or full Blueprint parity.

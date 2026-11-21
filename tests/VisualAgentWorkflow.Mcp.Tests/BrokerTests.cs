@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
+using System.Collections.Immutable;
 using System.Text.Json;
 using ModelContextProtocol.Client;
+using VisualAgentWorkflow.AgentFramework;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
 using Xunit;
@@ -149,6 +151,79 @@ public class BrokerTests
         await using var deniedScope = restrictedBroker.OpenScope(Invocation(Revision(binding), []));
         await Assert.ThrowsAsync<ToolAccessDeniedException>(() =>
             deniedScope.InvokeJsonAsync(binding.BindingId, arguments));
+    }
+
+    [Fact]
+    public async Task PersistedNestedPinsRunThroughProductionRunnerAndLiveBrokerContractAndGrantChecks()
+    {
+        var broker = CreateBroker(policy: new DemoToolPolicy());
+        var binding = (await broker.ListBindingsAsync()).Single(item => item.BindingId == "demo.inspect-payload");
+        using var schema = JsonDocument.Parse(binding.InputSchemaJson);
+        var pins = McpToolInputSchemas.CreateNestedInputPorts(schema.RootElement);
+        var namePin = Assert.Single(pins, pin => pin.JsonPointer == "/payload/request/name");
+        var definition = NestedPinWorkflow(binding, pins);
+        Assert.Empty(WorkflowValidator.Validate(definition));
+
+        var events = new List<ExecutionEvent>();
+        var revision = WorkflowRevision.Create(definition, "nested-mcp-production");
+        var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "ignored", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("Ada:3:blue,green", result.Output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        Assert.DoesNotContain(events, evt => evt.Data?.Contains("Ada", StringComparison.Ordinal) == true);
+        using (var nodeStarted = JsonDocument.Parse(Assert.Single(events,
+                   evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "tool").Data!))
+            Assert.Equal("redacted", nodeStarted.RootElement.GetProperty("payloadState").GetString());
+        using (var runCompleted = JsonDocument.Parse(Assert.Single(events,
+                   evt => evt.Kind == ExecutionEventKinds.Completed).Data!))
+            Assert.Equal("redacted", runCompleted.RootElement.GetProperty("payloadState").GetString());
+
+        var changedContract = binding with { ContractHash = new string('0', 64) };
+        var driftEvents = new List<ExecutionEvent>();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(NestedPinWorkflow(changedContract, pins), "nested-mcp-drift"),
+            "ignored", null, evt => { driftEvents.Add(evt); return ValueTask.CompletedTask; }));
+        Assert.DoesNotContain(driftEvents, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+
+        var restrictedBroker = CreateBroker(policy: new ExplicitToolAuthorizationPolicy([]));
+        var deniedEvents = new List<ExecutionEvent>();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(restrictedBroker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "nested-mcp-denied"), "ignored", null,
+            evt => { deniedEvents.Add(evt); return ValueTask.CompletedTask; }));
+        Assert.DoesNotContain(deniedEvents, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+
+        static WorkflowDefinition NestedPinWorkflow(ToolBindingDescriptor binding,
+            System.Collections.Immutable.ImmutableArray<McpInputPortDefinition> pins)
+        {
+            var name = pins.Single(pin => pin.JsonPointer == "/payload/request/name");
+            return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "nested-mcp-production", "input",
+                new Dictionary<string, NodeDefinition>
+                {
+                    ["input"] = new(NodeTypes.Input, "1.0.0"),
+                    ["name"] = new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("Ada") },
+                    ["tool"] = new(NodeTypes.McpTool, "1.0.0",
+                        new ToolBindingRequest(binding.BindingId, binding.ContractHash) { DescriptionHash = binding.DescriptionHash })
+                    {
+                        McpArgumentsJson = """{"payload":{"request":{"count":3},"labels":["blue","green"]}}""",
+                        McpInputPorts = pins
+                    },
+                    ["output"] = new(NodeTypes.Output, "1.0.0")
+                }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+                new Dictionary<string, ConnectionDefinition>
+                {
+                    ["name"] = new(new("name", "out"), new("tool", name.Id), "data"),
+                    ["result"] = new(new("tool", "out"), new("output", "in"), "data")
+                }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+            {
+                ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+                {
+                    ["activate"] = new(new("input", "then"), new("tool", "execute"), "execution"),
+                    ["complete"] = new(new("tool", "then"), new("output", "execute"), "execution")
+                }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+            };
+        }
     }
 
     [Fact]

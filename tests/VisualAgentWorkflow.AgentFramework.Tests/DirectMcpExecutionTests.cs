@@ -95,14 +95,21 @@ public sealed class DirectMcpExecutionTests
             }.ToImmutableSortedDictionary(StringComparer.Ordinal)
         };
 
+        var events = new List<ExecutionEvent>();
         var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
-            WorkflowRevision.Create(definition, "test"), "ignored", null, _ => ValueTask.CompletedTask);
+            WorkflowRevision.Create(definition, "test"), "ignored", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.False(result.Failed);
+        var output = Assert.IsType<string>(result.Output);
         using var actual = JsonDocument.Parse(broker.Input!);
         Assert.Equal("connected", actual.RootElement.GetProperty("request").GetProperty("name").GetString());
         Assert.Equal("fixed", actual.RootElement.GetProperty("request").GetProperty("kind").GetString());
         Assert.Equal("a", actual.RootElement.GetProperty("request").GetProperty("labels")[0].GetString());
+        Assert.DoesNotContain(events, evt => evt.Data?.Contains("connected", StringComparison.Ordinal) == true);
+        using var completed = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed).Data!);
+        Assert.Equal("redacted", completed.RootElement.GetProperty("payloadState").GetString());
+        Assert.Equal(output.Length, completed.RootElement.GetProperty("outputCharacters").GetInt32());
     }
 
     [Fact]
@@ -198,6 +205,81 @@ public sealed class DirectMcpExecutionTests
             var playbackHtml = await RenderPlayback(snapshot);
             Assert.Contains("Execution evidence", playbackHtml, StringComparison.Ordinal);
             Assert.Contains("payloadState", playbackHtml, StringComparison.Ordinal);
+            Assert.DoesNotContain(privateName, playbackHtml, StringComparison.Ordinal);
+            Assert.DoesNotContain(privateLabel, playbackHtml, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Theory]
+    [InlineData("file")]
+    [InlineData("sqlite")]
+    public async Task Connected_nested_mcp_pin_values_remain_redacted_after_store_reopen(string storeKind)
+    {
+        const string privateName = "connected-private-nested-name";
+        const string privateLabel = "connected-private-static-sibling";
+        var baseline = PinDefinition() with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
+        var nested = new McpInputPortDefinition(WorkflowMcpInputPath.NestedPinId("/payload/request/name"),
+            "name", WorkflowDataTypes.String, true) { JsonPointer = "/payload/request/name" };
+        var tool = baseline.Nodes["tool"] with
+        {
+            McpArgumentsJson = JsonSerializer.Serialize(new
+            {
+                payload = new
+                {
+                    request = new { name = "static-fallback", count = 3 },
+                    labels = new[] { privateLabel }
+                }
+            }),
+            McpInputPorts = [new("arg.maxBytes", "maxBytes", WorkflowDataTypes.Integer, false), nested]
+        };
+        var definition = baseline with
+        {
+            Nodes = baseline.Nodes
+                .SetItem("path", baseline.Nodes["path"] with { StringConstant = new(privateName) })
+                .SetItem("tool", tool),
+            Connections = baseline.Connections.SetItem("path",
+                new(new("path", "out"), new("tool", nested.Id), "data"))
+        };
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-nested-mcp-connected-redaction-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var revision = WorkflowRevision.Create(definition, "nested-mcp-connected-redaction");
+            var storePath = storeKind == "sqlite" ? Path.Combine(directory, "runs.db") : Path.Combine(directory, "runs");
+            IWorkflowRunStore store = CreateStore(storeKind, storePath);
+            var created = store.Create(revision, "{}");
+            var broker = new RecordingBroker();
+
+            var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(created.Header.RunId,
+                revision, "{}", null, evt =>
+                {
+                    store.Append(evt);
+                    return ValueTask.CompletedTask;
+                });
+
+            Assert.False(result.Failed);
+            using (var arguments = JsonDocument.Parse(broker.Input!))
+            {
+                Assert.Equal(privateName, arguments.RootElement.GetProperty("payload").GetProperty("request").GetProperty("name").GetString());
+                Assert.Equal(privateLabel, arguments.RootElement.GetProperty("payload").GetProperty("labels")[0].GetString());
+                Assert.Equal(3, arguments.RootElement.GetProperty("payload").GetProperty("request").GetProperty("count").GetInt32());
+            }
+
+            IWorkflowRunStore reopened = CreateStore(storeKind, storePath);
+            var snapshot = Assert.IsType<RunSnapshot>(reopened.Get(created.Header.RunId));
+            Assert.Equal("completed", snapshot.Status);
+            Assert.DoesNotContain(snapshot.Events, evt => evt.Data?.Contains(privateName, StringComparison.Ordinal) == true);
+            Assert.DoesNotContain(snapshot.Events, evt => evt.Data?.Contains(privateLabel, StringComparison.Ordinal) == true);
+            Assert.All(snapshot.Events.Where(evt =>
+                evt.NodeId == "tool" && evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted), AssertRedacted);
+            Assert.All(snapshot.Events.Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated), AssertRedacted);
+
+            var playbackHtml = await RenderPlayback(snapshot);
+            Assert.Contains("Execution evidence", playbackHtml, StringComparison.Ordinal);
             Assert.DoesNotContain(privateName, playbackHtml, StringComparison.Ordinal);
             Assert.DoesNotContain(privateLabel, playbackHtml, StringComparison.Ordinal);
         }

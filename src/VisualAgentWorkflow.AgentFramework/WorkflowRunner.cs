@@ -206,6 +206,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
             ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown;
 
+    private static bool OutputIsDirectlySourcedFromMcp(WorkflowDefinition definition) =>
+        definition.Nodes.Any(output => output.Value?.Type == NodeTypes.Output &&
+            definition.Connections.Values.Any(connection =>
+                connection.Target.NodeId == output.Key && connection.Target.PortId == "in" &&
+                definition.Nodes.TryGetValue(connection.Source.NodeId, out var source) && source?.Type == NodeTypes.McpTool));
+
+    private static string SerializeRedactedRunOutput(string output) =>
+        JsonSerializer.Serialize(new { payloadState = "redacted", outputCharacters = output.Length });
+
     private static bool ContainsEvidenceWriteFailure(Exception exception)
     {
         for (var current = exception; current is not null; current = current.InnerException)
@@ -363,7 +372,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 return new(null, true, HasOutput: false);
             }
             activationLedger.ThrowIfActive();
-            if (emitRunLifecycle) await Emit(ExecutionEventKinds.Completed, data: output.Text);
+            if (emitRunLifecycle) await Emit(ExecutionEventKinds.Completed,
+                data: OutputIsDirectlySourcedFromMcp(revision.Definition)
+                    ? SerializeRedactedRunOutput(output.Text)
+                    : output.Text);
             return new(output.Text, false, HasOutput: true);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

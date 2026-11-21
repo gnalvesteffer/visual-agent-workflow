@@ -116,8 +116,11 @@ public sealed class DirectMcpGraphTests
             SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
             Nodes = baseline.Nodes.SetItem("tool", baseline.Nodes["tool"] with
             {
+                McpArgumentsJson = "{\"request\":{\"name\":\"static\"}}",
                 McpInputPorts = [.. baseline.Nodes["tool"].McpInputPorts!.Value, nested]
-            })
+            }),
+            Connections = baseline.Connections.Add("nested-path",
+                new(new("path", "out"), new("tool", nested.Id), "data"))
         };
 
         var hash = WorkflowJson.ComputeHash(definition);
@@ -125,7 +128,13 @@ public sealed class DirectMcpGraphTests
 
         Assert.Equal(hash, WorkflowJson.ComputeHash(restored.Definition));
         Assert.Equal("/request/name", restored.Definition.Nodes["tool"].McpInputPorts!.Value.Single(port => port.JsonPointer is not null).JsonPointer);
+        Assert.Contains(restored.Definition.Connections, pair => pair.Value.Target == new PortReference("tool", nested.Id));
         Assert.Empty(WorkflowValidator.Validate(restored.Definition));
+
+        var edited = GraphEditing.ReplaceNode(restored.Definition, "path",
+            restored.Definition.Nodes["path"] with { StringConstant = new("edited") });
+        Assert.Equal("/request/name", edited.Nodes["tool"].McpInputPorts!.Value.Single(port => port.JsonPointer is not null).JsonPointer);
+        Assert.Contains(edited.Connections, pair => pair.Value.Target == new PortReference("tool", nested.Id));
     }
 
     [Fact]
