@@ -1,7 +1,13 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Text.Json;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using VisualAgentWorkflow.Blazor.Components;
 using VisualAgentWorkflow.Core;
+using VisualAgentWorkflow.Hosting;
 using Xunit;
 
 namespace VisualAgentWorkflow.AgentFramework.Tests;
@@ -100,6 +106,119 @@ public sealed class WorkflowRunnerCollaborationTests
         Assert.DoesNotContain(events, evt => evt.NodeId == "join" && evt.Kind == ExecutionEventKinds.NodeCompleted);
         Assert.DoesNotContain(events, evt => evt.NodeId == "output" && evt.Kind == ExecutionEventKinds.NodeStarted);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task StructuredSchedulerLedger_CollaborationPersistsAndRendersPassivePlayback(
+        bool sqlite, bool phased)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"vaw-collaboration-ledger-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var definition = phased ? CreatePhasedGraph(3, 30) : CreateGraph(3, 30);
+            var revision = WorkflowRevision.Create(definition, "structured-collaboration-ledger-store-proof");
+            var store = OpenStore(directory, sqlite);
+            var runId = store.Create(revision, "question").Header.RunId;
+            var events = new List<ExecutionEvent>();
+            long sequence = 0;
+            ValueTask Record(ExecutionEvent evt)
+            {
+                var persisted = evt with { Sequence = sequence + 1 };
+                store.Append(runId, sequence, [persisted]);
+                events.Add(persisted);
+                sequence++;
+                return ValueTask.CompletedTask;
+            }
+
+            var executor = phased
+                ? (IAgentNodeExecutor)new PhasedCollaborationAgentExecutor()
+                : new CollaborationAgentExecutor(3);
+            var result = await new WorkflowRunner(agents: executor)
+                .ExecuteStructuredSchedulerProofAsync(runId, revision, "question", null, Record,
+                    proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal));
+
+            Assert.True(result.HasOutput);
+            var reopened = OpenStore(directory, sqlite).Get(runId)!;
+            Assert.Equal("completed", reopened.Status);
+            Assert.Equal(events, reopened.Events);
+            Assert.Equal(Enumerable.Range(1, events.Count).Select(value => (long)value),
+                reopened.Events.Select(evt => evt.Sequence));
+            Assert.Equal(phased ? 2 : 1, reopened.Events.Count(evt =>
+                evt.Kind == ExecutionEventKinds.ParallelCollaborationReleased));
+
+            var html = await RenderCollaborationPlayback(reopened.Events);
+            Assert.Contains("Parallel collaboration", html);
+            Assert.Contains(phased ? "Phase 1" : "Snapshot released", html);
+            if (phased) Assert.Contains("Phase 2", html);
+            Assert.Equal(events, reopened.Events);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredSchedulerLedger_CollaborationHostCancellationSettlesRun(bool phased)
+    {
+        var definition = phased ? CreatePhasedGraph(3, 30) : CreateGraph(3, 30);
+        var revision = WorkflowRevision.Create(definition, "structured-collaboration-ledger-cancel-proof");
+        using var cancellation = new CancellationTokenSource();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var cancellationPhase = phased ? ParallelCollaborationPhases.Phase2 : null;
+
+        var execution = new WorkflowRunner(agents: phased
+                ? new PhasedCollaborationAgentExecutor()
+                : new CollaborationAgentExecutor(3))
+            .ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision, "question", null, evt =>
+            {
+                events.Enqueue(evt);
+                if (evt.Kind == ExecutionEventKinds.ParallelCollaborationReleased &&
+                    (cancellationPhase is null || JsonDocument.Parse(evt.Data!).RootElement
+                        .GetProperty("phase").GetString() == cancellationPhase))
+                    cancellation.Cancel();
+                return ValueTask.CompletedTask;
+            }, cancellation.Token,
+                proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationAborted);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "join" && evt.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "output" && evt.Kind == ExecutionEventKinds.NodeStarted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
+    public async Task StructuredSchedulerLedger_CollaborationTimeoutSuppressesJoinAndOutput()
+    {
+        const int branchCount = 2;
+        var revision = WorkflowRevision.Create(CreateGraph(branchCount, timeoutSeconds: null),
+            "structured-collaboration-ledger-timeout-proof");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var failure = await Assert.ThrowsAsync<TimeoutException>(() =>
+            new WorkflowRunner(agents: new CollaborationAgentExecutor(branchCount,
+                    blockPublishUntilCancellation: true),
+                collaborationOptions: new(TimeSpan.FromMilliseconds(120)))
+                .ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision, "question", null, evt =>
+                {
+                    events.Enqueue(evt);
+                    return ValueTask.CompletedTask;
+                }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal))
+                .WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.Contains("timeout", failure.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationAborted);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "join" && evt.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "output" && evt.Kind == ExecutionEventKinds.NodeStarted);
     }
 
     [Fact]
@@ -442,6 +561,25 @@ public sealed class WorkflowRunnerCollaborationTests
 
     private static ConnectionDefinition Edge(string source, string sourcePort, string target, string targetPort) =>
         new(new(source, sourcePort), new(target, targetPort), "execution");
+
+    private static IWorkflowRunStore OpenStore(string directory, bool sqlite) => sqlite
+        ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
+        : new FileRunJournal(directory);
+
+    private static async Task<string> RenderCollaborationPlayback(IEnumerable<ExecutionEvent> events)
+    {
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        return await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<ParallelCollaborationPlayback>(
+                ParameterView.FromDictionary(new Dictionary<string, object?>
+                {
+                    [nameof(ParallelCollaborationPlayback.Events)] = events
+                }));
+            return component.ToHtmlString();
+        });
+    }
 
     private sealed class CollaborationAgentExecutor(int branchCount, string? failPublishBranch = null,
         string? failReadBranch = null, bool blockPublishUntilCancellation = false,

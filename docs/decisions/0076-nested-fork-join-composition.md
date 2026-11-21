@@ -227,14 +227,17 @@ and outstanding-delivery bounds. Structured-dispatch tests also cover branch
 failure, cancellation with a held sibling, recorder failure before Join
 commit, collaboration success across both rendezvous shapes, collaboration
 failure suppression, and a controlled direct-MCP denial that respects node
-grants and suppresses Join/output completion. The collaboration proof does not
-yet cover host cancellation, timeout or persistence. This broker fixture does
+grants and suppresses Join/output completion. The collaboration proof also
+covers host cancellation at one- and two-phase release and timeout before
+rendezvous completion. File/SQLite collaboration store and playback proofs
+cover successful one- and two-phase runs; failed/cancelled collaboration
+playback remains unqualified. This broker fixture does
 not qualify a real MCP service or the full authority/evidence boundary. This is
 still only a test-only scheduler prototype: it is not used by public Agent
 Framework execution. The targeted store and playback proofs do not establish
 scheduler crash recovery or checkpoint recovery. Sequence output failure with
 sibling cancellation is covered, while host cancellation and broader Sequence
-semantics remain open. MCP authority and evidence boundaries, collaboration
-cancellation, timeout and persistence, nested workflow-call integration, and
+semantics remain open. MCP authority and evidence boundaries, failed/cancelled
+collaboration persistence/playback, nested workflow-call integration, and
 production scheduler persistence/playback integration remain open before any
 production runtime decision.
