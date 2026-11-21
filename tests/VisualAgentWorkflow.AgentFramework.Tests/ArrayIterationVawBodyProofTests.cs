@@ -25383,6 +25383,84 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyNestedForkJoin_ConcurrentDuplicateAndFinalArrivalsFailClosed(bool sqlite)
+    {
+        var source = SharedNestedForkGraphDefinition();
+        var definition = source with
+        {
+            Nodes = source.Nodes.Add("duplicate-agent", new(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.shared-fork", null, "Concurrent duplicate", []))),
+            ExecutionConnections = source.ExecutionConnections!
+                .Add("anchor-a-duplicate", Edge("inner-anchor-a", "then", "duplicate-agent", "execute"))
+                .Add("duplicate-agent-join", Edge("duplicate-agent", "out", "shared-inner-join", "branch.a")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "") { Type = WorkflowDataTypes.String })
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Inner array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "nested-fork-concurrent-arrival-race-proof");
+        using var runStore = new ProofRunStore(revision, "[\"root\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new ConcurrentDuplicateNestedForkAgentExecutor();
+
+        var execution = new WorkflowRunner(agents: agents)
+            .ExecuteProductionNestedBodyBreakSequenceProofAsync(runStore.RunId, revision, "[\"root\"]",
+                "[\"item\"]", "outerIndex", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item", allowNestedForksProof: true);
+
+        try
+        {
+            await agents.BothRacingArrivalsStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        catch (TimeoutException exception)
+        {
+            agents.ReleaseRacingArrivals.TrySetResult();
+            try { await execution.WaitAsync(TimeSpan.FromSeconds(10)); }
+            catch (Exception) { }
+            throw new Xunit.Sdk.XunitException($"Timed out waiting for racing Join inputs. Started agents: " +
+                $"{string.Join(", ", agents.StartedNodes)}. Events: " +
+                string.Join(" | ", recorder.Snapshot().Select(evt =>
+                    $"{evt.Sequence}:{evt.NodeId ?? "root"}:{evt.Kind}:{evt.ScopeId ?? "root"}")) +
+                $". {exception.Message}");
+        }
+        agents.ReleaseRacingArrivals.TrySetResult();
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(result.Failed);
+        var events = recorder.Snapshot();
+        Assert.Contains(events, evt => evt.NodeId == "duplicate-agent" &&
+            evt.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.Contains(events, evt => evt.NodeId == "inner-agent-b" &&
+            evt.Kind == ExecutionEventKinds.NodeCompleted);
+        var joinStarts = events.Where(evt => evt.NodeId == "shared-inner-join" &&
+            evt.Kind == ExecutionEventKinds.NodeStarted).ToArray();
+        var joinFailures = events.Where(evt => evt.NodeId == "shared-inner-join" &&
+            evt.Kind == ExecutionEventKinds.NodeFailed).ToArray();
+        Assert.NotEmpty(joinStarts);
+        Assert.NotEmpty(joinFailures);
+        Assert.All(joinFailures, failure =>
+        {
+            var started = Assert.Single(joinStarts, evt => evt.InvocationId == failure.InvocationId);
+            Assert.True(failure.Sequence > started.Sequence);
+        });
+        Assert.DoesNotContain(events, completed => completed.NodeId == "shared-inner-join" &&
+            completed.Kind == ExecutionEventKinds.NodeCompleted && joinFailures.Any(failure =>
+                failure.InvocationId == completed.InvocationId && completed.Sequence > failure.Sequence));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+        Assert.Contains("shared-inner-join · node.failed", await RenderPlayback(reopened), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyNestedForkJoinRejectsUnknownForkIdentity(bool sqlite)
     {
         var source = SharedNestedForkGraphDefinition();
@@ -25690,6 +25768,40 @@ public sealed class ArrayIterationVawBodyProofTests
                 return input;
             }
             throw new InvalidOperationException($"Unexpected late-duplicate proof node '{invocation.NodeId}'.");
+        }
+    }
+
+    private sealed class ConcurrentDuplicateNestedForkAgentExecutor : IAgentNodeExecutor
+    {
+        private int racingArrivalCount;
+        private readonly ConcurrentQueue<string> startedNodes = new();
+
+        public TaskCompletionSource BothRacingArrivalsStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseRacingArrivals { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public string[] StartedNodes => [.. startedNodes];
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.shared-fork", "Shared fork proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            startedNodes.Enqueue(invocation.NodeId);
+            if (invocation.NodeId is "parent-left" or "parent-right") return input;
+            if (invocation.NodeId == "inner-agent-a")
+                return JsonSerializer.Serialize(new { parent = input, branch = invocation.NodeId });
+            if (invocation.NodeId is "inner-agent-b" or "duplicate-agent")
+            {
+                if (Interlocked.Increment(ref racingArrivalCount) == 2)
+                    BothRacingArrivalsStarted.TrySetResult();
+                await ReleaseRacingArrivals.Task.WaitAsync(cancellationToken);
+                return JsonSerializer.Serialize(new { parent = input, branch = invocation.NodeId });
+            }
+            if (invocation.NodeId == "join-relay") return input;
+            throw new InvalidOperationException($"Unexpected concurrent-duplicate proof node '{invocation.NodeId}'.");
         }
     }
 

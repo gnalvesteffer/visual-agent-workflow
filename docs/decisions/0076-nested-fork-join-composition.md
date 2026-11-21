@@ -151,8 +151,13 @@ branch identities, and graph validity. Removal is available only when the
 matching Join is unique. A per-activation failure latch now rejects arrivals queued after a duplicate or
 other Join failure; the focused duplicate-then-final test covers this state
 transition. File/SQLite runner proofs continue to cover late duplicates after
-completion. A scheduler-level test that races a duplicate against the final
-branch dispatch remains open. These tests
+completion. A controlled File/SQLite proof also releases a duplicate branch-A
+Agent and the final branch-B Agent together against one private nested Join
+activation; both Agents settle, the Join fails, and reopened playback preserves
+the same event history (2/2). This proof bypasses public validation and does not
+establish that the duplicate was admitted before Join commit. A scheduler-level
+test that races an already-admitted duplicate against final-branch commit
+remains open. These tests
 establish structural consistency and replay, not cryptographic tamper
 resistance. See [the
 Blueprint parity roadmap](../roadmap.md) and
