@@ -208,3 +208,21 @@ dispatch or evidence-write failure, stale lineage, and bounded cleanup. The
 prototype is not Agent Framework integration, checkpoint recovery, or public
 runtime evidence. No production runtime change is selected until this
 end-to-end proof passes and the lifecycle/boundary rules are specified.
+
+The proof-only `StructuredProofDispatchLedger` now tracks unique delivery
+identities, atomic successor reservation before settlement, nested parent
+lineage, held Join arrivals, Join collapse, failure cleanup, and bounded
+admission. It is wired into `ExecuteStructuredSchedulerProofCoreAsync` for
+Fork/Join and ordinary successor dispatch; Sequence, collaboration, and nested
+workflow-call nodes remain unsupported in this private mode. A deterministic duplicate-injection
+hook exercises the scheduler with a valid graph: both the duplicate and final
+unique Agent finish, the Join fails, and neither Join completion nor Output
+dispatch occurs. Other proofs verify unique-arrival output and two-level nested
+Join parent-lineage restoration. Ledger-level tests cover stale/tampered
+lineage, failure cleanup, repeat settlement, unrelated activation isolation,
+and outstanding-delivery bounds. Structured-dispatch tests also cover branch
+failure, cancellation with a held sibling, and recorder failure before Join
+commit. This is still only a test-only scheduler prototype: it is not used by
+public Agent Framework execution and does not establish persistence, passive
+playback, or checkpoint recovery. Sequence, MCP, collaboration, and nested
+workflow-call integration remain open before any production runtime decision.

@@ -16913,6 +16913,124 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Fact]
+    public async Task StructuredSchedulerLedger_HoldsAdmittedDuplicateUntilJoinFailsWithoutCompletion()
+    {
+        var revision = WorkflowRevision.Create(ParallelBodyDefinition(), "structured-ledger-duplicate-proof");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(agents: new EchoAgentExecutor())
+            .ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision, "north", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["fork:left"] = 1
+            }).WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.IsType<InvalidOperationException>(failure);
+        Assert.Equal(2, events.Count(evt => evt.NodeId == "agent-left" && evt.Kind == ExecutionEventKinds.NodeCompleted));
+        Assert.Contains(events, evt => evt.NodeId == "agent-right" && evt.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.Contains(events, evt => evt.NodeId == "join" && evt.Kind == ExecutionEventKinds.NodeFailed);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "join" && evt.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "output" && evt.Kind == ExecutionEventKinds.NodeStarted);
+    }
+
+    [Fact]
+    public async Task StructuredSchedulerLedger_UniqueArrivalsCompleteAndDispatchOutputOnce()
+    {
+        var revision = WorkflowRevision.Create(ParallelBodyDefinition(), "structured-ledger-unique-proof");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var result = await new WorkflowRunner(agents: new EchoAgentExecutor())
+            .ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision, "north", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal));
+
+        using var output = JsonDocument.Parse(Assert.IsType<string>(result.Output));
+        Assert.False(result.Failed);
+        Assert.True(result.HasOutput);
+        Assert.Contains(events, evt => evt.NodeId == "join" && evt.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.Single(events, evt => evt.NodeId == "output" && evt.Kind == ExecutionEventKinds.NodeStarted);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+        Assert.Equal(2, output.RootElement.EnumerateObject().Count());
+    }
+
+    [Fact]
+    public async Task StructuredSchedulerLedger_NestedJoinsRestoreParentActivationLineage()
+    {
+        var nested = NestedParallelForkGraphDefinition();
+        var definition = nested with
+        {
+            Connections = nested.Connections
+                .SetItem("inner-left-to-outer-agent", new(new("input", "out"), new("outer-agent-left", "in"), "data"))
+                .SetItem("inner-right-to-outer-agent", new(new("input", "out"), new("outer-agent-right", "in"), "data"))
+        };
+        var revision = WorkflowRevision.Create(definition, "structured-ledger-nested-proof");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var result = await new WorkflowRunner(agents: new EchoAgentExecutor())
+            .ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision, "north", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal));
+
+        Assert.False(result.Failed);
+        Assert.True(result.HasOutput);
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId is "inner-join-left" or "inner-join-right" or "outer-join"));
+        Assert.Single(events, evt => evt.NodeId == "output" && evt.Kind == ExecutionEventKinds.NodeStarted);
+    }
+
+    [Theory]
+    [InlineData("node")]
+    [InlineData("evidence")]
+    public async Task StructuredSchedulerLedger_FailureBeforeJoinSettlesWorkAndSuppressesOutput(string failureAt)
+    {
+        var revision = WorkflowRevision.Create(ParallelBodyDefinition(), $"structured-ledger-{failureAt}-failure");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var runner = new WorkflowRunner(agents: new EchoAgentExecutor(failNodeId: failureAt == "node" ? "agent-left" : null));
+        var failure = await Record.ExceptionAsync(() => runner.ExecuteStructuredSchedulerProofAsync(
+            Guid.NewGuid(), revision, "north", null, evt =>
+            {
+                events.Enqueue(evt);
+                if (failureAt == "evidence" && evt.NodeId == "agent-left" &&
+                    evt.Kind == ExecutionEventKinds.NodeCompleted)
+                    throw new IOException("Proof evidence sink failed.");
+                return ValueTask.CompletedTask;
+            }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal))
+            .WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.NotNull(failure);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "join" && evt.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "output" && evt.Kind == ExecutionEventKinds.NodeStarted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
+    public async Task StructuredSchedulerLedger_CancellationSettlesHeldJoinWorkWithoutCompletion()
+    {
+        var revision = WorkflowRevision.Create(ParallelBodyDefinition(), "structured-ledger-cancellation-proof");
+        var agents = new HeldRightBranchAgentExecutor();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        using var cancellation = new CancellationTokenSource();
+        var execution = new WorkflowRunner(agents: agents).ExecuteStructuredSchedulerProofAsync(
+            Guid.NewGuid(), revision, "north", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            }, cancellationToken: cancellation.Token,
+            proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal));
+
+        await agents.RightBranchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.DoesNotContain(events, evt => evt.NodeId == "join" && evt.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "output" && evt.Kind == ExecutionEventKinds.NodeStarted);
+    }
+
+    [Fact]
     public async Task StructuredSchedulerProof_FailedMcpBranchCancelsBlockedSiblingAndSuppressesJoin()
     {
         var revision = WorkflowRevision.Create(ParallelMcpDefinition(), "array-iteration-structured-failure-proof");
@@ -25937,6 +26055,27 @@ public sealed class ArrayIterationVawBodyProofTests
                 throw new InvalidOperationException("Deterministic proof failure.");
             var query = invocation.NodeId == "agent" ? input : $"{input}-{invocation.NodeId}";
             return Task.FromResult(JsonSerializer.Serialize(new { query }));
+        }
+    }
+
+    private sealed class HeldRightBranchAgentExecutor : IAgentNodeExecutor
+    {
+        public TaskCompletionSource RightBranchStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.echo-agent", "Held branch proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId == "agent-right")
+            {
+                RightBranchStarted.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            return JsonSerializer.Serialize(new { query = $"{input}-{invocation.NodeId}" });
         }
     }
 

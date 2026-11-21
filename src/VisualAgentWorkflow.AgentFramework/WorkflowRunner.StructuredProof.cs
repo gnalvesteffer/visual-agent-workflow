@@ -1235,11 +1235,13 @@ public sealed partial class WorkflowRunner
         string? activationScopeId = null, bool emitRunLifecycle = true, IWorkflowExecutionGate? gate = null,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
         bool stageForkTargetsBeforeDispatch = false,
-        Func<int, string, ValueTask>? afterForkTargetStaged = null)
+        Func<int, string, ValueTask>? afterForkTargetStaged = null,
+        IReadOnlyDictionary<string, int>? proofDuplicateForkDeliveries = null)
     {
         var result = await ExecuteStructuredSchedulerProofCoreAsync(runId, revision, input, parameters, record,
             cancellationToken, activationScopeId, emitRunLifecycle, gate, afterNodeStarted,
-            stageForkTargetsBeforeDispatch, afterForkTargetStaged, null, null, null, null, null);
+            stageForkTargetsBeforeDispatch, afterForkTargetStaged, null, null, null, null, null,
+            proofDuplicateForkDeliveries: proofDuplicateForkDeliveries);
         return result.Execution;
     }
 
@@ -1255,7 +1257,8 @@ public sealed partial class WorkflowRunner
         Func<Guid?, WorkflowVariableStore?>? activationVariableStore,
         StructuredProofSession? retainedSession,
         IReadOnlySet<string>? proofBreakNodeIds,
-        StructuredActivationFrameOwner? activationFrameOwner = null)
+        StructuredActivationFrameOwner? activationFrameOwner = null,
+        IReadOnlyDictionary<string, int>? proofDuplicateForkDeliveries = null)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
@@ -1269,6 +1272,13 @@ public sealed partial class WorkflowRunner
         var collaborationTimeout = ResolveCollaborationTimeout(collaborationRegion, collaborationOptions);
 
         var definition = revision.Definition;
+        var dispatchLedger = proofDuplicateForkDeliveries is null ? null : new StructuredProofDispatchLedger();
+        if (dispatchLedger is not null && definition.Nodes.Values.Any(node => node.Type is
+                NodeTypes.Sequence or NodeTypes.ParallelRendezvous or NodeTypes.WorkflowCall or
+                NodeTypes.WorkflowInterfaceCall))
+            throw new NotSupportedException("The proof dispatch ledger does not yet schedule Sequence, collaboration, or nested workflow-call nodes.");
+        var ledgerActivations = new ConcurrentDictionary<Guid, Guid>();
+        var stagedJoinMessages = new ConcurrentDictionary<Guid, GraphMessage>();
         var resolvedParameters = WorkflowParameters.Resolve(definition, parameters);
         StructuredActivationGraphPlan? activationGraphPlan = null;
         if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
@@ -1346,9 +1356,10 @@ public sealed partial class WorkflowRunner
         {
             if (emitRunLifecycle) await Emit(ExecutionEventKinds.Started);
             var inputType = WorkflowPorts.Outputs(definition.Nodes[definition.EntryNodeId]).Single().DataType;
-            var output = await DispatchNode(definition.EntryNodeId,
-                new GraphMessage(input, null, null, DataType: inputType,
-                    ActivationFrame: activationFrame, CollaborationRuntime: collaborationRuntime), schedulerCancellation.Token);
+            var rootMessage = new GraphMessage(input, null, null, DataType: inputType,
+                ActivationFrame: activationFrame, CollaborationRuntime: collaborationRuntime);
+            var output = await DispatchNode(definition.EntryNodeId, rootMessage, schedulerCancellation.Token,
+                dispatchLedger?.CreateRoot());
             if (output is null) throw new InvalidOperationException("The structured proof produced no workflow output.");
             if (output.ActivationBreakRequest is { } breakRequest)
                 return new(new(null, false, HasOutput: false), breakRequest);
@@ -1368,6 +1379,7 @@ public sealed partial class WorkflowRunner
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            dispatchLedger?.FailAll(new OperationCanceledException("Structured proof dispatch was cancelled."));
             if (collaborationRuntime is not null)
                 await collaborationRuntime.AbortAsync("Workflow execution was cancelled.");
             if (emitRunLifecycle) await Emit(ExecutionEventKinds.Cancelled);
@@ -1375,12 +1387,14 @@ public sealed partial class WorkflowRunner
         }
         catch (OperationCanceledException) when (collaborationRuntime?.IsTimedOut == true)
         {
+            dispatchLedger?.FailAll(new TimeoutException("Structured proof collaboration timed out."));
             await collaborationRuntime.AbortAsync("The collaboration region timed out.");
             if (emitRunLifecycle) await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
             throw new TimeoutException("The collaboration region timeout elapsed.");
         }
         catch (Exception exception) when (IsOutcomeUnknownException(exception))
         {
+            dispatchLedger?.FailAll(exception);
             if (collaborationRuntime is not null)
                 await collaborationRuntime.AbortAsync("A workflow node ended with an unresolved external outcome.");
             if (emitRunLifecycle)
@@ -1390,6 +1404,7 @@ public sealed partial class WorkflowRunner
         }
         catch
         {
+            dispatchLedger?.FailAll(new InvalidOperationException("Structured proof dispatch failed."));
             if (collaborationRuntime is not null)
                 await collaborationRuntime.AbortAsync("A collaboration member or workflow node failed.");
             if (emitRunLifecycle) await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
@@ -1400,7 +1415,8 @@ public sealed partial class WorkflowRunner
             recordGate.Dispose();
         }
 
-        async Task<GraphMessage?> DispatchNode(string nodeId, GraphMessage message, CancellationToken token)
+        async Task<GraphMessage?> DispatchNode(string nodeId, GraphMessage message, CancellationToken token,
+            StructuredProofDispatchLedger.Delivery? proofDelivery = null)
         {
             try
             {
@@ -1433,6 +1449,50 @@ public sealed partial class WorkflowRunner
 
                 var executor = executors[nodeId];
                 var node = definition.Nodes[nodeId];
+
+                if (dispatchLedger is not null && node.Type == NodeTypes.ParallelJoin)
+                {
+                    var delivery = proofDelivery
+                        ?? throw new InvalidOperationException("Proof Join dispatch has no admitted delivery identity.");
+                    var activationId = message.ParallelActivationId is { } frameworkActivation &&
+                        ledgerActivations.TryGetValue(frameworkActivation, out var ledgerActivation)
+                            ? ledgerActivation
+                            : throw new InvalidOperationException("Proof Join activation has no ledger identity.");
+                    var branchId = message.ParallelBranchId
+                        ?? throw new InvalidOperationException("Proof Join delivery has no branch identity.");
+                    stagedJoinMessages[delivery.Id] = message;
+                    var expectedBranches = node.ParallelJoin?.BranchIds
+                        ?? throw new InvalidOperationException("Proof Join has no configured branch contract.");
+                    var released = await dispatchLedger.StageJoinArrival(delivery, activationId, branchId,
+                        expectedBranches).WaitAsync(token);
+                    if (!dispatchLedger.TryClaimJoinBatch(activationId)) return null;
+
+                    var releasedMessages = released.Select(arrival => stagedJoinMessages.TryGetValue(arrival.DeliveryId,
+                            out var staged) ? (Arrival: arrival, Message: staged)
+                        : throw new InvalidOperationException("A released Join delivery has no staged message.")).ToArray();
+                    foreach (var arrival in released) stagedJoinMessages.TryRemove(arrival.DeliveryId, out _);
+                    var duplicateGroup = releasedMessages.GroupBy(item => item.Arrival.BranchId,
+                            StringComparer.Ordinal).FirstOrDefault(group => group.Count() > 1);
+                    var messagesToDeliver = duplicateGroup is null
+                        ? releasedMessages
+                        : duplicateGroup.Take(2).ToArray();
+                    GraphMessage? joinedResult = null;
+                    foreach (var item in messagesToDeliver)
+                    {
+                        var branchResult = await executor.HandleForStructuredSchedulerAsync(item.Message,
+                            (_, _, _) => throw new InvalidOperationException("A Join cannot dispatch branch work."), token);
+                        if (branchResult.SourcePort != "parallel.pending") joinedResult = branchResult;
+                    }
+                    if (duplicateGroup is not null)
+                        throw new InvalidOperationException("The structured proof admitted a duplicate Join arrival.");
+                    if (joinedResult is null)
+                        throw new InvalidOperationException("Quiescent unique Join arrivals produced no result.");
+
+                    ledgerActivations.TryRemove(message.ParallelActivationId!.Value, out _);
+                    var continuation = dispatchLedger.CollapseJoin(activationId);
+                    return await DispatchResult(nodeId, joinedResult, token, continuation);
+                }
+
                 var forkTasks = new List<Task<(GraphMessage? Message, Exception? Error)>>();
                 var stagedForkTargets = new List<(GraphMessage Message, string Target, CancellationToken Token)>();
                 using var forkCancellation = node.Type == NodeTypes.ParallelFork
@@ -1440,7 +1500,7 @@ public sealed partial class WorkflowRunner
                     : null;
                 var result = await executor.HandleForStructuredSchedulerAsync(message, (outgoing, target, ct) =>
                 {
-                    if (node.Type == NodeTypes.ParallelFork && stageForkTargetsBeforeDispatch)
+                    if (node.Type == NodeTypes.ParallelFork && (stageForkTargetsBeforeDispatch || dispatchLedger is not null))
                     {
                         stagedForkTargets.Add((outgoing, target, ct));
                         return afterForkTargetStaged is null
@@ -1449,9 +1509,9 @@ public sealed partial class WorkflowRunner
                     }
 
                     if (forkCancellation is null)
-                        forkTasks.Add(DispatchBranch(target, outgoing, ct, null));
+                        forkTasks.Add(DispatchBranch(target, outgoing, ct, null, null));
                     else
-                        forkTasks.Add(DispatchBranch(target, outgoing, ct, forkCancellation));
+                        forkTasks.Add(DispatchBranch(target, outgoing, ct, forkCancellation, null));
                     return ValueTask.CompletedTask;
                 }, token);
 
@@ -1459,8 +1519,40 @@ public sealed partial class WorkflowRunner
 
                 if (node.Type == NodeTypes.ParallelFork)
                 {
+                    if (dispatchLedger is not null)
+                    {
+                        var current = proofDelivery
+                            ?? throw new InvalidOperationException("Proof Fork dispatch has no admitted delivery identity.");
+                        var stagedBranches = stagedForkTargets.Select(target => target.Message.ParallelBranchId
+                            ?? throw new InvalidOperationException("Proof Fork output has no branch identity.")).ToArray();
+                        var (activationId, branchDeliveries) = dispatchLedger.Fork(current, stagedBranches);
+                        var frameworkActivationId = stagedForkTargets.Select(target => target.Message.ParallelActivationId)
+                            .Distinct().SingleOrDefault()
+                            ?? throw new InvalidOperationException("Proof Fork outputs do not share an activation identity.");
+                        if (!ledgerActivations.TryAdd(frameworkActivationId, activationId))
+                            throw new InvalidOperationException("Proof Fork activation identity was dispatched more than once.");
+
+                        for (var index = 0; index < stagedForkTargets.Count; index++)
+                        {
+                            var staged = stagedForkTargets[index];
+                            var branchId = stagedBranches[index];
+                            var requestedDuplicates = proofDuplicateForkDeliveries?.GetValueOrDefault($"{nodeId}:{branchId}") ?? 0;
+                            if (requestedDuplicates is < 0 or > 16)
+                                throw new InvalidOperationException("Proof duplicate dispatch count must be between 0 and 16.");
+                            var deliveries = new List<StructuredProofDispatchLedger.Delivery>
+                                { branchDeliveries[index] };
+                            for (var duplicateIndex = 0; duplicateIndex < requestedDuplicates; duplicateIndex++)
+                                deliveries.Add(dispatchLedger.AdmitAdditionalDelivery(branchDeliveries[index]));
+                            foreach (var admitted in deliveries)
+                                forkTasks.Add(DispatchBranch(staged.Target, staged.Message, staged.Token,
+                                    forkCancellation, admitted));
+                        }
+                    }
+                    else
+                    {
                     foreach (var staged in stagedForkTargets)
-                        forkTasks.Add(DispatchBranch(staged.Target, staged.Message, staged.Token, forkCancellation));
+                        forkTasks.Add(DispatchBranch(staged.Target, staged.Message, staged.Token, forkCancellation, null));
+                    }
                     var outcomes = await Task.WhenAll(forkTasks);
                     token.ThrowIfCancellationRequested();
                     var failure = outcomes.Select(outcome => outcome.Error)
@@ -1478,20 +1570,18 @@ public sealed partial class WorkflowRunner
                     };
                 }
 
-                if (node.Type == NodeTypes.Output) return result;
-                if (result.SourcePort == "parallel.pending") return null;
-                if (result.TerminationSignal)
+                if (node.Type == NodeTypes.Output)
                 {
-                    var outputNodeId = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Output).Key;
-                    return await DispatchNode(outputNodeId, result, token);
+                    if (dispatchLedger is not null && proofDelivery is not null)
+                        dispatchLedger.Transition(proofDelivery, []);
+                    return result;
                 }
-
-                var next = executionEdges.SingleOrDefault(edge => edge.Source.NodeId == nodeId &&
-                    edge.Source.PortId == result.SourcePort);
-                return next is null ? null : await DispatchNode(next.Target.NodeId, result, token);
+                if (result.SourcePort == "parallel.pending") return null;
+                return await DispatchResult(nodeId, result, token, proofDelivery);
 
                 async Task<(GraphMessage? Message, Exception? Error)> DispatchBranch(string target,
-                    GraphMessage outgoing, CancellationToken branchToken, CancellationTokenSource? sharedCancellation)
+                    GraphMessage outgoing, CancellationToken branchToken, CancellationTokenSource? sharedCancellation,
+                    StructuredProofDispatchLedger.Delivery? admittedDelivery)
                 {
                     using var linkedCancellation = sharedCancellation is null
                         ? null
@@ -1499,7 +1589,7 @@ public sealed partial class WorkflowRunner
                     try
                     {
                         var branch = await DispatchNode(target, outgoing,
-                            linkedCancellation?.Token ?? branchToken);
+                            linkedCancellation?.Token ?? branchToken, admittedDelivery);
                         if (branch?.ActivationBreakRequest is not null) sharedCancellation?.Cancel();
                         return (branch, null);
                     }
@@ -1509,6 +1599,29 @@ public sealed partial class WorkflowRunner
                         if (error is not OperationCanceledException) sharedCancellation?.Cancel();
                         return (null, error);
                     }
+                }
+
+                async ValueTask<GraphMessage?> DispatchResult(string sourceNode, GraphMessage nodeResult,
+                    CancellationToken dispatchToken, StructuredProofDispatchLedger.Delivery? currentDelivery)
+                {
+                    var nextNodeId = nodeResult.TerminationSignal
+                        ? definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Output).Key
+                        : executionEdges.SingleOrDefault(edge => edge.Source.NodeId == sourceNode &&
+                            edge.Source.PortId == nodeResult.SourcePort)?.Target.NodeId;
+                    if (nextNodeId is null)
+                    {
+                        if (dispatchLedger is not null && currentDelivery is not null)
+                            dispatchLedger.Transition(currentDelivery, []);
+                        return null;
+                    }
+
+                    if (dispatchLedger is null)
+                        return await DispatchNode(nextNodeId, nodeResult, dispatchToken);
+                    if (currentDelivery is null)
+                        throw new InvalidOperationException("Proof dispatch transition has no current delivery identity.");
+                    var successor = dispatchLedger.Transition(currentDelivery,
+                        [new StructuredProofDispatchLedger.Successor(currentDelivery.Lineage)]).Single();
+                    return await DispatchNode(nextNodeId, nodeResult, dispatchToken, successor);
                 }
             }
             catch (Exception error)
