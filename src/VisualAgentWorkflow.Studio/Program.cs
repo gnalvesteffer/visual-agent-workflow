@@ -342,6 +342,7 @@ app.MapPost("/api/runs", async (StartRunRequest request, IWorkflowClient client)
         }
         return Results.Accepted($"/api/runs/{snapshot.Header.RunId}", snapshot);
     }
+    catch (WorkflowAdmissionException admission) { return WorkflowEndpoints.AdmissionError(admission); }
     catch (Exception error) when (error is ArgumentException or JsonException)
     {
         return Results.BadRequest(new { error = "Invalid workflow definition or input. Only validated string workflows are supported." });

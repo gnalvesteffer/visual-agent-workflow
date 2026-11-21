@@ -7,6 +7,22 @@ namespace VisualAgentWorkflow.Studio;
 
 public static class WorkflowEndpoints
 {
+    internal static IResult AdmissionError(WorkflowAdmissionException admission)
+    {
+        var issues = admission.Report.Issues.Select(issue => new
+        {
+            kind = issue.Requirement.Kind,
+            id = issue.Requirement.Id,
+            issueKind = issue.Kind.ToString(),
+            message = issue.Message
+        }).ToList();
+        return Results.BadRequest(new
+        {
+            error = "The workflow cannot start because required host dependencies are unavailable.",
+            missingDependencies = issues
+        });
+    }
+
     public static void MapWorkflowEndpoints(this WebApplication app, string routePrefix = "/api")
     {
         var group = app.MapGroup(routePrefix).AddEndpointFilter<CatalogErrorFilter>();
@@ -337,20 +353,7 @@ public static class WorkflowEndpoints
             }
             catch (KeyNotFoundException) { return Results.NotFound(); }
             catch (VisualAgentWorkflow.Core.WorkflowAdmissionException admission)
-            {
-                var issues = admission.Report.Issues.Select(issue => new
-                {
-                    kind = issue.Requirement.Kind,
-                    id = issue.Requirement.Id,
-                    issueKind = issue.Kind.ToString(),
-                    message = issue.Message
-                }).ToList();
-                return Results.BadRequest(new
-                {
-                    error = "The workflow cannot start because required host dependencies are unavailable.",
-                    missingDependencies = issues
-                });
-            }
+                { return AdmissionError(admission); }
             catch (Exception error) when (error is ArgumentException or JsonException)
             {
                 context.HttpContext.RequestServices.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CatalogErrorFilter>>()

@@ -23,6 +23,7 @@ Publishing activates the new revision by contract. Restoring does not publish or
 The optional `parameters` map is available for schema-1.6 definitions. It contains string overrides only; omitted values use definition defaults. Unknown parameter IDs, oversized values and workflows without declared parameters are rejected before queueing. Resolved values are pinned in the run header for replay. Existing request bodies without `parameters` retain their behavior. See [workflow parameter contracts](workflow-parameters.md).
 
 Existing `/api/runs`, `/api/runs/{id}`, `/api/runs/{id}/events?after=N`, and cancellation endpoints continue to provide local run execution and observation. `POST /api/runs` accepts an ad-hoc definition and creates an ephemeral revision identity, whereas the published routes pin a catalog revision.
+An ad-hoc run rejected by host admission returns HTTP 400 with a `missingDependencies` array containing each unavailable or mismatched provider/tool requirement. No run is created in that case. Other invalid definitions or inputs return HTTP 400 as well.
 
 For a schema-2.0 definition whose Input node declares `array<T>`, the existing
 `input` string contains one JSON array (for example `{"input":"[\"a\",\"b\"]"}`).

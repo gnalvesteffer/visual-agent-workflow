@@ -106,7 +106,7 @@ def catalog_check():
     run = mutate("/runs", {"input": "abc"})
     deadline = time.monotonic() + 10
     while True:
-        recorded = get("/api/runs/" + run["header"]["runId"])
+        recorded = get("/api/runs/" + run["runId"])
         if recorded["isTerminal"]:
             break
         assert time.monotonic() < deadline
@@ -124,14 +124,31 @@ def mcp_check():
     bindings = get("/api/tool-bindings")
     reverse = next(binding for binding in bindings if binding["bindingId"] == "demo.reverse")
     definition = get("/api/templates/default")
-    definition["schemaVersion"] = "1.1"
-    definition["nodes"]["step-1"] = {"type": "core.mcp-tool", "typeVersion": "1.0.0", "tool": {
-        "bindingId": reverse["bindingId"], "contractHash": reverse["contractHash"]}}
+    definition["schemaVersion"] = "2.0"
+    reverse_schema = json.loads(reverse["inputSchemaJson"])
+    reverse_properties = reverse_schema["properties"]
+    definition["nodes"]["step-1"] = {
+        "type": "core.mcp-tool", "typeVersion": "1.0.0",
+        "tool": {"bindingId": reverse["bindingId"], "contractHash": reverse["contractHash"],
+                 "descriptionHash": reverse["descriptionHash"]},
+        "mcpInputPorts": [{"id": "arg." + name, "name": name,
+                           "dataType": property_schema["type"],
+                           "required": name in reverse_schema.get("required", [])}
+                          for name, property_schema in reverse_properties.items()]}
+    definition["connections"]["link-1"]["target"]["portId"] = "arg.text"
     definition["nodes"]["step-2"]["type"] = "core.text.uppercase"
+    definition["executionConnections"] = {
+        "activate-tool": {"source": {"nodeId": "input", "portId": "then"},
+                           "target": {"nodeId": "step-1", "portId": "execute"}, "kind": "execution"},
+        "tool-output": {"source": {"nodeId": "step-1", "portId": "then"},
+                        "target": {"nodeId": "output", "portId": "execute"}, "kind": "execution"}}
 
     def execute(candidate):
-        with request("/api/runs", {"definition": candidate, "input": "abc"}) as response:
-            started = json.load(response)
+        try:
+            with request("/api/runs", {"definition": candidate, "input": "abc"}) as response:
+                started = json.load(response)
+        except urllib.error.HTTPError as error:
+            return {"httpStatus": error.code, "body": json.loads(error.read())}
         deadline = time.monotonic() + 15
         while True:
             snapshot = get("/api/runs/" + started["header"]["runId"])
@@ -147,13 +164,14 @@ def mcp_check():
     assert all(event["nodeId"] == "step-1" and event["invocationId"] for event in tool_events)
     definition["nodes"]["step-1"]["tool"]["bindingId"] = "not-granted"
     denied = execute(definition)
-    assert denied["status"] == "failed"
-    assert any(event["kind"] == "tool.denied" for event in denied["events"])
-    assert not any(event["kind"] == "tool.authorized" for event in denied["events"])
-    definition["nodes"]["step-1"]["tool"] = {"bindingId": reverse["bindingId"], "contractHash": "0" * 64}
+    assert denied["httpStatus"] == 400
+    assert denied["body"]["missingDependencies"]
+    definition["nodes"]["step-1"]["tool"] = {
+        "bindingId": reverse["bindingId"], "contractHash": "0" * 64,
+        "descriptionHash": reverse["descriptionHash"]}
     drifted = execute(definition)
-    assert drifted["status"] == "failed"
-    assert not any(event["kind"] == "tool.authorized" for event in drifted["events"])
+    assert drifted["httpStatus"] == 400
+    assert any(issue["issueKind"] == "ContractMismatch" for issue in drifted["body"]["missingDependencies"])
     print("Actual MCP workflow execution, correlated recording, denied binding, and contract-drift checks passed.")
 
 
@@ -162,16 +180,26 @@ def agent_check():
     assert provider["isDeterministic"] is True
     reverse = next(b for b in get("/api/tool-bindings") if b["bindingId"] == "demo.reverse")
     definition = get("/api/templates/default")
-    definition["schemaVersion"] = "1.2"
+    definition["schemaVersion"] = "2.0"
     definition["nodes"]["step-1"] = {"type": "core.agent", "typeVersion": "1.0.0", "agent": {
         "providerId": provider["providerId"],
         "instructions": "Use only the assigned tool.",
         "tools": [{"bindingId": reverse["bindingId"], "contractHash": reverse["contractHash"]}]}}
-    definition["nodes"]["step-2"]["type"] = "core.text.uppercase"
+    definition["nodes"].pop("step-2")
+    definition["connections"].pop("link-2")
+    definition["connections"]["link-output"]["source"]["nodeId"] = "step-1"
+    definition["executionConnections"] = {
+        "activate-agent": {"source": {"nodeId": "input", "portId": "then"},
+                            "target": {"nodeId": "step-1", "portId": "execute"}, "kind": "execution"},
+        "agent-output": {"source": {"nodeId": "step-1", "portId": "out"},
+                         "target": {"nodeId": "output", "portId": "execute"}, "kind": "execution"}}
 
     def execute():
-        with request("/api/runs", {"definition": definition, "input": "abc"}) as response:
-            started = json.load(response)
+        try:
+            with request("/api/runs", {"definition": definition, "input": "abc"}) as response:
+                started = json.load(response)
+        except urllib.error.HTTPError as error:
+            return {"httpStatus": error.code, "body": json.loads(error.read())}
         deadline = time.monotonic() + 15
         while True:
             snapshot = get("/api/runs/" + started["header"]["runId"])
@@ -181,18 +209,16 @@ def agent_check():
             time.sleep(0.05)
 
     result = execute()
-    assert result["status"] == "completed" and result["events"][-1]["data"] == "CBA"
+    assert result["status"] == "completed" and result["events"][-1]["data"] == "cba"
     assert sum(e["kind"] == "model.requested" for e in result["events"]) == 2
     assert sum(e["kind"] == "model.responded" for e in result["events"]) == 2
     assert any(e["kind"] == "agent.completed" for e in result["events"])
     definition["nodes"]["step-1"]["agent"]["tools"][0]["bindingId"] = "not-granted"
     denied = execute()
-    assert denied["status"] == "failed" and any(e["kind"] == "tool.denied" for e in denied["events"])
-    assert any(e["kind"] == "node.failed" for e in denied["events"])
-    assert not any(e["kind"] == "model.requested" for e in denied["events"])
+    assert denied["httpStatus"] == 400 and denied["body"]["missingDependencies"]
     definition["nodes"]["step-1"]["agent"]["tools"] = []
     plain = execute()
-    assert plain["status"] == "completed" and plain["events"][-1]["data"] == "DEMO AGENT: ABC"
+    assert plain["status"] == "completed" and plain["events"][-1]["data"] == "Demo agent: abc"
     assert not any(e["kind"] == "tool.requested" for e in plain["events"])
     print("Framework agent/tool loop, recorded model rounds, denied tool preflight, and no-tool isolation passed (deterministic fixture).")
 
@@ -234,8 +260,13 @@ def browser_check(executable):
             new_workflow_fixture(designer)
             designer.locator("[data-graph-save]").click()
             expect(designer.get_by_role("button", name="Run workflow", exact=True)).to_be_enabled()
+            previous_run_ids = {run["header"]["runId"] for run in get("/api/runs")}
             run_saved_workflow(page, designer, "browser proof", "BROWSER PROOF")
-            designer.get_by_label("Workflow run history", exact=True).get_by_role("button", name="Inspect run", exact=False).last.click()
+            new_runs = [run for run in get("/api/runs") if run["header"]["runId"] not in previous_run_ids]
+            assert len(new_runs) == 1, f"Expected one new browser run, got {len(new_runs)}"
+            run_id = new_runs[0]["header"]["runId"]
+            designer.get_by_role("button", name="Runs", exact=True).click()
+            designer.get_by_label("Workflow run history", exact=True).get_by_role("button", name=f"Inspect run {run_id}", exact=True).click()
             viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
             viewer.get_by_role("button", name="Fit graph", exact=True).click()
             viewer.get_by_role("button", name="Inspect node output", exact=True).click()
@@ -432,7 +463,6 @@ def nested_mcp_authoring_check(browser):
     assert {port["jsonPointer"] for port in nested_ports} == {
         "/payload/request/count", "/payload/request/name"}
     assert all(port["id"] != "arg.payload" for port in nested_ports)
-
     nested_page.goto(BASE + "/projects/default?workflow=" + nested_workflow_id, wait_until="networkidle")
     nested_node = nested_designer.locator('li[data-node-id="step-1"]')
     expect(nested_node).to_have_attribute("data-node-type", "core.mcp-tool")
@@ -448,12 +478,61 @@ def nested_mcp_authoring_check(browser):
     nested_designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
     edited_definition = get("/api/workflows/" + nested_workflow_id)["definition"]
     assert json.loads(edited_definition["nodes"]["step-1"]["mcpArgumentsJson"])["payload"] == static_payload
+    design = get("/api/workflows/" + nested_workflow_id + "/design")
+    valid_definition = design["draft"]["definition"]
+    valid_definition["connections"].pop("link-1")
+    valid_definition["executionConnections"] = {
+        "activate-tool": {"source": {"nodeId": "input", "portId": "then"},
+                           "target": {"nodeId": "step-1", "portId": "execute"}, "kind": "execution"},
+        "tool-output": {"source": {"nodeId": "step-1", "portId": "then"},
+                        "target": {"nodeId": "output", "portId": "execute"}, "kind": "execution"}}
+    request("/api/workflows/" + nested_workflow_id + "/design", {
+        "definition": valid_definition, "layout": design["layout"],
+        "expectedGeneration": design["draft"]["generation"]}, method="PUT").close()
+    validation = json.loads(request("/api/workflows/" + nested_workflow_id + "/validate", {}, method="POST").read())
+    assert validation["valid"], validation["issues"]
+    nested_package = get("/api/workflows/" + nested_workflow_id + "/package")
     nested_page.goto(BASE + "/projects/default?workflow=" + nested_workflow_id, wait_until="networkidle")
     inspect_control(nested_designer, "Operation for step-1")
     expect(nested_designer.locator('li[data-node-id="step-1"]')).to_contain_text("payload › request › count")
     assert json.loads(nested_designer.get_by_label("MCP argument payload", exact=True).input_value()) == static_payload
+
+    package_page = browser.new_page(viewport={"width": 1280, "height": 1000})
+    package_page.goto(BASE, wait_until="networkidle")
+    package_designer = package_page.get_by_role("region", name="Workflow designer", exact=True)
+    new_workflow_fixture(package_designer, schema_version="2.0")
+    imported_workflow_id = package_designer.locator("[data-vaw-workflow-selector]").input_value()
+    settings = package_designer.get_by_role("button", name="Workflow settings", exact=True)
+    settings.click()
+    secondary = package_designer.locator("details.vaw-secondary-workflow-tools")
+    if secondary.count() and not secondary.evaluate("element => element.open"):
+        secondary.locator(":scope > summary").click()
+    import_details = package_designer.get_by_text("Import / export definition", exact=True).locator("..")
+    if not import_details.evaluate("element => element.open"):
+        import_details.locator("summary").click()
+    package_designer.get_by_label("Workflow JSON", exact=True).fill(json.dumps(nested_package))
+    package_designer.get_by_role("button", name="Import package into draft", exact=True).click()
+    package_designer.get_by_text(
+        "Package imported locally with the current workflow ID. Review requirements, then save and publish explicitly.",
+        exact=True).wait_for(state="attached")
+    package_designer.get_by_role("button", name="Save", exact=True).click()
+    package_designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
+    imported_design = get("/api/workflows/" + imported_workflow_id + "/design")
+    imported_definition = imported_design["draft"]["definition"]
+    assert imported_definition["workflowId"] == imported_workflow_id
+    assert imported_definition["schemaVersion"] == "2.0"
+    assert imported_definition["nodes"]["step-1"]["mcpInputPorts"] == nested_ports
+    assert imported_definition["connections"] == valid_definition["connections"]
+    assert imported_definition["executionConnections"] == valid_definition["executionConnections"]
+    assert imported_design["layout"] == nested_package["layout"]
+
+    package_page.goto(BASE + "/projects/default?workflow=" + imported_workflow_id, wait_until="networkidle")
+    imported_node = package_designer.locator('li[data-node-id="step-1"]')
+    expect(imported_node).to_contain_text("payload › request › count")
+    expect(imported_node).to_contain_text("payload › request › name")
+    package_page.close()
     nested_page.close()
-    print("Browser schema 2.0 nested MCP pin authoring, static-value editing, save, and reopen passed.")
+    print("Browser schema 2.0 nested MCP pin authoring, static-value editing, package import, save, and reopen passed.")
 
 
 def agent_designer_check(browser):
@@ -506,7 +585,6 @@ def agent_designer_check(browser):
     show_runs(page)
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     expect(viewer.locator(".vaw-agent-metrics")).to_contain_text("Model turns · 1", timeout=20000)
-    viewer.get_by_text("Recorded events at this position", exact=False).click()
     expect(viewer.get_by_role("columnheader", name="Time (local)", exact=True)).to_be_visible()
     event_time = viewer.locator("tbody time").first
     precise_time = event_time.get_attribute("datetime")
@@ -520,7 +598,7 @@ def agent_designer_check(browser):
     expect(inspect_control(designer, "Agent instructions for step-1").get_by_label("Agent instructions for step-1", exact=True)).to_have_value("Respond concisely.")
     expect(inspect_control(designer, "Output token limit source for step-1").get_by_label("Output token limit source for step-1", exact=True)).to_have_value("parameter:response-limit")
     saved_definition = get("/api/workflows/" + workflow_id)["definition"]
-    assert saved_definition["schemaVersion"] == "1.29"
+    assert saved_definition["schemaVersion"] == "2.0"
     assert saved_definition["nodes"]["step-1"]["agent"]["maxOutputTokensParameterId"] == "response-limit"
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "Agent editor mobile overflow"
