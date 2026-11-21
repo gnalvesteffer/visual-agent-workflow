@@ -215,8 +215,9 @@ lineage, held Join arrivals, Join collapse, failure cleanup, and bounded
 admission. It is wired into `ExecuteStructuredSchedulerProofCoreAsync` for
 Fork/Join, Sequence output paths, and ordinary successor dispatch;
 collaboration and nested workflow-call nodes remain unsupported in this private
-mode. A deterministic duplicate-injection
-hook exercises the scheduler with a valid graph: both the duplicate and final
+mode. File and SQLite proofs persist, reopen, and render passive playback for
+unique-arrival success and duplicate-arrival failure. A deterministic
+duplicate-injection hook exercises the scheduler with a valid graph: both the duplicate and final
 unique Agent finish, the Join fails, and neither Join completion nor Output
 dispatch occurs. Other proofs verify unique-arrival output and two-level nested
 Join parent-lineage restoration. Ledger-level tests cover stale/tampered
@@ -224,9 +225,10 @@ lineage, failure cleanup, repeat settlement, unrelated activation isolation,
 and outstanding-delivery bounds. Structured-dispatch tests also cover branch
 failure, cancellation with a held sibling, and recorder failure before Join
 commit. This is still only a test-only scheduler prototype: it is not used by
-public Agent Framework execution and does not establish persistence, passive
-playback, or checkpoint recovery. Sequence output failure with sibling
+public Agent Framework execution. The targeted store and playback proofs do not
+establish scheduler crash recovery or checkpoint recovery. Sequence output failure with sibling
 cancellation is covered, while host cancellation and broader Sequence
 semantics remain open. MCP authority and evidence boundaries, collaboration
-rendezvous, nested workflow-call integration, persistence, and playback
-integration also remain open before any production runtime decision.
+rendezvous, nested workflow-call integration, and production scheduler
+persistence/playback integration also remain open before any production runtime
+decision.

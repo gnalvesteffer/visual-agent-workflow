@@ -16956,6 +16956,65 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(2, output.RootElement.EnumerateObject().Count());
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task StructuredSchedulerLedger_PersistsAndReplaysUniqueAndDuplicateJoinOutcomes(
+        bool sqlite, bool injectDuplicate)
+    {
+        var revision = WorkflowRevision.Create(ParallelBodyDefinition(),
+            $"structured-ledger-store-{(sqlite ? "sqlite" : "file")}-{(injectDuplicate ? "duplicate" : "unique")}");
+        using var runStore = new ProofRunStore(revision, "north", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var duplicateDeliveries = injectDuplicate
+            ? new Dictionary<string, int>(StringComparer.Ordinal) { ["fork:left"] = 1 }
+            : new Dictionary<string, int>(StringComparer.Ordinal);
+
+        if (injectDuplicate)
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new WorkflowRunner(agents: new EchoAgentExecutor()).ExecuteStructuredSchedulerProofAsync(
+                    runStore.RunId, revision, "north", null, evt =>
+                    {
+                        recorder.Append(evt);
+                        return ValueTask.CompletedTask;
+                    }, proofDuplicateForkDeliveries: duplicateDeliveries));
+        }
+        else
+        {
+            await new WorkflowRunner(agents: new EchoAgentExecutor()).ExecuteStructuredSchedulerProofAsync(
+                runStore.RunId, revision, "north", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, proofDuplicateForkDeliveries: duplicateDeliveries);
+        }
+
+        var expectedStatus = injectDuplicate ? "failed" : "completed";
+        var recordedEvents = recorder.Snapshot();
+        AssertPersistedSequence(runStore, recordedEvents, expectedStatus);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(expectedStatus, reopened.Status);
+        Assert.Equal(recordedEvents, reopened.Events);
+        Assert.Equal(injectDuplicate ? 0 : 1, reopened.Events.Count(evt =>
+            evt.NodeId == "output" && evt.Kind == ExecutionEventKinds.NodeStarted));
+        if (injectDuplicate)
+        {
+            Assert.Contains(reopened.Events, evt => evt.NodeId == "join" && evt.Kind == ExecutionEventKinds.NodeFailed);
+            Assert.DoesNotContain(reopened.Events, evt => evt.NodeId == "join" && evt.Kind == ExecutionEventKinds.NodeCompleted);
+        }
+        else
+        {
+            Assert.Single(reopened.Events, evt => evt.NodeId == "join" && evt.Kind == ExecutionEventKinds.NodeCompleted);
+        }
+
+        var playback = await RenderPlayback(reopened);
+        Assert.Contains($"Latest run status: {expectedStatus}", playback, StringComparison.Ordinal);
+        Assert.Contains(injectDuplicate ? "join" : "completed", playback, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task StructuredSchedulerLedger_NestedJoinsRestoreParentActivationLineage()
     {
