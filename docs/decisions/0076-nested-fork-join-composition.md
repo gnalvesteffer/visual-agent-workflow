@@ -157,3 +157,26 @@ establish structural consistency and replay, not cryptographic tamper
 resistance. See [the
 Blueprint parity roadmap](../roadmap.md) and
 [parallel graph behavior](../parallel-graphs.md).
+
+The scheduler-level race has a sharper boundary than the initial checklist
+stated. The per-activation semaphore serializes Join handlers, and the failure
+latch rejects duplicates once they are processed. If the final unique arrival
+acquires the semaphore first, however, the Join can emit `NodeCompleted` and
+return its result before a queued duplicate is processed. A later failure
+cannot retract downstream work. An atomic dispatch claim can ensure at-most-once
+completion, but cannot identify a message that has not reached the Join.
+Likewise, no finite Join can reject a duplicate delivered only after its result
+has crossed the dispatch boundary.
+
+The stronger guarantee to prove is: duplicate arrivals already admitted for an
+activation before Join commit are accounted for before a joined result is
+emitted or dispatched. This requires a scheduler admission/drain or branch
+settlement boundary; a semaphore check, priority rule, yield, or quiet-period
+delay does not establish one. A three-role review on 2026-11-20 recommends
+**revise** and leaves this contract open because the current scheduler has no
+proven settlement signal. The required deterministic test must hold the final
+arrival at commit, admit a duplicate for an already accepted branch, and prove
+that no Join completion or downstream continuation occurs; it must also prove
+that ordinary unique arrivals complete and each activation dispatches at most
+once. Duplicates delivered after commit remain a separate failure case and
+cannot undo work already dispatched.
