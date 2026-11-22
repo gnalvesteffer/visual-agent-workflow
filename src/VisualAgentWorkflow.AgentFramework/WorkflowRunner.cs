@@ -524,6 +524,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         StructuredActivationFrameOwner? activationFrameOwner = null)
     {
         var definition = revision.Definition;
+        var executionEdges = WorkflowSchemaVersions.UsesExplicitGraph(definition)
+            ? definition.ExecutionConnections!.Values
+            : definition.Connections.Values;
         activationFrameOwner ??= new StructuredActivationFrameOwner(activationGraphPlan, activationFrame,
             definition, variableStore?.ArrayEvidenceBudget);
         var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition)
@@ -538,7 +541,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 activationBreakNode: proofBreakNodeIds?.Contains(n.Key) == true,
                 proofBreakNodeIds: proofBreakNodeIds,
                 variableEvidenceUsesActivationScope: false,
-                activationFrameOwner: activationFrameOwner));
+                activationFrameOwner: activationFrameOwner,
+                parallelJoinContinuationTarget: definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+                    n.Value.Type == NodeTypes.ParallelJoin
+                    ? executionEdges.Single(edge => edge.Source.NodeId == n.Key && edge.Source.PortId == "then").Target.NodeId
+                    : null));
         if (collaborationRuntime is not null)
         {
             var region = collaborationRuntime.Region;
@@ -559,9 +566,6 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
         }
         var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
-        var executionEdges = WorkflowSchemaVersions.UsesExplicitGraph(definition)
-            ? definition.ExecutionConnections!.Values
-            : definition.Connections.Values;
         var routeJoinArrivalsDirectly = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
         foreach (var edge in executionEdges)
         {
@@ -1948,7 +1952,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         IReadOnlySet<string>? proofBreakNodeIds = null,
         Func<SequenceMessageLineage, StructuredActivationBreakRequest, ValueTask>? onSequenceBreakRequested = null,
         bool variableEvidenceUsesActivationScope = true,
-        StructuredActivationFrameOwner? activationFrameOwner = null)
+        StructuredActivationFrameOwner? activationFrameOwner = null,
+        string? parallelJoinContinuationTarget = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -2035,7 +2040,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private sealed class JsonProjectionContractException(string message) : InvalidOperationException(message) { }
 
         private readonly ConcurrentDictionary<ParallelJoinActivationKey, ParallelJoinActivationState> parallelJoinActivations = new();
+        private readonly ConcurrentDictionary<ParallelJoinActivationKey, PendingParallelJoinCompletion> pendingParallelJoinCompletions = new();
         private readonly AsyncLocal<StructuredActivationFrame?> activeActivationFrame = new();
+
+        private sealed record PendingParallelJoinCompletion(Guid InvocationId, string Result,
+            GraphMessage Message);
 
         private bool UsesConfigurableParallelGraph => revision.Definition.SchemaVersion is
             WorkflowSchemaVersions.UnifiedWorkflowGraph or
@@ -2054,9 +2063,32 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             return ValueTask.CompletedTask;
         }
 
+        protected override async ValueTask OnMessageDeliveryFinishedAsync(IWorkflowContext context,
+            CancellationToken cancellationToken = default)
+        {
+            if (node.Type != NodeTypes.ParallelJoin ||
+                revision.Definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                return;
+
+            foreach (var (key, completion) in pendingParallelJoinCompletions.ToArray())
+            {
+                if (!pendingParallelJoinCompletions.TryRemove(key, out _)) continue;
+                cancellationToken.ThrowIfCancellationRequested();
+                using var activation = dataEvaluator?.EnterActivation(completion.Message.ActivationFrame);
+                using (var document = JsonDocument.Parse(completion.Result))
+                    dataEvaluator!.SetRuntimeOutput(Id, "out", "json", document.RootElement.Clone());
+                await Emit(ExecutionEventKinds.NodeCompleted, Id, completion.InvocationId,
+                    data: completion.Result, eventScope: completion.Message.ActivationFrame?.ScopeId);
+                await context.SendMessageAsync(completion.Message,
+                    parallelJoinContinuationTarget ?? throw new InvalidOperationException("The parallel Join continuation is missing."),
+                    cancellationToken);
+            }
+        }
+
         public override ValueTask<GraphMessage> HandleAsync(GraphMessage received, IWorkflowContext context,
             CancellationToken cancellationToken = default) =>
-            HandleCoreAsync(received, (message, target, token) => context.SendMessageAsync(message, target, token), cancellationToken);
+            HandleCoreAsync(received, (message, target, token) => context.SendMessageAsync(message, target, token),
+                cancellationToken, deferUnifiedJoinCommitToReceiverBatch: true);
 
         /// <summary>Invokes node behavior while leaving all execution-edge scheduling to the caller.</summary>
         public ValueTask<GraphMessage> HandleForStructuredSchedulerAsync(GraphMessage received,
@@ -2070,7 +2102,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             Func<GraphMessage, string, CancellationToken, ValueTask> dispatch,
             CancellationToken cancellationToken,
             Func<WorkflowCallConfiguration, string, IReadOnlyDictionary<string, string>?, string?,
-                CancellationToken, Task<WorkflowExecutionResult>>? structuredProofWorkflowCall = null)
+                CancellationToken, Task<WorkflowExecutionResult>>? structuredProofWorkflowCall = null,
+            bool deferUnifiedJoinCommitToReceiverBatch = false)
         {
             var activeCollaborationRuntime = received.CollaborationRuntime ?? collaborationRuntime;
             using var activationScope = dataEvaluator?.EnterActivation(received.ActivationFrame);
@@ -2195,6 +2228,29 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         ParallelBranchId: received.ParallelBranchId,
                         ParallelForkNodeId: received.ParallelForkNodeId,
                         ParallelForkLineage: received.ParallelForkLineage);
+                    if (deferUnifiedJoinCommitToReceiverBatch &&
+                        revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && configurable)
+                    {
+                        var deferredJoinedContext = RestoreParentForkContext(received, node.ParallelJoin?.ForkNodeId);
+                        var joinedMessage = new GraphMessage(result!, Id, "then", DataType: "json",
+                            ParallelActivationId: deferredJoinedContext.ActivationId,
+                            ParallelBranchId: deferredJoinedContext.BranchId,
+                            ParallelForkNodeId: deferredJoinedContext.ForkNodeId,
+                            ParallelForkLineage: deferredJoinedContext.Lineage,
+                            SequenceLineage: received.SequenceLineage,
+                            ActivationFrame: received.ActivationFrame);
+                        if (!pendingParallelJoinCompletions.TryAdd(joinActivation!.Key,
+                                new(invocation, result!, joinedMessage)))
+                            throw new InvalidOperationException("A parallel Join activation attempted to commit more than once in one delivery batch.");
+                        // The Join output is dispatched only after Agent Framework has
+                        // delivered every message in this receiver's current superstep.
+                        return new("", Id, "parallel.pending", DataType: "json",
+                            ActivationFrame: received.ActivationFrame,
+                            ParallelActivationId: received.ParallelActivationId,
+                            ParallelBranchId: received.ParallelBranchId,
+                            ParallelForkNodeId: received.ParallelForkNodeId,
+                            ParallelForkLineage: received.ParallelForkLineage);
+                    }
                     if (configurable)
                     {
                         using var document = JsonDocument.Parse(result!);
@@ -2213,12 +2269,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     joinActivation!.MarkFailed();
+                    pendingParallelJoinCompletions.TryRemove(joinActivation.Key, out _);
                     await Emit(ExecutionEventKinds.NodeCancelled, Id, invocation, null, "Parallel join cancelled.");
                     throw;
                 }
                 catch
                 {
                     joinActivation!.MarkFailed();
+                    pendingParallelJoinCompletions.TryRemove(joinActivation.Key, out _);
                     await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Parallel join failed.");
                     throw;
                 }

@@ -21,7 +21,12 @@ reconstructs zero/partial arrivals and Join lifecycle passively, keeping run
 terminal status separate; the run inspector displays that evidence at the
 selected history prefix without execution. File/SQLite reopen tests cover
 success, failure, and cancellation. Package compatibility and editing existing
-regions remain in progress. See [Decision
+regions remain in progress. In schema 2.0, Join completion waits until Agent
+Framework has delivered every message to that Join executor in the current
+superstep. This prevents a duplicate already delivered in that batch from
+losing a race to the final unique arrival. It is a receiver-batch boundary,
+not accounting for active descendant work that could later reach the Join;
+that broader admission guarantee remains open. See [Decision
 0076](decisions/0076-nested-fork-join-composition.md).
 
 The unified schema supports activation-only loops, explicit variable-based

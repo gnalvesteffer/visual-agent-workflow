@@ -287,3 +287,26 @@ proof-scheduler path. Interface calls inside static parallel branches,
 recursive or arbitrary-depth calls, approval/MCP policy, and production
 dispatch integration remain unqualified. The public scheduler and schema
 admission were not changed.
+
+
+## Public Join receiver-batch boundary (2026-11-21)
+
+Unified schema 2.0 now stages a complete Join result instead of returning it
+from the final arrival handler. `OnMessageDeliveryFinishedAsync` commits the
+result and sends its continuation only after Agent Framework has delivered all
+messages for the current superstep to that Join executor. A controlled
+concurrent duplicate/final-arrival regression now asserts that the Join emits
+no `NodeCompleted` and the workflow Output never starts when both arrivals are
+in that receiver batch. Ordinary configurable Join execution and public
+three-level nested success continue to pass their runner tests.
+
+This is a receiver-batch boundary, not the activation-wide admission/drain
+required by the accepted contract: it cannot account for active descendant
+work that has not yet dispatched a Join message. The current race is narrowed
+to that remaining boundary; it is not closed for every delivery admitted in a
+branch activation. The production Join-specific experiment therefore does not
+justify promoting the proof ledger or claiming full duplicate-arrival parity.
+Next, establish whether every dispatch capable of reaching a Join can be
+atomically accounted for under `InProcessRunner`; if not, evaluate the
+root-owned dispatcher with the broader Agent Framework behavior-preservation
+and failure/persistence proofs before production integration.

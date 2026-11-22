@@ -26073,8 +26073,9 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.True(failure.Sequence > started.Sequence);
         });
         Assert.DoesNotContain(events, completed => completed.NodeId == "shared-inner-join" &&
-            completed.Kind == ExecutionEventKinds.NodeCompleted && joinFailures.Any(failure =>
-                failure.InvocationId == completed.InvocationId && completed.Sequence > failure.Sequence));
+            completed.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "output" &&
+            evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted);
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
         AssertPersistedSequence(runStore, events, "failed");
 
@@ -26191,9 +26192,8 @@ public sealed class ArrayIterationVawBodyProofTests
             evt.NodeId == "shared-inner-join").ToArray();
         var joinFailures = events.Where(evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
             evt.NodeId == "shared-inner-join").ToArray();
-        Assert.NotEmpty(joinCompletions);
-        Assert.Contains(joinFailures, failure => joinCompletions.Any(completed =>
-            completed.InvocationId == failure.InvocationId && completed.Sequence < failure.Sequence));
+        Assert.All(joinFailures, failure => Assert.DoesNotContain(joinCompletions, completed =>
+            completed.InvocationId == failure.InvocationId && completed.Sequence > failure.Sequence));
 
         AssertPersistedSequence(runStore, events, "failed");
         var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
