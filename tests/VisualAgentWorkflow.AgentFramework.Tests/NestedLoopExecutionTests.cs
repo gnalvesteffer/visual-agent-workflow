@@ -89,6 +89,28 @@ public sealed class NestedLoopExecutionTests
     }
 
     [Fact]
+    public async Task Parallel_pinned_workflow_calls_cannot_exceed_the_root_loop_pass_budget()
+    {
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var child = WorkflowRevision.Create(LoopingChildGraph("parallel-loop-budget-child"), "parallel-loop-budget-child");
+        var parent = WorkflowRevision.Create(ParallelWorkflowCallGraph("parallel-loop-budget-parent", child),
+            "parallel-loop-budget-parent");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new WorkflowRunner(agents: new EchoAgentExecutor()).ExecuteWithLoopBudgetsProofAsync(
+                Guid.NewGuid(), parent, "continue", maximumLoopPasses: 1, maximumLoopEvidenceEvents: 100,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; })
+                .WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.InRange(events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted), 0, 1);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "output" && evt.ScopeId is null);
+        Assert.Contains(events, evt => evt.Data?.Contains("aggregate Loop body-pass limit", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
     public async Task Public_runner_does_not_complete_parent_iterations_after_a_nested_node_failure()
     {
         var events = new ConcurrentQueue<ExecutionEvent>();
@@ -200,6 +222,51 @@ public sealed class NestedLoopExecutionTests
         nodes = nodes.Add("output", new(NodeTypes.Output, "1.0.0"));
         data = data.Add("call-output-data", new(new("call-2", "out"), new("output", "in"), "data"));
         execution = execution.Add("call-output-execution", Edge("call-2", "out", "output", "execute"));
+        return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition ParallelWorkflowCallGraph(string workflowId, WorkflowRevision child)
+    {
+        var branches = ImmutableArray.Create(
+            new ParallelBranchDescriptor("left", "Left", "anchor-left"),
+            new ParallelBranchDescriptor("right", "Right", "anchor-right"));
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("fork", new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(branches) })
+            .Add("anchor-left", new(NodeTypes.ParallelBranch, "1.0.0")
+                { ParallelBranch = new("fork", "left") })
+            .Add("anchor-right", new(NodeTypes.ParallelBranch, "1.0.0")
+                { ParallelBranch = new("fork", "right") })
+            .Add("call-left", new(NodeTypes.WorkflowCall, "1.0.0")
+            {
+                WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1,
+                    child.ContentHash, child.Definition)
+            })
+            .Add("call-right", new(NodeTypes.WorkflowCall, "1.0.0")
+            {
+                WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1,
+                    child.ContentHash, child.Definition)
+            })
+            .Add("join", new(NodeTypes.ParallelJoin, "1.0.0")
+                { ParallelJoin = new("fork", ["left", "right"]) })
+            .Add("output", new(NodeTypes.Output, "1.0.0")
+                { OutputDataType = WorkflowDataTypes.Json });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-call-left", new(new("input", "out"), new("call-left", "in"), "data"))
+            .Add("input-call-right", new(new("input", "out"), new("call-right", "in"), "data"))
+            .Add("join-output", new(new("join", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-fork", Edge("input", "then", "fork", "execute"))
+            .Add("fork-left", Edge("fork", ParallelBranchLimits.PinId("left"), "anchor-left", "execute"))
+            .Add("fork-right", Edge("fork", ParallelBranchLimits.PinId("right"), "anchor-right", "execute"))
+            .Add("left-call", Edge("anchor-left", "then", "call-left", "execute"))
+            .Add("right-call", Edge("anchor-right", "then", "call-right", "execute"))
+            .Add("left-join", Edge("call-left", "out", "join", "branch.left"))
+            .Add("right-join", Edge("call-right", "out", "join", "branch.right"))
+            .Add("join-output", Edge("join", "then", "output", "execute"));
         return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input", nodes, data)
         {
             ExecutionConnections = execution

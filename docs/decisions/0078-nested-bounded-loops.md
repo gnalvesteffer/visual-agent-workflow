@@ -44,10 +44,12 @@ Core tests cover valid two-level ownership and malformed feedback escapes.
 Ordinary public-runner unit tests cover nested iteration identity and scope,
 aggregate pass exhaustion, failure and cancellation propagation, concurrent
 atomic work/evidence reservations, and root-wide pass/evidence exhaustion
-across sequential pinned WorkflowCall descendants. Tests use deterministic
-local executors; no browser, integration, external model, or MCP server is part
-of this proof. The original implementation kept child limits independent;
-these focused regressions establish the later root-wide aggregation behavior.
+across sequential pinned WorkflowCall descendants, plus a public-runner unit
+proof that parallel pinned child calls cannot exceed one root pass budget.
+Tests use deterministic local executors; no browser, integration, external
+model, or MCP server is part of this proof. The original implementation kept
+child limits independent; these focused regressions establish the later
+root-wide aggregation behavior.
 
 ## Limits
 
