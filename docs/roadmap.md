@@ -515,13 +515,18 @@ unchanged because no authorable behavior is shipped. See [Decision
   event-recorder rejection without admitting later items or fabricating a root
   terminal. Caller cancellation while an item is active also stops feedback
   admission and records one contiguous root cancellation. This is an adapter-
-  injected proof input, not a public typed-array source or iterator contract;
-  upstream side-effecting topology, Sequence graphs (which use a separate
-  production builder), activation-local Break settlement, persisted playback,
-  and shared aggregate budgets remain unproven. The focused selected
+  injected proof input, not a public typed-array source or iterator contract.
+  A deliberately reduced shared root Loop-pass budget admits exactly two of
+  three item frames, rejects the third before its start event or Agent runs,
+  and records the aggregate Loop body-pass failure.
+  Still unproven are upstream side-effecting topology, Sequence graphs
+  (which use a separate production builder), activation-local Break settlement,
+  persisted playback, and budgets composed across nested Loop/WorkflowCall
+  activations. The focused selected
   Agent Framework unit selection covering `LoopParallelExecutionTests`,
   `SingleSequenceActivationProductionProofTests`,
-  `SingleStreamSequenceProof_*`, and `BoundedLoopExecutionTests` passes 45/45.
+  `SingleStreamSequenceProof_*`, `BoundedLoopExecutionTests`, and
+  `WorkflowLoopExecutionBudgetTests` passes 48/48.
   The remaining evidence is the complete supported-body,
   failure/race, shared-budget, persistence, and playback matrix, followed by a
   fresh three-role architecture review. A three-role review on 2026-11-19

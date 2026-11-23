@@ -71,7 +71,8 @@ public sealed partial class WorkflowRunner
         string? itemParameterId, string indexParameterId, string arrayElementType,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default,
         IWorkflowExecutionGate? gate = null,
-        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
+        int? maximumLoopPasses = null)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(jsonItems);
@@ -98,6 +99,7 @@ public sealed partial class WorkflowRunner
 
         return ExecuteCoreAsync(runId, revision, jsonItems, null, record, gate, cancellationToken,
             afterNodeStarted: afterNodeStarted,
+            proofMaximumLoopPasses: maximumLoopPasses,
             arrayIterationFeedbackProof: new(loopNodeId, [.. items], arrayElementType,
                 itemParameterId, indexParameterId));
 

@@ -5115,6 +5115,13 @@ accepted contiguous event prefix without inventing a root terminal. The
 cancellation case preserves a contiguous root event stream ending in one
 cancellation terminal.
 
+A reduced test allowance uses the existing root `WorkflowLoopPassBudget`: with
+three inputs and a budget of two, exactly two item frames start and execute;
+the third is rejected before its `loop/3` start event or Agent invocation, and
+the root records the aggregate Loop body-pass limit failure. This demonstrates
+that feedback iteration consumes the production root Loop-pass allowance; it
+does not qualify combined nested-loop or WorkflowCall budget races.
+
 This establishes one important scheduler boundary only. The array is supplied
 through an internal proof adapter rather than authored graph dataflow; the
 fixture is restricted to string elements and a validated root Loop topology,
@@ -5127,5 +5134,5 @@ should test these gaps while retaining the public schema and Studio gate; if the
 ordinary scheduler cannot enforce admission and drain semantics across them,
 then compare a VAW-owned scheduler adapter. Focused unit selection:
 `LoopParallelExecutionTests`, `SingleSequenceActivationProductionProofTests`,
-`SingleStreamSequenceProof_*`, and `BoundedLoopExecutionTests` passed 45/45 on
-2026-11-23.
+`SingleStreamSequenceProof_*`, `BoundedLoopExecutionTests`, and
+`WorkflowLoopExecutionBudgetTests` passed 48/48 on 2026-11-23.

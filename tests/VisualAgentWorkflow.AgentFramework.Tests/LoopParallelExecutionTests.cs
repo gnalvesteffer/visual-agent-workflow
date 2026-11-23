@@ -105,6 +105,30 @@ public sealed class LoopParallelExecutionTests
     }
 
     [Fact]
+    public async Task Feedback_scheduler_stops_at_the_shared_root_loop_pass_budget()
+    {
+        var revision = WorkflowRevision.Create(LoopWithParallelBodyAndArrayParameters(),
+            "feedback-array-iteration-budget-proof");
+        var executor = new HeldArrayFeedbackAgentExecutor();
+        executor.ReleaseFirstLeftBranch.TrySetResult();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(agents: executor)
+            .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "item", "index", WorkflowDataTypes.String,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }, maximumLoopPasses: 2));
+
+        Assert.Equal(new[] { "alpha", "beta" }, executor.Invocations
+            .Where(call => call.NodeId == "agent-a").Select(call => call.Input));
+        Assert.DoesNotContain(executor.Invocations, call => call.Input == "gamma");
+        Assert.Equal(new[] { "loop/1", "loop/2" }, events
+            .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted).Select(evt => evt.ScopeId));
+        Assert.Equal(ExecutionEventKinds.Failed, events.Last().Kind);
+        Assert.Contains("Loop body-pass limit", events.Last().Data, StringComparison.Ordinal);
+        Assert.Equal(Enumerable.Range(1, events.Count).Select(value => (long)value), events.Select(evt => evt.Sequence));
+    }
+
+    [Fact]
     public async Task Feedback_scheduler_recorder_rejection_does_not_admit_later_items_or_fabricate_a_terminal()
     {
         var revision = WorkflowRevision.Create(LoopWithParallelBodyAndArrayParameters(),

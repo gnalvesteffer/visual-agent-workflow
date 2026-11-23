@@ -686,12 +686,14 @@ parameters; the Agent Framework feedback edge schedules each body pass. A
 Fork/Join test holds one sibling and demonstrates that another item is not
 admitted until the prior Join drains. Failure, caller cancellation, and event-
 recorder rejection prevent later item admission; recorder rejection also
-suppresses a fabricated root terminal. This experiment does not add a graph-
-authored array source or public iterator behavior. It is limited to string
-items and a validated root Loop, rejects Sequence graphs because they use
-another production builder, and does not qualify activation-local Break,
-persisted playback, or aggregate budgets. The final runtime architecture
-remains unselected.
+suppresses a fabricated root terminal. A reduced shared root Loop-pass budget
+also rejects the third item frame before it starts when the budget is two. This
+experiment does not add a graph-authored array source or public iterator
+behavior. It is limited to string items and a validated root Loop, rejects
+Sequence graphs because they use another production builder, and does not
+qualify activation-local Break, persisted playback, or budgets composed across
+nested Loop/WorkflowCall activations. The final runtime architecture remains
+unselected.
 
 ## Reconciliation assessment and operator assertions
 
