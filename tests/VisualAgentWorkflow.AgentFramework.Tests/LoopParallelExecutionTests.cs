@@ -76,6 +76,35 @@ public sealed class LoopParallelExecutionTests
     }
 
     [Fact]
+    public async Task Feedback_scheduler_cancellation_does_not_admit_later_array_items()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var revision = WorkflowRevision.Create(LoopWithParallelBodyAndArrayParameters(),
+            "feedback-array-iteration-cancellation-proof");
+        var executor = new HeldArrayFeedbackAgentExecutor();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var execution = new WorkflowRunner(agents: executor)
+            .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "item", "index", WorkflowDataTypes.String,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }, cancellation.Token);
+
+        await Task.WhenAll(executor.FirstLeftBranchStarted.Task, executor.FirstRightBranchStarted.Task)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution);
+
+        Assert.Equal(new[] { "alpha" }, executor.Invocations
+            .Where(call => call.NodeId == "agent-a").Select(call => call.Input));
+        Assert.DoesNotContain(executor.Invocations, call => call.Input is "beta" or "gamma");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "loop/2");
+        Assert.Equal(ExecutionEventKinds.Cancelled, events.Last().Kind);
+        Assert.Equal(Enumerable.Range(1, events.Count).Select(value => (long)value), events.Select(evt => evt.Sequence));
+    }
+
+    [Fact]
     public async Task Feedback_scheduler_recorder_rejection_does_not_admit_later_items_or_fabricate_a_terminal()
     {
         var revision = WorkflowRevision.Create(LoopWithParallelBodyAndArrayParameters(),

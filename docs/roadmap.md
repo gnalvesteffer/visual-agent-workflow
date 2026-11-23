@@ -513,13 +513,15 @@ unchanged because no authorable behavior is shipped. See [Decision
   holds one Fork/Join sibling to prove the next item is not admitted before the
   previous Join drains. Focused unit regressions also cover item failure and
   event-recorder rejection without admitting later items or fabricating a root
-  terminal. This is an adapter-injected proof input, not a public typed-array
-  source or iterator contract; upstream side-effecting topology, Sequence
-  graphs (which use a separate production builder), cancellation, persisted
-  playback, and shared aggregate budgets remain unproven. The focused selected
+  terminal. Caller cancellation while an item is active also stops feedback
+  admission and records one contiguous root cancellation. This is an adapter-
+  injected proof input, not a public typed-array source or iterator contract;
+  upstream side-effecting topology, Sequence graphs (which use a separate
+  production builder), activation-local Break settlement, persisted playback,
+  and shared aggregate budgets remain unproven. The focused selected
   Agent Framework unit selection covering `LoopParallelExecutionTests`,
   `SingleSequenceActivationProductionProofTests`,
-  `SingleStreamSequenceProof_*`, and `BoundedLoopExecutionTests` passes 44/44.
+  `SingleStreamSequenceProof_*`, and `BoundedLoopExecutionTests` passes 45/45.
   The remaining evidence is the complete supported-body,
   failure/race, shared-budget, persistence, and playback matrix, followed by a
   fresh three-role architecture review. A three-role review on 2026-11-19

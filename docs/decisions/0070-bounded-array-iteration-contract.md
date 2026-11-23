@@ -5108,21 +5108,24 @@ the ordinary unified-schema `BuildWorkflow` and its existing feedback edge.
 The production Loop activation owner creates each body frame and binds declared
 item and zero-based index parameters. A real Fork/Join body holds one sibling;
 the test verifies that the next item does not start until the pending sibling
-settles and the Join drains. The same proof exercises item failure and
-event-recorder rejection: neither admits later items, and recorder rejection
-leaves only the accepted contiguous event prefix without inventing a root
-terminal.
+settles and the Join drains. The same proof exercises item failure, caller
+cancellation while a first-item Fork/Join is active, and event-recorder
+rejection: none admits later items, and recorder rejection leaves only the
+accepted contiguous event prefix without inventing a root terminal. The
+cancellation case preserves a contiguous root event stream ending in one
+cancellation terminal.
 
 This establishes one important scheduler boundary only. The array is supplied
 through an internal proof adapter rather than authored graph dataflow; the
 fixture is restricted to string elements and a validated root Loop topology,
 with no side-effecting prefix. Graphs containing Sequence are rejected because
-they select `BuildSequenceProductionWorkflow` instead. Cancellation, persistence
-and passive playback, concurrent/shared budget accounting, other supported body
-topologies, and public typed item/index pins remain unqualified. The next work
+they select `BuildSequenceProductionWorkflow` instead. Activation-local
+cancellation/Break settlement, persistence and passive playback, concurrent/
+shared budget accounting, other supported body topologies, and public typed
+item/index pins remain unqualified. The next work
 should test these gaps while retaining the public schema and Studio gate; if the
 ordinary scheduler cannot enforce admission and drain semantics across them,
 then compare a VAW-owned scheduler adapter. Focused unit selection:
 `LoopParallelExecutionTests`, `SingleSequenceActivationProductionProofTests`,
-`SingleStreamSequenceProof_*`, and `BoundedLoopExecutionTests` passed 44/44 on
+`SingleStreamSequenceProof_*`, and `BoundedLoopExecutionTests` passed 45/45 on
 2026-11-23.
