@@ -327,10 +327,17 @@ public sealed partial class WorkflowRunner
         if (CreateSequenceProductionPlan(revision) is not null)
             throw new ArgumentException("The ordinary-body proof does not accept Sequence graphs.", nameof(revision));
 
+        var proofBreakNodeIds = revision.Definition.Nodes
+            .Where(entry => entry.Value.Type == StructuredProofBreakNodeType)
+            .Select(entry => entry.Key).ToHashSet(StringComparer.Ordinal);
+        if (proofBreakNodeIds.Count > 0)
+            WorkflowValidator.ThrowIfInvalid(ValidationProjection(revision.Definition));
         var parsedItems = ParseProductionActivationItems(typedItems, arrayElementType);
         var baseParameters = WorkflowParameters.Resolve(revision.Definition, null) ??
             ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
         return ExecuteCoreAsync(runId, revision, jsonItems, baseParameters, record, null, cancellationToken,
+            skipValidationForInternalProof: proofBreakNodeIds.Count > 0,
+            proofBreakNodeIds: proofBreakNodeIds,
             proofMaximumLoopActivations: parsedItems.Length,
             proofMaximumLoopPasses: maximumLoopPasses,
             rootCoordinatorProof: ExecuteCoordinatorAsync);
@@ -373,6 +380,7 @@ public sealed partial class WorkflowRunner
                 var body = await ExecuteBodyForActivationProofAsync(runId, revision, frame.Item, frame.Parameters,
                     evt => EmitCoordinatorEvent(evt.Kind, evt.NodeId, evt.InvocationId, evt.ConnectionId,
                         evt.Data, evt.ScopeId ?? frame.ScopeId), runToken, activationFrame: frame,
+                    proofBreakNodeIds: proofBreakNodeIds,
                     workflowLoopPassBudget: frameOwner.LoopPassBudget,
                     workflowLoopEvidenceBudget: frameOwner.LoopExecutionBudget,
                     loopEvidenceScopePrefix: frameOwner.LoopEvidenceScopePrefix);
@@ -381,6 +389,19 @@ public sealed partial class WorkflowRunner
                     throw body.EvidenceWriteError ?? new InvalidOperationException("Body evidence could not be recorded.");
                 if (body.Disposition == WorkflowBodyProofDisposition.BudgetRejected)
                     throw new InvalidOperationException("The shared iterator body-pass budget was exhausted.");
+
+                if (body.Disposition == WorkflowBodyProofDisposition.BreakRequested && body.BreakRequest is { } request)
+                {
+                    var signal = frameOwner.ConsumeBreak(frame, request);
+                    await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id,
+                        data: JsonSerializer.Serialize(new
+                        {
+                            outcome = "break",
+                            signal.SourceNodeId,
+                            signal.TargetFrameId
+                        }, new JsonSerializerOptions(JsonSerializerDefaults.Web)), scopeId: frame.ScopeId);
+                    return new(lastOutput, false, HasOutput: lastOutput is not null);
+                }
 
                 var outcome = body.Disposition switch
                 {

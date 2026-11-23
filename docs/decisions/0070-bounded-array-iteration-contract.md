@@ -101,6 +101,16 @@ the same root frame/budget owner. It does not integrate an iterator into the
 outer graph scheduler, route or consume Break in this coordinator, or prove
 pending descendant drain and File/SQLite playback; those remain gates.
 
+The ordinary-body proof now also admits the private typed Break signal from a
+validated graph projection whose Break output targets the workflow Output. The
+coordinator verifies the request against the active frame, records that frame
+as the Break target, settles the current item as `break`, and stops before the
+next item. A deterministic unit test covers a completed item followed by a
+Break item and verifies source/target frame identity, no third admission, and
+one root completion. This is a single-frame ordinary-body proof; nested target
+selection through the integrated coordinator, admitted-descendant draining,
+uncertain external outcomes, and persisted playback remain unproven.
+
 A further proponent/opponent/adjudicator review after the matched parallel
 Agent-result and typed direct-MCP argument/result proofs also returned
 **REVISE**. The added comparisons strengthen activation-scoped value and join

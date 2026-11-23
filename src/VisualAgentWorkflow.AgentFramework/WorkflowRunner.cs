@@ -150,9 +150,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 outgoing.Length == 1 && outgoing[0].Source.PortId == "out" &&
                 revision.Definition.Nodes.TryGetValue(outgoing[0].Target.NodeId, out var sequenceTarget) &&
                 sequenceTarget.Type == NodeTypes.Output && outgoing[0].Target.PortId == "execute";
+            var allowedOrdinaryOutputExit = sequencePlan is null && outgoing.Length == 1 &&
+                outgoing[0].Source.PortId == "out" &&
+                revision.Definition.Nodes.TryGetValue(outgoing[0].Target.NodeId, out var ordinaryTarget) &&
+                ordinaryTarget.Type == NodeTypes.Output && outgoing[0].Target.PortId == "execute";
             if (!revision.Definition.Nodes.TryGetValue(nodeId, out var node) ||
-                node.Type != StructuredProofBreakNodeType || outgoing.Length > 0 && !allowedJoinExit && !allowedSequenceOutputExit || !allowedDataInputs)
-                throw new ArgumentException("Activation proof Break IDs must identify private Break nodes with only a direct parallel-join exit and an optional entry-value input.",
+                node.Type != StructuredProofBreakNodeType || outgoing.Length > 0 && !allowedJoinExit &&
+                !allowedSequenceOutputExit && !allowedOrdinaryOutputExit || !allowedDataInputs)
+                throw new ArgumentException("Activation proof Break IDs must identify private Break nodes with only a direct Output, Sequence Output, or parallel-join exit and an optional entry-value input.",
                     nameof(proofBreakNodeIds));
         }
         if (proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node => node.Type == NodeTypes.Sequence) &&

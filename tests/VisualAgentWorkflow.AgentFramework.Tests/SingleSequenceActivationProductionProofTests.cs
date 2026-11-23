@@ -241,6 +241,39 @@ public sealed class SingleSequenceActivationProductionProofTests
     }
 
     [Fact]
+    public async Task Multi_item_ordinary_coordinator_consumes_break_for_the_active_frame_and_stops()
+    {
+        var revision = CreateOrdinaryBreakRevision("break-multi-item-ordinary-proof");
+        var agent = new CapturingAgentExecutor();
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(agents: agent)
+            .ExecuteMultiItemOrdinaryActivationCoordinatorProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"stop\",\"gamma\"]", "index", "item", WorkflowDataTypes.String,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("alpha", result.Output);
+        Assert.Equal(new[] { "alpha" }, agent.Invocations.Select(invocation => invocation.Input));
+        Assert.Equal(new[] { "completed", "break" }, events
+            .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted)
+            .Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("outcome").GetString()));
+
+        var breakCompleted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "break" && evt.ScopeId == "array-loop/2");
+        using var requestDocument = JsonDocument.Parse(breakCompleted.Data!);
+        var sourceFrameId = requestDocument.RootElement.GetProperty("sourceFrameId").GetGuid();
+        var breakIteration = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/2");
+        using var settlement = JsonDocument.Parse(breakIteration.Data!);
+        Assert.Equal("break", settlement.RootElement.GetProperty("outcome").GetString());
+        Assert.Equal(sourceFrameId, settlement.RootElement.GetProperty("targetFrameId").GetGuid());
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "array-loop/3");
+        AssertTerminalAndContiguous(events, ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
     public async Task Single_item_coordinator_binds_the_item_and_completes_one_sequence_activation()
     {
         var revision = CreateSequenceRevision("single-item-coordinator-proof");
@@ -423,6 +456,41 @@ public sealed class SingleSequenceActivationProductionProofTests
                 .Add("agent-output", Edge("agent", "out", "output", "execute"))
         };
         return WorkflowRevision.Create(definition, workflowId);
+    }
+
+    private static WorkflowRevision CreateOrdinaryBreakRevision(string workflowId)
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                    { ParameterId = "item", OutputDataType = WorkflowDataTypes.String })
+                .Add("stop-value", new(NodeTypes.StringConstant, "1.0.0")
+                    { StringConstant = new("stop") })
+                .Add("equals", new(NodeTypes.StringEquals, "1.0.0"))
+                .Add("branch", new(NodeTypes.BooleanBranch, "1.0.0"))
+                .Add("break", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"))
+                .Add("agent", new(NodeTypes.Agent, "1.0.0", Agent: new AgentConfiguration(
+                    "proof.echo", null, "Return the input unchanged.", []) { MaxTurns = 1 }))
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("item-equals", Edge("item", "out", "equals", "left", "data"))
+                .Add("stop-equals", Edge("stop-value", "out", "equals", "right", "data"))
+                .Add("equals-branch", Edge("equals", "out", "branch", "condition", "data"))
+                .Add("item-agent", Edge("item", "out", "agent", "in", "data"))
+                .Add("agent-output-data", Edge("agent", "out", "output", "in", "data")))
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("item", new("Item", "") { Type = WorkflowDataTypes.String }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-branch", Edge("input", "then", "branch", "execute"))
+                .Add("branch-break", Edge("branch", "true", "break", "execute"))
+                .Add("branch-agent", Edge("branch", "false", "agent", "execute"))
+                .Add("break-output", Edge("break", "out", "output", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute"))
+        };
+        return WorkflowRevision.CreateProofOnly(definition, workflowId);
     }
 
     private static void AssertTerminalAndContiguous(IReadOnlyList<ExecutionEvent> events, string terminalKind)
