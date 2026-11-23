@@ -47,9 +47,11 @@ atomic work/evidence reservations, and root-wide pass/evidence exhaustion
 across sequential pinned WorkflowCall descendants, plus public-runner unit
 proofs that parallel and recursively nested pinned child calls share one root
 pass budget and retain fully prefixed event scopes. Tests use deterministic
-local executors; no browser, integration, external model, or MCP server is part
-of this proof. The original implementation kept child limits independent;
-these focused regressions establish the later root-wide aggregation behavior.
+local executors. A parallel child-call regression also exercises atomic
+Loop-scoped evidence rejection across branches. No browser, integration,
+external model, or MCP server is part of this proof. The original
+implementation kept child limits independent; these focused regressions
+establish the later root-wide aggregation behavior.
 
 ## Limits
 

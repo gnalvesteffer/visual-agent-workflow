@@ -136,6 +136,30 @@ public sealed class NestedLoopExecutionTests
     }
 
     [Fact]
+    public async Task Parallel_pinned_workflow_calls_share_the_root_loop_evidence_budget()
+    {
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var child = WorkflowRevision.Create(LoopingChildGraph("parallel-loop-evidence-child"),
+            "parallel-loop-evidence-child");
+        var parent = WorkflowRevision.Create(ParallelWorkflowCallGraph("parallel-loop-evidence-parent", child),
+            "parallel-loop-evidence-parent");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new WorkflowRunner(agents: new EchoAgentExecutor()).ExecuteWithLoopBudgetsProofAsync(
+                Guid.NewGuid(), parent, "continue", maximumLoopPasses: 100, maximumLoopEvidenceEvents: 1,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; })
+                .WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var loopScopedEvents = events.Where(evt => evt.ScopeId?.Contains("/loop/", StringComparison.Ordinal) == true)
+            .ToArray();
+        Assert.Single(loopScopedEvents);
+        Assert.Equal(ExecutionEventKinds.LoopIterationStarted, loopScopedEvents[0].Kind);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.Contains(events, evt => evt.Data?.Contains("Loop-scoped evidence event limit (1)",
+            StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
     public async Task Public_runner_does_not_complete_parent_iterations_after_a_nested_node_failure()
     {
         var events = new ConcurrentQueue<ExecutionEvent>();
