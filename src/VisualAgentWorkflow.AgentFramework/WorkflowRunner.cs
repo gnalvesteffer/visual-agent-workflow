@@ -290,7 +290,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         WorkflowLoopExecutionBudget? workflowLoopEvidenceBudget = null,
         string loopEvidenceScopePrefix = "",
         int? proofMaximumLoopPasses = null,
-        int? proofMaximumLoopEvidenceEvents = null)
+        int? proofMaximumLoopEvidenceEvents = null,
+        Func<Func<string, string?, Guid?, string?, string?, string?, ValueTask>, CancellationToken,
+            Task<WorkflowExecutionResult>>? rootCoordinatorProof = null)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -346,7 +348,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             ? null
             : CancellationTokenSource.CreateLinkedTokenSource(callerCancellationToken, collaborationRuntime.TimeoutToken);
         if (linkedCancellation is not null) cancellationToken = linkedCancellation.Token;
-        var workflow = sequencePlan is null
+        var workflow = rootCoordinatorProof is not null ? null : sequencePlan is null
             ? BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 collaborationRuntime, variableStore, afterNodeStarted: afterNodeStarted,
                 proofBreakNodeIds: proofBreakNodeIds, activationFrameOwner: activationFrameOwner)
@@ -358,11 +360,42 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (rootCoordinatorProof is not null)
+            {
+                var result = await rootCoordinatorProof(Emit, cancellationToken);
+                if (result.Cancelled)
+                {
+                    if (emitRunLifecycle) await Emit(ExecutionEventKinds.Cancelled);
+                    return result;
+                }
+                if (result.OutcomeUnknown)
+                {
+                    if (emitRunLifecycle)
+                        await Emit(ExecutionEventKinds.OutcomeUnknown,
+                            data: "Workflow execution ended with an unresolved external outcome.");
+                    return result;
+                }
+                if (result.Failed)
+                {
+                    if (emitRunLifecycle)
+                        await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
+                    return result;
+                }
+                if (result.Terminated)
+                {
+                    if (emitRunLifecycle) await Emit(ExecutionEventKinds.Terminated);
+                    return result;
+                }
+
+                activationLedger.ThrowIfActive();
+                if (emitRunLifecycle) await Emit(ExecutionEventKinds.Completed, data: result.Output);
+                return result;
+            }
             var inputType = WorkflowPorts.Outputs(revision.Definition.Nodes[revision.Definition.EntryNodeId]).Single().DataType;
             var execution = sequencePlan is not null || revision.Definition.Nodes.Values.Any(node => node?.Type == NodeTypes.ParallelFork)
                 ? InProcessExecution.Concurrent
                 : InProcessExecution.Default;
-            await using var run = await execution.RunStreamingAsync(workflow,
+            await using var run = await execution.RunStreamingAsync(workflow!,
                 new GraphMessage(input, null, null, DataType: inputType,
                     ActivationFrame: activationFrame), cancellationToken: cancellationToken);
             using var cancellationRegistration = cancellationToken.Register(
@@ -419,6 +452,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             if (activationFrameOwner.HasUncertainRootEventRecorder) throw;
+            if (rootCoordinatorProof is not null)
+            {
+                if (emitRunLifecycle) await Emit(ExecutionEventKinds.Cancelled);
+                return new(null, false, Cancelled: true, HasOutput: false);
+            }
             if (collaborationRuntime?.IsTimedOut == true && !callerCancellationToken.IsCancellationRequested)
             {
                 if (collaborationRuntime is not null) await collaborationRuntime.AbortAsync("The collaboration region timed out.");

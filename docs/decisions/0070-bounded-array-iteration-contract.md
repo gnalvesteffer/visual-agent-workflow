@@ -5001,3 +5001,40 @@ This proves those cases through the owner implementation used by ordinary graph
 execution. It does not inject that same owner instance into arbitrary body
 calls, qualify other proof coordinators or budget combinations, close the
 supported-body/topology matrix, or authorize public iterator/Break behavior.
+
+### Ordinary root owns the single-stream coordinator proof (2026-11-23)
+
+A new three-role review considered whether simply replacing the nested proof's
+`StructuredActivationRunContext` with `StructuredActivationFrameOwner` would
+advance the open seam. The adjudicator returned **REVISE**: that would still
+leave the proof coordinator owning its own root lifecycle and would only swap
+the recorder inside a proof harness. The next useful boundary is to run the
+VAW coordinator through ordinary `ExecuteCoreAsync`, while retaining
+`StructuredActivationRunBudget`, root recorder uncertainty, and Sequence
+settlement as separate policies.
+
+`ExecuteSingleStreamSequenceBreakProofAsync` now enters `ExecuteCoreAsync` with
+a private root-coordinator callback. `ExecuteCoreAsync` owns the one root start,
+accepted activation ledger, event sequence, and terminal; the callback drives
+the existing VAW frame and `SequenceRuntimeCoordinator`, and each production
+body call suppresses its own root lifecycle. This proves the same ordinary root
+owner surrounds the iterator and production Sequence evidence. The outer
+Agent Framework graph scheduler is bypassed by this proof-only callback, and
+item/frame ownership remains supplied by the proof; this is not public or
+authored array iteration.
+
+A focused in-memory unit test asserts the root remains active while an admitted
+Agent drains after B requests Break, C remains skipped, Sequence settlement is
+recorded on the same contiguous root event stream, and one root terminal follows
+settlement. It exposed and fixed failure-terminal precedence and cancellation
+result handling during implementation. The focused single-stream selection
+passes 11/11 (including existing File/SQLite cases); the ordinary owner/loop
+unit selection passes 20/20. No browser, integration, or end-to-end test was
+added for this increment. User-guide instructions are unchanged because no
+authorable behavior is shipped.
+
+The remaining gate is integration with ordinary outer graph scheduling, graph-
+derived iterator ownership, the supported body/topology matrix, budget and
+recorder-failure combinations, and the previously specified persistence and
+playback evidence. Public typed iterator pins, Break authoring, schema
+admission, and Studio changes remain closed.

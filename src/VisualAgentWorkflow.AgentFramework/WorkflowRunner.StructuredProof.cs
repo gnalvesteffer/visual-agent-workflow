@@ -67,102 +67,102 @@ public sealed partial class WorkflowRunner
         var parameters = WorkflowParameters.Resolve(revision.Definition, null) ??
             ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
         var frame = new StructuredActivationFrame(Guid.NewGuid(), null, "array-loop", 0, input, parameters);
-        var connections = plan.Outputs.ToDictionary(output => output.OutputId,
-            output => output.ConnectionId, StringComparer.Ordinal);
-        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), plan.SequenceNodeId,
-            plan.Outputs.Select(output => output.OutputId).ToArray(), connections, scopeId: frame.ScopeId);
-        var session = new SequenceProductionDispatchSession(coordinator, frame, proofBreakNodeIds,
-            maximumConcurrentOutputs);
-        using var rootOwner = new StructuredActivationFrameOwner(null, null, revision.Definition,
-            countLoopEvidenceEvents: false);
-        rootOwner.BindRootEventRecorder(runId, revision.RevisionId, record, new ExecutionActivationLedger());
-        ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
-            string? scopeId = null, string? data = null, string? connectionId = null) =>
-            rootOwner.RecordEventAsync(kind, nodeId, invocationId, connectionId, data, scopeId);
-        using var sequenceEventGate = new SemaphoreSlim(1, 1);
-        async ValueTask FlushSequenceEvents()
+        return await ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken,
+            skipValidationForInternalProof: true, proofBreakNodeIds: proofBreakNodeIds,
+            sequencePlan: plan, sequenceDispatchSession: null,
+            rootCoordinatorProof: ExecuteCoordinatorAsync);
+
+        async Task<WorkflowExecutionResult> ExecuteCoordinatorAsync(
+            Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
+            CancellationToken runToken)
         {
-            await sequenceEventGate.WaitAsync();
-            try
+            var connections = plan.Outputs.ToDictionary(output => output.OutputId,
+                output => output.ConnectionId, StringComparer.Ordinal);
+            var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), plan.SequenceNodeId,
+                plan.Outputs.Select(output => output.OutputId).ToArray(), connections, scopeId: frame.ScopeId);
+            var session = new SequenceProductionDispatchSession(coordinator, frame, proofBreakNodeIds,
+                maximumConcurrentOutputs);
+            using var sequenceEventGate = new SemaphoreSlim(1, 1);
+
+            async ValueTask FlushSequenceEvents()
             {
-                var batch = coordinator.BeginEventDelivery();
-                foreach (var runtimeEvent in batch.Events)
+                await sequenceEventGate.WaitAsync();
+                try
                 {
-                    var data = runtimeEvent.BreakAcceptance?.Serialize() ?? SequenceEvidence.Serialize(
-                        new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
-                            runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
-                            runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason));
-                    try
+                    var batch = coordinator.BeginEventDelivery();
+                    foreach (var runtimeEvent in batch.Events)
                     {
-                        await Emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
-                            runtimeEvent.ScopeId ?? frame.ScopeId, data, runtimeEvent.ConnectionId);
-                        coordinator.AcceptDeliveredEvent(batch.DeliveryId, runtimeEvent);
-                    }
-                    catch
-                    {
-                        coordinator.MarkEventDeliveryUncertain(batch.DeliveryId);
-                        throw;
+                        var data = runtimeEvent.BreakAcceptance?.Serialize() ?? SequenceEvidence.Serialize(
+                            new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
+                                runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
+                                runtimeEvent.ActivationId, runtimeEvent.ConnectionId, Reason: runtimeEvent.Reason));
+                        try
+                        {
+                            await emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId,
+                                runtimeEvent.SequenceInvocationId, runtimeEvent.ConnectionId,
+                                data, runtimeEvent.ScopeId ?? frame.ScopeId);
+                            coordinator.AcceptDeliveredEvent(batch.DeliveryId, runtimeEvent);
+                        }
+                        catch
+                        {
+                            coordinator.MarkEventDeliveryUncertain(batch.DeliveryId);
+                            throw;
+                        }
                     }
                 }
+                finally
+                {
+                    sequenceEventGate.Release();
+                }
             }
-            finally
+
+            await emit(ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id, null, null,
+                frame.ScopeId);
+            var outcome = await ExecuteBodyForActivationProofAsync(runId, revision, input, frame.Parameters,
+                evt => emit(evt.Kind, evt.NodeId, evt.InvocationId, evt.ConnectionId, evt.Data,
+                    evt.ScopeId ?? frame.ScopeId), runToken, activationFrame: frame,
+                afterNodeStarted: afterNodeStarted,
+                proofBreakNodeIds: proofBreakNodeIds, sequencePlan: plan, sequenceDispatchSession: session);
+            await FlushSequenceEvents();
+
+            if (outcome.Disposition == WorkflowBodyProofDisposition.BreakRequested && outcome.BreakRequest is { } request)
             {
-                sequenceEventGate.Release();
+                var signal = ConsumeProductionBodyBreakRequestProof(frame, request, proofBreakNodeIds);
+                await emit(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, null,
+                    JsonSerializer.Serialize(new { outcome = "break", signal.SourceNodeId, signal.TargetFrameId },
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web)), frame.ScopeId);
+                return new(coordinator.DeterministicResult ?? string.Empty, false, HasOutput: true);
             }
-        }
 
-        await Emit(ExecutionEventKinds.Started);
-        await Emit(ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id, frame.ScopeId);
-        var outcome = await ExecuteBodyForActivationProofAsync(runId, revision, input, frame.Parameters,
-            evt => Emit(evt.Kind, evt.NodeId, evt.InvocationId, evt.ScopeId ?? frame.ScopeId,
-                evt.Data, evt.ConnectionId), cancellationToken, activationFrame: frame,
-            afterNodeStarted: afterNodeStarted,
-            proofBreakNodeIds: proofBreakNodeIds, sequencePlan: plan, sequenceDispatchSession: session);
-        await FlushSequenceEvents();
+            if (outcome.Disposition == WorkflowBodyProofDisposition.Succeeded)
+            {
+                await emit(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, null,
+                    JsonSerializer.Serialize(new { outcome = "completed" }), frame.ScopeId);
+                return new(outcome.Output, false, HasOutput: true);
+            }
 
-        if (outcome.Disposition == WorkflowBodyProofDisposition.BreakRequested && outcome.BreakRequest is { } request)
-        {
-            var signal = ConsumeProductionBodyBreakRequestProof(frame, request, proofBreakNodeIds);
-            await Emit(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, frame.ScopeId,
-                JsonSerializer.Serialize(new { outcome = "break", signal.SourceNodeId, signal.TargetFrameId },
-                    new JsonSerializerOptions(JsonSerializerDefaults.Web)));
-            await Emit(ExecutionEventKinds.Completed, data: coordinator.DeterministicResult ?? string.Empty);
-            return new(coordinator.DeterministicResult ?? string.Empty, false, HasOutput: true);
-        }
+            if (outcome.Disposition is WorkflowBodyProofDisposition.Cancelled or WorkflowBodyProofDisposition.TimedOut)
+            {
+                coordinator.CancelPending();
+                await FlushSequenceEvents();
+                return new(null, false, Cancelled: true, HasOutput: false);
+            }
 
-        if (outcome.Disposition == WorkflowBodyProofDisposition.Succeeded)
-        {
-            await Emit(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, frame.ScopeId,
-                JsonSerializer.Serialize(new { outcome = "completed" }));
-            await Emit(ExecutionEventKinds.Completed, data: outcome.Output);
-            return new(outcome.Output, false, HasOutput: true);
-        }
+            if (outcome.Disposition == WorkflowBodyProofDisposition.OutcomeUnknown)
+            {
+                coordinator.CancelPending();
+                await FlushSequenceEvents();
+                return new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false);
+            }
 
-        if (outcome.Disposition is WorkflowBodyProofDisposition.Cancelled or WorkflowBodyProofDisposition.TimedOut)
-        {
             coordinator.CancelPending();
             await FlushSequenceEvents();
-            await Emit(ExecutionEventKinds.Cancelled);
-            return new(null, false, Cancelled: true, HasOutput: false);
+            const string failure = "Sequence output failed.";
+            await emit(ExecutionEventKinds.NodeFailed, plan.SequenceNodeId, null, null, failure, frame.ScopeId);
+            await emit(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, null,
+                JsonSerializer.Serialize(new { outcome = "failed" }), frame.ScopeId);
+            return new(null, true, Failed: true, HasOutput: false);
         }
-
-        if (outcome.Disposition == WorkflowBodyProofDisposition.OutcomeUnknown)
-        {
-            coordinator.CancelPending();
-            await FlushSequenceEvents();
-            await Emit(ExecutionEventKinds.OutcomeUnknown,
-                data: "Workflow execution ended with an unresolved external outcome.");
-            return new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false);
-        }
-
-        coordinator.CancelPending();
-        await FlushSequenceEvents();
-        const string failure = "Sequence output failed.";
-        await Emit(ExecutionEventKinds.NodeFailed, plan.SequenceNodeId, scopeId: frame.ScopeId, data: failure);
-        await Emit(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, frame.ScopeId,
-            JsonSerializer.Serialize(new { outcome = "failed" }));
-        await Emit(ExecutionEventKinds.Failed, data: failure);
-        return new(null, true, Failed: true, HasOutput: false);
     }
 
     internal sealed record StructuredActivationRunBudget(

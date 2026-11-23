@@ -648,10 +648,15 @@ event. Root lifecycle rules, recorder-uncertainty policy, and Loop or proof
 budgets remain with their existing owners; this shared mechanism does not
 select or expose iterator/Break behavior.
 
-The private single-stream Sequence/Break proof now uses a
-`StructuredActivationFrameOwner` for its enclosing root lifecycle and event
-sequence. Its per-body `ExecuteCoreAsync` calls suppress root lifecycle events
-and route node/Sequence evidence to that enclosing owner.
+The private single-stream Sequence/Break proof now enters through
+`ExecuteCoreAsync`'s ordinary root lifecycle and event owner. A proof-only root
+coordinator callback drives the VAW-owned iterator frames and production
+`SequenceRuntimeCoordinator`; each production body dispatch suppresses its own
+root lifecycle and sends body and Sequence evidence to the enclosing owner.
+The owner emits one root terminal only after admitted body work and Sequence
+settlement finish. This seam bypasses the outer Agent Framework graph scheduler
+and uses proof-supplied item/frame inputs; it does not implement public array
+iteration, Break authoring, or production iterator admission.
 
 ## Reconciliation assessment and operator assertions
 

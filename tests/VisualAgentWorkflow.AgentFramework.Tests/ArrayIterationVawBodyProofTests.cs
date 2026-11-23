@@ -22342,6 +22342,93 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Fact]
+    public async Task SingleStreamSequenceProof_OrdinaryRootOwnsBreakSettlementAndTerminal()
+    {
+        var body = SequenceBodyDefinition();
+        var nodes = body.Nodes
+            .SetItem("sequence", body.Nodes["sequence"] with
+            {
+                Sequence = new([new("inventory", "Inventory"), new("architecture", "Architecture"),
+                    new("quality", "Quality")])
+            })
+            .SetItem("inventory-tool", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new AgentConfiguration("proof.settlement", null, "Wait for release.", []) { MaxTurns = 1 }))
+            .SetItem("architecture-tool", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"))
+            .Add("quality-tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("proof.quality", new string('c', 64)))
+            { McpArgumentsJson = "{\"query\":\"must-not-run\"}" });
+        var definition = body with
+        {
+            Nodes = nodes,
+            ExecutionConnections = body.ExecutionConnections!
+                .SetItem("inventory-output", Edge("inventory-tool", "out", "output", "execute"))
+                .SetItem("architecture-output", Edge("architecture-tool", "out", "output", "execute"))
+                .Add("sequence-quality", Edge("sequence", "then.quality", "quality-tool", "execute"))
+                .Add("quality-output", Edge("quality-tool", "then", "output", "execute"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "ordinary-root-sequence-break-proof");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var agents = new ControlledSettlementAgentExecutor("inventory-tool");
+        var breakAdmissionClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask Record(ExecutionEvent evt)
+        {
+            events.Enqueue(evt);
+            if (evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+                SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "quality")
+                breakAdmissionClosed.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(tools: new EchoToolBroker(), agents: agents)
+            .ExecuteSingleStreamSequenceBreakProofAsync(Guid.NewGuid(), revision, "research", Record,
+                new HashSet<string>(["architecture-tool"], StringComparer.Ordinal),
+                cancellationToken: CancellationToken.None, maximumConcurrentOutputs: 2)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        try
+        {
+            await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await breakAdmissionClosed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var prefix = events.ToArray();
+            Assert.Single(prefix, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+            Assert.DoesNotContain(prefix, evt => evt.Kind is (ExecutionEventKinds.Completed or
+                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled) && evt.NodeId is null);
+            Assert.Contains(prefix, evt => evt.Kind == ExecutionEventKinds.SequenceBreakAccepted);
+            Assert.Contains(prefix, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped &&
+                SequenceEvidence.TryRead(evt, out var evidence) && evidence?.OutputId == "quality");
+            Assert.DoesNotContain(prefix, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "quality-tool");
+            Assert.False(execution.IsCompleted,
+                "The ordinary root must remain active until previously admitted Sequence work settles.");
+
+            agents.Release.TrySetResult();
+            var result = await execution;
+            var accepted = events.ToArray();
+
+            Assert.False(result.Failed);
+            Assert.Equal("{\"query\":\"research\"}", result.Output);
+            Assert.Equal(Enumerable.Range(1, accepted.Length).Select(value => (long)value),
+                accepted.Select(evt => evt.Sequence));
+            Assert.Single(accepted, evt => evt.Kind == ExecutionEventKinds.SequenceBreakCompleted);
+            Assert.Equal(2, accepted.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+            Assert.Single(accepted, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped);
+            Assert.Single(accepted, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+            Assert.Single(accepted, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+            Assert.Equal(accepted.Length - 1, Array.FindIndex(accepted,
+                evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null));
+        }
+        finally
+        {
+            agents.Release.TrySetResult();
+            if (!execution.IsCompleted)
+            {
+                try { await execution.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (TimeoutException) { }
+            }
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

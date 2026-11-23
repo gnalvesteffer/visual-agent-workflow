@@ -331,15 +331,15 @@ iteration, and checkpoint state remain future work. No
 feature-specific schema gates, promotion controls, or preview modes will be
 introduced.
 
-The private single-stream A-active/B-Break/C-skipped proof already owns root
-lifecycle and Sequence evidence through one `StructuredActivationRunContext`;
-its body calls suppress their own root lifecycle. A 2026-11-23 three-role
-review proposed a new in-memory test through the ordinary root owner, but
-source inspection showed that a test of the existing wrapper would duplicate
-the current gate. The remaining gap is integration of a VAW-owned iterator
-coordinator with ordinary root execution and production Sequence settlement.
-Define that ownership boundary before adding another proof or changing public
-admission. See the latest entry in [Decision
+The private single-stream A-active/B-Break/C-skipped proof now enters through
+`ExecuteCoreAsync`'s ordinary root lifecycle and event owner. Its proof-only
+coordinator drives the VAW-owned iterator frames and production Sequence
+settlement, while per-body production dispatch suppresses nested root lifecycle
+events. An in-memory regression asserts the ordinary root remains open while
+admitted Agent work drains after Break and records the sole terminal after
+Sequence settlement. This does not integrate array iteration with the outer
+Agent Framework graph scheduler or establish public iteration/Break support.
+See the latest entry in [Decision
 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 **Progress:** ordinary execution and the private iterator proof now share the
@@ -357,13 +357,18 @@ iterator coordinator's integration with ordinary root execution and production
 Sequence settlement. See [Decision
 0070](decisions/0070-bounded-array-iteration-contract.md).
 
-The single-stream Sequence/Break coordinator now uses the ordinary
-`StructuredActivationFrameOwner` for its outer root lifecycle and event
-sequencing; production body calls suppress their own root lifecycle and report
-events through the coordinator. Its existing controlled File/SQLite cases
-pass 10/10 after this change. This connects the proof to the ordinary owner
-implementation, but does not share one owner instance across arbitrary body
-calls or complete the supported-body, concurrency, and persistence matrix.
+The single-stream Sequence/Break coordinator now runs as a private root
+coordinator callback inside ordinary `ExecuteCoreAsync`. The ordinary root
+owner records iterator, body, and production Sequence events and writes the
+root terminal after the coordinator returns; body calls suppress nested root
+lifecycle events. A new in-memory unit regression covers A-active/B-Break/
+C-skipped, sequence continuity, and terminal ordering. The focused
+single-stream selection passes 11/11 (including existing File/SQLite cases),
+and the owner/loop unit selection passes 20/20. This proves one private
+coordinator composition seam only: it bypasses outer graph scheduling, does
+not derive item inputs or activation ownership from an authored iterator node,
+and does not complete the supported-body, concurrency, persistence, or
+recovery matrix. Public iteration/Break and Studio authoring remain gated.
 
 - [x] Add the schema-2.0 immutable typed-array contract and compose literal,
   length, and indexed-read nodes with existing pure scalar dataflow. Verify
