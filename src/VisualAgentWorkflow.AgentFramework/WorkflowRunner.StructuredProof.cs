@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text.Json;
 using VisualAgentWorkflow.Core;
 
@@ -22,6 +23,44 @@ public sealed partial class WorkflowRunner
 
     private sealed record StructuredSchedulerProofResult(WorkflowExecutionResult Execution,
         StructuredActivationBreakRequest? BreakRequest = null);
+
+    /// <summary>
+    /// Exercises one framed body activation through the production Sequence workflow builder.
+    /// This is private proof infrastructure; it does not admit public array iteration.
+    /// </summary>
+    internal Task<WorkflowExecutionResult> ExecuteSingleSequenceActivationProductionProofAsync(
+        Guid runId, WorkflowRevision revision, string item, int index, string indexParameterId,
+        Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentException.ThrowIfNullOrWhiteSpace(indexParameterId);
+        ArgumentOutOfRangeException.ThrowIfNegative(index);
+
+        var plan = CreateSequenceProductionPlan(revision)
+            ?? throw new ArgumentException("The proof requires a production Sequence graph.", nameof(revision));
+        if (plan.Outputs.Count < 2)
+            throw new ArgumentException("The Sequence production contract requires at least two outputs.", nameof(revision));
+        var parameters = WorkflowParameters.Resolve(revision.Definition, null) ??
+            ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+        if (revision.Definition.Parameters is not { } declaredParameters ||
+            !declaredParameters.TryGetValue(indexParameterId, out var indexParameter) ||
+            (indexParameter.Type ?? WorkflowDataTypes.String) != WorkflowDataTypes.Integer)
+            throw new ArgumentException("The proof index must name a declared integer parameter.", nameof(indexParameterId));
+
+        var frame = new StructuredActivationFrame(Guid.NewGuid(), null, "array-loop", index, item,
+            parameters.SetItem(indexParameterId, index.ToString(CultureInfo.InvariantCulture)));
+        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), plan.SequenceNodeId,
+            plan.Outputs.Select(output => output.OutputId).ToArray(),
+            plan.Outputs.ToDictionary(output => output.OutputId, output => output.ConnectionId,
+                StringComparer.Ordinal), scopeId: frame.ScopeId);
+        var session = new SequenceProductionDispatchSession(coordinator, frame,
+            ImmutableHashSet<string>.Empty.WithComparer(StringComparer.Ordinal), maximumConcurrentOutputs: 1);
+
+        return ExecuteCoreAsync(runId, revision, item, frame.Parameters, record, null, cancellationToken,
+            activationFrame: frame, sequenceDispatchSession: session);
+    }
 
     private static WorkflowDefinition ValidationProjection(WorkflowDefinition definition)
     {

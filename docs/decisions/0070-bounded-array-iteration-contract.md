@@ -5038,3 +5038,31 @@ derived iterator ownership, the supported body/topology matrix, budget and
 recorder-failure combinations, and the previously specified persistence and
 playback evidence. Public typed iterator pins, Break authoring, schema
 admission, and Studio changes remain closed.
+
+### One framed activation through production Sequence dispatch (2026-11-23)
+
+The next three-role review narrowed scheduler integration to one item before
+attempting repeated admission and Break settlement. `ExecuteSingleSequenceActivationProductionProofAsync`
+supplies one immutable activation frame to the existing production Sequence
+workflow builder and dispatch session. The graph contains two authored
+Sequence body steps, so the production Sequence contract and its minimum
+output count remain intact; this is one iterator item, not one Sequence
+output.
+
+The focused unit test confirms that both Agent invocations see the same item
+and declared index parameter, node and Sequence settlement evidence retain the
+frame scope, and the ordinary root emits one terminal after Sequence completion
+on the accepted contiguous event stream. Unlike the single-stream Break proof,
+this seam does not invoke `rootCoordinatorProof`; the existing production
+Sequence builder owns dispatch and the normal root owner owns lifecycle and
+evidence sequencing. This remains proof-only: frame inputs are test-supplied,
+item admission is not repeated, and no iterator or Break contract is public.
+
+This does not claim general `BuildWorkflow` scheduler integration. Unified
+graphs containing Sequence currently use `BuildSequenceProductionWorkflow`,
+while graphs without Sequence use `BuildWorkflow`; a future iterator
+implementation must compose frame admission with both production execution
+shapes as applicable. The next gate remains multi-item admission and
+settlement, graph-derived ownership, cancellation and failure budgets, the
+supported topology matrix, and persistence/playback coverage. Public schema
+admission and Studio authoring remain closed.

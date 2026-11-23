@@ -370,6 +370,19 @@ not derive item inputs or activation ownership from an authored iterator node,
 and does not complete the supported-body, concurrency, persistence, or
 recovery matrix. Public iteration/Break and Studio authoring remain gated.
 
+A separate one-item proof now sends a supplied activation frame through the
+production Sequence workflow builder and dispatcher. Its unit test verifies
+index-parameter binding at Agent invocation, both Sequence body steps settling
+under the same activation scope, and one root terminal after Sequence
+completion on the same contiguous event stream. It removes the proof-only root
+coordinator callback from this specific one-item dispatch case; it does not
+implement repeated item admission, graph-derived iterator ownership, outer
+`BuildWorkflow` scheduler integration, or public iterator/Break behavior. The
+next gate remains repeated activation and its settlement through ordinary root
+execution, followed by the previously scoped topology, budget, recorder-failure,
+and persistence/playback coverage. See [Decision
+0070](decisions/0070-bounded-array-iteration-contract.md).
+
 - [x] Add the schema-2.0 immutable typed-array contract and compose literal,
   length, and indexed-read nodes with existing pure scalar dataflow. Verify
   exact type identity, item and payload bounds, scalar output, node-attributed

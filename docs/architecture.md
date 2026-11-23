@@ -658,6 +658,15 @@ settlement finish. This seam bypasses the outer Agent Framework graph scheduler
 and uses proof-supplied item/frame inputs; it does not implement public array
 iteration, Break authoring, or production iterator admission.
 
+A separate private unit-test seam supplies one `StructuredActivationFrame` to
+the production Sequence workflow builder and dispatcher without a root
+coordinator callback. Agent invocations receive the frame's declared index
+parameter; Sequence body-step and settlement evidence retains its activation
+scope, and ordinary root lifecycle ownership emits one terminal after
+Sequence completion. This qualifies one framed activation only. Repeated-item
+admission, graph-derived iterator ownership, integration with ordinary
+`BuildWorkflow` scheduling, and public typed-array iteration remain unproven.
+
 ## Reconciliation assessment and operator assertions
 
 Core's optional `IWorkflowRunReconciliationObserver` supplies cursor-bound metadata without changing the original observer contract. A pure work projection preserves unsettled model/tool/approval facts even after terminal status; new model/tool call IDs distinguish repeated calls without changing event envelopes. Hosting combines that evidence with checkpoint validation; SQLite reads both under one transaction. The protected observation group adds only a GET assessment route, and the Core-only HTTP client plus embeddable reconciliation panel validate identity/cursor alignment. The panel suppresses stale eligibility on source changes or outage and remains independent of playback. The optional `IWorkflowRunReconciliationDecisionStore` stores a separate append-only human assertion, with exact target and current-head checks in one SQLite write transaction. Assertions never alter the assessment or recovery gates. There is no HTTP mutation route or Studio control; a consuming host must provide authenticated actor identity and authorize access before exposing the capability. See [run reconciliation](run-reconciliation.md).
