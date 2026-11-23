@@ -5097,3 +5097,32 @@ shapes as applicable. The next gate remains multi-item admission and
 settlement, graph-derived ownership, cancellation and failure budgets, the
 supported topology matrix, and persistence/playback coverage. Public schema
 admission and Studio authoring remain closed.
+
+### Ordinary Agent Framework feedback scheduler experiment (2026-11-23)
+
+The three-role review selected an Agent Framework feedback experiment before
+testing a separate VAW scheduler adapter. This is a probe of scheduler behavior,
+not a final architecture choice or public capability. A private test seam
+injects three bounded string values into a validated root Loop graph, then runs
+the ordinary unified-schema `BuildWorkflow` and its existing feedback edge.
+The production Loop activation owner creates each body frame and binds declared
+item and zero-based index parameters. A real Fork/Join body holds one sibling;
+the test verifies that the next item does not start until the pending sibling
+settles and the Join drains. The same proof exercises item failure and
+event-recorder rejection: neither admits later items, and recorder rejection
+leaves only the accepted contiguous event prefix without inventing a root
+terminal.
+
+This establishes one important scheduler boundary only. The array is supplied
+through an internal proof adapter rather than authored graph dataflow; the
+fixture is restricted to string elements and a validated root Loop topology,
+with no side-effecting prefix. Graphs containing Sequence are rejected because
+they select `BuildSequenceProductionWorkflow` instead. Cancellation, persistence
+and passive playback, concurrent/shared budget accounting, other supported body
+topologies, and public typed item/index pins remain unqualified. The next work
+should test these gaps while retaining the public schema and Studio gate; if the
+ordinary scheduler cannot enforce admission and drain semantics across them,
+then compare a VAW-owned scheduler adapter. Focused unit selection:
+`LoopParallelExecutionTests`, `SingleSequenceActivationProductionProofTests`,
+`SingleStreamSequenceProof_*`, and `BoundedLoopExecutionTests` passed 44/44 on
+2026-11-23.

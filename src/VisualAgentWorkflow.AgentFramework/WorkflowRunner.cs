@@ -292,7 +292,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         int? proofMaximumLoopPasses = null,
         int? proofMaximumLoopEvidenceEvents = null,
         Func<Func<string, string?, Guid?, string?, string?, string?, ValueTask>, Action, CancellationToken,
-            Task<WorkflowExecutionResult>>? rootCoordinatorProof = null)
+            Task<WorkflowExecutionResult>>? rootCoordinatorProof = null,
+        ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -348,10 +349,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             ? null
             : CancellationTokenSource.CreateLinkedTokenSource(callerCancellationToken, collaborationRuntime.TimeoutToken);
         if (linkedCancellation is not null) cancellationToken = linkedCancellation.Token;
+        if (arrayIterationFeedbackProof is not null && sequencePlan is not null)
+            throw new InvalidOperationException("The private feedback proof requires the ordinary graph builder.");
         var workflow = rootCoordinatorProof is not null ? null : sequencePlan is null
             ? BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 collaborationRuntime, variableStore, afterNodeStarted: afterNodeStarted,
-                proofBreakNodeIds: proofBreakNodeIds, activationFrameOwner: activationFrameOwner)
+                proofBreakNodeIds: proofBreakNodeIds, activationFrameOwner: activationFrameOwner,
+                arrayIterationFeedbackProof: arrayIterationFeedbackProof)
             : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, input, resolvedParameters, Emit,
                 activationFrameOwner.MarkRootEventRecorderUncertain, gate, rootRevision, workflowPath,
                 callScopeCancellation, afterNodeStarted, sequenceDispatchSession);
@@ -604,7 +608,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         StructuredActivationFrame? activationFrame = null,
         IReadOnlySet<string>? proofBreakNodeIds = null,
         StructuredActivationGraphPlan? activationGraphPlan = null,
-        StructuredActivationFrameOwner? activationFrameOwner = null)
+        StructuredActivationFrameOwner? activationFrameOwner = null,
+        ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null)
     {
         var definition = revision.Definition;
         var executionEdges = WorkflowSchemaVersions.UsesExplicitGraph(definition)
@@ -625,6 +630,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 proofBreakNodeIds: proofBreakNodeIds,
                 variableEvidenceUsesActivationScope: false,
                 activationFrameOwner: activationFrameOwner,
+                arrayIterationFeedbackProof: arrayIterationFeedbackProof,
                 parallelJoinContinuationTarget: definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
                     n.Value.Type == NodeTypes.ParallelJoin
                     ? executionEdges.Single(edge => edge.Source.NodeId == n.Key && edge.Source.PortId == "then").Target.NodeId
@@ -692,6 +698,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         StructuredActivationBreakRequest? ActivationBreakRequest = null,
         SequenceAggregateCompletionSignal? SequenceAggregateCompletion = null);
 
+    private sealed record ArrayIterationFeedbackProof(string LoopNodeId, ImmutableArray<string> Items,
+        string ElementDataType, string? ItemParameterId, string IndexParameterId);
+
     private sealed record ParallelForkLineageEntry(string ForkNodeId, Guid? ActivationId, string? BranchId,
         string? ParentForkNodeId, Guid? ParentActivationId, string? ParentBranchId);
 
@@ -736,7 +745,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             : $"{Parent.ScopeId}/{LoopNodeId}/{Index}";
 
         public ImmutableSortedDictionary<string, string> BindIteratorValues(WorkflowDefinition definition,
-            string? itemParameterId, string indexParameterId)
+            string? itemParameterId, string indexParameterId, int? zeroBasedIndex = null)
         {
             ArgumentNullException.ThrowIfNull(definition);
             ArgumentException.ThrowIfNullOrWhiteSpace(indexParameterId);
@@ -753,7 +762,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 !declaredIndexParameters.TryGetValue(indexParameterId, out var indexParameter) ||
                 (indexParameter.Type ?? WorkflowDataTypes.String) != WorkflowDataTypes.Integer)
                 throw new InvalidOperationException("The iterator index parameter must be a declared integer parameter.");
-            parameters[indexParameterId] = Index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            parameters[indexParameterId] = (zeroBasedIndex ?? Index).ToString(System.Globalization.CultureInfo.InvariantCulture);
             return WorkflowParameters.Resolve(definition, parameters.ToImmutable()) ??
                 ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
         }
@@ -2055,14 +2064,27 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Func<SequenceMessageLineage, StructuredActivationBreakRequest, ValueTask>? onSequenceBreakRequested = null,
         bool variableEvidenceUsesActivationScope = true,
         StructuredActivationFrameOwner? activationFrameOwner = null,
-        string? parallelJoinContinuationTarget = null)
+        string? parallelJoinContinuationTarget = null,
+        ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
-        private ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null,
-            string? data = null, string? eventScope = null, bool useStorageScope = false) =>
-            record(kind, node, invocation, connection, data,
-                useStorageScope ? scopeId : eventScope ?? activeActivationFrame.Value?.ScopeId ?? scopeId);
+        private async ValueTask Emit(string kind, string? node = null, Guid? invocation = null,
+            string? connection = null, string? data = null, string? eventScope = null,
+            bool useStorageScope = false)
+        {
+            try
+            {
+                await record(kind, node, invocation, connection, data,
+                    useStorageScope ? scopeId : eventScope ?? activeActivationFrame.Value?.ScopeId ?? scopeId);
+            }
+            catch
+            {
+                if (arrayIterationFeedbackProof is not null)
+                    activationFrameOwner?.MarkRootEventRecorderUncertain();
+                throw;
+            }
+        }
 
         private IReadOnlyDictionary<string, string>? CurrentParameters =>
             activeActivationFrame.Value?.Parameters ?? parameters;
@@ -2774,48 +2796,96 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (node.Type == NodeTypes.Loop)
                 {
                     var loop = node.Loop!;
-                    var shouldContinue = loop.ContinueWhile.Evaluate(result);
                     StructuredActivationFrame? loopParentFrame = null;
-                    var loopIteration = received.LoopIteration;
                     if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
                     {
                         loopParentFrame = (activationFrameOwner
                             ?? throw new InvalidOperationException($"Loop '{Id}' has no activation frame owner."))
                             .ResolveLoopParent(Id, received.ActivationFrame);
-                        loopIteration = received.ActivationFrame?.FindLoop(Id)?.Index ?? 0;
                     }
-                    loopIterationForEvidence = loopIteration;
-                    nextLoopIteration = loopIteration;
-                    if (loopIteration > 0)
-                        await Emit(ExecutionEventKinds.LoopIterationCompleted, Id, invocation, null,
-                            JsonSerializer.Serialize(new { iteration = loopIteration }),
-                            received.ActivationFrame?.FindLoop(Id)?.ScopeId ?? received.ActivationFrame?.ScopeId);
-                    if (shouldContinue && loopIteration < loop.MaximumIterations)
+                    if (arrayIterationFeedbackProof is { } arrayProof && arrayProof.LoopNodeId == Id)
                     {
-                        port = "body";
-                        nextLoopIteration = loopIteration + 1;
-                        if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                        var completedFrame = received.ActivationFrame?.FindLoop(Id);
+                        var completedIteration = completedFrame?.Index ?? 0;
+                        loopIterationForEvidence = completedIteration;
+                        if (completedFrame is not null)
+                            await Emit(ExecutionEventKinds.LoopIterationCompleted, Id, invocation, null,
+                                JsonSerializer.Serialize(new { iteration = completedIteration }),
+                                completedFrame.ScopeId);
+
+                        var nextItemIndex = completedIteration;
+                        if (nextItemIndex < arrayProof.Items.Length)
                         {
+                            port = "body";
+                            nextLoopIteration = nextItemIndex + 1;
                             var frameParameters = CurrentParameters?.ToImmutableSortedDictionary(StringComparer.Ordinal)
                                 ?? ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
-                            nextActivationFrame = (activationFrameOwner
+                            var bodyFrame = (activationFrameOwner
                                 ?? throw new InvalidOperationException($"Loop '{Id}' has no activation frame owner."))
-                                .CreateBodyPass(Id, nextLoopIteration, loop.MaximumIterations, result,
-                                    frameParameters, loopParentFrame);
+                                .CreateBodyPass(Id, nextLoopIteration, loop.MaximumIterations,
+                                    arrayProof.Items[nextItemIndex], frameParameters, loopParentFrame) with
+                            {
+                                ItemDataType = arrayProof.ElementDataType
+                            };
+                            nextActivationFrame = bodyFrame with
+                            {
+                                Parameters = bodyFrame.BindIteratorValues(revision.Definition,
+                                    arrayProof.ItemParameterId, arrayProof.IndexParameterId, nextItemIndex)
+                            };
+                            result = bodyFrame.Item;
+                            await Emit(ExecutionEventKinds.LoopIterationStarted, Id, invocation, null,
+                                JsonSerializer.Serialize(new { iteration = nextLoopIteration,
+                                    maximumIterations = arrayProof.Items.Length }), nextActivationFrame.ScopeId);
                         }
-                        await Emit(ExecutionEventKinds.LoopIterationStarted, Id, invocation, null,
-                            JsonSerializer.Serialize(new { iteration = nextLoopIteration, maximumIterations = loop.MaximumIterations }),
-                            nextActivationFrame?.ScopeId);
+                        else
+                        {
+                            port = "done";
+                            dataEvaluator?.PromoteRuntimeOutputs(received.ActivationFrame, loopParentFrame);
+                            nextActivationFrame = loopParentFrame ?? received.ActivationFrame;
+                            nextLoopIteration = loopParentFrame?.Index ?? 0;
+                            await Emit(ExecutionEventKinds.LoopStopped, Id, invocation, null,
+                                JsonSerializer.Serialize(new { reason = "array-exhausted",
+                                    iterations = arrayProof.Items.Length,
+                                    maximumIterations = arrayProof.Items.Length }));
+                        }
                     }
                     else
                     {
-                        port = "done";
-                        var reason = shouldContinue ? "maximum-iterations" : "predicate-false";
-                        dataEvaluator?.PromoteRuntimeOutputs(received.ActivationFrame, loopParentFrame);
-                        nextActivationFrame = loopParentFrame ?? received.ActivationFrame;
-                        nextLoopIteration = loopParentFrame?.Index ?? loopIteration;
-                        await Emit(ExecutionEventKinds.LoopStopped, Id, invocation, null,
-                            JsonSerializer.Serialize(new { reason, iterations = loopIteration, maximumIterations = loop.MaximumIterations }));
+                        var shouldContinue = loop.ContinueWhile.Evaluate(result);
+                        var loopIteration = received.ActivationFrame?.FindLoop(Id)?.Index ?? received.LoopIteration;
+                        loopIterationForEvidence = loopIteration;
+                        nextLoopIteration = loopIteration;
+                        if (loopIteration > 0)
+                            await Emit(ExecutionEventKinds.LoopIterationCompleted, Id, invocation, null,
+                                JsonSerializer.Serialize(new { iteration = loopIteration }),
+                                received.ActivationFrame?.FindLoop(Id)?.ScopeId ?? received.ActivationFrame?.ScopeId);
+                        if (shouldContinue && loopIteration < loop.MaximumIterations)
+                        {
+                            port = "body";
+                            nextLoopIteration = loopIteration + 1;
+                            if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                            {
+                                var frameParameters = CurrentParameters?.ToImmutableSortedDictionary(StringComparer.Ordinal)
+                                    ?? ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+                                nextActivationFrame = (activationFrameOwner
+                                    ?? throw new InvalidOperationException($"Loop '{Id}' has no activation frame owner."))
+                                    .CreateBodyPass(Id, nextLoopIteration, loop.MaximumIterations, result,
+                                        frameParameters, loopParentFrame);
+                            }
+                            await Emit(ExecutionEventKinds.LoopIterationStarted, Id, invocation, null,
+                                JsonSerializer.Serialize(new { iteration = nextLoopIteration, maximumIterations = loop.MaximumIterations }),
+                                nextActivationFrame?.ScopeId);
+                        }
+                        else
+                        {
+                            port = "done";
+                            var reason = shouldContinue ? "maximum-iterations" : "predicate-false";
+                            dataEvaluator?.PromoteRuntimeOutputs(received.ActivationFrame, loopParentFrame);
+                            nextActivationFrame = loopParentFrame ?? received.ActivationFrame;
+                            nextLoopIteration = loopParentFrame?.Index ?? loopIteration;
+                            await Emit(ExecutionEventKinds.LoopStopped, Id, invocation, null,
+                                JsonSerializer.Serialize(new { reason, iterations = loopIteration, maximumIterations = loop.MaximumIterations }));
+                        }
                     }
                     if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
                         LoopDataTopologyAnalyzer.Analyze(revision.Definition) is not null)

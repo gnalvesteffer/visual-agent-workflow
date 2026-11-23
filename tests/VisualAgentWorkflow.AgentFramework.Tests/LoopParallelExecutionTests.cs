@@ -9,6 +9,108 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 public sealed class LoopParallelExecutionTests
 {
     [Fact]
+    public async Task Feedback_scheduler_binds_each_graph_owned_array_item_and_drains_join_before_next_item()
+    {
+        var definition = LoopWithParallelBodyAndArrayParameters();
+        var revision = WorkflowRevision.Create(definition, "feedback-array-iteration-proof");
+        var executor = new HeldArrayFeedbackAgentExecutor();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var execution = new WorkflowRunner(agents: executor)
+            .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "item", "index", WorkflowDataTypes.String,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
+
+        await Task.WhenAll(executor.FirstLeftBranchStarted.Task, executor.FirstRightBranchStarted.Task)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Single(executor.Invocations, call => call.NodeId == "agent-a");
+        Assert.Single(executor.Invocations, call => call.NodeId == "agent-b");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "loop/2");
+
+        executor.ReleaseFirstLeftBranch.TrySetResult();
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(result.Failed);
+        Assert.Equal(ExecutionEventKinds.Completed, events.Last().Kind);
+        Assert.Equal(new[] { "alpha", "beta", "gamma" }, executor.Invocations
+            .Where(call => call.NodeId == "agent-a").Select(call => call.Input));
+        Assert.Equal(new[] { "alpha", "beta", "gamma" }, executor.Invocations
+            .Where(call => call.NodeId == "agent-b").Select(call => call.Input));
+        foreach (var call in executor.Invocations.Where(call => call.NodeId is "agent-a" or "agent-b"))
+        {
+            var expectedIndex = Array.IndexOf(new[] { "alpha", "beta", "gamma" }, call.Input);
+            Assert.Equal(expectedIndex.ToString(), call.Parameters!["index"]);
+            Assert.Equal(call.Input, call.Parameters["item"]);
+        }
+
+        var starts = events.Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted).ToArray();
+        var completions = events.Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted).ToArray();
+        Assert.Equal(new[] { "loop/1", "loop/2", "loop/3" }, starts.Select(evt => evt.ScopeId));
+        Assert.Equal(starts.Select(evt => evt.ScopeId), completions.Select(evt => evt.ScopeId));
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.ParallelJoinActivated));
+        Assert.Equal(Enumerable.Range(1, events.Count).Select(value => (long)value), events.Select(evt => evt.Sequence));
+        Assert.Single(events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
+    public async Task Feedback_scheduler_failure_does_not_admit_later_array_items()
+    {
+        var revision = WorkflowRevision.Create(LoopWithParallelBodyAndArrayParameters(),
+            "feedback-array-iteration-failure-proof");
+        var executor = new HeldArrayFeedbackAgentExecutor(failOnInput: "beta");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(agents: executor)
+            .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "item", "index", WorkflowDataTypes.String,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Equal(new[] { "alpha", "beta" }, executor.Invocations
+            .Where(call => call.NodeId == "agent-a").Select(call => call.Input));
+        Assert.DoesNotContain(executor.Invocations, call => call.Input == "gamma");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "loop/3");
+        Assert.Equal(ExecutionEventKinds.Failed, events.Last().Kind);
+        Assert.Equal(Enumerable.Range(1, events.Count).Select(value => (long)value), events.Select(evt => evt.Sequence));
+    }
+
+    [Fact]
+    public async Task Feedback_scheduler_recorder_rejection_does_not_admit_later_items_or_fabricate_a_terminal()
+    {
+        var revision = WorkflowRevision.Create(LoopWithParallelBodyAndArrayParameters(),
+            "feedback-array-iteration-recorder-proof");
+        var executor = new HeldArrayFeedbackAgentExecutor();
+        executor.ReleaseFirstLeftBranch.TrySetResult();
+        var acceptedEvents = new List<ExecutionEvent>();
+        var rejected = false;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(agents: executor)
+            .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "item", "index", WorkflowDataTypes.String,
+                evt =>
+                {
+                    if (!rejected && evt.Kind == ExecutionEventKinds.LoopIterationStarted && evt.ScopeId == "loop/2")
+                    {
+                        rejected = true;
+                        return ValueTask.FromException(new IOException("Controlled feedback evidence rejection."));
+                    }
+                    acceptedEvents.Add(evt);
+                    return ValueTask.CompletedTask;
+                }));
+
+        Assert.True(rejected);
+        Assert.DoesNotContain(executor.Invocations, call => call.Input is "beta" or "gamma");
+        Assert.DoesNotContain(acceptedEvents, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "loop/3");
+        Assert.DoesNotContain(acceptedEvents, evt => evt.NodeId is null &&
+            evt.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
+                ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated);
+        Assert.Equal(Enumerable.Range(1, acceptedEvents.Count).Select(value => (long)value),
+            acceptedEvents.Select(evt => evt.Sequence));
+    }
+
+    [Fact]
     public async Task Public_runner_repeats_a_joined_loop_body_to_its_iteration_cap()
     {
         var definition = LoopWithParallelBody();
@@ -122,6 +224,22 @@ public sealed class LoopParallelExecutionTests
         };
     }
 
+    private static WorkflowDefinition LoopWithParallelBodyAndArrayParameters()
+    {
+        var definition = LoopWithParallelBody();
+        return definition with
+        {
+            WorkflowId = "feedback-array-iteration-proof",
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Item", "") { Type = WorkflowDataTypes.String })
+                .Add("index", new("Index", "0") { Type = WorkflowDataTypes.Integer }),
+            Nodes = definition.Nodes.SetItem("loop", definition.Nodes["loop"] with
+            {
+                Loop = new(new("contains", "continue"), 3)
+            })
+        };
+    }
+
     private static ConnectionDefinition Edge(string source, string sourcePin, string target, string targetPin) =>
         new(new(source, sourcePin), new(target, targetPin), "execution");
 
@@ -147,5 +265,40 @@ public sealed class LoopParallelExecutionTests
             }
             return Task.FromResult($"{input}:{invocation.Revision.Definition.Nodes[invocation.NodeId].Agent!.Instructions}");
         }
+    }
+
+    private sealed class HeldArrayFeedbackAgentExecutor(string? failOnInput = null) : IAgentNodeExecutor
+    {
+        private readonly ConcurrentQueue<AgentInvocation> invocations = new();
+        private readonly TaskCompletionSource firstLeftBranchStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource firstRightBranchStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource releaseFirstLeftBranch = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public AgentInvocation[] Invocations => [.. invocations];
+        public TaskCompletionSource FirstLeftBranchStarted => firstLeftBranchStarted;
+        public TaskCompletionSource FirstRightBranchStarted => firstRightBranchStarted;
+        public TaskCompletionSource ReleaseFirstLeftBranch => releaseFirstLeftBranch;
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("test.feedback-array", "Feedback Array", "test", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            invocations.Enqueue(new(invocation.NodeId, input, invocation.Parameters));
+            if (input == failOnInput) throw new InvalidOperationException("Controlled item failure.");
+            if (failOnInput is null && invocation.NodeId == "agent-a" && input == "alpha")
+            {
+                firstLeftBranchStarted.TrySetResult();
+                await releaseFirstLeftBranch.Task.WaitAsync(cancellationToken);
+            }
+            if (invocation.NodeId == "agent-b" && input == "alpha")
+                firstRightBranchStarted.TrySetResult();
+            return input;
+        }
+
+        public sealed record AgentInvocation(string NodeId, string Input,
+            IReadOnlyDictionary<string, string>? Parameters);
     }
 }

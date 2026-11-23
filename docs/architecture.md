@@ -679,6 +679,19 @@ inner executions do not share one aggregate work/evidence budget. Persistence,
 playback, broader body topologies, concurrency, and public iterator behavior
 remain unproven.
 
+A separate private proof injects typed string items into a validated root Loop
+in the ordinary `BuildWorkflow` graph builder. The production Loop activation
+owner creates each frame and binds the declared item and zero-based index
+parameters; the Agent Framework feedback edge schedules each body pass. A
+Fork/Join test holds one sibling and demonstrates that another item is not
+admitted until the prior Join drains. Failure and event-recorder rejection
+prevent later item admission; recorder rejection also suppresses a fabricated
+root terminal. This experiment does not add a graph-authored array source or
+public iterator behavior. It is limited to string items and a validated root
+Loop, rejects Sequence graphs because they use another production builder, and
+does not qualify cancellation, persisted playback, or aggregate budgets. The
+final runtime architecture remains unselected.
+
 ## Reconciliation assessment and operator assertions
 
 Core's optional `IWorkflowRunReconciliationObserver` supplies cursor-bound metadata without changing the original observer contract. A pure work projection preserves unsettled model/tool/approval facts even after terminal status; new model/tool call IDs distinguish repeated calls without changing event envelopes. Hosting combines that evidence with checkpoint validation; SQLite reads both under one transaction. The protected observation group adds only a GET assessment route, and the Core-only HTTP client plus embeddable reconciliation panel validate identity/cursor alignment. The panel suppresses stale eligibility on source changes or outage and remains independent of playback. The optional `IWorkflowRunReconciliationDecisionStore` stores a separate append-only human assertion, with exact target and current-head checks in one SQLite write transaction. Assertions never alter the assessment or recovery gates. There is no HTTP mutation route or Studio control; a consuming host must provide authenticated actor identity and authorize access before exposing the capability. See [run reconciliation](run-reconciliation.md).

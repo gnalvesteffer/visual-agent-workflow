@@ -63,6 +63,56 @@ public sealed partial class WorkflowRunner
     }
 
     /// <summary>
+    /// Tests typed item frames through the ordinary Agent Framework feedback scheduler.
+    /// This proof-only input adapter does not add an authored iterator contract.
+    /// </summary>
+    internal Task<WorkflowExecutionResult> ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(
+        Guid runId, WorkflowRevision revision, string jsonItems, string loopNodeId,
+        string? itemParameterId, string indexParameterId, string arrayElementType,
+        Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default,
+        IWorkflowExecutionGate? gate = null,
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        ArgumentNullException.ThrowIfNull(jsonItems);
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentException.ThrowIfNullOrWhiteSpace(loopNodeId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(indexParameterId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(arrayElementType);
+        if (jsonItems.Length > 16_384)
+            throw new ArgumentException("Feedback proof input exceeds 16,384 characters.", nameof(jsonItems));
+        var definition = revision.Definition;
+        if (definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph ||
+            !definition.Nodes.TryGetValue(loopNodeId, out var loopNode) || loopNode?.Type != NodeTypes.Loop ||
+            definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Sequence))
+            throw new ArgumentException("The feedback proof requires one unified-schema Loop graph using the ordinary graph builder.",
+                nameof(revision));
+        if (!WorkflowArrayLiteral.TryParseValue(arrayElementType, jsonItems, out var typedItems, out var arrayError))
+            throw new ArgumentException($"Feedback proof input is not a valid {WorkflowDataTypes.ArrayOf(arrayElementType)}: {arrayError}",
+                nameof(jsonItems));
+        var items = ParseProductionActivationItems(typedItems, arrayElementType);
+        if (items.Length > loopNode.Loop!.MaximumIterations)
+            throw new ArgumentException("The proof array exceeds the Loop's validated maximum iteration count.", nameof(jsonItems));
+        ValidateIteratorParameter(itemParameterId, arrayElementType);
+        ValidateIteratorParameter(indexParameterId, WorkflowDataTypes.Integer);
+
+        return ExecuteCoreAsync(runId, revision, jsonItems, null, record, gate, cancellationToken,
+            afterNodeStarted: afterNodeStarted,
+            arrayIterationFeedbackProof: new(loopNodeId, [.. items], arrayElementType,
+                itemParameterId, indexParameterId));
+
+        void ValidateIteratorParameter(string? parameterId, string expectedType)
+        {
+            if (parameterId is null) return;
+            if (definition.Parameters is not { } declaredParameters ||
+                !declaredParameters.TryGetValue(parameterId, out var parameter) ||
+                (parameter.Type ?? WorkflowDataTypes.String) != expectedType)
+                throw new ArgumentException($"Iterator parameter '{parameterId}' must be declared as {expectedType}.",
+                    parameterId == indexParameterId ? nameof(indexParameterId) : nameof(itemParameterId));
+        }
+    }
+
+    /// <summary>
     /// Composes bounded item admission with production Sequence dispatch under one ordinary root event owner.
     /// The root coordinator callback deliberately remains proof-only and bypasses the outer graph scheduler.
     /// </summary>
