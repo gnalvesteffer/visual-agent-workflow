@@ -431,8 +431,10 @@ An additional ordinary-builder unit proof accepts a Break directly from one
 fork branch while a sibling Agent is held active; the root stays open until
 that admitted Agent settles, then records the Break iteration and skips the
 next item. This covers the in-memory concurrent-drain boundary. Uncertain
-external outcomes and File/SQLite playback remain unproven for the combined
-path. Public For Each and Break remain gated. See
+MCP outcome from a held sibling tool also keeps the root `outcome-unknown` and
+prevents the next item; this is currently in-memory evidence. File/SQLite
+playback for the combined path remains unproven. Public For Each and Break
+remain gated. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 - [x] Add the schema-2.0 immutable typed-array contract and compose literal,

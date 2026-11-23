@@ -385,6 +385,59 @@ public sealed class SingleSequenceActivationProductionProofTests
     }
 
     [Fact]
+    public async Task Ordinary_coordinator_sibling_unknown_tool_outcome_overrides_break()
+    {
+        var revision = CreateOrdinaryForkUnknownOutcomeRevision("ordinary-fork-break-unknown-proof");
+        var tools = new HeldUnknownOutcomeBroker();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask Record(ExecutionEvent evt)
+        {
+            events.Enqueue(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "break")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(tools: tools)
+            .ExecuteMultiItemOrdinaryActivationCoordinatorProofAsync(Guid.NewGuid(), revision,
+                "[\"item\",\"must-not-run\"]", "index", "item", WorkflowDataTypes.String, Record);
+        try
+        {
+            await tools.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "The Break cannot settle while the sibling tool call still has an unknown outcome.");
+
+            tools.Release.TrySetResult();
+            var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.True(result.Failed);
+            Assert.True(result.OutcomeUnknown);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+            Assert.True(events.Any(evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "held-tool"),
+                "Expected the held MCP node to fail with the unresolved tool exception. Events: " +
+                string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.ScopeId}:{evt.Data}")));
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.ScopeId == "array-loop/1" &&
+                JsonDocument.Parse(evt.Data!).RootElement.GetProperty("outcome").GetString() == "outcome-unknown");
+            AssertTerminalAndContiguous(events.ToArray(), ExecutionEventKinds.OutcomeUnknown);
+        }
+        finally
+        {
+            tools.Release.TrySetResult();
+            if (!execution.IsCompleted)
+            {
+                try { await execution.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (TimeoutException) { }
+            }
+        }
+    }
+
+    [Fact]
     public async Task Single_item_coordinator_binds_the_item_and_completes_one_sequence_activation()
     {
         var revision = CreateSequenceRevision("single-item-coordinator-proof");
@@ -647,6 +700,27 @@ public sealed class SingleSequenceActivationProductionProofTests
         return WorkflowRevision.CreateProofOnly(definition, workflowId);
     }
 
+    private static WorkflowRevision CreateOrdinaryForkUnknownOutcomeRevision(string workflowId)
+    {
+        const string bindingId = "proof.unknown-tool";
+        var revision = CreateOrdinaryForkBreakRevision(workflowId);
+        var definition = revision.Definition;
+        var nodes = definition.Nodes.Remove("held-agent").Add("held-tool",
+            new NodeDefinition(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest(bindingId, new string('a', 64))) { McpArgumentsJson = "{}" });
+        var connections = definition.Connections.Remove("input-held-agent")
+            .Add("input-held-tool", Edge("input", "out", "held-tool", "in", "data"));
+        var execution = definition.ExecutionConnections!.Remove("held-agent").Remove("held-join")
+            .Add("held-tool", Edge("held-anchor", "then", "held-tool", "execute"))
+            .Add("tool-join", Edge("held-tool", "then", "join", "branch.held"));
+        return WorkflowRevision.CreateProofOnly(definition with
+        {
+            Nodes = nodes,
+            Connections = connections,
+            ExecutionConnections = execution
+        }, workflowId);
+    }
+
     private static void AssertTerminalAndContiguous(IReadOnlyList<ExecutionEvent> events, string terminalKind)
     {
         Assert.Single(events, evt => evt.NodeId is null && evt.Kind == terminalKind);
@@ -717,6 +791,43 @@ public sealed class SingleSequenceActivationProductionProofTests
                 await ReleaseHeldBranch.Task.WaitAsync(cancellationToken);
             }
             return input;
+        }
+    }
+
+    private sealed class HeldUnknownOutcomeBroker : INodeToolBroker
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([
+                new("proof.unknown-tool", "Unknown outcome test", "proof", "unknown", new string('a', 64))
+            ]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(this);
+
+        private sealed class Scope(HeldUnknownOutcomeBroker owner) : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string bindingId, string input,
+                CancellationToken cancellationToken = default) => InvokeUnknownAsync(cancellationToken);
+
+            public Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments,
+                CancellationToken cancellationToken = default) => InvokeUnknownAsync(cancellationToken);
+
+            private async Task<string> InvokeUnknownAsync(CancellationToken cancellationToken)
+            {
+                owner.Started.TrySetResult();
+                await owner.Release.Task.WaitAsync(cancellationToken);
+                throw new ToolInvocationException("The sibling tool outcome is unknown.",
+                    ToolInvocationFailureDisposition.OutcomeUnknown);
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
     }
 }
