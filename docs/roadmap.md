@@ -420,14 +420,15 @@ frames and shares its pass/evidence budgets with each dispatched body. Unit
 tests cover typed parameter binding, event scopes and terminal ordering,
 budget rejection before the next item, failure, cancellation, and a private
 Break route that settles its source frame and stops the suffix. The related
-Agent Framework selection passes 59/59 with the Sequence coordinator tests.
+Agent Framework selection passes 60/60 with the Sequence coordinator tests.
 Together with the Sequence-specific proof above, this closes per-item
 dispatch through both ordinary and Sequence production paths under the same
 root frame/budget owner. It remains private proof plumbing: the outer graph
-scheduler does not admit an authored iterator, and the Break proof covers a
-single frame only. Nested targeting, pending-work drain, uncertain external
-outcomes, and File/SQLite playback remain unproven for the combined path.
-Public For Each and Break remain gated. See
+scheduler does not admit an authored iterator. A nested unit proof now shows
+inner Break targeting and suffix skip while the outer item loop resumes; it
+also verifies outer item/index values survive in the inner Agent invocation.
+Pending-work drain, uncertain external outcomes, and File/SQLite playback
+remain unproven for the combined path. Public For Each and Break remain gated. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 - [x] Add the schema-2.0 immutable typed-array contract and compose literal,

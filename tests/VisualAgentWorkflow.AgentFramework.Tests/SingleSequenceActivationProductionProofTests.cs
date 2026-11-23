@@ -274,6 +274,57 @@ public sealed class SingleSequenceActivationProductionProofTests
     }
 
     [Fact]
+    public async Task Nested_ordinary_coordinator_breaks_nearest_frame_and_resumes_outer_items()
+    {
+        var revision = CreateOrdinaryBreakRevision("nested-break-multi-item-ordinary-proof");
+        var agent = new CapturingAgentExecutor();
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(agents: agent)
+            .ExecuteNestedMultiItemOrdinaryBreakCoordinatorProofAsync(Guid.NewGuid(), revision,
+                "[\"outer-a\",\"outer-b\"]", "[\"continue\",\"stop\",\"must-not-run\"]",
+                "outerItem", "outerIndex", "item", "index", WorkflowDataTypes.String,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("continue", result.Output);
+        Assert.Equal(new[] { ("outer-a", "0"), ("outer-b", "1") }, agent.Invocations
+            .Select(invocation => (invocation.Parameters!["outerItem"], invocation.Parameters["outerIndex"])));
+        Assert.Equal(new[] { "continue", "continue" }, agent.Invocations.Select(invocation => invocation.Input));
+
+        var outerStarts = events.Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "outer-array").ToArray();
+        Assert.Equal(new[] { "outer-array/1", "outer-array/2" }, outerStarts.Select(evt => evt.ScopeId));
+        foreach (var outerIndex in new[] { 1, 2 })
+        {
+            var outerScope = $"outer-array/{outerIndex}";
+            var innerScope = $"{outerScope}/inner-array/2";
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.ScopeId == $"{outerScope}/inner-array/3");
+
+            var breakCompleted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "break" && evt.ScopeId == innerScope);
+            using var request = JsonDocument.Parse(breakCompleted.Data!);
+            var sourceFrameId = request.RootElement.GetProperty("sourceFrameId").GetGuid();
+            var innerStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "inner-array" && evt.ScopeId == innerScope);
+            Assert.Equal(sourceFrameId, innerStarted.InvocationId);
+
+            var outerStarted = Assert.Single(outerStarts, evt => evt.ScopeId == outerScope);
+            var innerSettled = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.NodeId == "inner-array" && evt.ScopeId == innerScope);
+            using var settlement = JsonDocument.Parse(innerSettled.Data!);
+            Assert.Equal("break", settlement.RootElement.GetProperty("outcome").GetString());
+            Assert.Equal(sourceFrameId, settlement.RootElement.GetProperty("targetFrameId").GetGuid());
+            Assert.NotEqual(outerStarted.InvocationId, settlement.RootElement.GetProperty("targetFrameId").GetGuid());
+        }
+
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.NodeId == "outer-array"));
+        AssertTerminalAndContiguous(events, ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
     public async Task Single_item_coordinator_binds_the_item_and_completes_one_sequence_activation()
     {
         var revision = CreateSequenceRevision("single-item-coordinator-proof");
@@ -482,7 +533,9 @@ public sealed class SingleSequenceActivationProductionProofTests
         {
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                 .Add("index", new("Index", "0") { Type = WorkflowDataTypes.Integer })
-                .Add("item", new("Item", "") { Type = WorkflowDataTypes.String }),
+                .Add("item", new("Item", "") { Type = WorkflowDataTypes.String })
+                .Add("outerIndex", new("Outer index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("outerItem", new("Outer item", "") { Type = WorkflowDataTypes.String }),
             ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
                 .Add("input-branch", Edge("input", "then", "branch", "execute"))
                 .Add("branch-break", Edge("branch", "true", "break", "execute"))

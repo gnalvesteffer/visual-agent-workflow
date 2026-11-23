@@ -437,6 +437,176 @@ public sealed partial class WorkflowRunner
         }
     }
 
+    internal Task<WorkflowExecutionResult> ExecuteNestedMultiItemOrdinaryBreakCoordinatorProofAsync(
+        Guid runId, WorkflowRevision revision, string outerJsonItems, string innerJsonItems,
+        string outerItemParameterId, string outerIndexParameterId,
+        string innerItemParameterId, string innerIndexParameterId, string arrayElementType,
+        Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        ArgumentNullException.ThrowIfNull(outerJsonItems);
+        ArgumentNullException.ThrowIfNull(innerJsonItems);
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentException.ThrowIfNullOrWhiteSpace(outerItemParameterId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(outerIndexParameterId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(innerItemParameterId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(innerIndexParameterId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(arrayElementType);
+        if (outerJsonItems.Length > 16_384 || innerJsonItems.Length > 16_384)
+            throw new ArgumentException("Nested activation proof input exceeds 16,384 characters.");
+        if (!WorkflowArrayLiteral.TryParseValue(arrayElementType, outerJsonItems, out var typedOuterItems,
+                out var outerError))
+            throw new ArgumentException($"Outer input is not a valid {WorkflowDataTypes.ArrayOf(arrayElementType)}: {outerError}",
+                nameof(outerJsonItems));
+        if (!WorkflowArrayLiteral.TryParseValue(arrayElementType, innerJsonItems, out var typedInnerItems,
+                out var innerError))
+            throw new ArgumentException($"Inner input is not a valid {WorkflowDataTypes.ArrayOf(arrayElementType)}: {innerError}",
+                nameof(innerJsonItems));
+        if (CreateSequenceProductionPlan(revision) is not null)
+            throw new ArgumentException("The nested ordinary-body proof does not accept Sequence graphs.", nameof(revision));
+
+        var proofBreakNodeIds = revision.Definition.Nodes
+            .Where(entry => entry.Value.Type == StructuredProofBreakNodeType)
+            .Select(entry => entry.Key).ToHashSet(StringComparer.Ordinal);
+        if (proofBreakNodeIds.Count == 0)
+            throw new ArgumentException("The nested proof requires at least one private Break node.", nameof(revision));
+        WorkflowValidator.ThrowIfInvalid(ValidationProjection(revision.Definition));
+
+        var outerItems = ParseProductionActivationItems(typedOuterItems, arrayElementType);
+        var innerItems = ParseProductionActivationItems(typedInnerItems, arrayElementType);
+        var maximumFrames = (long)outerItems.Length * (innerItems.Length + 1L);
+        var baseParameters = WorkflowParameters.Resolve(revision.Definition, null) ??
+            ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+        return ExecuteCoreAsync(runId, revision, outerJsonItems, baseParameters, record, null, cancellationToken,
+            skipValidationForInternalProof: true,
+            proofBreakNodeIds: proofBreakNodeIds,
+            proofMaximumLoopActivations: maximumFrames,
+            rootCoordinatorProof: ExecuteCoordinatorAsync);
+
+        async Task<WorkflowExecutionResult> ExecuteCoordinatorAsync(
+            StructuredActivationFrameOwner frameOwner,
+            Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
+            Action markRootRecorderUncertain,
+            CancellationToken runToken)
+        {
+            async ValueTask EmitCoordinatorEvent(string kind, string? nodeId = null,
+                Guid? invocationId = null, string? connectionId = null, string? data = null,
+                string? scopeId = null)
+            {
+                try
+                {
+                    await emit(kind, nodeId, invocationId, connectionId, data, scopeId);
+                }
+                catch
+                {
+                    markRootRecorderUncertain();
+                    throw;
+                }
+            }
+
+            string? lastOutput = null;
+            for (var outerIndex = 0; outerIndex < outerItems.Length; outerIndex++)
+            {
+                runToken.ThrowIfCancellationRequested();
+                var outerFrame = frameOwner.CreateBodyPass("outer-array", outerIndex + 1, outerItems.Length,
+                    outerItems[outerIndex], baseParameters, parentFrame: null, itemDataType: arrayElementType);
+                outerFrame = outerFrame with
+                {
+                    Parameters = outerFrame.BindIteratorValues(revision.Definition, outerItemParameterId,
+                        outerIndexParameterId, zeroBasedIndex: outerIndex)
+                };
+                await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationStarted, "outer-array", outerFrame.Id,
+                    scopeId: outerFrame.ScopeId);
+
+                for (var innerIndex = 0; innerIndex < innerItems.Length; innerIndex++)
+                {
+                    runToken.ThrowIfCancellationRequested();
+                    var innerFrame = frameOwner.CreateBodyPass("inner-array", innerIndex + 1, innerItems.Length,
+                        innerItems[innerIndex], outerFrame.Parameters, outerFrame, itemDataType: arrayElementType);
+                    innerFrame = innerFrame with
+                    {
+                        Parameters = innerFrame.BindIteratorValues(revision.Definition, innerItemParameterId,
+                            innerIndexParameterId, zeroBasedIndex: innerIndex)
+                    };
+                    await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationStarted, "inner-array", innerFrame.Id,
+                        scopeId: innerFrame.ScopeId);
+
+                    var body = await ExecuteBodyForActivationProofAsync(runId, revision, innerFrame.Item,
+                        innerFrame.Parameters,
+                        evt => EmitCoordinatorEvent(evt.Kind, evt.NodeId, evt.InvocationId, evt.ConnectionId,
+                            evt.Data, evt.ScopeId ?? innerFrame.ScopeId), runToken, activationFrame: innerFrame,
+                        proofBreakNodeIds: proofBreakNodeIds,
+                        workflowLoopPassBudget: frameOwner.LoopPassBudget,
+                        workflowLoopEvidenceBudget: frameOwner.LoopExecutionBudget,
+                        loopEvidenceScopePrefix: frameOwner.LoopEvidenceScopePrefix);
+
+                    if (body.Disposition == WorkflowBodyProofDisposition.BreakRequested &&
+                        body.BreakRequest is { } request)
+                    {
+                        var signal = frameOwner.ConsumeBreak(innerFrame, request);
+                        await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationCompleted, "inner-array",
+                            innerFrame.Id, data: JsonSerializer.Serialize(new
+                            {
+                                outcome = "break",
+                                signal.SourceNodeId,
+                                signal.TargetFrameId
+                            }, new JsonSerializerOptions(JsonSerializerDefaults.Web)), scopeId: innerFrame.ScopeId);
+                        if (signal.TargetFrameId == innerFrame.Id)
+                        {
+                            break;
+                        }
+
+                        await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationCompleted, "outer-array",
+                            outerFrame.Id, data: JsonSerializer.Serialize(new
+                            {
+                                outcome = "break",
+                                signal.SourceNodeId,
+                                signal.TargetFrameId
+                            }, new JsonSerializerOptions(JsonSerializerDefaults.Web)), scopeId: outerFrame.ScopeId);
+                        return new(lastOutput, false, HasOutput: lastOutput is not null);
+                    }
+
+                    if (body.Disposition == WorkflowBodyProofDisposition.EvidenceWriteFailed)
+                        throw body.EvidenceWriteError ?? new InvalidOperationException("Body evidence could not be recorded.");
+                    if (body.Disposition == WorkflowBodyProofDisposition.BudgetRejected)
+                        throw new InvalidOperationException("The shared iterator body-pass budget was exhausted.");
+                    if (body.Disposition != WorkflowBodyProofDisposition.Succeeded)
+                    {
+                        var outcome = body.Disposition switch
+                        {
+                            WorkflowBodyProofDisposition.Cancelled => "cancelled",
+                            WorkflowBodyProofDisposition.TimedOut => "timed-out",
+                            WorkflowBodyProofDisposition.OutcomeUnknown => "outcome-unknown",
+                            WorkflowBodyProofDisposition.Terminated => "terminated",
+                            _ => "failed"
+                        };
+                        await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationCompleted, "inner-array",
+                            innerFrame.Id, data: JsonSerializer.Serialize(new { outcome }), scopeId: innerFrame.ScopeId);
+                        return body.Disposition switch
+                        {
+                            WorkflowBodyProofDisposition.Cancelled => new(null, false, Cancelled: true, HasOutput: false),
+                            WorkflowBodyProofDisposition.TimedOut => new(null, true, Failed: true, HasOutput: false),
+                            WorkflowBodyProofDisposition.OutcomeUnknown => new(null, true, Failed: true,
+                                OutcomeUnknown: true, HasOutput: false),
+                            WorkflowBodyProofDisposition.Terminated => new(body.Output, true, HasOutput: false),
+                            _ => new(null, true, Failed: true, HasOutput: false)
+                        };
+                    }
+
+                    lastOutput = body.Output;
+                    await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationCompleted, "inner-array",
+                        innerFrame.Id, data: JsonSerializer.Serialize(new { outcome = "completed" }),
+                        scopeId: innerFrame.ScopeId);
+                }
+
+                await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationCompleted, "outer-array", outerFrame.Id,
+                    data: JsonSerializer.Serialize(new { outcome = "completed" }), scopeId: outerFrame.ScopeId);
+            }
+
+            return new(lastOutput, false, HasOutput: outerItems.Length > 0 && innerItems.Length > 0);
+        }
+    }
+
     private static WorkflowDefinition ValidationProjection(WorkflowDefinition definition)
     {
         var proofBreakNodes = definition.Nodes.Where(entry => entry.Value.Type == StructuredProofBreakNodeType)

@@ -111,6 +111,17 @@ one root completion. This is a single-frame ordinary-body proof; nested target
 selection through the integrated coordinator, admitted-descendant draining,
 uncertain external outcomes, and persisted playback remain unproven.
 
+A nested ordinary-body proof now creates outer and inner frames with the same
+root activation owner and runs each inner body through the regular builder.
+When the inner body requests Break, the coordinator resolves the target to the
+inner frame, settles that iteration, skips the remaining inner items, and
+continues the next outer item. Its unit regression verifies distinct outer and
+inner frame identities, preserved outer item/index parameters in the body,
+no third inner admission, and one root completion. This closes nearest-frame
+selection for this private nested coordinator path; it does not establish a
+public Core Break contract, pending parallel descendant drain, uncertain
+external outcomes, or File/SQLite playback.
+
 A further proponent/opponent/adjudicator review after the matched parallel
 Agent-result and typed direct-MCP argument/result proofs also returned
 **REVISE**. The added comparisons strengthen activation-scoped value and join
