@@ -16,6 +16,8 @@ internal sealed class WorkflowLoopExecutionBudget
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(this.maximumEvidenceEvents);
     }
 
+    public int MaximumEvidenceEvents => maximumEvidenceEvents;
+
     public void RegisterLoopScope(string scopeId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(scopeId);

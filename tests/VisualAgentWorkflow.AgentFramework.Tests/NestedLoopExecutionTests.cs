@@ -52,6 +52,43 @@ public sealed class NestedLoopExecutionTests
     }
 
     [Fact]
+    public async Task Pinned_workflow_calls_share_the_root_loop_body_pass_budget()
+    {
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var child = WorkflowRevision.Create(LoopingChildGraph("loop-budget-child"), "loop-budget-child");
+        var parent = WorkflowRevision.Create(WorkflowCallChain("loop-budget-parent", child), "loop-budget-parent");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new WorkflowRunner(agents: new EchoAgentExecutor()).ExecuteWithLoopBudgetsProofAsync(
+                Guid.NewGuid(), parent, "continue", maximumLoopPasses: 1, maximumLoopEvidenceEvents: 100,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.ScopeId == "call-1");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed && evt.ScopeId == "call-2");
+        Assert.Contains(events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Failed &&
+            evt.Data?.Contains("aggregate Loop body-pass limit", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
+    public async Task Pinned_workflow_calls_share_the_root_loop_evidence_budget()
+    {
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var child = WorkflowRevision.Create(LoopingChildGraph("loop-evidence-child"), "loop-evidence-child");
+        var parent = WorkflowRevision.Create(WorkflowCallChain("loop-evidence-parent", child), "loop-evidence-parent");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new WorkflowRunner(agents: new EchoAgentExecutor()).ExecuteWithLoopBudgetsProofAsync(
+                Guid.NewGuid(), parent, "continue", maximumLoopPasses: 100, maximumLoopEvidenceEvents: 2,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }));
+
+        var loopEvents = events.Where(evt => evt.ScopeId?.Contains("/loop/", StringComparison.Ordinal) == true).ToArray();
+        Assert.Equal(2, loopEvents.Length);
+        Assert.Contains(events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Failed &&
+            evt.Data?.Contains("Loop-scoped evidence event limit (2)", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
     public async Task Public_runner_does_not_complete_parent_iterations_after_a_nested_node_failure()
     {
         var events = new ConcurrentQueue<ExecutionEvent>();
@@ -114,6 +151,56 @@ public sealed class NestedLoopExecutionTests
         var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
             .Add("workflow-output", new(new("input", "out"), new("output", "in"), "data"));
         return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "nested-loop", "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition LoopingChildGraph(string workflowId)
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("loop", new(NodeTypes.Loop, "1.0.0") { Loop = new(new("contains", "continue"), 1) })
+            .Add("body", new(NodeTypes.LoopBody, "1.0.0"))
+            .Add("agent", new(NodeTypes.Agent, "1.0.0", Agent: new("test.nested-loop", null, "Echo", [])))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-loop", Edge("input", "then", "loop", "execute"))
+            .Add("loop-body", Edge("loop", "body", "body", "execute"))
+            .Add("body-agent", Edge("body", "then", "agent", "execute"))
+            .Add("agent-feedback", Edge("agent", "out", "loop", "feedback"))
+            .Add("loop-output", Edge("loop", "done", "output", "execute"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-agent", new(new("input", "out"), new("agent", "in"), "data"))
+            .Add("input-output", new(new("input", "out"), new("output", "in"), "data"));
+        return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition WorkflowCallChain(string workflowId, WorkflowRevision child)
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty;
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty;
+        for (var index = 1; index <= 2; index++)
+        {
+            var callId = $"call-{index}";
+            nodes = nodes.Add(callId, new(NodeTypes.WorkflowCall, "1.0.0")
+            {
+                WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+            });
+            var source = index == 1 ? "input" : $"call-{index - 1}";
+            data = data.Add($"{source}-{callId}-data", new(new(source, "out"), new(callId, "in"), "data"));
+            execution = execution.Add($"{source}-{callId}-execution",
+                Edge(source, index == 1 ? "then" : "out", callId, "execute"));
+        }
+        nodes = nodes.Add("output", new(NodeTypes.Output, "1.0.0"));
+        data = data.Add("call-output-data", new(new("call-2", "out"), new("output", "in"), "data"));
+        execution = execution.Add("call-output-execution", Edge("call-2", "out", "output", "execute"));
+        return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input", nodes, data)
         {
             ExecutionConnections = execution
         };

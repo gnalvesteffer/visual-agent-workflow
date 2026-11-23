@@ -96,6 +96,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             proofMaximumLoopActivations: maximumLoopActivations);
     }
 
+    internal Task<WorkflowExecutionResult> ExecuteWithLoopBudgetsProofAsync(Guid runId,
+        WorkflowRevision revision, string input, int maximumLoopPasses, int maximumLoopEvidenceEvents,
+        Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumLoopPasses);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumLoopEvidenceEvents);
+        ArgumentNullException.ThrowIfNull(record);
+        return ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken,
+            proofMaximumLoopPasses: maximumLoopPasses,
+            proofMaximumLoopEvidenceEvents: maximumLoopEvidenceEvents);
+    }
+
     /// <summary>
     /// Dispatches one production workflow body for the private activation proof.
     /// The caller owns the enclosing run lifecycle; this method returns a typed
@@ -247,8 +259,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     private sealed class LoopBodyPassBudgetExceededException() : InvalidOperationException(
         $"Workflow exceeded its aggregate Loop body-pass limit ({WorkflowLoopLimits.MaximumTotalBodyPassesPerRun}).");
 
-    private sealed class LoopEvidenceBudgetExceededException() : InvalidOperationException(
-        $"Workflow exceeded its Loop-scoped evidence event limit ({WorkflowLoopLimits.MaximumScopedEvidenceEventsPerRun}).");
+    private sealed class LoopEvidenceBudgetExceededException(int maximumEvidenceEvents) : InvalidOperationException(
+        $"Workflow exceeded its Loop-scoped evidence event limit ({maximumEvidenceEvents}).");
 
     private sealed class WorkflowBodyEvidenceWriteException(Exception innerException)
         : InvalidOperationException("The activation proof could not persist body evidence.", innerException);
@@ -273,7 +285,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         IReadOnlySet<string>? proofBreakNodeIds = null,
         Action<StructuredActivationBreakRequest>? captureActivationBreak = null,
         SequenceProductionDispatchSession? sequenceDispatchSession = null,
-        long? proofMaximumLoopActivations = null)
+        long? proofMaximumLoopActivations = null,
+        WorkflowLoopPassBudget? workflowLoopPassBudget = null,
+        WorkflowLoopExecutionBudget? workflowLoopEvidenceBudget = null,
+        string loopEvidenceScopePrefix = "",
+        int? proofMaximumLoopPasses = null,
+        int? proofMaximumLoopEvidenceEvents = null)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -283,7 +300,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
         if (!sequenceWorkflowCallProof && !skipValidationForInternalProof)
             WorkflowValidator.ThrowIfInvalid(revision.Definition);
-        var sharedLoopPassBudget = new WorkflowLoopPassBudget();
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(proofMaximumLoopPasses ?? 1);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(proofMaximumLoopEvidenceEvents ?? 1);
+        var ownsLoopEvidenceBudget = workflowLoopEvidenceBudget is null;
+        var sharedLoopPassBudget = workflowLoopPassBudget ??
+            new WorkflowLoopPassBudget(proofMaximumLoopPasses);
+        var sharedLoopEvidenceBudget = workflowLoopEvidenceBudget ??
+            new WorkflowLoopExecutionBudget(proofMaximumLoopEvidenceEvents);
         StructuredActivationGraphPlan? activationGraphPlan = null;
         if (!skipValidationForInternalProof && !sequenceWorkflowCallProof && activationFrame is null &&
             revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
@@ -306,8 +329,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         using var activationFrameOwner = new StructuredActivationFrameOwner(
             activationGraphPlan, activationFrame, revision.Definition,
             proofMaximumLoopActivations: proofMaximumLoopActivations,
-            loopExecutionBudget: new WorkflowLoopExecutionBudget(),
-            loopPassBudget: sharedLoopPassBudget);
+            loopExecutionBudget: sharedLoopEvidenceBudget,
+            loopPassBudget: sharedLoopPassBudget,
+            countLoopEvidenceEvents: ownsLoopEvidenceBudget,
+            loopEvidenceScopePrefix: loopEvidenceScopePrefix);
         activationFrameOwner.BindRootEventRecorder(runId, revision.RevisionId, record, activationLedger);
         var variableStore = activationFrameOwner.CreateVariableStore(revision.Definition);
         ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null,
@@ -730,6 +755,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private readonly long maximumLoopActivations;
         private readonly WorkflowLoopExecutionBudget loopExecutionBudget;
         private readonly WorkflowLoopPassBudget loopPassBudget;
+        private readonly bool countLoopEvidenceEvents;
+        private readonly string loopEvidenceScopePrefix;
         private SemaphoreSlim? eventGate;
         private Func<ExecutionEvent, ValueTask>? recordEvent;
         private ExecutionActivationLedger? activationLedger;
@@ -746,7 +773,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             WorkflowArrayEvidenceBudget? evidenceBudget = null, long graphActivationMultiplicity = 1,
             long? proofMaximumLoopActivations = null,
             WorkflowLoopExecutionBudget? loopExecutionBudget = null,
-            WorkflowLoopPassBudget? loopPassBudget = null)
+            WorkflowLoopPassBudget? loopPassBudget = null,
+            bool countLoopEvidenceEvents = true,
+            string loopEvidenceScopePrefix = "")
         {
             ArgumentOutOfRangeException.ThrowIfNegative(graphActivationMultiplicity);
             if (proofMaximumLoopActivations is { } proofMaximum)
@@ -755,6 +784,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             this.graphEntryFrame = graphEntryFrame;
             this.loopExecutionBudget = loopExecutionBudget ?? new WorkflowLoopExecutionBudget();
             this.loopPassBudget = loopPassBudget ?? new WorkflowLoopPassBudget();
+            this.countLoopEvidenceEvents = countLoopEvidenceEvents;
+            this.loopEvidenceScopePrefix = loopEvidenceScopePrefix;
             EvidenceBudget = evidenceBudget ?? new WorkflowArrayEvidenceBudget();
             loopIterationLimits = definition.Nodes
                 .Where(entry => entry.Value?.Type == NodeTypes.Loop && entry.Value.Loop is not null)
@@ -770,6 +801,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         }
 
         public WorkflowArrayEvidenceBudget EvidenceBudget { get; }
+        public WorkflowLoopExecutionBudget LoopExecutionBudget => loopExecutionBudget;
+        public WorkflowLoopPassBudget LoopPassBudget => loopPassBudget;
+        public string LoopEvidenceScopePrefix => loopEvidenceScopePrefix;
         public long MaximumLoopActivations => maximumLoopActivations;
         public long LoopActivations => Interlocked.Read(ref loopActivations);
         public bool HasUncertainRootEventRecorder => Volatile.Read(ref rootEventRecorderUncertain) != 0;
@@ -813,8 +847,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     throw new InvalidOperationException("The root workflow lifecycle has already recorded a terminal event.");
                 if (isRootStart && rootStarted)
                     throw new InvalidOperationException("The root workflow lifecycle has already recorded its start event.");
-                if (!loopExecutionBudget.TryReserveEvidenceEvent(scopeId))
-                    throw new LoopEvidenceBudgetExceededException();
+                if (countLoopEvidenceEvents && !loopExecutionBudget.TryReserveEvidenceEvent(scopeId))
+                    throw new LoopEvidenceBudgetExceededException(loopExecutionBudget.MaximumEvidenceEvents);
 
                 var nextSequence = eventSequence + 1;
                 var executionEvent = new ExecutionEvent(runId, revisionId, nextSequence, DateTimeOffset.UtcNow,
@@ -894,7 +928,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 throw new LoopBodyPassBudgetExceededException();
             }
             var frame = new StructuredActivationFrame(Guid.NewGuid(), parentFrame, loopNodeId, iteration, item, parameters);
-            loopExecutionBudget.RegisterLoopScope(frame.ScopeId);
+            var evidenceScope = string.IsNullOrEmpty(loopEvidenceScopePrefix)
+                ? frame.ScopeId
+                : $"{loopEvidenceScopePrefix}/{frame.ScopeId}";
+            loopExecutionBudget.RegisterLoopScope(evidenceScope);
             return frame;
         }
 
@@ -3019,6 +3056,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
             var runner = new WorkflowRunner(tools, agents, collaborationOptions);
             var childWorkflowPath = workflowPath.Add(new WorkflowApprovalScope(Id, child.RevisionId, child.ContentHash));
+            var childBudgetScopePrefix = string.IsNullOrEmpty(activationFrameOwner?.LoopEvidenceScopePrefix)
+                ? childScope
+                : $"{activationFrameOwner.LoopEvidenceScopePrefix}/{childScope}";
             IReadOnlyDictionary<string, string>? childParameters = call.ParameterMappings is { Length: > 0 } mappings
                 ? mappings.ToDictionary(mapping => mapping.ChildParameterId, mapping => currentParameters![mapping.ParentParameterId], StringComparer.Ordinal)
                 : null;
@@ -3031,9 +3071,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             {
                 return gate is null
                     ? await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, null, childCancellationToken,
-                        rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown)
+                        rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown,
+                        workflowLoopPassBudget: activationFrameOwner?.LoopPassBudget,
+                        workflowLoopEvidenceBudget: activationFrameOwner?.LoopExecutionBudget,
+                        loopEvidenceScopePrefix: childBudgetScopePrefix)
                     : await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, gate, childCancellationToken,
-                        rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown);
+                        rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown,
+                        workflowLoopPassBudget: activationFrameOwner?.LoopPassBudget,
+                        workflowLoopEvidenceBudget: activationFrameOwner?.LoopExecutionBudget,
+                        loopEvidenceScopePrefix: childBudgetScopePrefix);
             }
             catch (OperationCanceledException)
             {

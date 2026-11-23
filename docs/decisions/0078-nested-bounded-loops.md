@@ -30,23 +30,24 @@ failure, and cancellation behavior follows ordinary node execution; a failed or
 cancelled inner pass does not settle outer Loop completion.
 
 Every Loop retains its 1–16 per-node body-pass bound. An atomic budget caps
-total body-pass activations at 1,024 across all Loops in one workflow
-invocation. Before dispatching body pass 1,025, execution fails and records the
-aggregate limit as the workflow failure reason. A separate per-invocation cap
-of 65,536 Loop-scoped evidence events bounds journal growth; events outside
-Loop scopes do not consume that budget. Pinned WorkflowCall descendants receive
-independent limits. Root-wide accounting across child calls remains open.
+total body-pass activations at 1,024 across all Loops in one root run, including
+pinned WorkflowCall descendants. Before dispatching body pass 1,025, execution
+fails and records the aggregate limit as the workflow failure reason. A shared
+root-run cap of 65,536 Loop-scoped evidence events bounds journal growth;
+events outside Loop scopes do not consume that budget. Child event scopes are
+prefixed before the root recorder accounts for them, so persisted events count
+once against the shared cap.
 
 ## Verification
 
 Core tests cover valid two-level ownership and malformed feedback escapes.
 Ordinary public-runner unit tests cover nested iteration identity and scope,
-aggregate pass exhaustion, failure and cancellation propagation, and concurrent
-atomic work/evidence reservations. Tests use deterministic local executors; no
-browser, integration, external model, or MCP server is part of this proof. Full
-suite validation caught a failure when sharing the pass-budget object across
-child WorkflowCall runners, so this implementation keeps child limits
-independent.
+aggregate pass exhaustion, failure and cancellation propagation, concurrent
+atomic work/evidence reservations, and root-wide pass/evidence exhaustion
+across sequential pinned WorkflowCall descendants. Tests use deterministic
+local executors; no browser, integration, external model, or MCP server is part
+of this proof. The original implementation kept child limits independent;
+these focused regressions establish the later root-wide aggregation behavior.
 
 ## Limits
 
