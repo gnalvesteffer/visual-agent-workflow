@@ -17423,6 +17423,31 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Single(events, evt => evt.NodeId == "output" && evt.Kind == ExecutionEventKinds.NodeStarted);
     }
 
+    [Fact]
+    public async Task StructuredSchedulerProof_AdmitsEveryNestedNodeDeliveryBeforeDispatch()
+    {
+        var nested = NestedParallelForkGraphDefinition();
+        var definition = nested with
+        {
+            Connections = nested.Connections
+                .SetItem("inner-left-to-outer-agent", new(new("input", "out"), new("outer-agent-left", "in"), "data"))
+                .SetItem("inner-right-to-outer-agent", new(new("input", "out"), new("outer-agent-right", "in"), "data"))
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "structured-dispatch-admission-proof");
+        var ledger = new StructuredProofDispatchLedger();
+
+        var result = await new WorkflowRunner(agents: new EchoAgentExecutor())
+            .ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision, "north", null,
+                _ => ValueTask.CompletedTask, proofDispatchLedger: ledger);
+
+        Assert.False(result.Failed);
+        Assert.True(result.HasOutput);
+        Assert.True(ledger.StartedDeliveryCount > 0);
+        Assert.True(ledger.StartedDeliveryCount <= ledger.AdmittedDeliveryCount);
+        Assert.Equal(0, ledger.OutstandingDeliveryCount);
+    }
+
     [Theory]
     [InlineData("node")]
     [InlineData("evidence")]

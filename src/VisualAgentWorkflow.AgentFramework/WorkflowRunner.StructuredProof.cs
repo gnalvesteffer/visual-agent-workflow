@@ -1236,12 +1236,14 @@ public sealed partial class WorkflowRunner
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
         bool stageForkTargetsBeforeDispatch = false,
         Func<int, string, ValueTask>? afterForkTargetStaged = null,
-        IReadOnlyDictionary<string, int>? proofDuplicateForkDeliveries = null)
+        IReadOnlyDictionary<string, int>? proofDuplicateForkDeliveries = null,
+        StructuredProofDispatchLedger? proofDispatchLedger = null)
     {
         var result = await ExecuteStructuredSchedulerProofCoreAsync(runId, revision, input, parameters, record,
             cancellationToken, activationScopeId, emitRunLifecycle, gate, afterNodeStarted,
             stageForkTargetsBeforeDispatch, afterForkTargetStaged, null, null, null, null, null,
-            proofDuplicateForkDeliveries: proofDuplicateForkDeliveries);
+            proofDuplicateForkDeliveries: proofDuplicateForkDeliveries,
+            sharedProofDispatchLedger: proofDispatchLedger);
         return result.Execution;
     }
 
@@ -1423,6 +1425,9 @@ public sealed partial class WorkflowRunner
             try
             {
                 token.ThrowIfCancellationRequested();
+                if (dispatchLedger is not null)
+                    dispatchLedger.BeginDelivery(proofDelivery
+                        ?? throw new InvalidOperationException("Proof node dispatch has no admitted delivery identity."));
                 if (definition.Nodes[nodeId].Type == StructuredProofBreakNodeType ||
                     proofBreakNodeIds?.Contains(nodeId) == true)
                 {
@@ -1437,6 +1442,8 @@ public sealed partial class WorkflowRunner
                     await Emit(ExecutionEventKinds.NodeCompleted, nodeId, invocationId,
                         data: JsonSerializer.Serialize(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
                         eventScope: frame.ScopeId);
+                    if (dispatchLedger is not null)
+                        dispatchLedger.Transition(proofDelivery!, []);
                     return message with
                     {
                         SourceNode = nodeId,

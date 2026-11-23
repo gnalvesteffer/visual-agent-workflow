@@ -33,12 +33,32 @@ internal sealed class StructuredProofDispatchLedger(int maximumOutstandingDelive
 
     private readonly object sync = new();
     private readonly Dictionary<Guid, Delivery> active = [];
+    private readonly HashSet<Guid> startedDeliveries = [];
     private readonly Dictionary<Guid, ActivationState> activations = [];
+    private int admittedCount;
+    private int startedCount;
     private readonly int limit = maximumOutstandingDeliveries > 0
         ? maximumOutstandingDeliveries
         : throw new ArgumentOutOfRangeException(nameof(maximumOutstandingDeliveries));
 
     public int OutstandingDeliveryCount { get { lock (sync) return active.Count; } }
+
+    public int AdmittedDeliveryCount { get { lock (sync) return admittedCount; } }
+
+    public int StartedDeliveryCount { get { lock (sync) return startedCount; } }
+
+    /// <summary>Claims one admitted delivery for exactly one node-handler invocation.</summary>
+    public void BeginDelivery(Delivery delivery)
+    {
+        ArgumentNullException.ThrowIfNull(delivery);
+        lock (sync)
+        {
+            EnsureActive(delivery);
+            if (!startedDeliveries.Add(delivery.Id))
+                throw new InvalidOperationException("A delivery was dispatched more than once.");
+            startedCount++;
+        }
+    }
 
     public Delivery CreateRoot()
     {
@@ -46,6 +66,7 @@ internal sealed class StructuredProofDispatchLedger(int maximumOutstandingDelive
         {
             var root = new Delivery(Guid.NewGuid(), []);
             active.Add(root.Id, root);
+            admittedCount++;
             return root;
         }
     }
@@ -60,6 +81,7 @@ internal sealed class StructuredProofDispatchLedger(int maximumOutstandingDelive
             EnsureCapacity(1);
             var child = new Delivery(Guid.NewGuid(), parent.Lineage);
             active.Add(child.Id, child);
+            admittedCount++;
             IncrementLineage(child, 1);
             return child;
         }
@@ -89,6 +111,7 @@ internal sealed class StructuredProofDispatchLedger(int maximumOutstandingDelive
                 var lineage = current.Lineage.Add(new(activationId, branches, branchId));
                 var child = new Delivery(Guid.NewGuid(), lineage);
                 active.Add(child.Id, child);
+                admittedCount++;
                 IncrementLineage(child, 1);
                 children.Add(child);
             }
@@ -112,6 +135,7 @@ internal sealed class StructuredProofDispatchLedger(int maximumOutstandingDelive
             {
                 var child = new Delivery(Guid.NewGuid(), successor.Lineage);
                 active.Add(child.Id, child);
+                admittedCount++;
                 IncrementLineage(child, 1);
                 deliveries.Add(child);
             }
@@ -164,6 +188,7 @@ internal sealed class StructuredProofDispatchLedger(int maximumOutstandingDelive
             EnsureCapacity(1);
             var duplicate = new Delivery(Guid.NewGuid(), admittedDelivery.Lineage);
             active.Add(duplicate.Id, duplicate);
+            admittedCount++;
             IncrementLineage(duplicate, 1);
             return duplicate;
         }
@@ -238,6 +263,7 @@ internal sealed class StructuredProofDispatchLedger(int maximumOutstandingDelive
             EnsureCapacity(1);
             var continuation = new Delivery(Guid.NewGuid(), state.ParentLineage);
             active.Add(continuation.Id, continuation);
+            admittedCount++;
             IncrementLineage(continuation, 1);
             activations.Remove(activationId);
             return continuation;
@@ -271,6 +297,7 @@ internal sealed class StructuredProofDispatchLedger(int maximumOutstandingDelive
     {
         if (!active.Remove(delivery.Id))
             throw new InvalidOperationException("Delivery was settled more than once.");
+        startedDeliveries.Remove(delivery.Id);
         IncrementLineage(delivery, -1);
     }
 }

@@ -6,6 +6,22 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 public sealed class StructuredProofDispatchLedgerTests
 {
     [Fact]
+    public void BeginDelivery_RequiresAdmissionAndClaimsExactlyOnce()
+    {
+        var ledger = new StructuredProofDispatchLedger();
+        var delivery = ledger.CreateRoot();
+
+        ledger.BeginDelivery(delivery);
+
+        Assert.Equal(1, ledger.AdmittedDeliveryCount);
+        Assert.Equal(1, ledger.StartedDeliveryCount);
+        Assert.Throws<InvalidOperationException>(() => ledger.BeginDelivery(delivery));
+        Assert.Throws<InvalidOperationException>(() => ledger.BeginDelivery(delivery with { Id = Guid.NewGuid() }));
+        Assert.Empty(ledger.Transition(delivery, []));
+        Assert.Equal(0, ledger.OutstandingDeliveryCount);
+    }
+
+    [Fact]
     public async Task JoinWaitsForEveryAdmittedDuplicateBeforeReleasingBatch()
     {
         var ledger = new StructuredProofDispatchLedger();

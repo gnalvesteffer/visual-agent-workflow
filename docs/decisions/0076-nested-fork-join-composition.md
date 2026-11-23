@@ -242,6 +242,16 @@ collaboration persistence/playback, nested workflow-call integration, and
 production scheduler persistence/playback integration remain open before any
 production runtime decision.
 
+A production-shaped dispatcher admission audit now guards this prototype:
+every `DispatchNode` invocation must present an active ledger delivery, and a
+delivery can be claimed for dispatch only once. A valid nested Fork/Join run
+through the actual node executors finishes with no outstanding delivery
+tickets; unit tests cover unadmitted and repeated claims. Sequence barrier
+reservations may settle without a node dispatch, so admitted and started counts
+are not required to match. This makes the proof scheduler's dispatch boundary
+explicit; it does not prove interception of Agent Framework's automatic edges
+or qualify the public runner.
+
 On 2026-11-21, a three-role review adjudicated the next proof boundary for
 nested workflow calls. Separate child ledgers were rejected for this increment
 because they do not establish a root-wide outstanding-work bound. The private
