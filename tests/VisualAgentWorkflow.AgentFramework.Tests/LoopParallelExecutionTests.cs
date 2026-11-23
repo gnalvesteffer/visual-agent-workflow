@@ -11,15 +11,16 @@ public sealed class LoopParallelExecutionTests
     [Fact]
     public async Task Feedback_scheduler_binds_each_graph_owned_array_item_and_drains_join_before_next_item()
     {
-        var definition = LoopWithParallelBodyAndArrayParameters();
-        var revision = WorkflowRevision.Create(definition, "feedback-array-iteration-proof");
+        var definition = LoopWithParallelBodyAndArrayParameters(includeAgentPrefix: true);
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "loop.feedback.root");
+        var revision = WorkflowRevision.CreateProofOnly(definition, "feedback-array-iteration-proof");
         var executor = new HeldArrayFeedbackAgentExecutor();
         var events = new ConcurrentQueue<ExecutionEvent>();
 
         var execution = new WorkflowRunner(agents: executor)
             .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
                 "[\"alpha\",\"beta\",\"gamma\"]", "loop", "items", "index", WorkflowDataTypes.String,
-                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }, prefixAgentId: "prefix-agent");
 
         await Task.WhenAll(executor.FirstLeftBranchStarted.Task, executor.FirstRightBranchStarted.Task)
             .WaitAsync(TimeSpan.FromSeconds(5));
@@ -41,6 +42,14 @@ public sealed class LoopParallelExecutionTests
             .Select(call => call.Input).ToArray();
         Assert.Equal(3, bodyAgentInputs.Length);
         Assert.Equal("continue", bodyAgentInputs[0]);
+        Assert.Single(executor.Invocations, call => call.NodeId == "prefix-agent");
+        var recordedEvents = events.ToArray();
+        var prefixCompleted = Array.FindIndex(recordedEvents, evt =>
+            evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "prefix-agent");
+        var loopStarted = Array.FindIndex(recordedEvents, evt =>
+            evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "loop");
+        Assert.True(prefixCompleted >= 0);
+        Assert.True(loopStarted > prefixCompleted);
         foreach (var call in executor.Invocations.Where(call => call.NodeId is "agent-a" or "agent-b"))
         {
             var expectedIndex = Array.IndexOf(new[] { "alpha", "beta", "gamma" }, call.Input);
@@ -100,6 +109,74 @@ public sealed class LoopParallelExecutionTests
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
             evt.NodeId is "body-agent" or "agent-a" or "agent-b");
         Assert.Equal(ExecutionEventKinds.Completed, events.Last().Kind);
+    }
+
+    [Fact]
+    public async Task Feedback_scheduler_once_only_agent_prefix_runs_for_empty_array()
+    {
+        var definition = LoopWithParallelBodyAndArrayParameters(includeAgentPrefix: true);
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "loop.feedback.root");
+        var revision = WorkflowRevision.CreateProofOnly(definition, "feedback-array-agent-prefix-empty-proof");
+        var executor = new HeldArrayFeedbackAgentExecutor();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(agents: executor)
+            .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
+                "[]", "loop", "items", "index", WorkflowDataTypes.String,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }, prefixAgentId: "prefix-agent");
+
+        Assert.False(result.Failed);
+        Assert.Equal("[]", result.Output);
+        Assert.Single(executor.Invocations, call => call.NodeId == "prefix-agent");
+        Assert.DoesNotContain(executor.Invocations, call => call.NodeId is "body-agent" or "agent-a" or "agent-b");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        Assert.Equal(ExecutionEventKinds.Completed, events.Last().Kind);
+    }
+
+    [Fact]
+    public async Task Feedback_scheduler_prefix_failure_prevents_loop_admission()
+    {
+        var definition = LoopWithParallelBodyAndArrayParameters(includeAgentPrefix: true);
+        var revision = WorkflowRevision.CreateProofOnly(definition, "feedback-array-agent-prefix-failure-proof");
+        var executor = new HeldArrayFeedbackAgentExecutor(failOnNodeId: "prefix-agent");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(agents: executor)
+            .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\"]", "loop", "items", "index", WorkflowDataTypes.String,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }, prefixAgentId: "prefix-agent"));
+
+        Assert.Single(executor.Invocations, call => call.NodeId == "prefix-agent");
+        Assert.DoesNotContain(executor.Invocations, call => call.NodeId is "body-agent" or "agent-a" or "agent-b");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "loop");
+        Assert.Equal(ExecutionEventKinds.Failed, events.Last().Kind);
+    }
+
+    [Fact]
+    public async Task Feedback_scheduler_prefix_cancellation_prevents_loop_admission()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var definition = LoopWithParallelBodyAndArrayParameters(includeAgentPrefix: true);
+        var revision = WorkflowRevision.CreateProofOnly(definition, "feedback-array-agent-prefix-cancellation-proof");
+        var executor = new HeldArrayFeedbackAgentExecutor(blockPrefix: true);
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var execution = new WorkflowRunner(agents: executor)
+            .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\"]", "loop", "items", "index", WorkflowDataTypes.String,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }, cancellation.Token,
+                prefixAgentId: "prefix-agent");
+        await executor.PrefixStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution);
+
+        Assert.Single(executor.Invocations, call => call.NodeId == "prefix-agent");
+        Assert.DoesNotContain(executor.Invocations, call => call.NodeId is "body-agent" or "agent-a" or "agent-b");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "loop");
+        Assert.Equal(ExecutionEventKinds.Cancelled, events.Last().Kind);
     }
 
     [Fact]
@@ -304,7 +381,7 @@ public sealed class LoopParallelExecutionTests
         };
     }
 
-    private static WorkflowDefinition LoopWithParallelBodyAndArrayParameters()
+    private static WorkflowDefinition LoopWithParallelBodyAndArrayParameters(bool includeAgentPrefix = false)
     {
         var definition = LoopWithParallelBody();
         var arrayType = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String);
@@ -335,13 +412,24 @@ public sealed class LoopParallelExecutionTests
             .Add("agent-a-item", new(new("array-get", "item"), new("agent-a", "in"), "data"))
             .Add("agent-b-item", new(new("array-get", "item"), new("agent-b", "in"), "data"))
             .Add("array-output", new(new("array-value", "out"), new("output", "in"), "data"));
+        var prefixNodes = nodes;
+        if (includeAgentPrefix)
+        {
+            prefixNodes = prefixNodes.Add("prefix-agent",
+                new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, "run once before iteration", [])));
+            execution = execution.Remove("input-loop")
+                .Add("input-prefix-agent", Edge("input", "then", "prefix-agent", "execute"))
+                .Add("prefix-agent-loop", Edge("prefix-agent", "out", "loop", "execute"));
+            data = data.Add("input-prefix-agent",
+                new(new("input", "out"), new("prefix-agent", "in"), "data"));
+        }
         return definition with
         {
             WorkflowId = "feedback-array-iteration-proof",
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                 .Add("items", new("Items", "[]") { Type = arrayType })
                 .Add("index", new("Index", "0") { Type = WorkflowDataTypes.Integer }),
-            Nodes = nodes.SetItem("loop", definition.Nodes["loop"] with
+            Nodes = prefixNodes.SetItem("loop", definition.Nodes["loop"] with
             {
                 Loop = new(new("contains", "continue"), 3)
             }),
@@ -377,17 +465,21 @@ public sealed class LoopParallelExecutionTests
         }
     }
 
-    private sealed class HeldArrayFeedbackAgentExecutor(string? failOnInput = null) : IAgentNodeExecutor
+    private sealed class HeldArrayFeedbackAgentExecutor(string? failOnInput = null,
+        string? failOnNodeId = null, bool blockPrefix = false) : IAgentNodeExecutor
     {
         private readonly ConcurrentQueue<AgentInvocation> invocations = new();
         private readonly TaskCompletionSource firstLeftBranchStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource firstRightBranchStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource releaseFirstLeftBranch = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource prefixStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource releasePrefix = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public AgentInvocation[] Invocations => [.. invocations];
         public TaskCompletionSource FirstLeftBranchStarted => firstLeftBranchStarted;
         public TaskCompletionSource FirstRightBranchStarted => firstRightBranchStarted;
         public TaskCompletionSource ReleaseFirstLeftBranch => releaseFirstLeftBranch;
+        public TaskCompletionSource PrefixStarted => prefixStarted;
 
         public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
             Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
@@ -398,6 +490,16 @@ public sealed class LoopParallelExecutionTests
         {
             invocations.Enqueue(new(invocation.NodeId, input, invocation.Parameters));
             if (invocation.NodeId == "body-agent") return "continue";
+            if (invocation.NodeId == "prefix-agent")
+            {
+                prefixStarted.TrySetResult();
+                if (blockPrefix) await releasePrefix.Task.WaitAsync(cancellationToken);
+                if (failOnNodeId == invocation.NodeId)
+                    throw new InvalidOperationException("Controlled prefix Agent failure.");
+                return "continue";
+            }
+            if (failOnNodeId == invocation.NodeId)
+                throw new InvalidOperationException("Controlled Agent failure.");
             if (input == failOnInput) throw new InvalidOperationException("Controlled item failure.");
             if (failOnInput is null && invocation.NodeId == "agent-a" && input == "alpha")
             {

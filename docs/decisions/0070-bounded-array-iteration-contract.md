@@ -5137,3 +5137,34 @@ selection: `LoopParallelExecutionTests`,
 `SingleSequenceActivationProductionProofTests`, `SingleStreamSequenceProof_*`,
 `BoundedLoopExecutionTests`, and `WorkflowLoopExecutionBudgetTests` passed 49/49
 on 2026-11-23.
+
+### Once-only Agent prefix scheduler proof (2026-11-23)
+
+A follow-up three-role review narrowed a once-before-Loop experiment to the
+exact `Input → Agent → root Loop` path. It returned **REVISE** for public
+admission and **PROCEED** for a private proof only: the execution prefix must be
+one Agent, caller input must arrive through its ordinary data input, the Agent
+output must not feed the Loop body, the graph-derived array/index path must
+remain unchanged, and legacy/data-carried validation must not change.
+
+The proof now sends that graph through `BuildWorkflow`'s ordinary Agent
+Framework scheduler. It verifies the prefix Agent completes before Loop
+activation and runs once for both nonempty and empty arrays. Prefix Agent
+failure and caller cancellation prevent Loop and body activation. The body
+continues to receive its item through the existing Workflow Value → Array Get
+wires. The focused Agent Framework unit selection covering
+`LoopParallelExecutionTests`, `SingleSequenceActivationProductionProofTests`,
+`SingleStreamSequenceProof_*`, `BoundedLoopExecutionTests`, and
+`WorkflowLoopExecutionBudgetTests` passes 52/52.
+
+This is not a validated workflow capability. To isolate scheduler behavior, the
+proof uses an internal proof-only revision and the existing internal
+validation-bypass seam; it does not compile the graph-derived activation plan.
+The public Core validator still rejects `Input → Agent → Loop` as a root Loop
+shape. No schema admission, serializer/package change, public iterator/Break
+contract, or Studio authoring is added. Prefix output data propagation,
+multiple prefix nodes, other node families, production topology ownership,
+Sequence-selected execution, and persistence/playback remain open. The next
+contract decision must either specify and prove validator/plan ownership for
+the prefix, or keep once-before-Loop execution unsupported; this scheduler
+result alone does not select that contract.

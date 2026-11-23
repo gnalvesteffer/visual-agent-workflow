@@ -72,7 +72,8 @@ public sealed partial class WorkflowRunner
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default,
         IWorkflowExecutionGate? gate = null,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
-        int? maximumLoopPasses = null)
+        int? maximumLoopPasses = null,
+        string? prefixAgentId = null)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(jsonItems);
@@ -108,13 +109,40 @@ public sealed partial class WorkflowRunner
                     source.ParameterId == indexParameterId && edge.Target == new PortReference(arrayGetId, "index")) &&
                 definition.Connections.Values.Any(edge => edge.Source == new PortReference(arrayGetId, "item"))))
             throw new ArgumentException("The proof graph must route the declared array and index parameters through Array Get into a data consumer.", nameof(revision));
+        if (prefixAgentId is not null)
+            ValidateOnceOnlyAgentPrefix(prefixAgentId);
 
         var parameterOverrides = ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal)
             .Add(arrayParameterId, jsonItems);
         return ExecuteCoreAsync(runId, revision, "continue", parameterOverrides, record, gate, cancellationToken,
+            skipValidationForInternalProof: prefixAgentId is not null,
             afterNodeStarted: afterNodeStarted,
             proofMaximumLoopPasses: maximumLoopPasses,
             arrayIterationFeedbackProof: new(loopNodeId, itemCount, indexParameterId));
+
+        void ValidateOnceOnlyAgentPrefix(string agentId)
+        {
+            if (definition.EntryNodeId is not { } entryId ||
+                !definition.Nodes.TryGetValue(entryId, out var entry) || entry?.Type != NodeTypes.Input ||
+                !definition.Nodes.TryGetValue(agentId, out var prefix) || prefix?.Type != NodeTypes.Agent ||
+                definition.ExecutionConnections is not { } execution)
+                throw new ArgumentException("The prefix proof requires an Input, one Agent prefix, and explicit execution wires.", nameof(revision));
+
+            var inputToAgent = execution.Values.Where(edge => edge.Source == new PortReference(entryId, "then") &&
+                edge.Target == new PortReference(agentId, "execute")).ToArray();
+            var agentToLoop = execution.Values.Where(edge => edge.Source == new PortReference(agentId, "out") &&
+                edge.Target.NodeId == loopNodeId && edge.Target.PortId == "execute").ToArray();
+            var prefixExecutionEdges = execution.Values.Where(edge => edge.Source.NodeId == agentId ||
+                edge.Target.NodeId == agentId).ToArray();
+            var callerInput = definition.Connections.Values.Count(edge => edge.Source == new PortReference(entryId, "out") &&
+                edge.Target == new PortReference(agentId, "in")) == 1 &&
+                definition.Connections.Values.Count(edge => edge.Target.NodeId == agentId) == 1;
+            if (inputToAgent.Length != 1 || agentToLoop.Length != 1 || prefixExecutionEdges.Length != 2 ||
+                execution.Values.Count(edge => edge.Source.NodeId == entryId) != 1 || !callerInput ||
+                execution.Values.Count(edge => edge.Target.NodeId == loopNodeId && edge.Target.PortId == "execute") != 1 ||
+                definition.Connections.Values.Any(edge => edge.Source.NodeId == agentId))
+                throw new ArgumentException("The prefix proof accepts only Input → Agent → root Loop, with caller input wired to Agent and no prefix data output consumers.", nameof(revision));
+        }
 
         void ValidateIteratorParameter(string? parameterId, string expectedType)
         {
