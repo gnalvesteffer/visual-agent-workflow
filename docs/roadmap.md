@@ -427,8 +427,12 @@ root frame/budget owner. It remains private proof plumbing: the outer graph
 scheduler does not admit an authored iterator. A nested unit proof now shows
 inner Break targeting and suffix skip while the outer item loop resumes; it
 also verifies outer item/index values survive in the inner Agent invocation.
-Pending-work drain, uncertain external outcomes, and File/SQLite playback
-remain unproven for the combined path. Public For Each and Break remain gated. See
+An additional ordinary-builder unit proof accepts a Break directly from one
+fork branch while a sibling Agent is held active; the root stays open until
+that admitted Agent settles, then records the Break iteration and skips the
+next item. This covers the in-memory concurrent-drain boundary. Uncertain
+external outcomes and File/SQLite playback remain unproven for the combined
+path. Public For Each and Break remain gated. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 - [x] Add the schema-2.0 immutable typed-array contract and compose literal,

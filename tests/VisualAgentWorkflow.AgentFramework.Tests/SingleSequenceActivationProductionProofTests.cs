@@ -325,6 +325,66 @@ public sealed class SingleSequenceActivationProductionProofTests
     }
 
     [Fact]
+    public async Task Ordinary_coordinator_break_drains_admitted_parallel_branch_before_settling_item()
+    {
+        var revision = CreateOrdinaryForkBreakRevision("ordinary-fork-break-drain-proof");
+        var agent = new ForkBreakDrainAgentExecutor();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            events.Enqueue(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "break")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(agents: agent)
+            .ExecuteMultiItemOrdinaryActivationCoordinatorProofAsync(Guid.NewGuid(), revision,
+                "[\"break\",\"must-not-run\"]", "index", "item", WorkflowDataTypes.String, Record);
+
+        try
+        {
+            await agent.HeldBranchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try { await breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException)
+            {
+                throw new Xunit.Sdk.XunitException("The Break node did not settle. Execution completed: " +
+                    execution.IsCompleted + ". Fault: " + execution.Exception?.GetBaseException() + ". Events: " +
+                    string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.ScopeId}:{evt.Data}")));
+            }
+
+            Assert.False(execution.IsCompleted,
+                "The item cannot settle while its already-admitted sibling branch is still executing.");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+
+            agent.ReleaseHeldBranch.TrySetResult();
+            var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.False(result.Failed);
+            Assert.False(result.Cancelled);
+            Assert.Equal(["break"], agent.Invocations.Select(invocation => invocation.Input));
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "held-agent" && evt.ScopeId == "array-loop/1");
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.ScopeId == "array-loop/1" &&
+                JsonDocument.Parse(evt.Data!).RootElement.GetProperty("outcome").GetString() == "break");
+            AssertTerminalAndContiguous(events.ToArray(), ExecutionEventKinds.Completed);
+        }
+        finally
+        {
+            agent.ReleaseHeldBranch.TrySetResult();
+            if (!execution.IsCompleted)
+            {
+                try { await execution.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (TimeoutException) { }
+            }
+        }
+    }
+
+    [Fact]
     public async Task Single_item_coordinator_binds_the_item_and_completes_one_sequence_activation()
     {
         var revision = CreateSequenceRevision("single-item-coordinator-proof");
@@ -546,6 +606,47 @@ public sealed class SingleSequenceActivationProductionProofTests
         return WorkflowRevision.CreateProofOnly(definition, workflowId);
     }
 
+    private static WorkflowRevision CreateOrdinaryForkBreakRevision(string workflowId)
+    {
+        var branches = ImmutableArray.Create(
+            new ParallelBranchDescriptor("break", "Break", "break-anchor"),
+            new ParallelBranchDescriptor("held", "Held", "held-anchor"));
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("fork", new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(branches) })
+            .Add("break-anchor", new(NodeTypes.ParallelBranch, "1.0.0")
+                { ParallelBranch = new("fork", "break") })
+            .Add("held-anchor", new(NodeTypes.ParallelBranch, "1.0.0")
+                { ParallelBranch = new("fork", "held") })
+            .Add("break", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"))
+            .Add("held-agent", new(NodeTypes.Agent, "1.0.0",
+                Agent: new AgentConfiguration("proof.fork-drain", null, "Wait for release", []) { MaxTurns = 1 }))
+            .Add("join", new(NodeTypes.ParallelJoin, "1.0.0")
+                { ParallelJoin = new("fork", ["break", "held"]) })
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.Json });
+        var connections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-held-agent", Edge("input", "out", "held-agent", "in", "data"))
+            .Add("join-output-data", Edge("join", "out", "output", "in", "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-fork", Edge("input", "then", "fork", "execute"))
+            .Add("fork-break", Edge("fork", ParallelBranchLimits.PinId("break"), "break-anchor", "execute"))
+            .Add("fork-held", Edge("fork", ParallelBranchLimits.PinId("held"), "held-anchor", "execute"))
+            .Add("break-request", Edge("break-anchor", "then", "break", "execute"))
+            .Add("break-join", Edge("break", "out", "join", "branch.break"))
+            .Add("held-agent", Edge("held-anchor", "then", "held-agent", "execute"))
+            .Add("held-join", Edge("held-agent", "out", "join", "branch.held"))
+            .Add("join-output", Edge("join", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input",
+            nodes, connections)
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("item", new("Item", "") { Type = WorkflowDataTypes.String }),
+            ExecutionConnections = execution
+        };
+        return WorkflowRevision.CreateProofOnly(definition, workflowId);
+    }
+
     private static void AssertTerminalAndContiguous(IReadOnlyList<ExecutionEvent> events, string terminalKind)
     {
         Assert.Single(events, evt => evt.NodeId is null && evt.Kind == terminalKind);
@@ -592,6 +693,30 @@ public sealed class SingleSequenceActivationProductionProofTests
                 cancellationToken.ThrowIfCancellationRequested();
             }
             return Task.FromResult(input);
+        }
+    }
+
+    private sealed class ForkBreakDrainAgentExecutor : IAgentNodeExecutor
+    {
+        private readonly ConcurrentQueue<(string NodeId, string Input)> invocations = new();
+        public IReadOnlyList<(string NodeId, string Input)> Invocations => [.. invocations];
+        public TaskCompletionSource HeldBranchStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseHeldBranch { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.fork-drain", "Fork Drain Proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            invocations.Enqueue((invocation.NodeId, input));
+            if (invocation.NodeId == "held-agent")
+            {
+                HeldBranchStarted.TrySetResult();
+                await ReleaseHeldBranch.Task.WaitAsync(cancellationToken);
+            }
+            return input;
         }
     }
 }

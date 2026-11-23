@@ -5040,6 +5040,17 @@ tests for guarantees that actually depend on persistence. Do not infer
 production support, public iterator/Break admission, or Studio authoring from
 the current private proof or this review.
 
+The focused experiment runs a valid static Fork/Join body through the
+ordinary Agent Framework builder under the multi-item activation coordinator.
+One fork branch enters the private Break directly while its sibling Agent is
+held active by a test-controlled executor. The test observes Break completion
+while the root task remains pending, releases the Agent, and verifies the item
+settles as Break without admitting the next item, followed by one root terminal.
+This proves the in-memory concurrent-drain boundary for the private combined
+path. It does not establish uncertain external-outcome handling, File/SQLite
+reopen playback, public array/Break admission, or Studio authoring; those gates
+remain open.
+
 ### Shared event-sequencing primitive (2026-11-23)
 
 A new proponent/opponent/adjudicator review returned **REVISE**: extract only
