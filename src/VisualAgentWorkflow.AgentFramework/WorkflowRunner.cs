@@ -2233,6 +2233,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     {
                         var deferredJoinedContext = RestoreParentForkContext(received, node.ParallelJoin?.ForkNodeId);
                         var joinedMessage = new GraphMessage(result!, Id, "then", DataType: "json",
+                            LoopIteration: received.LoopIteration,
                             ParallelActivationId: deferredJoinedContext.ActivationId,
                             ParallelBranchId: deferredJoinedContext.BranchId,
                             ParallelForkNodeId: deferredJoinedContext.ForkNodeId,
@@ -2259,6 +2260,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
                     var joinedContext = RestoreParentForkContext(received, node.ParallelJoin?.ForkNodeId);
                     return new(result!, Id, configurable ? "then" : "out", DataType: "json",
+                        LoopIteration: received.LoopIteration,
                         ParallelActivationId: joinedContext.ActivationId,
                         ParallelBranchId: joinedContext.BranchId,
                         ParallelForkNodeId: joinedContext.ForkNodeId,
@@ -2754,6 +2756,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                             ? AddForkContext(received, Id, activationId, branchId)
                             : received.ParallelForkLineage;
                         await dispatch(new GraphMessage(result, Id, edge.Source.PortId, DataType: "string",
+                            LoopIteration: nextLoopIteration,
                             ParallelActivationId: activationId, ParallelBranchId: branchId,
                             ParallelForkNodeId: configurable ? Id : null,
                             ParallelForkLineage: forkLineage,

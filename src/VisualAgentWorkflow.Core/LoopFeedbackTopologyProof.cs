@@ -260,6 +260,37 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                     continue;
                 }
 
+                if (node.Type == NodeTypes.ParallelFork)
+                {
+                    var matchingJoins = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.ParallelJoin &&
+                        pair.Value.ParallelJoin?.ForkNodeId == current).Select(pair => pair.Key).ToArray();
+                    if (matchingJoins.Length != 1)
+                    {
+                        Issue("loop.feedback.parallel-join", $"nodes.{current}",
+                            "A loop-body fork requires exactly one matching Join.");
+                        continue;
+                    }
+
+                    var joinId = matchingJoins[0];
+                    var parallelNodes = CollectParallelNodes(current, joinId, edges);
+                    if (bodyNodeIds.Count + parallelNodes.Count > MaximumBodyNodes)
+                    {
+                        Issue("loop.feedback.limit", $"nodes.{loopId}",
+                            "The candidate body exceeds the topology proof bound.");
+                        continue;
+                    }
+                    foreach (var parallelNodeId in parallelNodes)
+                    {
+                        if (!bodyNodeIds.Add(parallelNodeId) && parallelNodeId != current)
+                            Issue("loop.feedback.multiple-owner", $"nodes.{parallelNodeId}",
+                                "Parallel region nodes must remain inside their unique loop owner.");
+                        body.Add(parallelNodeId);
+                    }
+
+                    Follow(joinId, "then", path, sequenceRoute);
+                    continue;
+                }
+
                 var fanOutPorts = Pins(current, WorkflowPortDirection.Output, WorkflowExecutionPinRole.FanOutOutput)
                     .Concat(Pins(current, WorkflowPortDirection.Output, WorkflowExecutionPinRole.AlternativeOutput))
                     .OrderBy(port => port.Id, StringComparer.Ordinal).ToArray();
@@ -336,6 +367,22 @@ internal static class LoopFeedbackTopologyProofAnalyzer
 
         return new(regions.OrderBy(region => region.LoopNodeId, StringComparer.Ordinal).ToImmutableArray(),
             issues.ToImmutable());
+    }
+
+    private static HashSet<string> CollectParallelNodes(string forkId, string joinId,
+        (string Id, ConnectionDefinition Edge)[] edges)
+    {
+        var nodes = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<string>();
+        pending.Push(forkId);
+        while (pending.TryPop(out var current))
+        {
+            if (!nodes.Add(current) || current == joinId)
+                continue;
+            foreach (var edge in edges.Where(item => item.Edge.Source.NodeId == current))
+                pending.Push(edge.Edge.Target.NodeId);
+        }
+        return nodes;
     }
 
     public static WorkflowDefinition ToExplicitFeedbackCandidate(WorkflowDefinition definition)
