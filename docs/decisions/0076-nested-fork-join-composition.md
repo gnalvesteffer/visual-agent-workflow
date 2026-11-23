@@ -374,3 +374,10 @@ start/completion pairs. Recursive definitions beyond the existing validator
 bound remain rejected by Core. This removes a prototype-only restriction; it
 does not establish public root-dispatch integration or broader child-workflow
 parity.
+
+The same proof dispatcher also has a focused unit regression for both
+conditional outcomes in a normalized current-schema graph. It verifies the
+selected branch port, chosen execution connection, absence of the skipped
+connection, and the resulting transformed output. The test exercises the
+production `StringExecutor` handler through VAW-owned edge dispatch; the
+ordinary public runner is unchanged.

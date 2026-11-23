@@ -82,6 +82,38 @@ public sealed class ConditionalExecutionTests
     [Theory]
     [InlineData("say yes", "true", "SAY YES")]
     [InlineData("abc", "false", "cba")]
+    public async Task StructuredSchedulerProofRoutesOnlyTheSelectedConditionalArm(string input,
+        string expectedPort, string expectedOutput)
+    {
+        var graph = WorkflowSchemaNormalization.NormalizeForEditing(Graph());
+        var revision = WorkflowRevision.Create(graph, "structured-scheduler-conditional-proof");
+        var branchNode = graph.Nodes.Single(entry => entry.Value.Type == NodeTypes.Condition).Key;
+        var executionEdges = graph.ExecutionConnections!;
+        var selectedEdge = executionEdges.Single(edge =>
+            edge.Value.Source.NodeId == branchNode && edge.Value.Source.PortId == expectedPort);
+        var skippedEdge = executionEdges.Single(edge =>
+            edge.Value.Source.NodeId == branchNode && edge.Value.Source.PortId != expectedPort);
+        var events = new List<ExecutionEvent>();
+        var ledger = new StructuredProofDispatchLedger();
+
+        var result = await new WorkflowRunner().ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision,
+            input, null, evt =>
+            {
+                events.Add(evt);
+                return ValueTask.CompletedTask;
+            }, proofDispatchLedger: ledger);
+
+        Assert.Equal(expectedOutput, result.Output);
+        Assert.Equal(expectedPort, SelectedPort(events));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+            evt.ConnectionId == $"execution:{selectedEdge.Key}");
+        Assert.DoesNotContain(events, evt => evt.ConnectionId == $"execution:{skippedEdge.Key}");
+        Assert.Equal(0, ledger.OutstandingDeliveryCount);
+    }
+
+    [Theory]
+    [InlineData("say yes", "true", "SAY YES")]
+    [InlineData("abc", "false", "cba")]
     public async Task NormalizedConditionalPreservesLegacyOutputAndSelectedRoute(string input, string expectedPort, string expectedOutput)
     {
         var legacy = Graph();
