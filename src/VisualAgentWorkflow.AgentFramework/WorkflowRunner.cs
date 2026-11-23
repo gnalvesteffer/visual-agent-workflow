@@ -236,6 +236,20 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         return null;
     }
 
+    private static Exception? FindWorkflowLoopBudgetFailure(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+            if (current is LoopBodyPassBudgetExceededException or LoopEvidenceBudgetExceededException)
+                return current;
+        return null;
+    }
+
+    private sealed class LoopBodyPassBudgetExceededException() : InvalidOperationException(
+        $"Workflow exceeded its aggregate Loop body-pass limit ({WorkflowLoopLimits.MaximumTotalBodyPassesPerRun}).");
+
+    private sealed class LoopEvidenceBudgetExceededException() : InvalidOperationException(
+        $"Workflow exceeded its Loop-scoped evidence event limit ({WorkflowLoopLimits.MaximumScopedEvidenceEventsPerRun}).");
+
     private sealed class WorkflowBodyEvidenceWriteException(Exception innerException)
         : InvalidOperationException("The activation proof could not persist body evidence.", innerException);
 
@@ -269,6 +283,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
         if (!sequenceWorkflowCallProof && !skipValidationForInternalProof)
             WorkflowValidator.ThrowIfInvalid(revision.Definition);
+        var sharedLoopPassBudget = new WorkflowLoopPassBudget();
         StructuredActivationGraphPlan? activationGraphPlan = null;
         if (!skipValidationForInternalProof && !sequenceWorkflowCallProof && activationFrame is null &&
             revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
@@ -290,7 +305,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         var activationLedger = new ExecutionActivationLedger();
         using var activationFrameOwner = new StructuredActivationFrameOwner(
             activationGraphPlan, activationFrame, revision.Definition,
-            proofMaximumLoopActivations: proofMaximumLoopActivations);
+            proofMaximumLoopActivations: proofMaximumLoopActivations,
+            loopExecutionBudget: new WorkflowLoopExecutionBudget(),
+            loopPassBudget: sharedLoopPassBudget);
         activationFrameOwner.BindRootEventRecorder(runId, revision.RevisionId, record, activationLedger);
         var variableStore = activationFrameOwner.CreateVariableStore(revision.Definition);
         ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null,
@@ -398,7 +415,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
             if (collaborationRuntime is not null) await collaborationRuntime.AbortAsync("A collaboration member or workflow node failed.");
             // Do not copy arbitrary exception messages or provider internals into captured payloads.
-            if (emitRunLifecycle) await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
+            if (emitRunLifecycle)
+                await Emit(ExecutionEventKinds.Failed, data: FindWorkflowLoopBudgetFailure(exception)?.Message ??
+                    "Workflow execution failed.");
             throw;
         }
     }
@@ -709,6 +728,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private readonly StructuredActivationFrame? graphEntryFrame;
         private readonly ImmutableDictionary<string, int> loopIterationLimits;
         private readonly long maximumLoopActivations;
+        private readonly WorkflowLoopExecutionBudget loopExecutionBudget;
+        private readonly WorkflowLoopPassBudget loopPassBudget;
         private SemaphoreSlim? eventGate;
         private Func<ExecutionEvent, ValueTask>? recordEvent;
         private ExecutionActivationLedger? activationLedger;
@@ -723,13 +744,17 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         public StructuredActivationFrameOwner(StructuredActivationGraphPlan? plan,
             StructuredActivationFrame? graphEntryFrame, WorkflowDefinition definition,
             WorkflowArrayEvidenceBudget? evidenceBudget = null, long graphActivationMultiplicity = 1,
-            long? proofMaximumLoopActivations = null)
+            long? proofMaximumLoopActivations = null,
+            WorkflowLoopExecutionBudget? loopExecutionBudget = null,
+            WorkflowLoopPassBudget? loopPassBudget = null)
         {
             ArgumentOutOfRangeException.ThrowIfNegative(graphActivationMultiplicity);
             if (proofMaximumLoopActivations is { } proofMaximum)
                 ArgumentOutOfRangeException.ThrowIfNegative(proofMaximum);
             this.plan = plan;
             this.graphEntryFrame = graphEntryFrame;
+            this.loopExecutionBudget = loopExecutionBudget ?? new WorkflowLoopExecutionBudget();
+            this.loopPassBudget = loopPassBudget ?? new WorkflowLoopPassBudget();
             EvidenceBudget = evidenceBudget ?? new WorkflowArrayEvidenceBudget();
             loopIterationLimits = definition.Nodes
                 .Where(entry => entry.Value?.Type == NodeTypes.Loop && entry.Value.Loop is not null)
@@ -788,6 +813,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     throw new InvalidOperationException("The root workflow lifecycle has already recorded a terminal event.");
                 if (isRootStart && rootStarted)
                     throw new InvalidOperationException("The root workflow lifecycle has already recorded its start event.");
+                if (!loopExecutionBudget.TryReserveEvidenceEvent(scopeId))
+                    throw new LoopEvidenceBudgetExceededException();
 
                 var nextSequence = eventSequence + 1;
                 var executionEvent = new ExecutionEvent(runId, revisionId, nextSequence, DateTimeOffset.UtcNow,
@@ -861,7 +888,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 Interlocked.Decrement(ref loopActivations);
                 throw new StructuredActivationBudgetExceededException();
             }
-            return new(Guid.NewGuid(), parentFrame, loopNodeId, iteration, item, parameters);
+            if (!loopPassBudget.TryReserveBodyPass())
+            {
+                Interlocked.Decrement(ref loopActivations);
+                throw new LoopBodyPassBudgetExceededException();
+            }
+            var frame = new StructuredActivationFrame(Guid.NewGuid(), parentFrame, loopNodeId, iteration, item, parameters);
+            loopExecutionBudget.RegisterLoopScope(frame.ScopeId);
+            return frame;
         }
 
         public StructuredActivationBreakSignal ConsumeBreak(StructuredActivationFrame activeFrame,
@@ -1305,6 +1339,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         public void SetRuntimeOutput(string nodeId, string portId, string dataType, object value,
             StructuredActivationFrame? frame = null) =>
             runtimeValues[((frame ?? activeFrame.Value)?.Id, nodeId, portId)] = new(dataType, value);
+
+        public void PromoteRuntimeOutputs(StructuredActivationFrame? sourceFrame,
+            StructuredActivationFrame? destinationFrame)
+        {
+            if (sourceFrame is null || sourceFrame.Id == destinationFrame?.Id) return;
+            foreach (var (key, value) in runtimeValues.Where(pair => pair.Key.FrameId == sourceFrame.Id))
+                runtimeValues[(destinationFrame?.Id, key.NodeId, key.PortId)] = value;
+        }
 
         public void RecordEvidenceBudget(EvaluatedDataValue value)
         {
@@ -2667,24 +2709,31 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         AddSequenceLineage(JsonSerializer.Serialize(new { port })));
                 }
                 var nextLoopIteration = received.LoopIteration;
+                var loopIterationForEvidence = received.LoopIteration;
                 var nextActivationFrame = received.ActivationFrame;
                 if (node.Type == NodeTypes.Loop)
                 {
                     var loop = node.Loop!;
                     var shouldContinue = loop.ContinueWhile.Evaluate(result);
                     StructuredActivationFrame? loopParentFrame = null;
+                    var loopIteration = received.LoopIteration;
                     if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                    {
                         loopParentFrame = (activationFrameOwner
                             ?? throw new InvalidOperationException($"Loop '{Id}' has no activation frame owner."))
                             .ResolveLoopParent(Id, received.ActivationFrame);
-                    if (received.LoopIteration > 0)
+                        loopIteration = received.ActivationFrame?.FindLoop(Id)?.Index ?? 0;
+                    }
+                    loopIterationForEvidence = loopIteration;
+                    nextLoopIteration = loopIteration;
+                    if (loopIteration > 0)
                         await Emit(ExecutionEventKinds.LoopIterationCompleted, Id, invocation, null,
-                            JsonSerializer.Serialize(new { iteration = received.LoopIteration }),
-                            received.ActivationFrame?.ScopeId);
-                    if (shouldContinue && received.LoopIteration < loop.MaximumIterations)
+                            JsonSerializer.Serialize(new { iteration = loopIteration }),
+                            received.ActivationFrame?.FindLoop(Id)?.ScopeId ?? received.ActivationFrame?.ScopeId);
+                    if (shouldContinue && loopIteration < loop.MaximumIterations)
                     {
                         port = "body";
-                        nextLoopIteration++;
+                        nextLoopIteration = loopIteration + 1;
                         if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
                         {
                             var frameParameters = CurrentParameters?.ToImmutableSortedDictionary(StringComparer.Ordinal)
@@ -2702,8 +2751,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     {
                         port = "done";
                         var reason = shouldContinue ? "maximum-iterations" : "predicate-false";
+                        dataEvaluator?.PromoteRuntimeOutputs(received.ActivationFrame, loopParentFrame);
+                        nextActivationFrame = loopParentFrame ?? received.ActivationFrame;
+                        nextLoopIteration = loopParentFrame?.Index ?? loopIteration;
                         await Emit(ExecutionEventKinds.LoopStopped, Id, invocation, null,
-                            JsonSerializer.Serialize(new { reason, iterations = received.LoopIteration, maximumIterations = loop.MaximumIterations }));
+                            JsonSerializer.Serialize(new { reason, iterations = loopIteration, maximumIterations = loop.MaximumIterations }));
                     }
                     if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
                         LoopDataTopologyAnalyzer.Analyze(revision.Definition) is not null)
@@ -2729,7 +2781,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         node.Type == NodeTypes.Output && outputContainsMcpValue;
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
                         routeSelection is not null ? JsonSerializer.Serialize(new { routeId = agentRouteId, port }) :
-                        node.Type == NodeTypes.Loop ? JsonSerializer.Serialize(new { port, iteration = received.LoopIteration, maximumIterations = node.Loop!.MaximumIterations }) :
+                        node.Type == NodeTypes.Loop ? JsonSerializer.Serialize(new { port, iteration = loopIterationForEvidence, maximumIterations = node.Loop!.MaximumIterations }) :
                         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall && childOutcome!.Cancelled ? "Nested workflow was cancelled by its own scope." :
                         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall && childOutcome!.Failed ? "Nested workflow ended at a failure termination." :
                         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall && childOutcome!.Terminated ? "Nested workflow terminated successfully." :

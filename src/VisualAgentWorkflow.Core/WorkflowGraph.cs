@@ -303,6 +303,8 @@ public static class SequenceOutputLimits
 public static class WorkflowLoopLimits
 {
     public const int MaximumIterations = 16;
+    public const int MaximumTotalBodyPassesPerRun = 1_024;
+    public const int MaximumScopedEvidenceEventsPerRun = 65_536;
     public static readonly ImmutableArray<string> Operators = ["equals", "contains", "starts-with", "is-empty"];
 }
 

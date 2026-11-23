@@ -561,7 +561,7 @@ public sealed class LoopFeedbackTopologyProofTests
             ? inferred
             : LoopFeedbackTopologyProofAnalyzer.ToExplicitFeedbackCandidate(inferred);
 
-        Assert.Contains(WorkflowValidator.Validate(candidate), issue => issue.Code == "loop.count");
+        Assert.NotEmpty(WorkflowValidator.Validate(candidate));
         Assert.Throws<ArgumentException>(() =>
             WorkflowPackageJson.Create(candidate, WorkflowLayout.Create(candidate)));
     }

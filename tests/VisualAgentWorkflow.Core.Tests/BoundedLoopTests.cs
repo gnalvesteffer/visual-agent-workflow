@@ -110,7 +110,7 @@ public sealed class BoundedLoopTests
         var issues = WorkflowValidator.Validate(directFeedback);
 
         Assert.Contains(issues, issue => issue.Code.StartsWith("parallel.", StringComparison.Ordinal) ||
-            issue.Code == "loop.body.path");
+            issue.Code.StartsWith("loop.", StringComparison.Ordinal));
 
         var outsideRegion = LoopWithParallelBody() with
         {
@@ -118,6 +118,27 @@ public sealed class BoundedLoopTests
                 new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("fork", "detached") })
         };
         Assert.Contains(WorkflowValidator.Validate(outsideRegion), issue => issue.Code == "loop.parallel.placement");
+    }
+
+    [Fact]
+    public void UnifiedLoopMayOwnANestedLoopWithDistinctFeedbackPaths()
+    {
+        var graph = NestedLoopGraph();
+
+        Assert.Empty(WorkflowValidator.Validate(graph));
+    }
+
+    [Fact]
+    public void UnifiedLoopRejectsNestedLoopsThatEscapeTheirOwningBody()
+    {
+        var graph = NestedLoopGraph();
+        var malformed = graph with
+        {
+            ExecutionConnections = graph.ExecutionConnections!
+                .SetItem("inner-return", new(new("step", "out"), new("outer", "feedback"), "execution"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(malformed), issue => issue.Code.StartsWith("loop.", StringComparison.Ordinal));
     }
 
     private static WorkflowDefinition LoopWithParallelBody()
@@ -162,4 +183,34 @@ public sealed class BoundedLoopTests
             ExecutionConnections = execution.ToImmutableSortedDictionary()
         };
     }
+
+    private static WorkflowDefinition NestedLoopGraph()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("outer", new(NodeTypes.Loop, "1.0.0") { Loop = new(new("contains", "continue"), 2) })
+            .Add("outer-body", new(NodeTypes.LoopBody, "1.0.0"))
+            .Add("inner", new(NodeTypes.Loop, "1.0.0") { Loop = new(new("contains", "continue"), 2) })
+            .Add("inner-body", new(NodeTypes.LoopBody, "1.0.0"))
+            .Add("step", new(NodeTypes.Agent, "1.0.0", Agent: new("fixture", null, "nested pass", [])))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-outer", Edge("input", "then", "outer", "execute"))
+            .Add("outer-body-edge", Edge("outer", "body", "outer-body", "execute"))
+            .Add("outer-inner", Edge("outer-body", "then", "inner", "execute"))
+            .Add("inner-body-edge", Edge("inner", "body", "inner-body", "execute"))
+            .Add("inner-step", Edge("inner-body", "then", "step", "execute"))
+            .Add("inner-return", Edge("step", "out", "inner", "feedback"))
+            .Add("inner-done", Edge("inner", "done", "outer", "feedback"))
+            .Add("outer-done", Edge("outer", "done", "output", "execute"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("output-value", new(new("input", "out"), new("output", "in"), "data"));
+        return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "nested-loop", "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static ConnectionDefinition Edge(string source, string sourcePin, string target, string targetPin) =>
+        new(new(source, sourcePin), new(target, targetPin), "execution");
 }

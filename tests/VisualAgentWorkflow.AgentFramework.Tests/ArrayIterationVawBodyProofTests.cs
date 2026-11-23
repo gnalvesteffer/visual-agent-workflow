@@ -2690,7 +2690,7 @@ public sealed class ArrayIterationVawBodyProofTests
             .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
                 Record, itemParameterId: "item", arrayElementType: WorkflowDataTypes.String);
 
-        Assert.False(result.Failed);
+        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
         Assert.Equal(new[]
         {
             "continue-alpha", "{\"query\":\"continue-alpha\"}",

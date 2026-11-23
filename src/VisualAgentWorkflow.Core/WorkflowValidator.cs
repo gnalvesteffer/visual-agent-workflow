@@ -936,13 +936,11 @@ public static class WorkflowValidator
 
         var loops = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.Loop).ToArray();
         var anchors = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.LoopBody).ToArray();
-        if (loops.Length != 1 || anchors.Length != 1 || definition.ExecutionConnections is not { } execution)
+        if (loops.Length == 0 || anchors.Length != loops.Length || definition.ExecutionConnections is not { } execution)
         {
-            error("loop.count", "nodes", "A bounded loop requires one loop node, one body anchor, and explicit execution connections.");
+            error("loop.count", "nodes", "Bounded loops require one body anchor per loop and explicit execution connections.");
             return;
         }
-        var loopId = loops[0].Key;
-        var anchorId = anchors[0].Key;
         var invalidEdge = false;
         foreach (var (edgeId, edge) in execution)
         {
@@ -962,122 +960,70 @@ public static class WorkflowValidator
             }
         }
         if (invalidEdge) return;
-        var starts = execution.Values.Where(edge => edge?.Source == new PortReference(loopId, "body")).ToArray();
-        if (starts.Length != 1 || starts[0].Target != new PortReference(anchorId, "execute"))
-            error("loop.body.start", $"nodes.{loopId}", "The loop body output must activate its body anchor.");
 
-        var body = new HashSet<string>(StringComparer.Ordinal);
-        var ownedParallelNodes = new HashSet<string>(StringComparer.Ordinal);
-        var current = anchorId;
-        string? returnId = null;
-        while (body.Add(current) && body.Count <= LoopVariableTopologyAnalyzer.MaximumBodyNodes)
-        {
-            if (!definition.Nodes.TryGetValue(current, out var node) || node is null)
-            {
-                error("loop.body.node", $"nodes.{current}", "A bounded loop body requires a linear path of processing nodes.");
-                break;
-            }
-            if (node.Type == NodeTypes.ParallelFork)
-            {
-                var matchingJoins = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.ParallelJoin &&
-                    pair.Value.ParallelJoin?.ForkNodeId == current).ToArray();
-                if (matchingJoins.Length != 1)
-                {
-                    error("loop.parallel.join", $"nodes.{current}", "A loop-body fork must have exactly one matching Join.");
-                    break;
-                }
+        var topology = LoopFeedbackTopologyProofAnalyzer.Analyze(definition,
+            LoopFeedbackPinShape.ExplicitFeedbackInput);
+        if (loops.Length == 1 && topology.Issues.Any(issue => issue.Code == "loop.feedback.pin"))
+            topology = LoopFeedbackTopologyProofAnalyzer.Analyze(definition,
+                LoopFeedbackPinShape.InferredFromBodyTopology);
+        foreach (var issue in topology.Issues)
+            error(issue.Code, issue.Path, issue.Message);
+        if (!topology.IsValid) return;
 
-                var joinId = matchingJoins[0].Key;
-                var regionNodes = CollectParallelRegionNodes(definition, current, joinId, loopId, execution);
-                ownedParallelNodes.UnionWith(regionNodes);
-                body.UnionWith(regionNodes);
-                var joinContinuations = execution.Where(edge => edge.Value?.Source == new PortReference(joinId, "then"))
-                    .ToArray();
-                if (joinContinuations.Length != 1)
-                {
-                    error("loop.parallel.continuation", $"nodes.{joinId}", "A loop-body Join must have exactly one continuation within the loop body.");
-                    break;
-                }
-                if (joinContinuations[0].Value.Target == new PortReference(loopId, "feedback") ||
-                    joinContinuations[0].Value.Target == new PortReference(loopId, "execute"))
-                {
-                    returnId = joinContinuations[0].Key;
-                    break;
-                }
-                current = joinContinuations[0].Value.Target.NodeId;
-                continue;
-            }
-            if (node.Type is not (NodeTypes.LoopBody or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Agent or
-                NodeTypes.McpTool or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall))
-            {
-                error("loop.body.node", $"nodes.{current}", "A bounded loop body may contain linear processing steps and owned, matched Fork/Join regions.");
-                break;
-            }
-            var successors = execution.Where(edge => edge.Value?.Source.NodeId == current).ToArray();
-            if (successors.Length != 1)
-            {
-                error("loop.body.path", $"nodes.{current}", "Each loop body node requires exactly one successor.");
-                break;
-            }
-            if (successors[0].Value.Target.NodeId == loopId &&
-                successors[0].Value.Target.PortId is "execute" or "feedback")
-            {
-                returnId = successors[0].Key;
-                break;
-            }
-            current = successors[0].Value.Target.NodeId;
-        }
-        if (returnId is null)
+        var ownedBodyNodes = topology.Regions.SelectMany(region => region.BodyNodeIds)
+            .ToImmutableHashSet(StringComparer.Ordinal);
+        foreach (var (parallelNodeId, parallelNode) in definition.Nodes.Where(pair => pair.Value?.Type is
+                     NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin))
+            if (!ownedBodyNodes.Contains(parallelNodeId))
+                error("loop.parallel.placement", $"nodes.{parallelNodeId}",
+                    "Every parallel region in a loop workflow must be owned by a loop body.");
+
+        var hasParallel = definition.Nodes.Values.Any(node => node?.Type is
+            NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin);
+        if (loops.Length > 1 && hasParallel)
         {
-            error("loop.body.return", $"nodes.{loopId}", $"The linear body must return to its loop within {LoopVariableTopologyAnalyzer.MaximumBodyNodes} nodes.");
+            error("loop.parallel.nested", "nodes", "Nested Loop and Fork/Join composition must be validated as a complete combined topology.");
             return;
         }
-        var initialActivations = execution.Values.Count(edge => edge?.Target == new PortReference(loopId, "execute"));
-        var feedbackActivations = execution.Values.Count(edge => edge?.Target == new PortReference(loopId, "feedback"));
-        var returnsOnFeedback = execution[returnId].Target.PortId == "feedback";
-        if (returnsOnFeedback && (initialActivations != 1 || feedbackActivations != 1) ||
-            !returnsOnFeedback && (initialActivations != 2 || feedbackActivations != 0))
-            error("loop.input", $"nodes.{loopId}", "A loop requires one initial activation and exactly one body return on its feedback input.");
-        foreach (var parallelNode in definition.Nodes.Where(pair => pair.Value?.Type is
-                     NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin))
-            if (!body.Contains(parallelNode.Key))
-                error("loop.parallel.placement", $"nodes.{parallelNode.Key}", "Every parallel region in a loop workflow must be owned by the loop body.");
-        foreach (var bodyId in body)
-            if (!ownedParallelNodes.Contains(bodyId) && execution.Values.Count(edge => edge?.Target.NodeId == bodyId) != 1)
-                error("loop.body.entry", $"nodes.{bodyId}", "Loop body nodes accept only their single body predecessor.");
-        var returnEdge = execution[returnId];
-        var returnPinPath = $"nodes.{returnEdge.Source.NodeId}.outputs.{returnEdge.Source.PortId}";
+
+        var supportedBodyNodes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            NodeTypes.Loop, NodeTypes.LoopBody, NodeTypes.VariableGet, NodeTypes.VariableSet,
+            NodeTypes.Agent, NodeTypes.McpTool, NodeTypes.SequenceUppercase, NodeTypes.SequenceReverse,
+            NodeTypes.WorkflowCall, NodeTypes.WorkflowInterfaceCall
+        };
+        if (loops.Length == 1)
+            supportedBodyNodes.UnionWith([NodeTypes.ParallelFork, NodeTypes.ParallelBranch, NodeTypes.ParallelJoin]);
+        foreach (var region in topology.Regions)
+        {
+            if (region.BodyNodeIds.Length > LoopVariableTopologyAnalyzer.MaximumBodyNodes)
+                error("loop.body.limit", $"nodes.{region.LoopNodeId}",
+                    $"A bounded Loop body may contain at most {LoopVariableTopologyAnalyzer.MaximumBodyNodes} nodes.");
+            foreach (var bodyNodeId in region.BodyNodeIds)
+                if (!definition.Nodes.TryGetValue(bodyNodeId, out var bodyNode) || bodyNode is null ||
+                    !supportedBodyNodes.Contains(bodyNode.Type))
+                    error("loop.body.node", $"nodes.{bodyNodeId}",
+                        "A bounded Loop body may contain supported processing nodes and nested Loops.");
+        }
+
+        var feedbackConnections = topology.Regions.Select(region => region.FeedbackConnectionId)
+            .ToImmutableHashSet(StringComparer.Ordinal);
+        var returnPinPaths = feedbackConnections.Select(connectionId => execution[connectionId])
+            .Select(edge => $"nodes.{edge.Source.NodeId}.outputs.{edge.Source.PortId}")
+            .ToHashSet(StringComparer.Ordinal);
         void CheckAcyclicRemainder(string code, string path, string message)
         {
-            // The single proven feedback edge was removed only for DAG analysis.
-            // Its source still has its required output in the original graph.
-            if (code == "graph.degree" && path == returnPinPath) return;
+            // Proven feedback edges are removed only for DAG analysis. Their
+            // source pins remain required by the original graph contract.
+            if (code == "graph.degree" && returnPinPaths.Contains(path)) return;
             error(code, path, message);
         }
-        ValidateExplicitBranchGraph(definition with { ExecutionConnections = execution.Remove(returnId) }, CheckAcyclicRemainder,
+        var acyclicExecution = execution.RemoveRange(feedbackConnections);
+        ValidateExplicitBranchGraph(definition with { ExecutionConnections = acyclicExecution }, CheckAcyclicRemainder,
             allowBooleanTopology: true, allowGraphFunctions: true, allowAgentNodes: true,
             allowConfigurableParallel: true, allowFiniteNumbers: true);
-        if (definition.Nodes.Values.Any(candidate => candidate?.Type == NodeTypes.ParallelFork))
+        if (loops.Length == 1 && hasParallel)
             ValidateConfigurableParallelGraph(definition, error, allowBranchLocalRouting: true);
-    }
-
-    private static HashSet<string> CollectParallelRegionNodes(WorkflowDefinition definition, string forkId,
-        string joinId, string loopId, ImmutableSortedDictionary<string, ConnectionDefinition> execution)
-    {
-        var regionNodes = new HashSet<string>(StringComparer.Ordinal);
-        var pending = new Stack<string>();
-        pending.Push(forkId);
-        while (pending.TryPop(out var current))
-        {
-            if (!regionNodes.Add(current) || current == joinId || current == loopId)
-                continue;
-            foreach (var edge in execution.Values.Where(edge => edge?.Source.NodeId == current))
-                if (edge.Target.NodeId != loopId)
-                    pending.Push(edge.Target.NodeId);
-        }
-        if (definition.Nodes.TryGetValue(joinId, out var join) && join?.Type == NodeTypes.ParallelJoin)
-            regionNodes.Add(joinId);
-        return regionNodes;
     }
 
     private static void ValidateUnifiedDataLoopGraph(WorkflowDefinition definition, Action<string, string, string> error)
