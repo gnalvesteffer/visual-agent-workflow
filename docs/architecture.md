@@ -641,6 +641,13 @@ compiled parent owner when creating a pass frame; Break dispatch does not
 consume the compiled target yet. Public workflows containing proof-only Break
 nodes remain unsupported.
 
+Ordinary graph execution and the private typed-array iteration proof use the
+same internal sequenced event writer. It serializes callbacks and advances the
+root event sequence and activation ledger only after the recorder accepts an
+event. Root lifecycle rules, recorder-uncertainty policy, and Loop or proof
+budgets remain with their existing owners; this shared mechanism does not
+select or expose iterator/Break behavior.
+
 ## Reconciliation assessment and operator assertions
 
 Core's optional `IWorkflowRunReconciliationObserver` supplies cursor-bound metadata without changing the original observer contract. A pure work projection preserves unsettled model/tool/approval facts even after terminal status; new model/tool call IDs distinguish repeated calls without changing event envelopes. Hosting combines that evidence with checkpoint validation; SQLite reads both under one transaction. The protected observation group adds only a GET assessment route, and the Core-only HTTP client plus embeddable reconciliation panel validate identity/cursor alignment. The panel suppresses stale eligibility on source changes or outage and remains independent of playback. The optional `IWorkflowRunReconciliationDecisionStore` stores a separate append-only human assertion, with exact target and current-head checks in one SQLite write transaction. Assertions never alter the assessment or recovery gates. There is no HTTP mutation route or Studio control; a consuming host must provide authenticated actor identity and authorize access before exposing the capability. See [run reconciliation](run-reconciliation.md).

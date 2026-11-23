@@ -4957,3 +4957,31 @@ that ownership with a focused in-memory runtime test. Keep File/SQLite reopen
 tests for guarantees that actually depend on persistence. Do not infer
 production support, public iterator/Break admission, or Studio authoring from
 the current private proof or this review.
+
+### Shared event-sequencing primitive (2026-11-23)
+
+A new proponent/opponent/adjudicator review returned **REVISE**: extract only
+serialized event construction and activation-ledger acceptance first. Keep root
+lifecycle validation, recorder-uncertainty policy, and all budget policies in
+their existing owners because the two paths do not share those contracts.
+
+`SequencedExecutionEventWriter` now supplies that common mechanism to both
+`StructuredActivationFrameOwner` and `StructuredActivationRunContext`. The
+writer validates an event against the activation ledger, awaits the accepting
+callback under one gate, then observes the event and advances its sequence.
+The frame owner still blocks writes after its caller marks the recorder
+uncertain; the structured proof context still permits a later retry after a
+rejected callback. Sequence admission, settlement, and uncertainty remain with
+`SequenceRuntimeCoordinator` and its delivery path.
+
+Four fast in-memory unit tests cover callback acceptance before sequence and
+ledger advancement, contiguous sequence assignment for concurrent submissions,
+retained retry behavior in the structured context, and the ordinary owner's
+distinct uncertain-recorder behavior. The focused bounded-loop, single-stream
+Sequence/Break, and structured-budget selection passes 40/40.
+This reduces duplicated event-ordering mechanics only. It does not complete
+root-owner integration for an iterator run, qualify persistence/playback, or
+admit public array iteration, Break, or Studio authoring. The next test must
+exercise a VAW-owned iterator coordinator across ordinary root execution and
+production Sequence settlement without collapsing the remaining lifecycle,
+uncertainty, or budget policies.

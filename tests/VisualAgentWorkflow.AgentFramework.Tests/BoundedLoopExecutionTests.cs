@@ -14,6 +14,108 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 
 public sealed class BoundedLoopExecutionTests
 {
+    [Fact]
+    public async Task SequencedEventWriterCommitsAcceptedSequenceAndLedgerOnlyAfterRecorderReturns()
+    {
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var invocationId = Guid.NewGuid();
+        var ledger = new ExecutionActivationLedger();
+        var accepted = new List<ExecutionEvent>();
+        var failFirst = true;
+        using var writer = new SequencedExecutionEventWriter(runId, revisionId, executionEvent =>
+        {
+            if (failFirst)
+            {
+                failFirst = false;
+                return ValueTask.FromException(new IOException("injected recorder failure"));
+            }
+
+            accepted.Add(executionEvent);
+            return ValueTask.CompletedTask;
+        }, ledger);
+
+        await Assert.ThrowsAsync<IOException>(() => writer.RecordAsync(
+            ExecutionEventKinds.NodeStarted, "agent", invocationId).AsTask());
+        Assert.Empty(ledger.Snapshot());
+
+        await writer.RecordAsync(ExecutionEventKinds.NodeStarted, "agent", invocationId);
+        await writer.RecordAsync(ExecutionEventKinds.NodeCompleted, "agent", invocationId);
+
+        Assert.Equal(new long[] { 1, 2 }, accepted.Select(evt => evt.Sequence));
+        Assert.Equal(new[] { ExecutionEventKinds.NodeStarted, ExecutionEventKinds.NodeCompleted },
+            accepted.Select(evt => evt.Kind));
+        Assert.Empty(ledger.Snapshot());
+    }
+
+    [Fact]
+    public async Task SequencedEventWriterSerializesConcurrentAcceptedEvents()
+    {
+        var accepted = new List<ExecutionEvent>();
+        var acceptedGate = new object();
+        var writer = new SequencedExecutionEventWriter(Guid.NewGuid(), Guid.NewGuid(), executionEvent =>
+        {
+            lock (acceptedGate) accepted.Add(executionEvent);
+            return ValueTask.CompletedTask;
+        }, new ExecutionActivationLedger());
+        var tasks = Enumerable.Range(0, 32).Select(index => writer.RecordAsync(
+            ExecutionEventKinds.NodeStarted, $"node-{index}", Guid.NewGuid()).AsTask()).ToArray();
+
+        await Task.WhenAll(tasks);
+
+        ExecutionEvent[] snapshot;
+        lock (acceptedGate) snapshot = [.. accepted];
+        Assert.Equal(Enumerable.Range(1, snapshot.Length).Select(value => (long)value),
+            snapshot.Select(evt => evt.Sequence));
+    }
+
+    [Fact]
+    public async Task StructuredRunContextRetainsRetryAfterRecorderFailure()
+    {
+        var accepted = new List<ExecutionEvent>();
+        var recorderCalls = 0;
+        using var context = new WorkflowRunner.StructuredActivationRunContext(Guid.NewGuid(), Guid.NewGuid(),
+            executionEvent =>
+            {
+                if (recorderCalls++ == 0)
+                    return ValueTask.FromException(new IOException("injected recorder failure"));
+                accepted.Add(executionEvent);
+                return ValueTask.CompletedTask;
+            }, budget: null);
+
+        await Assert.ThrowsAsync<IOException>(() => context.EmitAsync(ExecutionEventKinds.Started).AsTask());
+        await context.EmitAsync(ExecutionEventKinds.Started);
+        await context.EmitAsync(ExecutionEventKinds.Completed);
+
+        Assert.Equal(new long[] { 1, 2 }, accepted.Select(evt => evt.Sequence));
+        Assert.Equal(new[] { ExecutionEventKinds.Started, ExecutionEventKinds.Completed },
+            accepted.Select(evt => evt.Kind));
+    }
+
+    [Fact]
+    public async Task ActivationOwnerBlocksWritesAfterRecorderIsMarkedUncertain()
+    {
+        var definition = WorkflowSchemaNormalization.NormalizeForEditing(ExplicitLoopGraph());
+        Assert.True(StructuredActivationGraphPlan.TryCreate(definition, out var plan, out var issues),
+            string.Join(Environment.NewLine, issues));
+        using var owner = new WorkflowRunner.StructuredActivationFrameOwner(plan, null, definition);
+        var recorderCalls = 0;
+        owner.BindRootEventRecorder(Guid.NewGuid(), Guid.NewGuid(), _ =>
+        {
+            recorderCalls++;
+            return ValueTask.FromException(new IOException("injected recorder failure"));
+        }, new ExecutionActivationLedger());
+
+        await Assert.ThrowsAsync<IOException>(() => owner.RecordEventAsync(ExecutionEventKinds.NodeStarted,
+            "agent", Guid.NewGuid()).AsTask());
+        owner.MarkRootEventRecorderUncertain();
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => owner.RecordEventAsync(
+            ExecutionEventKinds.NodeStarted, "agent", Guid.NewGuid()).AsTask());
+
+        Assert.Contains("uncertain", failure.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, recorderCalls);
+    }
+
     private static WorkflowDefinition ExplicitLoopGraph()
     {
         var nodes = new Dictionary<string, NodeDefinition>

@@ -178,56 +178,52 @@ public sealed partial class WorkflowRunner
     internal sealed class StructuredActivationBudgetExceededException()
         : InvalidOperationException("The run evidence budget or aggregate work limit was exhausted.");
 
-    internal sealed class StructuredActivationRunContext(Guid runId, Guid revisionId,
-        Func<ExecutionEvent, ValueTask> record, StructuredActivationRunBudget? budget,
-        bool reserveIterationSettlements = false) : IDisposable
+    internal sealed class StructuredActivationRunContext : IDisposable
     {
-        private readonly SemaphoreSlim recordGate = new(1, 1);
-        private readonly ExecutionActivationLedger activationLedger = new();
-        private readonly StructuredActivationBudgetLedger? ledger = budget is null ? null :
-            new(budget, reserveIterationSettlements);
-        private long sequence;
+        private readonly Func<ExecutionEvent, ValueTask> record;
+        private readonly StructuredActivationBudgetLedger? budgetLedger;
+        private readonly SequencedExecutionEventWriter eventWriter;
         private bool started;
         private bool terminal;
 
-        public async ValueTask EmitAsync(string kind, string? nodeId = null, Guid? invocationId = null,
-            string? scopeId = null, string? data = null, string? connectionId = null)
+        public StructuredActivationRunContext(Guid runId, Guid revisionId,
+            Func<ExecutionEvent, ValueTask> record, StructuredActivationRunBudget? budget,
+            bool reserveIterationSettlements = false)
         {
-            await recordGate.WaitAsync(CancellationToken.None);
-            try
-            {
-                var startsRun = nodeId is null && kind == ExecutionEventKinds.Started;
-                var endsRun = nodeId is null && kind is (ExecutionEventKinds.Completed or
-                    ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated or
-                    ExecutionEventKinds.OutcomeUnknown);
-                if (startsRun)
-                {
-                    if (started || terminal) throw new InvalidOperationException("The activation run has already started.");
-                }
-                else if (endsRun)
-                {
-                    if (!started || terminal) throw new InvalidOperationException("The activation run already has a terminal outcome or has not started.");
-                }
-
-                var nextSequence = sequence + 1;
-                var evt = new ExecutionEvent(runId, revisionId, nextSequence, DateTimeOffset.UtcNow,
-                    kind, nodeId, invocationId, connectionId, data) { ScopeId = scopeId };
-                activationLedger.Validate(evt);
-                var transition = ledger?.Check(evt);
-                await record(evt);
-                if (transition is { } accepted) ledger!.Commit(evt, accepted);
-                activationLedger.Observe(evt);
-                sequence = nextSequence;
-                if (startsRun) started = true;
-                if (endsRun) terminal = true;
-            }
-            finally
-            {
-                recordGate.Release();
-            }
+            ArgumentNullException.ThrowIfNull(record);
+            this.record = record;
+            budgetLedger = budget is null ? null : new(budget, reserveIterationSettlements);
+            eventWriter = new(runId, revisionId, AcceptEventAsync, new ExecutionActivationLedger());
         }
 
-        public void Dispose() => recordGate.Dispose();
+        public ValueTask EmitAsync(string kind, string? nodeId = null, Guid? invocationId = null,
+            string? scopeId = null, string? data = null, string? connectionId = null)
+        {
+            return eventWriter.RecordAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
+        }
+
+        private async ValueTask AcceptEventAsync(ExecutionEvent executionEvent)
+        {
+            var startsRun = executionEvent.NodeId is null && executionEvent.Kind == ExecutionEventKinds.Started;
+            var endsRun = executionEvent.NodeId is null && executionEvent.Kind is (ExecutionEventKinds.Completed or
+                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated or
+                ExecutionEventKinds.OutcomeUnknown);
+            if (startsRun)
+            {
+                if (started || terminal)
+                    throw new InvalidOperationException("The activation run has already started.");
+            }
+            else if (endsRun && (!started || terminal))
+                throw new InvalidOperationException("The activation run already has a terminal outcome or has not started.");
+
+            var transition = budgetLedger?.Check(executionEvent);
+            await record(executionEvent);
+            if (transition is { } accepted) budgetLedger!.Commit(executionEvent, accepted);
+            if (startsRun) started = true;
+            if (endsRun) terminal = true;
+        }
+
+        public void Dispose() => eventWriter.Dispose();
     }
 
     private sealed class StructuredActivationBudgetLedger

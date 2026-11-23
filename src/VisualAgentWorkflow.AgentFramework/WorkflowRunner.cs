@@ -757,12 +757,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private readonly WorkflowLoopPassBudget loopPassBudget;
         private readonly bool countLoopEvidenceEvents;
         private readonly string loopEvidenceScopePrefix;
-        private SemaphoreSlim? eventGate;
-        private Func<ExecutionEvent, ValueTask>? recordEvent;
+        private SequencedExecutionEventWriter? eventWriter;
+        private Func<ExecutionEvent, ValueTask>? rootEventRecorder;
         private ExecutionActivationLedger? activationLedger;
-        private Guid runId;
-        private Guid revisionId;
-        private long eventSequence;
         private long loopActivations;
         private bool rootStarted;
         private bool rootTerminalRecorded;
@@ -816,54 +813,41 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (ownerRunId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(ownerRunId));
             ArgumentNullException.ThrowIfNull(recorder);
             ArgumentNullException.ThrowIfNull(ledger);
-            if (eventGate is not null)
+            if (eventWriter is not null)
                 throw new InvalidOperationException("The activation owner already has a root event recorder.");
 
-            runId = ownerRunId;
-            revisionId = ownerRevisionId;
-            recordEvent = recorder;
+            rootEventRecorder = recorder;
             activationLedger = ledger;
-            eventGate = new SemaphoreSlim(1, 1);
+            eventWriter = new SequencedExecutionEventWriter(ownerRunId, ownerRevisionId, AcceptEventAsync, ledger);
         }
 
         public async ValueTask RecordEventAsync(string kind, string? nodeId = null, Guid? invocationId = null,
             string? connectionId = null, string? data = null, string? scopeId = null)
         {
-            var recorder = recordEvent
+            var writer = eventWriter
                 ?? throw new InvalidOperationException("The activation owner has no root event recorder.");
-            var ledger = activationLedger!;
-            var gate = eventGate!;
-            await gate.WaitAsync();
-            try
-            {
-                if (HasUncertainRootEventRecorder)
-                    throw new InvalidOperationException("The root event recorder is uncertain after a callback failure; reconcile persisted history before recording more events.");
+            await writer.RecordAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
+        }
 
-                var isRootStart = nodeId is null && kind == ExecutionEventKinds.Started;
-                var isRootTerminal = nodeId is null && kind is (ExecutionEventKinds.Completed or
-                    ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+        private async ValueTask AcceptEventAsync(ExecutionEvent executionEvent)
+        {
+            if (HasUncertainRootEventRecorder)
+                throw new InvalidOperationException("The root event recorder is uncertain after a callback failure; reconcile persisted history before recording more events.");
+
+            var isRootStart = executionEvent.NodeId is null && executionEvent.Kind == ExecutionEventKinds.Started;
+            var isRootTerminal = executionEvent.NodeId is null && executionEvent.Kind is
+                (ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
                     ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown);
-                if (rootTerminalRecorded)
-                    throw new InvalidOperationException("The root workflow lifecycle has already recorded a terminal event.");
-                if (isRootStart && rootStarted)
-                    throw new InvalidOperationException("The root workflow lifecycle has already recorded its start event.");
-                if (countLoopEvidenceEvents && !loopExecutionBudget.TryReserveEvidenceEvent(scopeId))
-                    throw new LoopEvidenceBudgetExceededException(loopExecutionBudget.MaximumEvidenceEvents);
+            if (rootTerminalRecorded)
+                throw new InvalidOperationException("The root workflow lifecycle has already recorded a terminal event.");
+            if (isRootStart && rootStarted)
+                throw new InvalidOperationException("The root workflow lifecycle has already recorded its start event.");
+            if (countLoopEvidenceEvents && !loopExecutionBudget.TryReserveEvidenceEvent(executionEvent.ScopeId))
+                throw new LoopEvidenceBudgetExceededException(loopExecutionBudget.MaximumEvidenceEvents);
 
-                var nextSequence = eventSequence + 1;
-                var executionEvent = new ExecutionEvent(runId, revisionId, nextSequence, DateTimeOffset.UtcNow,
-                    kind, nodeId, invocationId, connectionId, data) { ScopeId = scopeId };
-                ledger.Validate(executionEvent);
-                await recorder(executionEvent);
-                eventSequence = nextSequence;
-                if (isRootStart) rootStarted = true;
-                if (isRootTerminal) rootTerminalRecorded = true;
-                ledger.Observe(executionEvent);
-            }
-            finally
-            {
-                gate.Release();
-            }
+            await rootEventRecorder!(executionEvent);
+            if (isRootStart) rootStarted = true;
+            if (isRootTerminal) rootTerminalRecorded = true;
         }
 
         public async ValueTask CancelPendingParallelJoinsAsync(string scopeId, WorkflowDefinition definition)
@@ -880,7 +864,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     data: "Parallel join cancelled because its iterator frame ended.", scopeId: scopeId);
         }
 
-        public void Dispose() => eventGate?.Dispose();
+        public void Dispose() => eventWriter?.Dispose();
 
         public WorkflowVariableStore CreateVariableStore(WorkflowDefinition definition) =>
             new(definition, EvidenceBudget);

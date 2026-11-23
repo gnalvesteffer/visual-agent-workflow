@@ -342,6 +342,21 @@ Define that ownership boundary before adding another proof or changing public
 admission. See the latest entry in [Decision
 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+**Progress:** ordinary execution and the private iterator proof now share the
+same serialized event writer for event construction, accepted sequence
+advancement, and activation-ledger transitions. Recorder uncertainty, root
+lifecycle rules, and their separate budget policies remain with their current
+owners. In-memory regressions cover concurrent event submission, accepted
+sequence/ledger commit after recorder return, separate retry/uncertainty
+behavior, and the structured run context's existing retry behavior (4 new
+tests); the focused bounded-loop, single-stream Sequence/Break, and budget
+selections pass 40/40. This removes one duplicated
+event-sequencing mechanism; it does not integrate an authored iterator or
+prove production array/Break support. The next gate remains the VAW-owned
+iterator coordinator's integration with ordinary root execution and production
+Sequence settlement. See [Decision
+0070](decisions/0070-bounded-array-iteration-contract.md).
+
 - [x] Add the schema-2.0 immutable typed-array contract and compose literal,
   length, and indexed-read nodes with existing pure scalar dataflow. Verify
   exact type identity, item and payload bounds, scalar output, node-attributed
