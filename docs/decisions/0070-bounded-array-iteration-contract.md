@@ -40,6 +40,54 @@ owner/lifecycle or the complete evidence matrix. No body-allowlist is permitted.
 Selection would begin integrated implementation, not establish parity;
 checkpoint recovery remains excluded until frames are captured and restored.
 
+## Typed iteration concept and production gate review (adjudicated 2026-11-23)
+
+A fresh proponent/opponent/adjudicator review considered the public authoring
+concept and whether the existing private evidence permits public admission.
+The reviewers converged on a **dedicated typed `For Each` node**, distinct from
+the predicate-controlled `Loop`; the adjudicator kept public contract and
+authoring changes gated because the production ownership gate below remains
+open.
+
+The proposed node contract is: an immutable bounded `array<T>` input, typed
+item output, zero-based integer index output, and explicit `body` and
+`completed` execution paths. Iteration is ascending; an empty array skips the
+body and completes. Each admitted item receives a fresh activation frame.
+Nested `For Each` and predicate loops share one parent-frame stack, and an
+explicit Break exits only the nearest active iterator frame. Admitted body
+work, including Sequence, Join siblings, and pinned calls, must settle before
+the next item is admitted. This contract direction adds no schema/capability
+gate: when admitted, it belongs directly to unified schema 2.0, while existing
+workflow definitions remain valid.
+
+This does **not** select the production scheduler or authorize a public node,
+Break contract, serialized pins, or Studio authoring. The unresolved decision
+is one VAW-owned run context for graph-derived frames, nearest-frame Break,
+root lifecycle, atomic shared work/evidence budgets, and settlement across
+both `BuildWorkflow` and Sequence-selected production execution. Failure,
+cancellation, uncertain tool outcomes, evidence rejection/lost acknowledgement,
+and pending descendants must stop later item admission without fabricating
+settlement. File/SQLite passive playback and older-reader compatibility also
+remain gates. Checkpoint recovery remains excluded until the complete frame and
+outstanding-work state can be captured and restored.
+
+The next proof increment should consolidate ownership in a private coordinator
+over the existing production execution paths, beginning with normally validated
+graphs and deterministic unit tests. It must demonstrate ordinary and Sequence
+body settlement against one owner before the architecture is reviewed again.
+No browser, integration, or end-to-end verification is part of this proof
+scope. No schema or public authoring change is approved by this review.
+
+The first focused increment routes the private multi-item Sequence proof
+through the `ExecuteCoreAsync` activation owner for body-frame creation and
+shares that owner's aggregate pass/evidence budgets with each body execution.
+Its unit regression admits two item frames under a limit of two, settles both
+Sequence bodies, and fails before admitting item three with a single root
+terminal event. The focused Agent Framework selection passes 54/54. This
+closes only the Sequence proof's duplicate frame/budget ownership; ordinary
+graph-body consolidation, persisted settlement, and the remaining gates above
+are still open.
+
 A further proponent/opponent/adjudicator review after the matched parallel
 Agent-result and typed direct-MCP argument/result proofs also returned
 **REVISE**. The added comparisons strengthen activation-scoped value and join

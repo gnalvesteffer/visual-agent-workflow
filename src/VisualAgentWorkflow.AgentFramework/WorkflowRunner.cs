@@ -291,7 +291,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         string loopEvidenceScopePrefix = "",
         int? proofMaximumLoopPasses = null,
         int? proofMaximumLoopEvidenceEvents = null,
-        Func<Func<string, string?, Guid?, string?, string?, string?, ValueTask>, Action, CancellationToken,
+        Func<StructuredActivationFrameOwner,
+            Func<string, string?, Guid?, string?, string?, string?, ValueTask>, Action, CancellationToken,
             Task<WorkflowExecutionResult>>? rootCoordinatorProof = null,
         ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null)
     {
@@ -366,7 +367,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             cancellationToken.ThrowIfCancellationRequested();
             if (rootCoordinatorProof is not null)
             {
-                var result = await rootCoordinatorProof(Emit,
+                var result = await rootCoordinatorProof(activationFrameOwner, Emit,
                     activationFrameOwner.MarkRootEventRecorderUncertain, cancellationToken);
                 if (result.Cancelled)
                 {
@@ -938,7 +939,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
         public StructuredActivationFrame CreateBodyPass(string loopNodeId, int iteration, int maximumIterations,
             string item, ImmutableSortedDictionary<string, string> parameters,
-            StructuredActivationFrame? parentFrame)
+            StructuredActivationFrame? parentFrame, string itemDataType = WorkflowDataTypes.String)
         {
             if (loopIterationLimits.TryGetValue(loopNodeId, out var configuredLimit) &&
                 configuredLimit != maximumIterations)
@@ -959,7 +960,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 Interlocked.Decrement(ref loopActivations);
                 throw new LoopBodyPassBudgetExceededException();
             }
-            var frame = new StructuredActivationFrame(Guid.NewGuid(), parentFrame, loopNodeId, iteration, item, parameters);
+            var frame = new StructuredActivationFrame(Guid.NewGuid(), parentFrame, loopNodeId, iteration, item, parameters)
+            {
+                ItemDataType = itemDataType
+            };
             var evidenceScope = string.IsNullOrEmpty(loopEvidenceScopePrefix)
                 ? frame.ScopeId
                 : $"{loopEvidenceScopePrefix}/{frame.ScopeId}";

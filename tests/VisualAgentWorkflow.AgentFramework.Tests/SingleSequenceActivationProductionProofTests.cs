@@ -107,7 +107,7 @@ public sealed class SingleSequenceActivationProductionProofTests
         Assert.Equal(3, sequenceSettlements.Length);
         for (var index = 0; index < iterationStarts.Length; index++)
         {
-            var scope = $"array-loop/{index}";
+            var scope = $"array-loop/{index + 1}";
             Assert.Equal(scope, iterationStarts[index].ScopeId);
             Assert.Equal(scope, iterationCompletions[index].ScopeId);
             Assert.Equal(scope, sequenceSettlements[index].ScopeId);
@@ -121,6 +121,30 @@ public sealed class SingleSequenceActivationProductionProofTests
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
         AssertTerminalAndContiguous(events, ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
+    public async Task Multi_item_sequence_coordinator_uses_the_root_activation_owner_budget()
+    {
+        var revision = CreateSequenceRevision("bounded-multi-item-sequence-proof");
+        var agent = new CapturingAgentExecutor();
+        var events = new List<ExecutionEvent>();
+
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => new WorkflowRunner(agents: agent)
+            .ExecuteMultiItemSequenceActivationCoordinatorProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\",\"gamma\"]", "index", "item", WorkflowDataTypes.String,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }, maximumLoopPasses: 2));
+
+        Assert.Equal(new[] { "alpha", "alpha", "beta", "beta" },
+            agent.Invocations.Select(invocation => invocation.Input));
+        Assert.Equal(new[] { "array-loop/1", "array-loop/2" }, events
+            .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted)
+            .Select(evt => evt.ScopeId));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "array-loop/3");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertTerminalAndContiguous(events, ExecutionEventKinds.Failed);
     }
 
     [Fact]
@@ -144,9 +168,9 @@ public sealed class SingleSequenceActivationProductionProofTests
             Assert.Equal("0", invocation.Parameters["index"]);
         });
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
-            evt.ScopeId == "array-loop/0");
+            evt.ScopeId == "array-loop/1");
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted &&
-            evt.ScopeId == "array-loop/0");
+            evt.ScopeId == "array-loop/1");
         AssertTerminalAndContiguous(events, ExecutionEventKinds.Completed);
     }
 
@@ -189,7 +213,7 @@ public sealed class SingleSequenceActivationProductionProofTests
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
-            evt.ScopeId == "array-loop/1" &&
+            evt.ScopeId == "array-loop/2" &&
             JsonDocument.Parse(evt.Data!).RootElement.GetProperty("outcome").GetString() == "failed");
         AssertTerminalAndContiguous(events, ExecutionEventKinds.Failed);
     }
@@ -214,7 +238,7 @@ public sealed class SingleSequenceActivationProductionProofTests
         Assert.DoesNotContain(events, evt => evt.NodeId is null &&
             evt.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Failed);
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
-            evt.ScopeId == "array-loop/1" &&
+            evt.ScopeId == "array-loop/2" &&
             JsonDocument.Parse(evt.Data!).RootElement.GetProperty("outcome").GetString() == "cancelled");
         AssertTerminalAndContiguous(events, ExecutionEventKinds.Cancelled);
     }
@@ -232,7 +256,7 @@ public sealed class SingleSequenceActivationProductionProofTests
                 "[\"alpha\",\"beta\"]", "index", "item", WorkflowDataTypes.String,
                 evt =>
                 {
-                    if (evt.Kind == ExecutionEventKinds.SequenceOutputCompleted && evt.ScopeId == "array-loop/0")
+                    if (evt.Kind == ExecutionEventKinds.SequenceOutputCompleted && evt.ScopeId == "array-loop/1")
                     {
                         rejected = true;
                         return ValueTask.FromException(rejection);
@@ -247,7 +271,7 @@ public sealed class SingleSequenceActivationProductionProofTests
             evt.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
                 ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
-            evt.ScopeId == "array-loop/1");
+            evt.ScopeId == "array-loop/2");
         Assert.Equal(Enumerable.Range(1, events.Count).Select(value => (long)value),
             events.Select(evt => evt.Sequence));
     }

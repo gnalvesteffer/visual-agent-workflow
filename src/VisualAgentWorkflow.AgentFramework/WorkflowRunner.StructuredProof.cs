@@ -163,7 +163,8 @@ public sealed partial class WorkflowRunner
         string? itemParameterId, string arrayElementType, Func<ExecutionEvent, ValueTask> record,
         CancellationToken cancellationToken = default, int maximumConcurrentSequenceOutputs = 1,
         IWorkflowExecutionGate? gate = null,
-        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
+        int? maximumLoopPasses = null)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(jsonItems);
@@ -184,9 +185,12 @@ public sealed partial class WorkflowRunner
             ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
 
         return ExecuteCoreAsync(runId, revision, jsonItems, baseParameters, record, gate, cancellationToken,
+            proofMaximumLoopActivations: parsedItems.Length,
+            proofMaximumLoopPasses: maximumLoopPasses,
             rootCoordinatorProof: ExecuteCoordinatorAsync);
 
         async Task<WorkflowExecutionResult> ExecuteCoordinatorAsync(
+            StructuredActivationFrameOwner frameOwner,
             Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
             Action markRootRecorderUncertain,
             CancellationToken runToken)
@@ -210,14 +214,12 @@ public sealed partial class WorkflowRunner
             for (var index = 0; index < parsedItems.Length; index++)
             {
                 runToken.ThrowIfCancellationRequested();
-                var frame = new StructuredActivationFrame(Guid.NewGuid(), null, "array-loop", index,
-                    parsedItems[index], baseParameters)
-                {
-                    ItemDataType = arrayElementType
-                };
+                var frame = frameOwner.CreateBodyPass("array-loop", index + 1, parsedItems.Length,
+                    parsedItems[index], baseParameters, parentFrame: null, itemDataType: arrayElementType);
                 frame = frame with
                 {
-                    Parameters = frame.BindIteratorValues(revision.Definition, itemParameterId, indexParameterId)
+                    Parameters = frame.BindIteratorValues(revision.Definition, itemParameterId, indexParameterId,
+                        zeroBasedIndex: index)
                 };
                 await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id, null, null,
                     frame.ScopeId);
@@ -253,7 +255,10 @@ public sealed partial class WorkflowRunner
                 {
                     body = await ExecuteCoreAsync(runId, revision, frame.Item, frame.Parameters,
                         RecordBodyEvent, gate, runToken, emitRunLifecycle: false, activationFrame: frame,
-                        sequenceDispatchSession: dispatchSession, afterNodeStarted: afterNodeStarted);
+                        sequenceDispatchSession: dispatchSession, afterNodeStarted: afterNodeStarted,
+                        workflowLoopPassBudget: frameOwner.LoopPassBudget,
+                        workflowLoopEvidenceBudget: frameOwner.LoopExecutionBudget,
+                        loopEvidenceScopePrefix: frameOwner.LoopEvidenceScopePrefix);
                 }
                 catch (OperationCanceledException) when (runToken.IsCancellationRequested)
                 {
@@ -354,6 +359,7 @@ public sealed partial class WorkflowRunner
             rootCoordinatorProof: ExecuteCoordinatorAsync);
 
         async Task<WorkflowExecutionResult> ExecuteCoordinatorAsync(
+            StructuredActivationFrameOwner frameOwner,
             Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
             Action markRootRecorderUncertain,
             CancellationToken runToken)

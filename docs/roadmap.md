@@ -342,6 +342,16 @@ Agent Framework graph scheduler or establish public iteration/Break support.
 See the latest entry in [Decision
 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+The 2026-11-23 three-role review selects a dedicated typed **For Each** node as
+the eventual public concept, separate from predicate Loop. The proposed pins
+are `array<T>`, typed `item`, integer `index`, and explicit `body`/`completed`
+execution paths; nested Break targets the nearest active iterator frame. This
+is design direction only. Public pins and Studio authoring remain gated on one
+production owner for graph-derived frames, root lifecycle, Sequence/body
+settlement, and shared budgets across both runtime execution shapes. Continue
+with private unit proofs; do not add schema/capability gates or claim array
+iteration is shipped. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 **Progress:** ordinary execution and the private iterator proof now share the
 same serialized event writer for event construction, accepted sequence
 advancement, and activation-ledger transitions. Recorder uncertainty, root
@@ -390,12 +400,15 @@ before the next item; failure and cancellation stopping later admissions; and
 rejected Sequence evidence preserving only the accepted event prefix without
 a fabricated root terminal. The recorder-rejection case exposed a missing
 uncertainty handoff from nested Sequence dispatch; the coordinator now marks
-the enclosing root recorder uncertain. The focused Sequence/Break, bounded-loop,
-and coordinator unit selections pass 38/38. This is private coordinator and
-Sequence composition evidence only: it still bypasses the outer graph scheduler,
-does not derive iteration from an authored node, and does not share a single
-work/evidence budget across its per-item production executions. Production
-scheduler integration, broader topology and concurrency, persistent playback,
+the enclosing root recorder uncertain. The multi-item proof now creates each
+frame through the root activation owner and shares its aggregate pass/evidence
+budgets with per-item production executions. A regression confirms a two-pass
+limit settles two items and rejects the third before admission. The focused
+Sequence/Break, bounded-loop, and coordinator unit selections pass 54/54. This
+is private coordinator and Sequence composition evidence only: it still
+bypasses the outer graph scheduler and does not derive iteration from an
+authored node. Ordinary graph-body ownership, broader topology and concurrency,
+persistent playback,
 and public iterator/Break support remain open. User-guide instructions are
 unchanged because no authorable behavior is shipped. See [Decision
 0070](decisions/0070-bounded-array-iteration-contract.md).
