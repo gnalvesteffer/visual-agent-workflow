@@ -62,6 +62,156 @@ public sealed partial class WorkflowRunner
             activationFrame: frame, sequenceDispatchSession: session);
     }
 
+    /// <summary>
+    /// Composes bounded item admission with production Sequence dispatch under one ordinary root event owner.
+    /// The root coordinator callback deliberately remains proof-only and bypasses the outer graph scheduler.
+    /// </summary>
+    internal Task<WorkflowExecutionResult> ExecuteMultiItemSequenceActivationCoordinatorProofAsync(
+        Guid runId, WorkflowRevision revision, string jsonItems, string indexParameterId,
+        string? itemParameterId, string arrayElementType, Func<ExecutionEvent, ValueTask> record,
+        CancellationToken cancellationToken = default, int maximumConcurrentSequenceOutputs = 1,
+        IWorkflowExecutionGate? gate = null,
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        ArgumentNullException.ThrowIfNull(jsonItems);
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentException.ThrowIfNullOrWhiteSpace(indexParameterId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(arrayElementType);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumConcurrentSequenceOutputs);
+        if (jsonItems.Length > 16_384)
+            throw new ArgumentException("Activation proof input exceeds 16,384 characters.", nameof(jsonItems));
+        if (!WorkflowArrayLiteral.TryParseValue(arrayElementType, jsonItems, out var typedItems, out var arrayError))
+            throw new ArgumentException($"Activation proof input is not a valid {WorkflowDataTypes.ArrayOf(arrayElementType)}: {arrayError}",
+                nameof(jsonItems));
+
+        var plan = CreateSequenceProductionPlan(revision)
+            ?? throw new ArgumentException("The proof requires a production Sequence graph.", nameof(revision));
+        var parsedItems = ParseProductionActivationItems(typedItems, arrayElementType);
+        var baseParameters = WorkflowParameters.Resolve(revision.Definition, null) ??
+            ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+
+        return ExecuteCoreAsync(runId, revision, jsonItems, baseParameters, record, gate, cancellationToken,
+            rootCoordinatorProof: ExecuteCoordinatorAsync);
+
+        async Task<WorkflowExecutionResult> ExecuteCoordinatorAsync(
+            Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
+            Action markRootRecorderUncertain,
+            CancellationToken runToken)
+        {
+            async ValueTask EmitCoordinatorEvent(string kind, string? nodeId = null,
+                Guid? invocationId = null, string? connectionId = null, string? data = null,
+                string? scopeId = null)
+            {
+                try
+                {
+                    await emit(kind, nodeId, invocationId, connectionId, data, scopeId);
+                }
+                catch
+                {
+                    markRootRecorderUncertain();
+                    throw;
+                }
+            }
+
+            var outputResults = new List<string>(parsedItems.Length);
+            for (var index = 0; index < parsedItems.Length; index++)
+            {
+                runToken.ThrowIfCancellationRequested();
+                var frame = new StructuredActivationFrame(Guid.NewGuid(), null, "array-loop", index,
+                    parsedItems[index], baseParameters)
+                {
+                    ItemDataType = arrayElementType
+                };
+                frame = frame with
+                {
+                    Parameters = frame.BindIteratorValues(revision.Definition, itemParameterId, indexParameterId)
+                };
+                await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id, null, null,
+                    frame.ScopeId);
+
+                var outputConnections = plan.Outputs.ToDictionary(output => output.OutputId,
+                    output => output.ConnectionId, StringComparer.Ordinal);
+                var sequenceCoordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), plan.SequenceNodeId,
+                    plan.Outputs.Select(output => output.OutputId).ToArray(), outputConnections,
+                    scopeId: frame.ScopeId);
+                var dispatchSession = new SequenceProductionDispatchSession(sequenceCoordinator, frame,
+                    ImmutableHashSet<string>.Empty.WithComparer(StringComparer.Ordinal),
+                    maximumConcurrentSequenceOutputs);
+                var evidenceRecorderRejected = false;
+
+                async ValueTask RecordBodyEvent(ExecutionEvent evt)
+                {
+                    if (IsRootLifecycleEvent(evt)) return;
+                    try
+                    {
+                        await EmitCoordinatorEvent(evt.Kind, evt.NodeId, evt.InvocationId, evt.ConnectionId, evt.Data,
+                            evt.ScopeId ?? frame.ScopeId);
+                    }
+                    catch
+                    {
+                        evidenceRecorderRejected = true;
+                        markRootRecorderUncertain();
+                        throw;
+                    }
+                }
+
+                WorkflowExecutionResult body;
+                try
+                {
+                    body = await ExecuteCoreAsync(runId, revision, frame.Item, frame.Parameters,
+                        RecordBodyEvent, gate, runToken, emitRunLifecycle: false, activationFrame: frame,
+                        sequenceDispatchSession: dispatchSession, afterNodeStarted: afterNodeStarted);
+                }
+                catch (OperationCanceledException) when (runToken.IsCancellationRequested)
+                {
+                    sequenceCoordinator.CancelPending();
+                    await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, null,
+                        JsonSerializer.Serialize(new { outcome = "cancelled" }), frame.ScopeId);
+                    return new(null, false, Cancelled: true, HasOutput: false);
+                }
+                catch (Exception) when (!evidenceRecorderRejected)
+                {
+                    sequenceCoordinator.CancelPending();
+                    await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, null,
+                        JsonSerializer.Serialize(new { outcome = "failed" }), frame.ScopeId);
+                    return new(null, true, Failed: true, HasOutput: false);
+                }
+                catch
+                {
+                    markRootRecorderUncertain();
+                    throw;
+                }
+
+                if (body.Cancelled)
+                {
+                    await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, null,
+                        JsonSerializer.Serialize(new { outcome = "cancelled" }), frame.ScopeId);
+                    return new(null, false, Cancelled: true, HasOutput: false);
+                }
+                if (body.OutcomeUnknown)
+                {
+                    await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, null,
+                        JsonSerializer.Serialize(new { outcome = "outcome-unknown" }), frame.ScopeId);
+                    return new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false);
+                }
+                if (body.Failed || body.Terminated)
+                {
+                    await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, null,
+                        JsonSerializer.Serialize(new { outcome = body.Terminated ? "terminated" : "failed" }),
+                        frame.ScopeId);
+                    return body;
+                }
+
+                if (body.Output is { } output) outputResults.Add(output);
+                await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, null,
+                    JsonSerializer.Serialize(new { outcome = "completed" }), frame.ScopeId);
+            }
+
+            return new(outputResults.LastOrDefault(), false, HasOutput: outputResults.Count > 0);
+        }
+    }
+
     private static WorkflowDefinition ValidationProjection(WorkflowDefinition definition)
     {
         var proofBreakNodes = definition.Nodes.Where(entry => entry.Value.Type == StructuredProofBreakNodeType)
@@ -113,6 +263,7 @@ public sealed partial class WorkflowRunner
 
         async Task<WorkflowExecutionResult> ExecuteCoordinatorAsync(
             Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
+            Action markRootRecorderUncertain,
             CancellationToken runToken)
         {
             var connections = plan.Outputs.ToDictionary(output => output.OutputId,
@@ -145,6 +296,7 @@ public sealed partial class WorkflowRunner
                         catch
                         {
                             coordinator.MarkEventDeliveryUncertain(batch.DeliveryId);
+                            markRootRecorderUncertain();
                             throw;
                         }
                     }
@@ -157,9 +309,22 @@ public sealed partial class WorkflowRunner
 
             await emit(ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id, null, null,
                 frame.ScopeId);
+            async ValueTask RecordBodyEvent(ExecutionEvent evt)
+            {
+                try
+                {
+                    await emit(evt.Kind, evt.NodeId, evt.InvocationId, evt.ConnectionId, evt.Data,
+                        evt.ScopeId ?? frame.ScopeId);
+                }
+                catch
+                {
+                    markRootRecorderUncertain();
+                    throw;
+                }
+            }
+
             var outcome = await ExecuteBodyForActivationProofAsync(runId, revision, input, frame.Parameters,
-                evt => emit(evt.Kind, evt.NodeId, evt.InvocationId, evt.ConnectionId, evt.Data,
-                    evt.ScopeId ?? frame.ScopeId), runToken, activationFrame: frame,
+                RecordBodyEvent, runToken, activationFrame: frame,
                 afterNodeStarted: afterNodeStarted,
                 proofBreakNodeIds: proofBreakNodeIds, sequencePlan: plan, sequenceDispatchSession: session);
             await FlushSequenceEvents();

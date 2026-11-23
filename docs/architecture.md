@@ -667,6 +667,18 @@ Sequence completion. This qualifies one framed activation only. Repeated-item
 admission, graph-derived iterator ownership, integration with ordinary
 `BuildWorkflow` scheduling, and public typed-array iteration remain unproven.
 
+The private multi-item coordinator proof parses a bounded typed array, binds an
+immutable item/index frame for each item, and invokes the production Sequence
+builder serially under the same root event owner. It covers empty, one-item, and
+multi-item success, failure/cancellation stopping later admission, and rejected
+Sequence evidence preserving the accepted prefix without a root terminal. A
+rejected nested evidence callback marks the enclosing root recorder uncertain.
+This is proof-only: the root coordinator callback bypasses the outer graph
+scheduler, frame admission is not derived from an authored node, and the per-item
+inner executions do not share one aggregate work/evidence budget. Persistence,
+playback, broader body topologies, concurrency, and public iterator behavior
+remain unproven.
+
 ## Reconciliation assessment and operator assertions
 
 Core's optional `IWorkflowRunReconciliationObserver` supplies cursor-bound metadata without changing the original observer contract. A pure work projection preserves unsettled model/tool/approval facts even after terminal status; new model/tool call IDs distinguish repeated calls without changing event envelopes. Hosting combines that evidence with checkpoint validation; SQLite reads both under one transaction. The protected observation group adds only a GET assessment route, and the Core-only HTTP client plus embeddable reconciliation panel validate identity/cursor alignment. The panel suppresses stale eligibility on source changes or outage and remains independent of playback. The optional `IWorkflowRunReconciliationDecisionStore` stores a separate append-only human assertion, with exact target and current-head checks in one SQLite write transaction. Assertions never alter the assessment or recovery gates. There is no HTTP mutation route or Studio control; a consuming host must provide authenticated actor identity and authorize access before exposing the capability. See [run reconciliation](run-reconciliation.md).

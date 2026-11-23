@@ -378,9 +378,26 @@ completion on the same contiguous event stream. It removes the proof-only root
 coordinator callback from this specific one-item dispatch case; it does not
 implement repeated item admission, graph-derived iterator ownership, outer
 `BuildWorkflow` scheduler integration, or public iterator/Break behavior. The
-next gate remains repeated activation and its settlement through ordinary root
-execution, followed by the previously scoped topology, budget, recorder-failure,
-and persistence/playback coverage. See [Decision
+remaining gates include repeated activation, graph-derived iterator ownership,
+and the previously scoped topology, budget, recorder-failure, and persistence/
+playback coverage. See [Decision
+0070](decisions/0070-bounded-array-iteration-contract.md).
+
+A private multi-item coordinator proof now composes typed item/index frame
+binding with production Sequence dispatch under one ordinary root event owner.
+Unit tests cover empty, one-item, and three-item input; Sequence settlement
+before the next item; failure and cancellation stopping later admissions; and
+rejected Sequence evidence preserving only the accepted event prefix without
+a fabricated root terminal. The recorder-rejection case exposed a missing
+uncertainty handoff from nested Sequence dispatch; the coordinator now marks
+the enclosing root recorder uncertain. The focused Sequence/Break, bounded-loop,
+and coordinator unit selections pass 38/38. This is private coordinator and
+Sequence composition evidence only: it still bypasses the outer graph scheduler,
+does not derive iteration from an authored node, and does not share a single
+work/evidence budget across its per-item production executions. Production
+scheduler integration, broader topology and concurrency, persistent playback,
+and public iterator/Break support remain open. User-guide instructions are
+unchanged because no authorable behavior is shipped. See [Decision
 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 - [x] Add the schema-2.0 immutable typed-array contract and compose literal,

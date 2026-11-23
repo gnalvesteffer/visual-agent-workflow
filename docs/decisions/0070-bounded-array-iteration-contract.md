@@ -5039,6 +5039,37 @@ recorder-failure combinations, and the previously specified persistence and
 playback evidence. Public typed iterator pins, Break authoring, schema
 admission, and Studio changes remain closed.
 
+### Multi-item coordinator/Sequence composition proof (2026-11-23)
+
+A three-role review returned **REVISE** on extending the one-frame test. It
+allows a private callback proof to exercise multi-item mechanics, but explicitly
+does not count that proof as outer scheduler integration or architecture
+selection. A separate production scheduler adapter remains a candidate for the
+next gate.
+
+`ExecuteMultiItemSequenceActivationCoordinatorProofAsync` parses a bounded
+typed array, binds immutable item/index frames, and invokes each item's body
+through the production Sequence builder under one `ExecuteCoreAsync` root
+lifecycle and event owner. The proof waits for an item's Sequence settlement
+before admitting the next item. Focused unit tests cover empty, one-item, and
+three-item inputs; exact item/index bindings; settlement ordering; failure and
+cancellation stopping later admissions; and event-recorder rejection. The
+rejection test exposed that a nested Sequence recorder failure did not mark the
+enclosing root recorder uncertain; the private coordinator now propagates that
+uncertainty, preserving only accepted event evidence and preventing a fabricated
+root terminal. The focused Sequence/Break, bounded-loop, and coordinator unit
+selections pass 38/38.
+
+This proves multi-item coordinator/Sequence composition only. The callback
+still bypasses the outer Agent Framework graph scheduler, iteration ownership
+is proof-supplied rather than graph-derived, and each inner execution initializes
+its own work/evidence accounting. Persistence/playback, broader body topologies,
+parallel admission, aggregate budgets, and ordinary outer scheduler integration
+remain open. Public typed iterator pins, Break authoring, schema admission, and
+Studio behavior remain gated. The next proof must establish item admission and
+body execution inside an ordinary production scheduler without treating this
+callback result as iterator implementation.
+
 ### One framed activation through production Sequence dispatch (2026-11-23)
 
 The next three-role review narrowed scheduler integration to one item before

@@ -291,7 +291,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         string loopEvidenceScopePrefix = "",
         int? proofMaximumLoopPasses = null,
         int? proofMaximumLoopEvidenceEvents = null,
-        Func<Func<string, string?, Guid?, string?, string?, string?, ValueTask>, CancellationToken,
+        Func<Func<string, string?, Guid?, string?, string?, string?, ValueTask>, Action, CancellationToken,
             Task<WorkflowExecutionResult>>? rootCoordinatorProof = null)
     {
         var callerCancellationToken = cancellationToken;
@@ -362,7 +362,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             cancellationToken.ThrowIfCancellationRequested();
             if (rootCoordinatorProof is not null)
             {
-                var result = await rootCoordinatorProof(Emit, cancellationToken);
+                var result = await rootCoordinatorProof(Emit,
+                    activationFrameOwner.MarkRootEventRecorderUncertain, cancellationToken);
                 if (result.Cancelled)
                 {
                     if (emitRunLifecycle) await Emit(ExecutionEventKinds.Cancelled);
