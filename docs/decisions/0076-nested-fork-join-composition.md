@@ -328,3 +328,38 @@ Next, establish whether every dispatch capable of reaching a Join can be
 atomically accounted for under `InProcessRunner`; if not, evaluate the
 root-owned dispatcher with the broader Agent Framework behavior-preservation
 and failure/persistence proofs before production integration.
+
+## Public nested progress boundary (2026-11-23)
+
+A focused unit experiment used the ordinary `ExecuteCoreAsync` / Agent
+Framework path via `ExecuteAfterNodeStartGateProofAsync`. It ran the valid
+nested graph used by the private scheduler test, held `inner-agent-left-a`
+after its start callback, and waited for `inner-join-right` to complete before
+releasing the held Agent. The Join did not complete within the bounded wait;
+after the Agent was released, the public run completed successfully. The
+temporary investigation assertion was removed after recording this result, so
+the checked-in suite remains green. The private scheduler test still proves
+the desired independent progress only for its own dispatch path.
+
+The pinned Agent Framework 1.26.0 implementation was checked at commit
+[`9c8a3514a15a702f81bfda456d80c7ccaa4d2712`](https://github.com/microsoft/agent-framework/tree/9c8a3514a15a702f81bfda456d80c7ccaa4d2712):
+`InProcessRunner.RunSuperstepAsync` starts all queued receiver groups and
+awaits `Task.WhenAll` before advancing the step. Each receiver callback can
+finish and queue a Join continuation, but the runner cannot advance that
+continuation while another receiver in the current superstep remains held.
+`InProcessRunnerContext.SendMessageAsync` maps deliveries into `_nextStep`;
+there is no public runner hook for replacing the superstep scheduler or
+intercepting its internal edge map. This explains the focused public-runner
+failure and establishes that an executor/edge wrapper inside this runner cannot
+provide the required independent nested progress.
+
+The revised direction is a VAW-owned root dispatcher for public execution, but
+only after a proof stage establishes parity with the production node handlers
+and all supported graph constructs. Do not ship a schema/capability gate or
+promote the current private proof entry point as production. The next proof
+must exercise the public API route with deterministic unit tests and account
+for every outgoing transition, including ordinary/conditional edges, Fork and
+Join, Loop feedback, Sequence, workflow calls, collaboration, cancellation,
+failure, evidence-write failure, and bounded cleanup. If any transition still
+bypasses admission or the required behavior demands a hidden schema split, the
+design is not ready for production integration.
