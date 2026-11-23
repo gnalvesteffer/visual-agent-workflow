@@ -4928,3 +4928,32 @@ prefix and status (2/2). This demonstrates serialized check-and-commit for
 this nested activation-budget boundary. It does not settle broader concurrent
 reservation policy, other event/byte budgets, arbitrary failure or recorder
 interruption races, public topology admission, or Studio authoring.
+
+### Root-owner seam review (2026-11-23)
+
+A clean-context proponent/opponent/adjudicator review considered whether to
+route the existing single-stream A-active/B-Break/C-skipped proof through the
+ordinary root owner. The adjudicator recommended a focused in-memory test
+first, with persisted-store expansion only if that test exposes behavior that
+needs it. This review made no runtime or schema decision.
+
+Source inspection narrows the open question: `ExecuteSingleStreamSequenceBreakProofAsync`
+already owns one `StructuredActivationRunContext` for root start, iteration
+settlement, Sequence lifecycle events, and the root terminal. Each body is
+dispatched by `ExecuteBodyForActivationProofAsync` through `ExecuteCoreAsync`
+with root lifecycle emission disabled, so it does not create a competing root
+terminal. The existing controlled tests already assert A remains active while
+B requests Break, C stays skipped, the admitted body drains, and one root
+terminal follows. A new in-memory test of that same wrapper would duplicate
+those assertions rather than exercise `ExecuteCoreAsync` as the owner of the
+whole iterator run.
+
+Therefore the proposed test is not counted as a new gate. The unresolved seam
+is a VAW-owned iterator coordinator integrated with ordinary root execution and
+production Sequence settlement; finding such a seam may require a new
+proof-only runtime entry point. Any next experiment must first state which
+component owns root lifecycle and accepted-work accounting, then demonstrate
+that ownership with a focused in-memory runtime test. Keep File/SQLite reopen
+tests for guarantees that actually depend on persistence. Do not infer
+production support, public iterator/Break admission, or Studio authoring from
+the current private proof or this review.

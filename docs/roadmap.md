@@ -331,6 +331,17 @@ iteration, and checkpoint state remain future work. No
 feature-specific schema gates, promotion controls, or preview modes will be
 introduced.
 
+The private single-stream A-active/B-Break/C-skipped proof already owns root
+lifecycle and Sequence evidence through one `StructuredActivationRunContext`;
+its body calls suppress their own root lifecycle. A 2026-11-23 three-role
+review proposed a new in-memory test through the ordinary root owner, but
+source inspection showed that a test of the existing wrapper would duplicate
+the current gate. The remaining gap is integration of a VAW-owned iterator
+coordinator with ordinary root execution and production Sequence settlement.
+Define that ownership boundary before adding another proof or changing public
+admission. See the latest entry in [Decision
+0070](decisions/0070-bounded-array-iteration-contract.md).
+
 - [x] Add the schema-2.0 immutable typed-array contract and compose literal,
   length, and indexed-read nodes with existing pure scalar dataflow. Verify
   exact type identity, item and payload bounds, scalar output, node-attributed
