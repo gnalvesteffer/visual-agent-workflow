@@ -17424,6 +17424,53 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Fact]
+    public async Task StructuredSchedulerLedger_UnrelatedNestedActivationDoesNotDelayJoin()
+    {
+        var nested = NestedParallelForkGraphDefinition();
+        var definition = nested with
+        {
+            Connections = nested.Connections
+                .SetItem("inner-left-to-outer-agent", new(new("input", "out"), new("outer-agent-left", "in"), "data"))
+                .SetItem("inner-right-to-outer-agent", new(new("input", "out"), new("outer-agent-right", "in"), "data"))
+        };
+        var revision = WorkflowRevision.Create(definition, "structured-ledger-activation-isolation");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var heldAgentStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseHeldAgent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ledger = new StructuredProofDispatchLedger();
+
+        var execution = new WorkflowRunner(agents: new EchoAgentExecutor())
+            .ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision, "north", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            }, afterNodeStarted: async (nodeId, _) =>
+            {
+                if (nodeId != "inner-agent-left-a") return;
+                heldAgentStarted.TrySetResult();
+                await releaseHeldAgent.Task;
+            }, proofDispatchLedger: ledger);
+
+        try
+        {
+            await heldAgentStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Contains(events, evt => evt.NodeId == "inner-join-right" &&
+                evt.Kind == ExecutionEventKinds.NodeCompleted);
+            Assert.DoesNotContain(events, evt => evt.NodeId == "inner-join-left" &&
+                evt.Kind == ExecutionEventKinds.NodeCompleted);
+        }
+        finally
+        {
+            releaseHeldAgent.TrySetResult();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(result.Failed);
+        Assert.True(result.HasOutput);
+        Assert.Equal(0, ledger.OutstandingDeliveryCount);
+    }
+
+    [Fact]
     public async Task StructuredSchedulerProof_AdmitsEveryNestedNodeDeliveryBeforeDispatch()
     {
         var nested = NestedParallelForkGraphDefinition();

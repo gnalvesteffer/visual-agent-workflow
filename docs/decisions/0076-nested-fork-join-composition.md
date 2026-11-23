@@ -252,6 +252,14 @@ are not required to match. This makes the proof scheduler's dispatch boundary
 explicit; it does not prove interception of Agent Framework's automatic edges
 or qualify the public runner.
 
+A deterministic actual-dispatch test now holds one nested Agent after its
+`NodeStarted` event and observes an unrelated sibling nested Join complete
+before releasing it. The held path's own Join remains incomplete until release;
+the run then succeeds and the shared ledger drains to zero. This complements
+ledger-only activation isolation with execution through the proof scheduler's
+existing node executors. It remains private proof-scheduler evidence and does
+not establish the same scheduling behavior in public Agent Framework execution.
+
 On 2026-11-21, a three-role review adjudicated the next proof boundary for
 nested workflow calls. Separate child ledgers were rejected for this increment
 because they do not establish a root-wide outstanding-work bound. The private
