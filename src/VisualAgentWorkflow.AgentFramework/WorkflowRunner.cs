@@ -698,8 +698,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         StructuredActivationBreakRequest? ActivationBreakRequest = null,
         SequenceAggregateCompletionSignal? SequenceAggregateCompletion = null);
 
-    private sealed record ArrayIterationFeedbackProof(string LoopNodeId, ImmutableArray<string> Items,
-        string ElementDataType, string? ItemParameterId, string IndexParameterId);
+    private sealed record ArrayIterationFeedbackProof(string LoopNodeId, int ItemCount,
+        string IndexParameterId);
 
     private sealed record ParallelForkLineageEntry(string ForkNodeId, Guid? ActivationId, string? BranchId,
         string? ParentForkNodeId, Guid? ParentActivationId, string? ParentBranchId);
@@ -2814,7 +2814,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                                 completedFrame.ScopeId);
 
                         var nextItemIndex = completedIteration;
-                        if (nextItemIndex < arrayProof.Items.Length)
+                        if (nextItemIndex < arrayProof.ItemCount)
                         {
                             port = "body";
                             nextLoopIteration = nextItemIndex + 1;
@@ -2823,19 +2823,17 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                             var bodyFrame = (activationFrameOwner
                                 ?? throw new InvalidOperationException($"Loop '{Id}' has no activation frame owner."))
                                 .CreateBodyPass(Id, nextLoopIteration, loop.MaximumIterations,
-                                    arrayProof.Items[nextItemIndex], frameParameters, loopParentFrame) with
-                            {
-                                ItemDataType = arrayProof.ElementDataType
-                            };
+                                    result, frameParameters, loopParentFrame);
                             nextActivationFrame = bodyFrame with
                             {
                                 Parameters = bodyFrame.BindIteratorValues(revision.Definition,
-                                    arrayProof.ItemParameterId, arrayProof.IndexParameterId, nextItemIndex)
+                                    itemParameterId: null, indexParameterId: arrayProof.IndexParameterId,
+                                    zeroBasedIndex: nextItemIndex)
                             };
                             result = bodyFrame.Item;
                             await Emit(ExecutionEventKinds.LoopIterationStarted, Id, invocation, null,
                                 JsonSerializer.Serialize(new { iteration = nextLoopIteration,
-                                    maximumIterations = arrayProof.Items.Length }), nextActivationFrame.ScopeId);
+                                    maximumIterations = arrayProof.ItemCount }), nextActivationFrame.ScopeId);
                         }
                         else
                         {
@@ -2845,8 +2843,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                             nextLoopIteration = loopParentFrame?.Index ?? 0;
                             await Emit(ExecutionEventKinds.LoopStopped, Id, invocation, null,
                                 JsonSerializer.Serialize(new { reason = "array-exhausted",
-                                    iterations = arrayProof.Items.Length,
-                                    maximumIterations = arrayProof.Items.Length }));
+                                    iterations = arrayProof.ItemCount,
+                                    maximumIterations = arrayProof.ItemCount }));
                         }
                     }
                     else

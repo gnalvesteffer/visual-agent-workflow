@@ -68,7 +68,7 @@ public sealed partial class WorkflowRunner
     /// </summary>
     internal Task<WorkflowExecutionResult> ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(
         Guid runId, WorkflowRevision revision, string jsonItems, string loopNodeId,
-        string? itemParameterId, string indexParameterId, string arrayElementType,
+        string arrayParameterId, string indexParameterId, string arrayElementType,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default,
         IWorkflowExecutionGate? gate = null,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
@@ -78,6 +78,7 @@ public sealed partial class WorkflowRunner
         ArgumentNullException.ThrowIfNull(jsonItems);
         ArgumentNullException.ThrowIfNull(record);
         ArgumentException.ThrowIfNullOrWhiteSpace(loopNodeId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(arrayParameterId);
         ArgumentException.ThrowIfNullOrWhiteSpace(indexParameterId);
         ArgumentException.ThrowIfNullOrWhiteSpace(arrayElementType);
         if (jsonItems.Length > 16_384)
@@ -91,17 +92,29 @@ public sealed partial class WorkflowRunner
         if (!WorkflowArrayLiteral.TryParseValue(arrayElementType, jsonItems, out var typedItems, out var arrayError))
             throw new ArgumentException($"Feedback proof input is not a valid {WorkflowDataTypes.ArrayOf(arrayElementType)}: {arrayError}",
                 nameof(jsonItems));
-        var items = ParseProductionActivationItems(typedItems, arrayElementType);
-        if (items.Length > loopNode.Loop!.MaximumIterations)
+        var itemCount = ParseProductionActivationItems(typedItems, arrayElementType).Length;
+        if (itemCount > loopNode.Loop!.MaximumIterations)
             throw new ArgumentException("The proof array exceeds the Loop's validated maximum iteration count.", nameof(jsonItems));
-        ValidateIteratorParameter(itemParameterId, arrayElementType);
+        ValidateIteratorParameter(arrayParameterId, WorkflowDataTypes.ArrayOf(arrayElementType));
         ValidateIteratorParameter(indexParameterId, WorkflowDataTypes.Integer);
+        var arrayGetNodes = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.ArrayGet &&
+            pair.Value.ArrayElementType == arrayElementType).Select(pair => pair.Key).ToArray();
+        if (!arrayGetNodes.Any(arrayGetId =>
+                definition.Connections.Values.Any(edge => edge.Source.NodeId is { } sourceId &&
+                    definition.Nodes.TryGetValue(sourceId, out var source) && source?.Type == NodeTypes.WorkflowValue &&
+                    source.ParameterId == arrayParameterId && edge.Target == new PortReference(arrayGetId, "array")) &&
+                definition.Connections.Values.Any(edge => edge.Source.NodeId is { } sourceId &&
+                    definition.Nodes.TryGetValue(sourceId, out var source) && source?.Type == NodeTypes.WorkflowValue &&
+                    source.ParameterId == indexParameterId && edge.Target == new PortReference(arrayGetId, "index")) &&
+                definition.Connections.Values.Any(edge => edge.Source == new PortReference(arrayGetId, "item"))))
+            throw new ArgumentException("The proof graph must route the declared array and index parameters through Array Get into a data consumer.", nameof(revision));
 
-        return ExecuteCoreAsync(runId, revision, jsonItems, null, record, gate, cancellationToken,
+        var parameterOverrides = ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add(arrayParameterId, jsonItems);
+        return ExecuteCoreAsync(runId, revision, "continue", parameterOverrides, record, gate, cancellationToken,
             afterNodeStarted: afterNodeStarted,
             proofMaximumLoopPasses: maximumLoopPasses,
-            arrayIterationFeedbackProof: new(loopNodeId, [.. items], arrayElementType,
-                itemParameterId, indexParameterId));
+            arrayIterationFeedbackProof: new(loopNodeId, itemCount, indexParameterId));
 
         void ValidateIteratorParameter(string? parameterId, string expectedType)
         {
@@ -110,7 +123,7 @@ public sealed partial class WorkflowRunner
                 !declaredParameters.TryGetValue(parameterId, out var parameter) ||
                 (parameter.Type ?? WorkflowDataTypes.String) != expectedType)
                 throw new ArgumentException($"Iterator parameter '{parameterId}' must be declared as {expectedType}.",
-                    parameterId == indexParameterId ? nameof(indexParameterId) : nameof(itemParameterId));
+                    parameterId == indexParameterId ? nameof(indexParameterId) : nameof(arrayParameterId));
         }
     }
 

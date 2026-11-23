@@ -508,25 +508,30 @@ unchanged because no authorable behavior is shipped. See [Decision
   event beyond capacity exactly once. These do not close the iterator
   coordinator's concurrent reservation gate. A private proof now exercises
   three typed string items through the ordinary `BuildWorkflow` Agent Framework
-  feedback scheduler using a validated root Loop graph. It derives each frame
-  from the Loop activation owner, binds declared item/index parameters, and
-  holds one Fork/Join sibling to prove the next item is not admitted before the
-  previous Join drains. Focused unit regressions also cover item failure and
+  feedback scheduler using a validated root Loop graph. Declared array and
+  index parameters flow through Workflow Value and Array Get nodes into
+  parallel branch Agent inputs; frames come from the Loop activation owner.
+  A side-effecting Agent inside the body runs once per item, and an empty-array
+  case proves the body is skipped. A held Fork/Join sibling proves the next
+  item is not admitted before the previous Join drains. Focused unit
+  regressions also cover item failure and
   event-recorder rejection without admitting later items or fabricating a root
   terminal. Caller cancellation while an item is active also stops feedback
-  admission and records one contiguous root cancellation. This is an adapter-
-  injected proof input, not a public typed-array source or iterator contract.
+  admission and records one contiguous root cancellation. Run parameters seed
+  graph-owned dataflow in this proof; it adds no public iterator contract. A
+  once-before-Loop execution prefix remains unsupported by current Loop
+  validation and is an unresolved parity gap.
   A deliberately reduced shared root Loop-pass budget admits exactly two of
   three item frames, rejects the third before its start event or Agent runs,
   and records the aggregate Loop body-pass failure.
-  Still unproven are upstream side-effecting topology, Sequence graphs
+  Still unproven are once-before-Loop side-effecting topology, Sequence graphs
   (which use a separate production builder), activation-local Break settlement,
   persisted playback, and budgets composed across nested Loop/WorkflowCall
   activations. The focused selected
   Agent Framework unit selection covering `LoopParallelExecutionTests`,
   `SingleSequenceActivationProductionProofTests`,
   `SingleStreamSequenceProof_*`, `BoundedLoopExecutionTests`, and
-  `WorkflowLoopExecutionBudgetTests` passes 48/48.
+  `WorkflowLoopExecutionBudgetTests` passes 49/49.
   The remaining evidence is the complete supported-body,
   failure/race, shared-budget, persistence, and playback matrix, followed by a
   fresh three-role architecture review. A three-role review on 2026-11-19

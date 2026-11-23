@@ -5102,37 +5102,38 @@ admission and Studio authoring remain closed.
 
 The three-role review selected an Agent Framework feedback experiment before
 testing a separate VAW scheduler adapter. This is a probe of scheduler behavior,
-not a final architecture choice or public capability. A private test seam
-injects three bounded string values into a validated root Loop graph, then runs
-the ordinary unified-schema `BuildWorkflow` and its existing feedback edge.
-The production Loop activation owner creates each body frame and binds declared
-item and zero-based index parameters. A real Fork/Join body holds one sibling;
-the test verifies that the next item does not start until the pending sibling
-settles and the Join drains. The same proof exercises item failure, caller
-cancellation while a first-item Fork/Join is active, and event-recorder
-rejection: none admits later items, and recorder rejection leaves only the
-accepted contiguous event prefix without inventing a root terminal. The
-cancellation case preserves a contiguous root event stream ending in one
-cancellation terminal.
+not a final architecture choice or public capability. A private test seam runs
+three bounded strings through the ordinary unified-schema `BuildWorkflow` and
+its existing feedback edge. A declared array run parameter and index parameter
+feed Workflow Value and Array Get nodes; the Array Get item output supplies two
+parallel branch Agent inputs. The production Loop activation owner creates each
+body frame and binds its zero-based index. A body Agent demonstrates a
+side-effecting operation once per item. An empty-array case confirms the body
+is skipped.
 
-A reduced test allowance uses the existing root `WorkflowLoopPassBudget`: with
-three inputs and a budget of two, exactly two item frames start and execute;
-the third is rejected before its `loop/3` start event or Agent invocation, and
-the root records the aggregate Loop body-pass limit failure. This demonstrates
-that feedback iteration consumes the production root Loop-pass allowance; it
-does not qualify combined nested-loop or WorkflowCall budget races.
+A real Fork/Join body holds one sibling; the test verifies that the next item
+does not start until the pending sibling settles and the Join drains. The same
+proof exercises item failure, caller cancellation while a first-item Fork/Join
+is active, and event-recorder rejection: none admits later items, and recorder
+rejection leaves only the accepted contiguous event prefix without inventing a
+root terminal. A reduced test allowance uses the existing root
+`WorkflowLoopPassBudget`: with three inputs and a budget of two, exactly two
+item frames start and execute; the third is rejected before its `loop/3` start
+event or Agent invocation, and the root records the aggregate Loop body-pass
+limit failure.
 
-This establishes one important scheduler boundary only. The array is supplied
-through an internal proof adapter rather than authored graph dataflow; the
-fixture is restricted to string elements and a validated root Loop topology,
-with no side-effecting prefix. Graphs containing Sequence are rejected because
-they select `BuildSequenceProductionWorkflow` instead. Activation-local
-cancellation/Break settlement, persistence and passive playback, concurrent/
-shared budget accounting, other supported body topologies, and public typed
-item/index pins remain unqualified. The next work
-should test these gaps while retaining the public schema and Studio gate; if the
-ordinary scheduler cannot enforce admission and drain semantics across them,
-then compare a VAW-owned scheduler adapter. Focused unit selection:
-`LoopParallelExecutionTests`, `SingleSequenceActivationProductionProofTests`,
-`SingleStreamSequenceProof_*`, `BoundedLoopExecutionTests`, and
-`WorkflowLoopExecutionBudgetTests` passed 48/48 on 2026-11-23.
+This establishes the feedback scheduler's drain and admission boundary for
+one graph-derived Array Get → Agent dataflow path. It does not change the Core
+Loop contract: the Loop must still be the unique root entry and remain reachable
+through its owning body. In particular, a side-effecting execution prefix that
+runs once before entering the Loop remains unsupported and is an unresolved
+parity gap. The experiment is limited to string elements and a validated root
+Loop; Sequence graphs select `BuildSequenceProductionWorkflow` instead.
+Activation-local Break settlement, persistence and passive playback, combined
+nested-loop/WorkflowCall budgets, other body topologies, and public typed
+item/index pins remain unqualified. Retain the public schema and Studio gate;
+continue testing these gaps before comparing runtime architectures. Focused unit
+selection: `LoopParallelExecutionTests`,
+`SingleSequenceActivationProductionProofTests`, `SingleStreamSequenceProof_*`,
+`BoundedLoopExecutionTests`, and `WorkflowLoopExecutionBudgetTests` passed 49/49
+on 2026-11-23.

@@ -679,21 +679,21 @@ inner executions do not share one aggregate work/evidence budget. Persistence,
 playback, broader body topologies, concurrency, and public iterator behavior
 remain unproven.
 
-A separate private proof injects typed string items into a validated root Loop
-in the ordinary `BuildWorkflow` graph builder. The production Loop activation
-owner creates each frame and binds the declared item and zero-based index
-parameters; the Agent Framework feedback edge schedules each body pass. A
-Fork/Join test holds one sibling and demonstrates that another item is not
-admitted until the prior Join drains. Failure, caller cancellation, and event-
-recorder rejection prevent later item admission; recorder rejection also
-suppresses a fabricated root terminal. A reduced shared root Loop-pass budget
-also rejects the third item frame before it starts when the budget is two. This
-experiment does not add a graph-authored array source or public iterator
-behavior. It is limited to string items and a validated root Loop, rejects
-Sequence graphs because they use another production builder, and does not
-qualify activation-local Break, persisted playback, or budgets composed across
-nested Loop/WorkflowCall activations. The final runtime architecture remains
-unselected.
+A separate private proof runs bounded string items through a validated root
+Loop in the ordinary `BuildWorkflow` graph builder. Run-parameter values feed
+Workflow Value and Array Get nodes, whose item output supplies parallel branch
+Agent inputs; the Loop activation owner creates frames and binds the declared
+zero-based index. An additional Agent inside the body proves once-per-item
+side effects, and a held Fork/Join sibling demonstrates that another item is
+not admitted until the prior Join drains. Empty arrays skip the body. Failure,
+caller cancellation, recorder rejection, and a reduced shared Loop-pass budget
+also prevent later item admission under their respective conditions. This does
+not change Loop validation or add a public iterator contract. A once-before-Loop
+execution prefix remains unsupported by the validated topology. The proof is
+limited to string arrays and a root Loop; Sequence graphs use another
+production builder. Activation-local Break, persisted playback, and budgets
+composed across nested Loop/WorkflowCall activations remain unqualified. The
+final runtime architecture remains unselected.
 
 ## Reconciliation assessment and operator assertions
 

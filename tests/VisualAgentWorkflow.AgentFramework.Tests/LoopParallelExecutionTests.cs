@@ -18,7 +18,7 @@ public sealed class LoopParallelExecutionTests
 
         var execution = new WorkflowRunner(agents: executor)
             .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
-                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "item", "index", WorkflowDataTypes.String,
+                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "items", "index", WorkflowDataTypes.String,
                 evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
 
         await Task.WhenAll(executor.FirstLeftBranchStarted.Task, executor.FirstRightBranchStarted.Task)
@@ -37,12 +37,17 @@ public sealed class LoopParallelExecutionTests
             .Where(call => call.NodeId == "agent-a").Select(call => call.Input));
         Assert.Equal(new[] { "alpha", "beta", "gamma" }, executor.Invocations
             .Where(call => call.NodeId == "agent-b").Select(call => call.Input));
+        var bodyAgentInputs = executor.Invocations.Where(call => call.NodeId == "body-agent")
+            .Select(call => call.Input).ToArray();
+        Assert.Equal(3, bodyAgentInputs.Length);
+        Assert.Equal("continue", bodyAgentInputs[0]);
         foreach (var call in executor.Invocations.Where(call => call.NodeId is "agent-a" or "agent-b"))
         {
             var expectedIndex = Array.IndexOf(new[] { "alpha", "beta", "gamma" }, call.Input);
             Assert.Equal(expectedIndex.ToString(), call.Parameters!["index"]);
-            Assert.Equal(call.Input, call.Parameters["item"]);
         }
+        Assert.Equal(6, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+            evt.NodeId == "array-get"));
 
         var starts = events.Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted).ToArray();
         var completions = events.Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted).ToArray();
@@ -63,7 +68,7 @@ public sealed class LoopParallelExecutionTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(agents: executor)
             .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
-                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "item", "index", WorkflowDataTypes.String,
+                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "items", "index", WorkflowDataTypes.String,
                 evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }));
 
         Assert.Equal(new[] { "alpha", "beta" }, executor.Invocations
@@ -73,6 +78,28 @@ public sealed class LoopParallelExecutionTests
             evt.ScopeId == "loop/3");
         Assert.Equal(ExecutionEventKinds.Failed, events.Last().Kind);
         Assert.Equal(Enumerable.Range(1, events.Count).Select(value => (long)value), events.Select(evt => evt.Sequence));
+    }
+
+    [Fact]
+    public async Task Feedback_scheduler_graph_data_empty_array_skips_body_nodes()
+    {
+        var revision = WorkflowRevision.Create(LoopWithParallelBodyAndArrayParameters(),
+            "feedback-array-iteration-empty-proof");
+        var executor = new HeldArrayFeedbackAgentExecutor();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(agents: executor)
+            .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
+                "[]", "loop", "items", "index", WorkflowDataTypes.String,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("[]", result.Output);
+        Assert.Empty(executor.Invocations);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId is "body-agent" or "agent-a" or "agent-b");
+        Assert.Equal(ExecutionEventKinds.Completed, events.Last().Kind);
     }
 
     [Fact]
@@ -86,7 +113,7 @@ public sealed class LoopParallelExecutionTests
 
         var execution = new WorkflowRunner(agents: executor)
             .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
-                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "item", "index", WorkflowDataTypes.String,
+                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "items", "index", WorkflowDataTypes.String,
                 evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }, cancellation.Token);
 
         await Task.WhenAll(executor.FirstLeftBranchStarted.Task, executor.FirstRightBranchStarted.Task)
@@ -115,7 +142,7 @@ public sealed class LoopParallelExecutionTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(agents: executor)
             .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
-                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "item", "index", WorkflowDataTypes.String,
+                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "items", "index", WorkflowDataTypes.String,
                 evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }, maximumLoopPasses: 2));
 
         Assert.Equal(new[] { "alpha", "beta" }, executor.Invocations
@@ -140,7 +167,7 @@ public sealed class LoopParallelExecutionTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(agents: executor)
             .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
-                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "item", "index", WorkflowDataTypes.String,
+                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "items", "index", WorkflowDataTypes.String,
                 evt =>
                 {
                     if (!rejected && evt.Kind == ExecutionEventKinds.LoopIterationStarted && evt.ScopeId == "loop/2")
@@ -280,16 +307,46 @@ public sealed class LoopParallelExecutionTests
     private static WorkflowDefinition LoopWithParallelBodyAndArrayParameters()
     {
         var definition = LoopWithParallelBody();
+        var arrayType = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String);
+        var nodes = definition.Nodes
+            .SetItem("body-agent", new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, "body side effect", [])))
+            .SetItem("array-value", new(NodeTypes.WorkflowValue, "1.0.0")
+            {
+                ParameterId = "items",
+                OutputDataType = arrayType
+            })
+            .SetItem("index-value", new(NodeTypes.WorkflowValue, "1.0.0")
+            {
+                ParameterId = "index",
+                OutputDataType = WorkflowDataTypes.Integer
+            })
+            .SetItem("array-get", new(NodeTypes.ArrayGet, "1.0.0")
+            {
+                ArrayElementType = WorkflowDataTypes.String
+            })
+            .SetItem("output", definition.Nodes["output"] with { OutputDataType = arrayType });
+        var execution = definition.ExecutionConnections!
+            .Remove("body-fork")
+            .Add("body-agent", Edge("body", "then", "body-agent", "execute"))
+            .Add("body-fork", Edge("body-agent", "out", "fork", "execute"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("array-get-array", new(new("array-value", "out"), new("array-get", "array"), "data"))
+            .Add("array-get-index", new(new("index-value", "out"), new("array-get", "index"), "data"))
+            .Add("agent-a-item", new(new("array-get", "item"), new("agent-a", "in"), "data"))
+            .Add("agent-b-item", new(new("array-get", "item"), new("agent-b", "in"), "data"))
+            .Add("array-output", new(new("array-value", "out"), new("output", "in"), "data"));
         return definition with
         {
             WorkflowId = "feedback-array-iteration-proof",
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
-                .Add("item", new("Item", "") { Type = WorkflowDataTypes.String })
+                .Add("items", new("Items", "[]") { Type = arrayType })
                 .Add("index", new("Index", "0") { Type = WorkflowDataTypes.Integer }),
-            Nodes = definition.Nodes.SetItem("loop", definition.Nodes["loop"] with
+            Nodes = nodes.SetItem("loop", definition.Nodes["loop"] with
             {
                 Loop = new(new("contains", "continue"), 3)
-            })
+            }),
+            Connections = data,
+            ExecutionConnections = execution
         };
     }
 
@@ -340,6 +397,7 @@ public sealed class LoopParallelExecutionTests
             CancellationToken cancellationToken = default)
         {
             invocations.Enqueue(new(invocation.NodeId, input, invocation.Parameters));
+            if (invocation.NodeId == "body-agent") return "continue";
             if (input == failOnInput) throw new InvalidOperationException("Controlled item failure.");
             if (failOnInput is null && invocation.NodeId == "agent-a" && input == "alpha")
             {
