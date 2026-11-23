@@ -111,6 +111,31 @@ public sealed class NestedLoopExecutionTests
     }
 
     [Fact]
+    public async Task Nested_pinned_workflow_calls_share_the_root_loop_budget_and_scope_prefix()
+    {
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var leaf = WorkflowRevision.Create(LoopingChildGraph("recursive-loop-budget-leaf"),
+            "recursive-loop-budget-leaf");
+        var middle = WorkflowRevision.Create(WorkflowCallChain("recursive-loop-budget-middle", leaf),
+            "recursive-loop-budget-middle");
+        var root = WorkflowRevision.Create(SingleWorkflowCallGraph("recursive-loop-budget-root", middle),
+            "recursive-loop-budget-root");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new WorkflowRunner(agents: new EchoAgentExecutor()).ExecuteWithLoopBudgetsProofAsync(
+                Guid.NewGuid(), root, "continue", maximumLoopPasses: 1, maximumLoopEvidenceEvents: 100,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "call/call-1/loop/1");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed &&
+            evt.ScopeId == "call/call-2");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null &&
+            evt.Data?.Contains("aggregate Loop body-pass limit", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
     public async Task Public_runner_does_not_complete_parent_iterations_after_a_nested_node_failure()
     {
         var events = new ConcurrentQueue<ExecutionEvent>();
@@ -267,6 +292,28 @@ public sealed class NestedLoopExecutionTests
             .Add("left-join", Edge("call-left", "out", "join", "branch.left"))
             .Add("right-join", Edge("call-right", "out", "join", "branch.right"))
             .Add("join-output", Edge("join", "then", "output", "execute"));
+        return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition SingleWorkflowCallGraph(string workflowId, WorkflowRevision child)
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("call", new(NodeTypes.WorkflowCall, "1.0.0")
+            {
+                WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1,
+                    child.ContentHash, child.Definition)
+            })
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-call", new(new("input", "out"), new("call", "in"), "data"))
+            .Add("call-output", new(new("call", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-call", Edge("input", "then", "call", "execute"))
+            .Add("call-output", Edge("call", "out", "output", "execute"));
         return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input", nodes, data)
         {
             ExecutionConnections = execution

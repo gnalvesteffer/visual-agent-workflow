@@ -432,9 +432,10 @@ introduced.
   cover structured, fresh-subworkflow, and hybrid execution. A private
   VAW-owned coordinator now carries frames, root lifecycle, and atomic
   work/evidence budgets across production Agent Framework body dispatch and
-  Agent/MCP nodes. A focused public-runner unit regression also proves that
-  parallel pinned WorkflowCall children share the root's atomic Loop-pass cap;
-  this does not close the iterator coordinator's concurrent reservation gate.
+  Agent/MCP nodes. Focused public-runner unit regressions prove that parallel
+  and recursively nested pinned WorkflowCall children share the root's atomic
+  Loop-pass cap and preserve fully prefixed event scopes; these do not close
+  the iterator coordinator's concurrent reservation gate.
   The remaining evidence is the complete supported-body,
   failure/race, shared-budget, persistence, and playback matrix, followed by a
   fresh three-role architecture review. A three-role review on 2026-11-19
