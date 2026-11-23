@@ -407,11 +407,26 @@ limit settles two items and rejects the third before admission. The focused
 Sequence/Break, bounded-loop, and coordinator unit selections pass 54/54. This
 is private coordinator and Sequence composition evidence only: it still
 bypasses the outer graph scheduler and does not derive iteration from an
-authored node. Ordinary graph-body ownership, broader topology and concurrency,
-persistent playback,
-and public iterator/Break support remain open. User-guide instructions are
-unchanged because no authorable behavior is shipped. See [Decision
+authored node. Ordinary graph-body dispatch through the regular builder is
+covered separately below; broader topology and concurrency, persistent
+playback, and public iterator/Break support remain open. User-guide instructions
+are unchanged because no authorable behavior is shipped. See [Decision
 0070](decisions/0070-bounded-array-iteration-contract.md).
+
+A private ordinary-body coordinator proof now runs a normally validated
+Input → Agent → Output graph for each array item through the regular Agent
+Framework builder. The root activation owner creates the typed item/index
+frames and shares its pass/evidence budgets with each dispatched body. Unit
+tests cover typed parameter binding, event scopes and terminal ordering,
+budget rejection before the next item, failure, and cancellation. The related
+Agent Framework selection passes 58/58 with the Sequence coordinator tests.
+Together with the Sequence-specific proof above, this closes per-item
+dispatch through both ordinary and Sequence production paths under the same
+root frame/budget owner. It remains private proof plumbing: the outer graph
+scheduler does not admit an authored iterator, Break routing and pending-work
+drain are not integrated in this coordinator, and File/SQLite playback is
+unproven for the combined path. Public For Each and Break remain gated. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 - [x] Add the schema-2.0 immutable typed-array contract and compose literal,
   length, and indexed-read nodes with existing pure scalar dataflow. Verify

@@ -122,7 +122,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
         SequenceProductionPlan? sequencePlan = null,
         SequenceProductionDispatchSession? sequenceDispatchSession = null,
-        bool allowNestedForksProof = false)
+        bool allowNestedForksProof = false,
+        WorkflowLoopPassBudget? workflowLoopPassBudget = null,
+        WorkflowLoopExecutionBudget? workflowLoopEvidenceBudget = null,
+        string loopEvidenceScopePrefix = "")
     {
         ArgumentNullException.ThrowIfNull(record);
         string? terminalNodeId = null;
@@ -192,6 +195,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 afterNodeStarted: afterNodeStarted,
                 activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds,
                 sequenceDispatchSession: sequenceDispatchSession,
+                workflowLoopPassBudget: workflowLoopPassBudget,
+                workflowLoopEvidenceBudget: workflowLoopEvidenceBudget,
+                loopEvidenceScopePrefix: loopEvidenceScopePrefix,
                 captureActivationBreak: request =>
                 {
                     breakRequest = request;

@@ -309,6 +309,113 @@ public sealed partial class WorkflowRunner
         }
     }
 
+    internal Task<WorkflowExecutionResult> ExecuteMultiItemOrdinaryActivationCoordinatorProofAsync(
+        Guid runId, WorkflowRevision revision, string jsonItems, string indexParameterId,
+        string? itemParameterId, string arrayElementType, Func<ExecutionEvent, ValueTask> record,
+        CancellationToken cancellationToken = default, int? maximumLoopPasses = null)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        ArgumentNullException.ThrowIfNull(jsonItems);
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentException.ThrowIfNullOrWhiteSpace(indexParameterId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(arrayElementType);
+        if (jsonItems.Length > 16_384)
+            throw new ArgumentException("Activation proof input exceeds 16,384 characters.", nameof(jsonItems));
+        if (!WorkflowArrayLiteral.TryParseValue(arrayElementType, jsonItems, out var typedItems, out var arrayError))
+            throw new ArgumentException($"Activation proof input is not a valid {WorkflowDataTypes.ArrayOf(arrayElementType)}: {arrayError}",
+                nameof(jsonItems));
+        if (CreateSequenceProductionPlan(revision) is not null)
+            throw new ArgumentException("The ordinary-body proof does not accept Sequence graphs.", nameof(revision));
+
+        var parsedItems = ParseProductionActivationItems(typedItems, arrayElementType);
+        var baseParameters = WorkflowParameters.Resolve(revision.Definition, null) ??
+            ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+        return ExecuteCoreAsync(runId, revision, jsonItems, baseParameters, record, null, cancellationToken,
+            proofMaximumLoopActivations: parsedItems.Length,
+            proofMaximumLoopPasses: maximumLoopPasses,
+            rootCoordinatorProof: ExecuteCoordinatorAsync);
+
+        async Task<WorkflowExecutionResult> ExecuteCoordinatorAsync(
+            StructuredActivationFrameOwner frameOwner,
+            Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
+            Action markRootRecorderUncertain,
+            CancellationToken runToken)
+        {
+            async ValueTask EmitCoordinatorEvent(string kind, string? nodeId = null,
+                Guid? invocationId = null, string? connectionId = null, string? data = null,
+                string? scopeId = null)
+            {
+                try
+                {
+                    await emit(kind, nodeId, invocationId, connectionId, data, scopeId);
+                }
+                catch
+                {
+                    markRootRecorderUncertain();
+                    throw;
+                }
+            }
+
+            string? lastOutput = null;
+            for (var index = 0; index < parsedItems.Length; index++)
+            {
+                runToken.ThrowIfCancellationRequested();
+                var frame = frameOwner.CreateBodyPass("array-loop", index + 1, parsedItems.Length,
+                    parsedItems[index], baseParameters, parentFrame: null, itemDataType: arrayElementType);
+                frame = frame with
+                {
+                    Parameters = frame.BindIteratorValues(revision.Definition, itemParameterId, indexParameterId,
+                        zeroBasedIndex: index)
+                };
+                await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id,
+                    scopeId: frame.ScopeId);
+
+                var body = await ExecuteBodyForActivationProofAsync(runId, revision, frame.Item, frame.Parameters,
+                    evt => EmitCoordinatorEvent(evt.Kind, evt.NodeId, evt.InvocationId, evt.ConnectionId,
+                        evt.Data, evt.ScopeId ?? frame.ScopeId), runToken, activationFrame: frame,
+                    workflowLoopPassBudget: frameOwner.LoopPassBudget,
+                    workflowLoopEvidenceBudget: frameOwner.LoopExecutionBudget,
+                    loopEvidenceScopePrefix: frameOwner.LoopEvidenceScopePrefix);
+
+                if (body.Disposition == WorkflowBodyProofDisposition.EvidenceWriteFailed)
+                    throw body.EvidenceWriteError ?? new InvalidOperationException("Body evidence could not be recorded.");
+                if (body.Disposition == WorkflowBodyProofDisposition.BudgetRejected)
+                    throw new InvalidOperationException("The shared iterator body-pass budget was exhausted.");
+
+                var outcome = body.Disposition switch
+                {
+                    WorkflowBodyProofDisposition.Succeeded => "completed",
+                    WorkflowBodyProofDisposition.Terminated => "terminated",
+                    WorkflowBodyProofDisposition.Cancelled => "cancelled",
+                    WorkflowBodyProofDisposition.TimedOut => "timed-out",
+                    WorkflowBodyProofDisposition.OutcomeUnknown => "outcome-unknown",
+                    _ => "failed"
+                };
+                await EmitCoordinatorEvent(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id,
+                    data: JsonSerializer.Serialize(new { outcome }), scopeId: frame.ScopeId);
+
+                switch (body.Disposition)
+                {
+                    case WorkflowBodyProofDisposition.Succeeded:
+                        lastOutput = body.Output;
+                        break;
+                    case WorkflowBodyProofDisposition.Terminated:
+                        return new(body.Output, true, HasOutput: false);
+                    case WorkflowBodyProofDisposition.Cancelled:
+                        return new(null, false, Cancelled: true, HasOutput: false);
+                    case WorkflowBodyProofDisposition.TimedOut:
+                        return new(null, true, Failed: true, HasOutput: false);
+                    case WorkflowBodyProofDisposition.OutcomeUnknown:
+                        return new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false);
+                    default:
+                        return new(null, true, Failed: true, HasOutput: false);
+                }
+            }
+
+            return new(lastOutput, false, HasOutput: parsedItems.Length > 0);
+        }
+    }
+
     private static WorkflowDefinition ValidationProjection(WorkflowDefinition definition)
     {
         var proofBreakNodes = definition.Nodes.Where(entry => entry.Value.Type == StructuredProofBreakNodeType)

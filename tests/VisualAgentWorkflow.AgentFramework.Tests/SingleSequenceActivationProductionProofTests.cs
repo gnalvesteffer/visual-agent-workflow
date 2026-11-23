@@ -148,6 +148,99 @@ public sealed class SingleSequenceActivationProductionProofTests
     }
 
     [Fact]
+    public async Task Multi_item_ordinary_coordinator_uses_validated_graph_dispatch_and_root_frames()
+    {
+        var revision = CreateOrdinaryRevision("multi-item-ordinary-proof");
+        var agent = new CapturingAgentExecutor();
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(agents: agent)
+            .ExecuteMultiItemOrdinaryActivationCoordinatorProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\"]", "index", "item", WorkflowDataTypes.String,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("beta", result.Output);
+        Assert.Equal(new[] { ("alpha", "0"), ("beta", "1") }, agent.Invocations
+            .Select(invocation => (invocation.Input, invocation.Parameters!["index"])));
+        Assert.Equal(new[] { "array-loop/1", "array-loop/2" }, events
+            .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted)
+            .Select(evt => evt.ScopeId));
+        Assert.Equal(new[] { "array-loop/1", "array-loop/2" }, events
+            .Where(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent")
+            .Select(evt => evt.ScopeId));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        AssertTerminalAndContiguous(events, ExecutionEventKinds.Completed);
+        Assert.Equal("completed", JsonDocument.Parse(events.Last(evt =>
+            evt.Kind == ExecutionEventKinds.LoopIterationCompleted).Data!).RootElement
+            .GetProperty("outcome").GetString());
+    }
+
+    [Fact]
+    public async Task Multi_item_ordinary_coordinator_shares_root_body_pass_budget()
+    {
+        var revision = CreateOrdinaryRevision("bounded-multi-item-ordinary-proof");
+        var agent = new CapturingAgentExecutor();
+        var events = new List<ExecutionEvent>();
+
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => new WorkflowRunner(agents: agent)
+            .ExecuteMultiItemOrdinaryActivationCoordinatorProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\",\"gamma\"]", "index", "item", WorkflowDataTypes.String,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }, maximumLoopPasses: 2));
+
+        Assert.Equal(new[] { "alpha", "beta" }, agent.Invocations.Select(invocation => invocation.Input));
+        Assert.Equal(new[] { "array-loop/1", "array-loop/2" }, events
+            .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted)
+            .Select(evt => evt.ScopeId));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "array-loop/3");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertTerminalAndContiguous(events, ExecutionEventKinds.Failed);
+    }
+
+    [Fact]
+    public async Task Multi_item_ordinary_coordinator_stops_admission_after_body_failure()
+    {
+        var revision = CreateOrdinaryRevision("failed-multi-item-ordinary-proof");
+        var agent = new CapturingAgentExecutor(failOnInput: "beta");
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(agents: agent)
+            .ExecuteMultiItemOrdinaryActivationCoordinatorProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\",\"gamma\"]", "index", "item", WorkflowDataTypes.String,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.True(result.Failed);
+        Assert.Equal(new[] { "alpha", "beta" }, agent.Invocations.Select(invocation => invocation.Input));
+        Assert.Equal(new[] { "completed", "failed" }, events
+            .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted)
+            .Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("outcome").GetString()));
+        AssertTerminalAndContiguous(events, ExecutionEventKinds.Failed);
+    }
+
+    [Fact]
+    public async Task Multi_item_ordinary_coordinator_stops_admission_on_cancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var revision = CreateOrdinaryRevision("cancelled-multi-item-ordinary-proof");
+        var agent = new CapturingAgentExecutor(cancelOnInput: cancellation);
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(agents: agent)
+            .ExecuteMultiItemOrdinaryActivationCoordinatorProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\",\"gamma\"]", "index", "item", WorkflowDataTypes.String,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }, cancellation.Token);
+
+        Assert.True(result.Cancelled);
+        Assert.Equal(new[] { "alpha", "beta" }, agent.Invocations.Select(invocation => invocation.Input));
+        Assert.Equal(new[] { "completed", "cancelled" }, events
+            .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted)
+            .Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("outcome").GetString()));
+        AssertTerminalAndContiguous(events, ExecutionEventKinds.Cancelled);
+    }
+
+    [Fact]
     public async Task Single_item_coordinator_binds_the_item_and_completes_one_sequence_activation()
     {
         var revision = CreateSequenceRevision("single-item-coordinator-proof");
@@ -304,6 +397,30 @@ public sealed class SingleSequenceActivationProductionProofTests
                 .Add("sequence-follow-up-agent", Edge("sequence", "then.follow-up", "follow-up-agent", "execute"))
                 .Add("agent-output", Edge("agent", "out", "output", "execute"))
                 .Add("follow-up-output", Edge("follow-up-agent", "out", "output", "execute"))
+        };
+        return WorkflowRevision.Create(definition, workflowId);
+    }
+
+    private static WorkflowRevision CreateOrdinaryRevision(string workflowId)
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                    { ParameterId = "item", OutputDataType = WorkflowDataTypes.String })
+                .Add("agent", new(NodeTypes.Agent, "1.0.0", Agent: new AgentConfiguration(
+                    "proof.echo", null, "Return the input unchanged.", []) { MaxTurns = 1 }))
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("item-agent", Edge("item", "out", "agent", "in", "data"))
+                .Add("agent-output-data", Edge("agent", "out", "output", "in", "data")))
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Index", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("item", new("Item", "") { Type = WorkflowDataTypes.String }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-agent", Edge("input", "then", "agent", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute"))
         };
         return WorkflowRevision.Create(definition, workflowId);
     }

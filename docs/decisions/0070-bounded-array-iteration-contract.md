@@ -88,6 +88,19 @@ closes only the Sequence proof's duplicate frame/budget ownership; ordinary
 graph-body consolidation, persisted settlement, and the remaining gates above
 are still open.
 
+The next increment adds a private ordinary-graph body path. A normally
+validated Input → Agent → Output graph runs once per item through the regular
+Agent Framework workflow builder; the root activation owner creates each
+typed item/index frame and shares its pass/evidence budgets with those body
+runs. Deterministic unit tests cover value binding, event scopes and root
+terminal ordering, budget rejection before a third item, failure stopping
+later admission, and cancellation stopping later admission. The related
+Agent Framework selection passes 58/58. This proves per-item body dispatch for
+the ordinary builder and the separate production Sequence dispatcher under
+the same root frame/budget owner. It does not integrate an iterator into the
+outer graph scheduler, route or consume Break in this coordinator, or prove
+pending descendant drain and File/SQLite playback; those remain gates.
+
 A further proponent/opponent/adjudicator review after the matched parallel
 Agent-result and typed direct-MCP argument/result proofs also returned
 **REVISE**. The added comparisons strengthen activation-scoped value and join
