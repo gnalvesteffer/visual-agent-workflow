@@ -73,11 +73,12 @@ public sealed partial class WorkflowRunner
             plan.Outputs.Select(output => output.OutputId).ToArray(), connections, scopeId: frame.ScopeId);
         var session = new SequenceProductionDispatchSession(coordinator, frame, proofBreakNodeIds,
             maximumConcurrentOutputs);
-        using var runContext = new StructuredActivationRunContext(runId, revision.RevisionId, record, null,
-            reserveIterationSettlements: true);
+        using var rootOwner = new StructuredActivationFrameOwner(null, null, revision.Definition,
+            countLoopEvidenceEvents: false);
+        rootOwner.BindRootEventRecorder(runId, revision.RevisionId, record, new ExecutionActivationLedger());
         ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
             string? scopeId = null, string? data = null, string? connectionId = null) =>
-            runContext.EmitAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
+            rootOwner.RecordEventAsync(kind, nodeId, invocationId, connectionId, data, scopeId);
         using var sequenceEventGate = new SemaphoreSlim(1, 1);
         async ValueTask FlushSequenceEvents()
         {

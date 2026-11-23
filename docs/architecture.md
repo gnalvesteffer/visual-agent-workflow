@@ -648,6 +648,11 @@ event. Root lifecycle rules, recorder-uncertainty policy, and Loop or proof
 budgets remain with their existing owners; this shared mechanism does not
 select or expose iterator/Break behavior.
 
+The private single-stream Sequence/Break proof now uses a
+`StructuredActivationFrameOwner` for its enclosing root lifecycle and event
+sequence. Its per-body `ExecuteCoreAsync` calls suppress root lifecycle events
+and route node/Sequence evidence to that enclosing owner.
+
 ## Reconciliation assessment and operator assertions
 
 Core's optional `IWorkflowRunReconciliationObserver` supplies cursor-bound metadata without changing the original observer contract. A pure work projection preserves unsettled model/tool/approval facts even after terminal status; new model/tool call IDs distinguish repeated calls without changing event envelopes. Hosting combines that evidence with checkpoint validation; SQLite reads both under one transaction. The protected observation group adds only a GET assessment route, and the Core-only HTTP client plus embeddable reconciliation panel validate identity/cursor alignment. The panel suppresses stale eligibility on source changes or outage and remains independent of playback. The optional `IWorkflowRunReconciliationDecisionStore` stores a separate append-only human assertion, with exact target and current-head checks in one SQLite write transaction. Assertions never alter the assessment or recovery gates. There is no HTTP mutation route or Studio control; a consuming host must provide authenticated actor identity and authorize access before exposing the capability. See [run reconciliation](run-reconciliation.md).

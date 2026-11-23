@@ -357,6 +357,14 @@ iterator coordinator's integration with ordinary root execution and production
 Sequence settlement. See [Decision
 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+The single-stream Sequence/Break coordinator now uses the ordinary
+`StructuredActivationFrameOwner` for its outer root lifecycle and event
+sequencing; production body calls suppress their own root lifecycle and report
+events through the coordinator. Its existing controlled File/SQLite cases
+pass 10/10 after this change. This connects the proof to the ordinary owner
+implementation, but does not share one owner instance across arbitrary body
+calls or complete the supported-body, concurrency, and persistence matrix.
+
 - [x] Add the schema-2.0 immutable typed-array contract and compose literal,
   length, and indexed-read nodes with existing pure scalar dataflow. Verify
   exact type identity, item and payload bounds, scalar output, node-attributed

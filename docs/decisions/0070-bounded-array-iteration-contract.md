@@ -4985,3 +4985,19 @@ admit public array iteration, Break, or Studio authoring. The next test must
 exercise a VAW-owned iterator coordinator across ordinary root execution and
 production Sequence settlement without collapsing the remaining lifecycle,
 uncertainty, or budget policies.
+
+### Single-stream proof uses the ordinary root owner (2026-11-23)
+
+The private `ExecuteSingleStreamSequenceBreakProofAsync` path now creates a
+`StructuredActivationFrameOwner` for its enclosing root lifecycle, activation
+ledger, and event sequence instead of using the proof-specific
+`StructuredActivationRunContext`. Its production body calls still run through
+`ExecuteCoreAsync` with root lifecycle emission suppressed, and route node and
+Sequence events to that enclosing owner. The controlled A-active/B-Break,
+admitted-Agent failure, unknown MCP outcome, and host-cancellation cases pass
+through both stores (10/10).
+
+This proves those cases through the owner implementation used by ordinary graph
+execution. It does not inject that same owner instance into arbitrary body
+calls, qualify other proof coordinators or budget combinations, close the
+supported-body/topology matrix, or authorize public iterator/Break behavior.
