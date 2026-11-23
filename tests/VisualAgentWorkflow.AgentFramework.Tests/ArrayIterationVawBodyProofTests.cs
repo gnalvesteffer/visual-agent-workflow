@@ -16935,23 +16935,26 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Fact]
-    public async Task StructuredSchedulerProof_RejectsWorkflowCallBeyondBoundedChildDepth()
+    public async Task StructuredSchedulerProof_SharesDispatchLedgerAcrossNestedWorkflowCalls()
     {
-        var grandchild = CreatePassthroughRevision("structured-proof-call-grandchild");
+        var greatGrandchild = CreatePassthroughRevision("structured-proof-call-great-grandchild");
+        var grandchild = CreateWorkflowCallRevision("structured-proof-call-grandchild", greatGrandchild);
         var child = CreateWorkflowCallRevision("structured-proof-call-child", grandchild);
         var parent = CreateWorkflowCallRevision("structured-proof-call-parent", child);
         var events = new ConcurrentQueue<ExecutionEvent>();
 
-        var failure = await Record.ExceptionAsync(() => new WorkflowRunner().ExecuteStructuredSchedulerProofAsync(
+        var result = await new WorkflowRunner().ExecuteStructuredSchedulerProofAsync(
             Guid.NewGuid(), parent, "call input", null, evt =>
             {
                 events.Enqueue(evt);
                 return ValueTask.CompletedTask;
-            }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal)));
+            }, proofDuplicateForkDeliveries: new Dictionary<string, int>(StringComparer.Ordinal));
 
-        Assert.IsType<NotSupportedException>(failure);
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed);
-        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
+        Assert.Equal("call input", result.Output);
+        Assert.Equal(events.Count, events.Select(evt => evt.Sequence).Distinct().Count());
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.SubworkflowStarted));
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
     }
 
     [Fact]

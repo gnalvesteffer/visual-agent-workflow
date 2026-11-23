@@ -363,3 +363,14 @@ Join, Loop feedback, Sequence, workflow calls, collaboration, cancellation,
 failure, evidence-write failure, and bounded cleanup. If any transition still
 bypasses admission or the required behavior demands a hidden schema split, the
 design is not ready for production integration.
+
+## Proof scheduler nested WorkflowCall recursion (2026-11-23)
+
+The proof-only dispatcher no longer imposes an extra one-child WorkflowCall
+limit. A focused unit test runs three nested pinned child calls—the maximum
+depth admitted by `WorkflowCallLimits`—through the same dispatch ledger and
+event sequencer, and verifies successful output plus all three subworkflow
+start/completion pairs. Recursive definitions beyond the existing validator
+bound remain rejected by Core. This removes a prototype-only restriction; it
+does not establish public root-dispatch integration or broader child-workflow
+parity.

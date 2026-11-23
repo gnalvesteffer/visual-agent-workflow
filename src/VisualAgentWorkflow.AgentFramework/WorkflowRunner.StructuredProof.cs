@@ -1262,8 +1262,7 @@ public sealed partial class WorkflowRunner
         StructuredActivationFrameOwner? activationFrameOwner = null,
         IReadOnlyDictionary<string, int>? proofDuplicateForkDeliveries = null,
         StructuredProofDispatchLedger? sharedProofDispatchLedger = null,
-        StructuredProofDispatchLedger.Delivery? initialProofDelivery = null,
-        int proofWorkflowCallDepth = 0)
+        StructuredProofDispatchLedger.Delivery? initialProofDelivery = null)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
@@ -1596,8 +1595,6 @@ public sealed partial class WorkflowRunner
                     string childInput, IReadOnlyDictionary<string, string>? currentParameters,
                     string? currentScopeId, CancellationToken childToken)
                 {
-                    if (proofWorkflowCallDepth != 0)
-                        throw new NotSupportedException("The structured scheduler proof currently bounds WorkflowCall nesting to one child level.");
                     var parentDelivery = proofDelivery
                         ?? throw new InvalidOperationException("Proof WorkflowCall dispatch has no admitted delivery identity.");
                     var childDelivery = dispatchLedger!.AdmitChildDelivery(parentDelivery);
@@ -1642,8 +1639,7 @@ public sealed partial class WorkflowRunner
                         null, null, null, null, null, activationFrameOwner: null,
                         proofDuplicateForkDeliveries: proofDuplicateForkDeliveries ??
                             new Dictionary<string, int>(StringComparer.Ordinal),
-                        sharedProofDispatchLedger: dispatchLedger, initialProofDelivery: childDelivery,
-                        proofWorkflowCallDepth: proofWorkflowCallDepth + 1);
+                        sharedProofDispatchLedger: dispatchLedger, initialProofDelivery: childDelivery);
                     return childResult.Execution;
                 }
 
