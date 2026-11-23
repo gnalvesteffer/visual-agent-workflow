@@ -519,13 +519,18 @@ unchanged because no authorable behavior is shipped. See [Decision
   terminal. Caller cancellation while an item is active also stops feedback
   admission and records one contiguous root cancellation. Run parameters seed
   graph-owned dataflow in this proof; it adds no public iterator contract. A
-  second private proof sends execution through exactly one prefix Agent before
-  the root Loop. It runs the Agent once for nonempty and empty arrays, confirms
-  the existing item/index wires are unchanged, and verifies prefix failure or
-  cancellation prevents Loop admission. This uses an internal proof revision
-  and bypasses workflow validation and activation-plan compilation; public Loop
-  validation still rejects the prefix. The Agent's output is not used as body
-  data, and other prefix topologies are unproven.
+  second proof sends execution through exactly one prefix Agent before the
+  root Loop. The three-role adjudication approved public admission only for
+  `Input → Agent → root Loop`, with caller input connected to Agent and no
+  Agent output data consumers. Core validation and the structured activation
+  plan now accept this exact schema-2.0 topology; the ordinary runner unit test
+  uses a normally validated revision and compiles that plan. Tests retain the
+  nonempty/empty scheduler cases and prove Agent failure or cancellation
+  prevents Loop admission. Core tests reject multiple prefix Agents, extra
+  routes, consumed output, and alternate entry, and verify package round-trip.
+  This does not make the private typed-array iteration adapter public or pass
+  the broader iterator architecture gate in Decision 0070; other execution
+  prefixes remain unsupported.
   A deliberately reduced shared root Loop-pass budget admits exactly two of
   three item frames, rejects the third before its start event or Agent runs,
   and records the aggregate Loop body-pass failure.

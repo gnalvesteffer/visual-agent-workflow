@@ -38,8 +38,7 @@ internal sealed record LoopFeedbackTopologyProof(
 }
 
 /// <summary>
-/// Non-authoritative topology experiment for comparing nested loop feedback pin contracts.
-/// It does not participate in graph validation, serialization admission, or execution.
+/// Graph-derived ownership analysis for bounded Loop feedback topologies.
 /// </summary>
 internal static class LoopFeedbackTopologyProofAnalyzer
 {
@@ -346,14 +345,46 @@ internal static class LoopFeedbackTopologyProofAnalyzer
             .SelectMany(pair => pair.Value.Ports.Where(port => port.Kind == WorkflowPortKind.Execution && port.Direction == WorkflowPortDirection.Output &&
                     port.ExecutionRole == WorkflowExecutionPinRole.ContinuationOutput)
                 .Select(port => (NodeId: pair.Key, PortId: port.Id))).ToArray();
-        var rootLoops = edges.Where(item => rootOutputs.Contains((item.Edge.Source.NodeId, item.Edge.Source.PortId)) &&
-                Pins(item.Edge.Target.NodeId, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopInitialInput).Any(pin => pin.Id == item.Edge.Target.PortId) &&
-                loops.Contains(item.Edge.Target.NodeId, StringComparer.Ordinal))
-            .Select(item => item.Edge.Target.NodeId).Distinct(StringComparer.Ordinal).ToArray();
+        var initialLoopEdges = edges.Where(item =>
+                Pins(item.Edge.Target.NodeId, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopInitialInput)
+                    .Any(pin => pin.Id == item.Edge.Target.PortId) && loops.Contains(item.Edge.Target.NodeId, StringComparer.Ordinal))
+            .ToArray();
+        var rootEdges = initialLoopEdges.Where(item => rootOutputs.Contains((item.Edge.Source.NodeId, item.Edge.Source.PortId)) ||
+            IsOnceOnlyAgentPrefixEdge(item)).ToArray();
+        foreach (var edge in initialLoopEdges.Where(item => pinDescriptors.GetValueOrDefault(item.Edge.Source.NodeId)?.NodeType == NodeTypes.Agent &&
+                     !rootEdges.Contains(item)))
+            Issue("loop.feedback.root.prefix", $"executionConnections.{edge.Id}",
+                "A root Loop may follow an Agent only through the exact Input → Agent → Loop prefix, with caller input connected and no Agent data output consumers.");
+
+        var rootLoops = rootEdges.Select(item => item.Edge.Target.NodeId).Distinct(StringComparer.Ordinal).ToArray();
         if (rootLoops.Length != 1)
             Issue("loop.feedback.root", "executionConnections", "The graph must enter exactly one root loop for this comparison.");
         else
             AnalyzeRegion(rootLoops[0], null);
+
+        bool IsOnceOnlyAgentPrefixEdge((string Id, ConnectionDefinition Edge) candidate)
+        {
+            var agentId = candidate.Edge.Source.NodeId;
+            if (candidate.Edge.Source.PortId != "out" || candidate.Edge.Target.PortId != "execute" ||
+                definition.EntryNodeId is not { } entryId ||
+                !definition.Nodes.TryGetValue(entryId, out var entryNode) || entryNode?.Type != NodeTypes.Input ||
+                !definition.Nodes.TryGetValue(agentId, out var agentNode) || agentNode?.Type != NodeTypes.Agent ||
+                definition.Nodes.Values.Count(node => node?.Type == NodeTypes.Input) != 1)
+                return false;
+
+            var agentExecution = edges.Where(item => item.Edge.Source.NodeId == agentId || item.Edge.Target.NodeId == agentId).ToArray();
+            var entryExecution = edges.Where(item => item.Edge.Source.NodeId == entryId).ToArray();
+            var agentDataInputs = definition.Connections.Values.Where(edge => edge.Target.NodeId == agentId).ToArray();
+            return agentExecution.Length == 2 &&
+                agentExecution.Any(item => item.Edge.Source == new PortReference(entryId, "then") &&
+                    item.Edge.Target == new PortReference(agentId, "execute")) &&
+                agentExecution.Any(item => item.Id == candidate.Id) &&
+                entryExecution.Length == 1 && entryExecution[0].Edge.Source == new PortReference(entryId, "then") &&
+                agentDataInputs.Length == 1 &&
+                agentDataInputs[0].Source == new PortReference(entryId, "out") &&
+                agentDataInputs[0].Target == new PortReference(agentId, "in") &&
+                !definition.Connections.Values.Any(edge => edge.Source.NodeId == agentId);
+        }
 
         foreach (var loopId in loops.Where(id => !analyzedLoops.Contains(id)))
             Issue("loop.feedback.unreachable", $"nodes.{loopId}", "Every loop must be reachable from the root loop through one owning body.");

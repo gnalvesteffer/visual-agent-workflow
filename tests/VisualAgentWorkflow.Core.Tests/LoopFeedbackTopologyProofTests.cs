@@ -7,6 +7,88 @@ namespace VisualAgentWorkflow.Core.Tests;
 public sealed class LoopFeedbackTopologyProofTests
 {
     [Fact]
+    public void Once_only_agent_prefix_is_validated_planned_and_preserved_by_package_round_trip()
+    {
+        var definition = WithOnceOnlyAgentPrefix(SupportedExplicitLoop());
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        Assert.True(StructuredActivationGraphPlan.TryCreate(definition, out var plan, out var issues),
+            string.Join(Environment.NewLine, issues));
+        Assert.NotNull(plan);
+        Assert.Equal("loop", Assert.Single(plan.LoopRegions).LoopNodeId);
+
+        var restored = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(definition,
+            WorkflowLayout.Create(definition))).Definition;
+
+        Assert.Empty(WorkflowValidator.Validate(restored));
+        Assert.True(StructuredActivationGraphPlan.TryCreate(restored, out var restoredPlan, out var restoredIssues),
+            string.Join(Environment.NewLine, restoredIssues));
+        Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash(restored));
+        Assert.Equal("loop", Assert.Single(restoredPlan!.LoopRegions).LoopNodeId);
+    }
+
+    [Fact]
+    public void Once_only_agent_prefix_rejects_multiple_agents_and_extra_routes()
+    {
+        var valid = WithOnceOnlyAgentPrefix(SupportedExplicitLoop());
+        var secondAgent = new NodeDefinition(NodeTypes.Agent, "1.0.0",
+            Agent: new("test.provider", null, "second prefix", []));
+        var multiplePrefixAgents = valid with
+        {
+            Nodes = valid.Nodes.Add("second-agent", secondAgent),
+            ExecutionConnections = valid.ExecutionConnections!
+                .Remove("prefix-loop")
+                .Add("prefix-second", Edge("prefix-agent", "out", "second-agent", "execute"))
+                .Add("second-loop", Edge("second-agent", "out", "loop", "execute"))
+        };
+        var extraRoute = valid with
+        {
+            ExecutionConnections = valid.ExecutionConnections!.Add("prefix-output", Edge("prefix-agent", "out", "output", "execute"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(multiplePrefixAgents), issue => issue.Code == "loop.feedback.root.prefix");
+        Assert.Contains(WorkflowValidator.Validate(extraRoute), issue => issue.Code == "loop.feedback.root.prefix");
+        Assert.False(StructuredActivationGraphPlan.TryCreate(multiplePrefixAgents, out _, out _));
+        Assert.False(StructuredActivationGraphPlan.TryCreate(extraRoute, out _, out _));
+    }
+
+    [Fact]
+    public void Once_only_agent_prefix_rejects_consumed_output_and_alternate_entry()
+    {
+        var valid = WithOnceOnlyAgentPrefix(SupportedExplicitLoop());
+        var consumedOutput = valid with
+        {
+            Connections = valid.Connections.Add("prefix-output-data",
+                new(new("prefix-agent", "out"), new("step", "in"), "data"))
+        };
+        var alternateEntry = valid with
+        {
+            ExecutionConnections = valid.ExecutionConnections!.Add("input-loop-alternate", Edge("input", "then", "loop", "execute"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(consumedOutput), issue => issue.Code == "loop.feedback.root.prefix");
+        Assert.NotEmpty(WorkflowValidator.Validate(alternateEntry));
+        Assert.False(StructuredActivationGraphPlan.TryCreate(consumedOutput, out _, out _));
+        Assert.False(StructuredActivationGraphPlan.TryCreate(alternateEntry, out _, out _));
+        Assert.Empty(WorkflowValidator.Validate(SupportedExplicitLoop()));
+    }
+
+    [Fact]
+    public void Once_only_agent_prefix_cannot_enter_a_loop_body_anchor()
+    {
+        var definition = WithOnceOnlyAgentPrefix(SupportedExplicitLoop());
+        var nonRootTarget = definition with
+        {
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("prefix-loop")
+                .Add("prefix-body", Edge("prefix-agent", "out", "body", "execute"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(nonRootTarget), issue => issue.Code == "loop.feedback.root");
+        Assert.False(StructuredActivationGraphPlan.TryCreate(nonRootTarget, out _, out _));
+    }
+
+    [Fact]
     public void Supported_loop_topology_matches_after_public_validation_and_package_round_trips()
     {
         var definition = SupportedExplicitLoop();
@@ -776,6 +858,19 @@ public sealed class LoopFeedbackTopologyProofTests
         {
             ExecutionConnections = execution
         };
+    }
+
+    private static WorkflowDefinition WithOnceOnlyAgentPrefix(WorkflowDefinition definition)
+    {
+        var nodes = definition.Nodes.Add("prefix-agent", new(NodeTypes.Agent, "1.0.0",
+            Agent: new("test.provider", null, "run once before loop", [])));
+        var execution = definition.ExecutionConnections!
+            .Remove("start")
+            .Add("input-prefix", Edge("input", "then", "prefix-agent", "execute"))
+            .Add("prefix-loop", Edge("prefix-agent", "out", "loop", "execute"));
+        var connections = definition.Connections.Add("input-prefix",
+            new(new("input", "out"), new("prefix-agent", "in"), "data"));
+        return definition with { Nodes = nodes, ExecutionConnections = execution, Connections = connections };
     }
 
     private static string[] ProjectRegions(LoopFeedbackTopologyProof proof) =>

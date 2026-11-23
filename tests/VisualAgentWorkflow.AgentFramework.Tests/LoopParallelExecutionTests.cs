@@ -12,8 +12,8 @@ public sealed class LoopParallelExecutionTests
     public async Task Feedback_scheduler_binds_each_graph_owned_array_item_and_drains_join_before_next_item()
     {
         var definition = LoopWithParallelBodyAndArrayParameters(includeAgentPrefix: true);
-        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "loop.feedback.root");
-        var revision = WorkflowRevision.CreateProofOnly(definition, "feedback-array-iteration-proof");
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var revision = WorkflowRevision.Create(definition, "feedback-array-iteration-proof");
         var executor = new HeldArrayFeedbackAgentExecutor();
         var events = new ConcurrentQueue<ExecutionEvent>();
 
@@ -115,8 +115,8 @@ public sealed class LoopParallelExecutionTests
     public async Task Feedback_scheduler_once_only_agent_prefix_runs_for_empty_array()
     {
         var definition = LoopWithParallelBodyAndArrayParameters(includeAgentPrefix: true);
-        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "loop.feedback.root");
-        var revision = WorkflowRevision.CreateProofOnly(definition, "feedback-array-agent-prefix-empty-proof");
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var revision = WorkflowRevision.Create(definition, "feedback-array-agent-prefix-empty-proof");
         var executor = new HeldArrayFeedbackAgentExecutor();
         var events = new ConcurrentQueue<ExecutionEvent>();
 
@@ -137,7 +137,8 @@ public sealed class LoopParallelExecutionTests
     public async Task Feedback_scheduler_prefix_failure_prevents_loop_admission()
     {
         var definition = LoopWithParallelBodyAndArrayParameters(includeAgentPrefix: true);
-        var revision = WorkflowRevision.CreateProofOnly(definition, "feedback-array-agent-prefix-failure-proof");
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var revision = WorkflowRevision.Create(definition, "feedback-array-agent-prefix-failure-proof");
         var executor = new HeldArrayFeedbackAgentExecutor(failOnNodeId: "prefix-agent");
         var events = new ConcurrentQueue<ExecutionEvent>();
 
@@ -158,7 +159,8 @@ public sealed class LoopParallelExecutionTests
     {
         using var cancellation = new CancellationTokenSource();
         var definition = LoopWithParallelBodyAndArrayParameters(includeAgentPrefix: true);
-        var revision = WorkflowRevision.CreateProofOnly(definition, "feedback-array-agent-prefix-cancellation-proof");
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var revision = WorkflowRevision.Create(definition, "feedback-array-agent-prefix-cancellation-proof");
         var executor = new HeldArrayFeedbackAgentExecutor(blockPrefix: true);
         var events = new ConcurrentQueue<ExecutionEvent>();
 
@@ -314,6 +316,29 @@ public sealed class LoopParallelExecutionTests
     }
 
     [Fact]
+    public async Task Public_runner_executes_the_once_only_agent_prefix_before_a_root_loop()
+    {
+        var definition = WithAgentPrefix(LoopWithParallelBody());
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var revision = WorkflowRevision.Create(definition, "public-loop-agent-prefix");
+        var executor = new ParallelAgentExecutor();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        await new WorkflowRunner(agents: executor).ExecuteAsync(Guid.NewGuid(), revision, "continue",
+            evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal(1, executor.CallsByNode["prefix-agent"]);
+        var recorded = events.ToArray();
+        var prefixCompleted = Array.FindIndex(recorded, evt =>
+            evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "prefix-agent");
+        var loopStarted = Array.FindIndex(recorded, evt =>
+            evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "loop");
+        Assert.True(prefixCompleted >= 0);
+        Assert.True(loopStarted > prefixCompleted);
+        Assert.Equal(ExecutionEventKinds.Completed, recorded[^1].Kind);
+    }
+
+    [Fact]
     public async Task Public_runner_does_not_complete_loop_iteration_when_a_parallel_branch_fails()
     {
         var events = new ConcurrentQueue<ExecutionEvent>();
@@ -379,6 +404,19 @@ public sealed class LoopParallelExecutionTests
         {
             ExecutionConnections = execution
         };
+    }
+
+    private static WorkflowDefinition WithAgentPrefix(WorkflowDefinition definition)
+    {
+        var nodes = definition.Nodes.Add("prefix-agent",
+            new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, "run once before loop", [])));
+        var execution = definition.ExecutionConnections!
+            .Remove("input-loop")
+            .Add("input-prefix-agent", Edge("input", "then", "prefix-agent", "execute"))
+            .Add("prefix-agent-loop", Edge("prefix-agent", "out", "loop", "execute"));
+        var connections = definition.Connections.Add("input-prefix-agent",
+            new(new("input", "out"), new("prefix-agent", "in"), "data"));
+        return definition with { Nodes = nodes, ExecutionConnections = execution, Connections = connections };
     }
 
     private static WorkflowDefinition LoopWithParallelBodyAndArrayParameters(bool includeAgentPrefix = false)

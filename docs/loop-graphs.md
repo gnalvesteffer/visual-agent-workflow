@@ -13,6 +13,16 @@ flowchart LR
     Next --> Output
 ```
 
+A bounded Loop may also have one once-only Agent between the workflow Input and
+the root Loop: `Input.then → Agent.execute → Loop.execute`, with the caller's
+input connected from `Input.out` to `Agent.in`. The Agent completes before the
+Loop is admitted and runs once before the first loop evaluation, whether or not
+a body pass occurs. If the Agent fails or is cancelled, the Loop does not start. This is a
+narrow root-entry form: the Agent must have no other execution routes and its
+output data pin must be unused. Its result does not feed the loop body; body
+values continue to come from the graph's declared parameter and data wires.
+Other execution prefixes and multiple prefix nodes are invalid.
+
 The initial activation enters through `execute`. The loop tests the current string using an ordinal, case-sensitive `equals`, `contains`, `starts-with`, or `is-empty` predicate. When it matches, the body runs and returns its activation through `feedback`; when the predicate no longer matches, the loop sends the current value through `done`. If the predicate still matches after the maximum number of body executions, `done` receives the current value and the run completes normally. The cap is a safety bound, not an error condition. For data-carried loops, the ordinary data `in` pin still carries the initial and returned string values; `feedback` identifies only the execution return.
 
 ## Authoring

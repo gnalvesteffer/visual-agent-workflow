@@ -115,7 +115,6 @@ public sealed partial class WorkflowRunner
         var parameterOverrides = ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal)
             .Add(arrayParameterId, jsonItems);
         return ExecuteCoreAsync(runId, revision, "continue", parameterOverrides, record, gate, cancellationToken,
-            skipValidationForInternalProof: prefixAgentId is not null,
             afterNodeStarted: afterNodeStarted,
             proofMaximumLoopPasses: maximumLoopPasses,
             arrayIterationFeedbackProof: new(loopNodeId, itemCount, indexParameterId));

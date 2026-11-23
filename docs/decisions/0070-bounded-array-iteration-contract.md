@@ -5160,11 +5160,28 @@ wires. The focused Agent Framework unit selection covering
 This is not a validated workflow capability. To isolate scheduler behavior, the
 proof uses an internal proof-only revision and the existing internal
 validation-bypass seam; it does not compile the graph-derived activation plan.
-The public Core validator still rejects `Input → Agent → Loop` as a root Loop
-shape. No schema admission, serializer/package change, public iterator/Break
-contract, or Studio authoring is added. Prefix output data propagation,
-multiple prefix nodes, other node families, production topology ownership,
-Sequence-selected execution, and persistence/playback remain open. The next
-contract decision must either specify and prove validator/plan ownership for
-the prefix, or keep once-before-Loop execution unsupported; this scheduler
-result alone does not select that contract.
+At this point the public Core validator still rejects `Input → Agent → Loop` as
+a root Loop shape. No schema admission, serializer/package change, public
+iterator/Break contract, or Studio authoring is added. Prefix output data
+propagation, multiple prefix nodes, other node families, production topology
+ownership, Sequence-selected execution, and persistence/playback remain open.
+
+### Narrow root Agent prefix admission (2026-11-23)
+
+A follow-up three-role review considered public validation and activation-plan
+admission for the exact once-only prefix. It returned **PROCEED WITH GUARDRAILS**:
+accept only `Input → Agent → root Loop`, with caller data wired to `Agent.in`,
+no other Agent execution routes, and no Agent output data consumers. Existing
+direct Input roots and the legacy/data-carried validator branch must remain
+unchanged. Validation and the runtime activation plan must use the same
+topology proof; the regular runner must execute a normally validated revision.
+
+Unified schema 2.0 now admits that exact topology without a feature gate. Core
+unit tests cover validation, plan creation, malformed prefixes, ordinary-root
+compatibility, and package round-trip. Agent Framework unit tests execute the
+normally validated revision through the ordinary runner and check empty and
+nonempty feedback cases, ordering, failure, and cancellation. This narrow root
+prefix does not settle or pass the broader array-iteration architecture gate:
+the iterator/frame adapter remains private, and Sequence integration, public
+typed item/index authoring, Break, persistence/playback, and broader prefix
+shapes remain open.
