@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using VisualAgentWorkflow.AgentFramework;
 using VisualAgentWorkflow.Blazor.Components;
 using VisualAgentWorkflow.Core;
 using VisualAgentWorkflow.Hosting;
@@ -169,6 +170,35 @@ public sealed class BoundedLoopExecutionTests
         Assert.Equal(3, stopData.GetProperty("iterations").GetInt32());
         Assert.Equal(3, events.Count(evt => evt.NodeId == graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.LoopBody).Key && evt.Kind == ExecutionEventKinds.NodeCompleted));
         Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
+    }
+
+    [Theory]
+    [InlineData("continue", 3, "maximum-iterations")]
+    [InlineData("stop", 0, "predicate-false")]
+    public async Task StructuredSchedulerProofRoutesLoopFeedbackUntilItsStopCondition(string input,
+        int expectedIterations, string expectedReason)
+    {
+        var graph = WorkflowSchemaNormalization.NormalizeForEditing(Graph());
+        var revision = WorkflowRevision.Create(graph, "structured-scheduler-loop-proof");
+        var loopNode = graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.Loop).Key;
+        var events = new List<ExecutionEvent>();
+        var ledger = new StructuredProofDispatchLedger();
+
+        var result = await new WorkflowRunner().ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision,
+            input, null, evt =>
+            {
+                events.Add(evt);
+                return ValueTask.CompletedTask;
+            }, proofDispatchLedger: ledger);
+
+        Assert.Equal(input, result.Output);
+        Assert.Equal(expectedIterations, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Equal(expectedIterations, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
+        var stopped = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopStopped);
+        Assert.Equal(expectedReason, JsonDocument.Parse(stopped.Data!).RootElement.GetProperty("reason").GetString());
+        Assert.Equal(0, ledger.OutstandingDeliveryCount);
+        Assert.Contains(events, evt => evt.NodeId == loopNode &&
+            evt.Kind == ExecutionEventKinds.NodeCompleted);
     }
 
     [Theory]

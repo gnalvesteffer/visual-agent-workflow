@@ -381,3 +381,10 @@ selected branch port, chosen execution connection, absence of the skipped
 connection, and the resulting transformed output. The test exercises the
 production `StringExecutor` handler through VAW-owned edge dispatch; the
 ordinary public runner is unchanged.
+
+The proof dispatcher also executes a normalized current-schema Loop in focused
+unit tests. A matching predicate runs the body through all three configured
+iterations and stops at the maximum; a non-matching predicate takes the done
+route with zero body iterations. Both cases assert the loop lifecycle evidence
+and that the dispatch ledger is fully settled. Nested loop/parallel interaction
+and public integration remain unqualified.
