@@ -571,15 +571,19 @@ remain gated. See
   A deliberately reduced shared root Loop-pass budget admits exactly two of
   three item frames, rejects the third before its start event or Agent runs,
   and records the aggregate Loop body-pass failure.
-  Still unproven are public validation and plan admission for once-before-Loop
-  prefixes, Sequence graphs (which use a separate production builder),
-  activation-local Break settlement,
+  A valid graph with a direct MCP node in one parallel branch now verifies that
+  an unknown tool outcome stops feedback admission after the current item and
+  records a root `run.outcome-unknown` terminal on the same contiguous event
+  stream. Public validation and plan admission are complete only for the
+  specifically reviewed `Input → Agent → root Loop` prefix; other prefixes,
+  Sequence graphs (which use a separate production builder), activation-local Break settlement,
   persisted playback, and budgets composed across nested Loop/WorkflowCall
   activations. The focused selected
   Agent Framework unit selection covering `LoopParallelExecutionTests`,
   `SingleSequenceActivationProductionProofTests`,
   `SingleStreamSequenceProof_*`, `BoundedLoopExecutionTests`, and
-  `WorkflowLoopExecutionBudgetTests` passes 52/52.
+  `WorkflowLoopExecutionBudgetTests` passes 63/63 on 2026-11-23, including the
+  direct-MCP unknown-outcome case.
   The remaining evidence is the complete supported-body,
   failure/race, shared-budget, persistence, and playback matrix, followed by a
   fresh three-role architecture review. A three-role review on 2026-11-19

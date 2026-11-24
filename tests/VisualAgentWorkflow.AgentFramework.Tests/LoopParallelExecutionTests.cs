@@ -90,6 +90,30 @@ public sealed class LoopParallelExecutionTests
     }
 
     [Fact]
+    public async Task Feedback_scheduler_unknown_direct_mcp_outcome_does_not_admit_later_array_items()
+    {
+        var revision = WorkflowRevision.Create(LoopWithParallelBodyAndArrayParameters(directMcpOnLeft: true),
+            "feedback-array-iteration-unknown-mcp-proof");
+        var broker = new UnknownFeedbackToolBroker();
+        var executor = new HeldArrayFeedbackAgentExecutor();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(broker, executor)
+            .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\",\"gamma\"]", "loop", "items", "index", WorkflowDataTypes.String,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
+
+        Assert.True(result.Failed);
+        Assert.True(result.OutcomeUnknown);
+        Assert.Equal(new[] { "alpha" }, broker.Arguments);
+        Assert.DoesNotContain(executor.Invocations, call => call.Input is "beta" or "gamma");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId is "loop/2" or "loop/3");
+        Assert.Equal(ExecutionEventKinds.OutcomeUnknown, events.Last().Kind);
+        Assert.Equal(Enumerable.Range(1, events.Count).Select(value => (long)value), events.Select(evt => evt.Sequence));
+    }
+
+    [Fact]
     public async Task Feedback_scheduler_graph_data_empty_array_skips_body_nodes()
     {
         var revision = WorkflowRevision.Create(LoopWithParallelBodyAndArrayParameters(),
@@ -419,7 +443,8 @@ public sealed class LoopParallelExecutionTests
         return definition with { Nodes = nodes, ExecutionConnections = execution, Connections = connections };
     }
 
-    private static WorkflowDefinition LoopWithParallelBodyAndArrayParameters(bool includeAgentPrefix = false)
+    private static WorkflowDefinition LoopWithParallelBodyAndArrayParameters(bool includeAgentPrefix = false,
+        bool directMcpOnLeft = false)
     {
         var definition = LoopWithParallelBody();
         var arrayType = WorkflowDataTypes.ArrayOf(WorkflowDataTypes.String);
@@ -444,10 +469,23 @@ public sealed class LoopParallelExecutionTests
             .Remove("body-fork")
             .Add("body-agent", Edge("body", "then", "body-agent", "execute"))
             .Add("body-fork", Edge("body-agent", "out", "fork", "execute"));
+        if (directMcpOnLeft)
+        {
+            var argument = new McpInputPortDefinition("arg.value", "value", WorkflowDataTypes.String, true);
+            nodes = nodes.SetItem("agent-a", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("test.feedback-unknown", new string('a', 64)))
+            {
+                McpArgumentsJson = "{\"value\":\"\"}",
+                McpInputPorts = [argument]
+            });
+            execution = execution.SetItem("anchor-a-agent", Edge("anchor-a", "then", "agent-a", "execute"))
+                .SetItem("agent-a-join", Edge("agent-a", "then", "join", ParallelBranchLimits.PinId("a")));
+        }
         var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
             .Add("array-get-array", new(new("array-value", "out"), new("array-get", "array"), "data"))
             .Add("array-get-index", new(new("index-value", "out"), new("array-get", "index"), "data"))
-            .Add("agent-a-item", new(new("array-get", "item"), new("agent-a", "in"), "data"))
+            .Add("agent-a-item", new(new("array-get", "item"),
+                new("agent-a", directMcpOnLeft ? "arg.value" : "in"), "data"))
             .Add("agent-b-item", new(new("array-get", "item"), new("agent-b", "in"), "data"))
             .Add("array-output", new(new("array-value", "out"), new("output", "in"), "data"));
         var prefixNodes = nodes;
@@ -551,5 +589,40 @@ public sealed class LoopParallelExecutionTests
 
         public sealed record AgentInvocation(string NodeId, string Input,
             IReadOnlyDictionary<string, string>? Parameters);
+    }
+
+    private sealed class UnknownFeedbackToolBroker : INodeToolBroker
+    {
+        private readonly ConcurrentQueue<string> arguments = new();
+        public string[] Arguments => [.. arguments];
+
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([
+                new("test.feedback-unknown", "Unknown outcome test", "test", "feedback-unknown", new string('a', 64))
+            ]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(this);
+
+        private sealed class Scope(UnknownFeedbackToolBroker owner) : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string bindingId, string input,
+                CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException("The feedback proof uses typed JSON MCP arguments.");
+
+            public Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments,
+                CancellationToken cancellationToken = default)
+            {
+                owner.arguments.Enqueue(arguments.GetProperty("value").GetString()!);
+                throw new ToolInvocationException("The feedback tool outcome is unknown.",
+                    ToolInvocationFailureDisposition.OutcomeUnknown);
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
     }
 }

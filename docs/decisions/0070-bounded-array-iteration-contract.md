@@ -5217,12 +5217,21 @@ item frames start and execute; the third is rejected before its `loop/3` start
 event or Agent invocation, and the root records the aggregate Loop body-pass
 limit failure.
 
+A follow-up valid schema-2.0 graph replaces one parallel Agent with a direct
+MCP tool whose typed argument is wired from the graph-derived Array Get item.
+When the controlled broker reports an unknown outcome for the first item, the
+ordinary feedback scheduler returns `OutcomeUnknown`, emits the root
+`run.outcome-unknown` terminal, and admits neither later item. The proof adapter
+uses the same `allowOutcomeUnknown` behavior as the public outcome-returning
+runner API. This is in-memory scheduler evidence only; it does not qualify
+public For Each/Break or persistence/playback.
+
 This establishes the feedback scheduler's drain and admission boundary for
 one graph-derived Array Get → Agent dataflow path. It does not change the Core
 Loop contract: the Loop must still be the unique root entry and remain reachable
-through its owning body. In particular, a side-effecting execution prefix that
-runs once before entering the Loop remains unsupported and is an unresolved
-parity gap. The experiment is limited to string elements and a validated root
+through its owning body. The exact once-only `Input → Agent → root Loop` prefix
+is now admitted as described below; other prefixes remain unsupported. The
+experiment is limited to string elements and a validated root
 Loop; Sequence graphs select `BuildSequenceProductionWorkflow` instead.
 Activation-local Break settlement, persistence and passive playback, combined
 nested-loop/WorkflowCall budgets, other body topologies, and public typed
@@ -5280,3 +5289,17 @@ prefix does not settle or pass the broader array-iteration architecture gate:
 the iterator/frame adapter remains private, and Sequence integration, public
 typed item/index authoring, Break, persistence/playback, and broader prefix
 shapes remain open.
+
+### Direct MCP unknown outcome in the feedback scheduler (2026-11-23)
+
+A valid schema-2.0 Loop graph routes the current Array Get item to a pinned
+direct-MCP argument in one parallel branch. A controlled broker reports
+`OutcomeUnknown` for the first item. Through the ordinary Agent Framework
+`BuildWorkflow` scheduler, the run emits one root `run.outcome-unknown` terminal
+on the contiguous event stream and starts neither subsequent item. This closes
+the unknown-MCP classification/admission case for this private feedback proof;
+it does not establish activation-local Break, Sequence integration, persistence,
+passive playback, or public For Each behavior. The proof-only feedback adapter
+now opts into the same unknown-outcome result handling as the public
+outcome-returning runner API. The focused Agent Framework selection passes
+63/63.
