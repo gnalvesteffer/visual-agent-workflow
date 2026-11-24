@@ -5290,6 +5290,23 @@ the iterator/frame adapter remains private, and Sequence integration, public
 typed item/index authoring, Break, persistence/playback, and broader prefix
 shapes remain open.
 
+### Production-owner architecture review (2026-11-23)
+
+A new three-role review considered one VAW-owned coordinator over the existing
+ordinary and Sequence production body builders. It returned **REVISE**: retaining
+that candidate as proof direction is reasonable, but existing callbacks do not
+prove that one owner authoritatively admits and settles Agent Framework routing
+and Join descendants across both execution paths. Do not select the runtime
+architecture or add public For Each/Break authoring from the current evidence.
+
+The adjudicator's first unit proof requested a normally validated, graph-derived
+ordinary-root activation with a held Fork/Join sibling, checking root lifecycle
+and item settlement remain open until the admitted descendant settles. The
+ordinary feedback-scheduler tests cover that narrow behavior, including the
+unknown-MCP plus held-sibling case described below. This does not prove
+Sequence-selected execution under the same owner, broader nested ownership,
+atomic cross-path budgets, or File/SQLite playback; those remain the next gates.
+
 ### Direct MCP unknown outcome in the feedback scheduler (2026-11-23)
 
 A valid schema-2.0 Loop graph routes the current Array Get item to a pinned
@@ -5301,5 +5318,8 @@ the unknown-MCP classification/admission case for this private feedback proof;
 it does not establish activation-local Break, Sequence integration, persistence,
 passive playback, or public For Each behavior. The proof-only feedback adapter
 now opts into the same unknown-outcome result handling as the public
-outcome-returning runner API. The focused Agent Framework selection passes
-63/63.
+outcome-returning runner API. A paired proof holds the other Fork branch inside
+its Agent invocation while MCP outcome is unknown; the run remains open, emits
+no root terminal, and admits no next item until the held Agent settles. Its
+completion event precedes the root unknown-outcome terminal. The focused Agent
+Framework selection passes 64/64.

@@ -574,7 +574,9 @@ remain gated. See
   A valid graph with a direct MCP node in one parallel branch now verifies that
   an unknown tool outcome stops feedback admission after the current item and
   records a root `run.outcome-unknown` terminal on the same contiguous event
-  stream. Public validation and plan admission are complete only for the
+  stream. A paired unit proof holds the sibling Agent past the unknown MCP
+  result and verifies the root remains open until that admitted work settles.
+  Public validation and plan admission are complete only for the
   specifically reviewed `Input → Agent → root Loop` prefix; other prefixes,
   Sequence graphs (which use a separate production builder), activation-local Break settlement,
   persisted playback, and budgets composed across nested Loop/WorkflowCall
@@ -582,11 +584,15 @@ remain gated. See
   Agent Framework unit selection covering `LoopParallelExecutionTests`,
   `SingleSequenceActivationProductionProofTests`,
   `SingleStreamSequenceProof_*`, `BoundedLoopExecutionTests`, and
-  `WorkflowLoopExecutionBudgetTests` passes 63/63 on 2026-11-23, including the
-  direct-MCP unknown-outcome case.
+  `WorkflowLoopExecutionBudgetTests` passes 64/64 on 2026-11-23, including
+  direct-MCP unknown-outcome and admitted-sibling drain cases.
   The remaining evidence is the complete supported-body,
   failure/race, shared-budget, persistence, and playback matrix, followed by a
-  fresh three-role architecture review. A three-role review on 2026-11-19
+  fresh three-role architecture review. A three-role architecture review on
+  2026-11-23 returned REVISE on the VAW-owner-over-existing-builders candidate:
+  ordinary held-sibling settlement is now covered by unit proof, but shared
+  ownership across Sequence execution and passive persistence/playback remain
+  unproven. A three-role review on 2026-11-19
   returned REVISE and authorized only proof work: a conditional Sequence route
   may end in nearest-loop Break without a Merge or workflow Output arrival, but
   public admission still depends on unique ownership, production settlement,

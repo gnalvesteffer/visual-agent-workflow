@@ -114,6 +114,50 @@ public sealed class LoopParallelExecutionTests
     }
 
     [Fact]
+    public async Task Feedback_scheduler_unknown_mcp_outcome_waits_for_an_admitted_sibling_to_settle()
+    {
+        var revision = WorkflowRevision.Create(LoopWithParallelBodyAndArrayParameters(directMcpOnLeft: true),
+            "feedback-array-iteration-unknown-mcp-drain-proof");
+        var executor = new HeldArrayFeedbackAgentExecutor(holdNodeId: "agent-b");
+        var broker = new UnknownFeedbackToolBroker(executor.HeldBranchStarted.Task);
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var execution = new WorkflowRunner(broker, executor)
+            .ExecuteAgentFrameworkArrayIterationFeedbackProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\"]", "loop", "items", "index", WorkflowDataTypes.String,
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
+
+        try
+        {
+            await Task.WhenAll(broker.Started.Task, executor.HeldBranchStarted.Task)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted);
+            Assert.DoesNotContain(events, evt => evt.NodeId is null &&
+                evt.Kind is ExecutionEventKinds.OutcomeUnknown or ExecutionEventKinds.Failed or ExecutionEventKinds.Completed);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.ScopeId == "loop/2");
+        }
+        finally
+        {
+            executor.ReleaseHeldBranch.TrySetResult();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(result.OutcomeUnknown);
+        var recorded = events.ToArray();
+        Assert.Equal(ExecutionEventKinds.OutcomeUnknown, recorded[^1].Kind);
+        var heldSiblingCompleted = Array.FindIndex(recorded, evt =>
+            evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-b");
+        var rootUnknown = Array.FindIndex(recorded, evt =>
+            evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+        Assert.True(heldSiblingCompleted >= 0);
+        Assert.True(rootUnknown > heldSiblingCompleted);
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted && evt.ScopeId == "loop/2");
+        Assert.Equal(Enumerable.Range(1, recorded.Length).Select(value => (long)value), recorded.Select(evt => evt.Sequence));
+    }
+
+    [Fact]
     public async Task Feedback_scheduler_graph_data_empty_array_skips_body_nodes()
     {
         var revision = WorkflowRevision.Create(LoopWithParallelBodyAndArrayParameters(),
@@ -542,7 +586,7 @@ public sealed class LoopParallelExecutionTests
     }
 
     private sealed class HeldArrayFeedbackAgentExecutor(string? failOnInput = null,
-        string? failOnNodeId = null, bool blockPrefix = false) : IAgentNodeExecutor
+        string? failOnNodeId = null, bool blockPrefix = false, string? holdNodeId = null) : IAgentNodeExecutor
     {
         private readonly ConcurrentQueue<AgentInvocation> invocations = new();
         private readonly TaskCompletionSource firstLeftBranchStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -550,12 +594,16 @@ public sealed class LoopParallelExecutionTests
         private readonly TaskCompletionSource releaseFirstLeftBranch = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource prefixStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource releasePrefix = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource heldBranchStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource releaseHeldBranch = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public AgentInvocation[] Invocations => [.. invocations];
         public TaskCompletionSource FirstLeftBranchStarted => firstLeftBranchStarted;
         public TaskCompletionSource FirstRightBranchStarted => firstRightBranchStarted;
         public TaskCompletionSource ReleaseFirstLeftBranch => releaseFirstLeftBranch;
         public TaskCompletionSource PrefixStarted => prefixStarted;
+        public TaskCompletionSource HeldBranchStarted => heldBranchStarted;
+        public TaskCompletionSource ReleaseHeldBranch => releaseHeldBranch;
 
         public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
             Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
@@ -577,6 +625,11 @@ public sealed class LoopParallelExecutionTests
             if (failOnNodeId == invocation.NodeId)
                 throw new InvalidOperationException("Controlled Agent failure.");
             if (input == failOnInput) throw new InvalidOperationException("Controlled item failure.");
+            if (invocation.NodeId == holdNodeId && input == "alpha")
+            {
+                heldBranchStarted.TrySetResult();
+                await releaseHeldBranch.Task;
+            }
             if (failOnInput is null && invocation.NodeId == "agent-a" && input == "alpha")
             {
                 firstLeftBranchStarted.TrySetResult();
@@ -591,10 +644,13 @@ public sealed class LoopParallelExecutionTests
             IReadOnlyDictionary<string, string>? Parameters);
     }
 
-    private sealed class UnknownFeedbackToolBroker : INodeToolBroker
+    private sealed class UnknownFeedbackToolBroker(Task? waitBeforeOutcome = null) : INodeToolBroker
     {
         private readonly ConcurrentQueue<string> arguments = new();
+        private readonly TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task? WaitBeforeOutcome { get; } = waitBeforeOutcome;
         public string[] Arguments => [.. arguments];
+        public TaskCompletionSource Started => started;
 
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(
             CancellationToken cancellationToken = default) =>
@@ -614,10 +670,13 @@ public sealed class LoopParallelExecutionTests
                 CancellationToken cancellationToken = default) =>
                 throw new NotSupportedException("The feedback proof uses typed JSON MCP arguments.");
 
-            public Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments,
+            public async Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments,
                 CancellationToken cancellationToken = default)
             {
                 owner.arguments.Enqueue(arguments.GetProperty("value").GetString()!);
+                owner.started.TrySetResult();
+                if (owner.WaitBeforeOutcome is { } waitBeforeOutcome)
+                    await waitBeforeOutcome.WaitAsync(cancellationToken);
                 throw new ToolInvocationException("The feedback tool outcome is unknown.",
                     ToolInvocationFailureDisposition.OutcomeUnknown);
             }
