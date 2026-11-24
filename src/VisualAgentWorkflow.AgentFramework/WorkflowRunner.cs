@@ -106,12 +106,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     internal Task<WorkflowExecutionResult> ExecuteWithProductionDispatchAdmissionProofAsync(Guid runId,
         WorkflowRevision revision, string input, Action<WorkflowDispatchAdmissionOwner.Ticket> onAdmitted,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default,
-        Action<WorkflowDispatchAdmissionOwner>? ownerProbe = null)
+        Action<WorkflowDispatchAdmissionOwner>? ownerProbe = null,
+        Action<StructuredActivationFrameOwner>? frameOwnerProbe = null)
     {
         ArgumentNullException.ThrowIfNull(onAdmitted);
         ArgumentNullException.ThrowIfNull(record);
         return ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken,
-            workflowDispatchAdmissionObserver: onAdmitted, workflowDispatchAdmissionProbe: ownerProbe);
+            workflowDispatchAdmissionObserver: onAdmitted, workflowDispatchAdmissionProbe: ownerProbe,
+            frameOwnerProbe: frameOwnerProbe);
     }
 
     internal Task<WorkflowExecutionResult> ExecuteWithLoopBudgetsProofAsync(Guid runId,
@@ -325,7 +327,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             Task<WorkflowExecutionResult>>? rootCoordinatorProof = null,
         ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null,
         Action<WorkflowDispatchAdmissionOwner.Ticket>? workflowDispatchAdmissionObserver = null,
-        Action<WorkflowDispatchAdmissionOwner>? workflowDispatchAdmissionProbe = null)
+        Action<WorkflowDispatchAdmissionOwner>? workflowDispatchAdmissionProbe = null,
+        Action<StructuredActivationFrameOwner>? frameOwnerProbe = null)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -377,6 +380,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             loopEvidenceScopePrefix: loopEvidenceScopePrefix);
         activationFrameOwner.BindRootEventRecorder(runId, revision.RevisionId, record, activationLedger);
         activationFrameOwner.BindAdmissionOwner(dispatchAdmissionOwner);
+        frameOwnerProbe?.Invoke(activationFrameOwner);
         var variableStore = activationFrameOwner.CreateVariableStore(revision.Definition);
         ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null,
             string? data = null, string? scopeId = null) =>
@@ -1099,7 +1103,79 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     data: "Parallel join cancelled because its iterator frame ended.", scopeId: scopeId);
         }
 
-        public void Dispose() => eventWriter?.Dispose();
+        private readonly object frameCancellationSync = new();
+        private readonly Dictionary<string, CancellationTokenSource> frameCancellations = new(StringComparer.Ordinal);
+        private readonly HashSet<string> cancelledFrames = new(StringComparer.Ordinal);
+        private bool frameCancellationsDisposed;
+
+        /// <summary>
+        /// Cancels the frame scope <paramref name="scopeId"/> and every descendant scope (scope ids are path-like:
+        /// "outer/2/inner/1" descends from "outer/2", but "outer/20" does not). Parents and siblings are untouched.
+        /// An unknown scope is remembered so frames created later under it start cancelled; after disposal this is a no-op.
+        /// </summary>
+        public void CancelFrame(string scopeId)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(scopeId);
+            CancellationTokenSource[] toCancel;
+            lock (frameCancellationSync)
+            {
+                if (frameCancellationsDisposed) return;
+                cancelledFrames.Add(scopeId);
+                var prefix = scopeId + "/";
+                toCancel = frameCancellations
+                    .Where(entry => entry.Key == scopeId || entry.Key.StartsWith(prefix, StringComparison.Ordinal))
+                    .Select(entry => entry.Value).ToArray();
+            }
+            // Cancel outside the lock: registered callbacks run synchronously.
+            foreach (var source in toCancel)
+            {
+                try { source.Cancel(); }
+                catch (ObjectDisposedException) { }
+            }
+        }
+
+        /// <summary>
+        /// Returns the cooperative cancellation token for <paramref name="scopeId"/>, created lazily. It is already
+        /// cancelled when the scope or an ancestor was cancelled; after disposal it is <see cref="CancellationToken.None"/>.
+        /// Sources live until the owner is disposed at run end (frame counts are bounded by the loop activation budget).
+        /// </summary>
+        public CancellationToken GetFrameToken(string scopeId)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(scopeId);
+            lock (frameCancellationSync)
+            {
+                if (frameCancellationsDisposed) return CancellationToken.None;
+                if (!frameCancellations.TryGetValue(scopeId, out var source))
+                {
+                    source = new CancellationTokenSource();
+                    frameCancellations.Add(scopeId, source);
+                    if (IsScopeOrAncestorCancelled(scopeId)) source.Cancel();
+                }
+                return source.Token;
+            }
+        }
+
+        private bool IsScopeOrAncestorCancelled(string scopeId)
+        {
+            if (cancelledFrames.Count == 0) return false;
+            if (cancelledFrames.Contains(scopeId)) return true;
+            for (var slash = scopeId.LastIndexOf('/'); slash > 0; slash = scopeId.LastIndexOf('/', slash - 1))
+                if (cancelledFrames.Contains(scopeId[..slash])) return true;
+            return false;
+        }
+
+        public void Dispose()
+        {
+            CancellationTokenSource[] sources;
+            lock (frameCancellationSync)
+            {
+                frameCancellationsDisposed = true;
+                sources = [.. frameCancellations.Values];
+                frameCancellations.Clear();
+            }
+            foreach (var source in sources) source.Dispose();
+            eventWriter?.Dispose();
+        }
 
         public WorkflowVariableStore CreateVariableStore(WorkflowDefinition definition) =>
             new(definition, EvidenceBudget);
@@ -2443,8 +2519,17 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             IWorkflowContext context, CancellationToken cancellationToken)
         {
             dispatchAdmissionOwner?.Begin(received.DispatchTicketId, Id);
+            // Frame cancellation (Decision 0070 slice 2): link the frame's token only when the activation has a frame,
+            // so unframed work and every run without a frame cancel see the framework token unchanged.
+            CancellationTokenSource? frameLink = null;
             try
             {
+                if (activationFrameOwner is not null && received.ActivationFrame is { } handlingFrame)
+                {
+                    frameLink = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
+                        activationFrameOwner.GetFrameToken(handlingFrame.ScopeId));
+                    cancellationToken = frameLink.Token;
+                }
                 async ValueTask Dispatch(GraphMessage outgoing, string target, CancellationToken token)
                 {
                     var message = outgoing;
@@ -2474,6 +2559,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             finally
             {
                 dispatchAdmissionOwner?.Settle(received.DispatchTicketId, Id);
+                frameLink?.Dispose();
             }
         }
 

@@ -6120,3 +6120,14 @@ Two internal primitives that the deferred Break-with-siblings work needs now exi
 - `StructuredActivationFrameOwner.CloseFrame(scopeId)` marks a frame scope and every descendant scope (path-like ids such as `outer/2/inner/1`) closed; `RecordEventAsync` then drops events in closed scopes, and `IsFrameClosed(scopeId)` reports it. Events with no scope are never suppressed, and run-level `CloseLateEvents` is unchanged.
 
 Tests: `WorkflowDispatchAdmissionOwnerWaitTests` and `StructuredActivationFrameCloseTests`.
+
+## Waiting frame drain, slice 2 (2026-11-24)
+
+Per-frame cooperative cancellation exists as an internal primitive; production behavior is unchanged because nothing calls it yet.
+
+- `StructuredActivationFrameOwner.CancelFrame(scopeId)` cancels that frame scope and every descendant scope (`outer/2` cascades to `outer/2/inner/1`, never to its parent, siblings or the prefix-collision `outer/20`). A scope cancelled before any activation asked for its token is remembered, so frames first seen later under it start cancelled. Unknown scopes and a disposed owner make it a no-op. `GetFrameToken(scopeId)` returns the frame's token, created lazily.
+- `StringExecutor.HandleWithAdmissionAsync` links the received activation's frame token into the token given to `HandleCoreAsync` only when the activation has a frame, so agents, MCP tools and nested calls observe it. Unframed work and runs that never cancel a frame see the framework token unchanged, and event streams are identical.
+- A node cancelled by its frame token surfaces as `OperationCanceledException` through the existing `NodeCancelled` path ("Node execution cancelled.") because that path tests the linked token. The run token is not cancelled; the existing `finally` still settles the admission ticket, and the linked source is disposed there.
+- Lifetime: frame sources are kept until the owner is disposed at run end (the count is bounded by the loop activation budget), then disposed together. They are not released per frame.
+
+Still not wired: the Break path (no caller of `CancelFrame`), validator changes, abandon/grace handling for frames that ignore cancellation, and combining cancellation with `CloseFrame` or `WhenScopeSettledAsync` into a drain. Tests: `FrameCancellationTests`.
