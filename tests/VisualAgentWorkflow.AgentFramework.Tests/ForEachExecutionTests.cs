@@ -234,4 +234,33 @@ public sealed class ForEachExecutionTests
             Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
         }
     }
+
+    [Fact]
+    public async Task A_break_in_an_inner_for_each_exits_only_the_inner_loop()
+    {
+        var nested = NestedWorkflow();
+        var definition = nested with
+        {
+            Nodes = nested.Nodes
+                .SetItem("cond", new(NodeTypes.Condition, "1.0.0") { Condition = new("contains", "2") })
+                .SetItem("break", new(NodeTypes.Break, "1.0.0")),
+            Connections = nested.Connections.Add("inner-cond", new(new("inner", "item"), new("cond", "in"), "data")),
+            ExecutionConnections = nested.ExecutionConnections!
+                .Remove("process")
+                .Add("body-cond", new(new("inner-body", "then"), new("cond", "execute"), "execution"))
+                .Add("cond-break", new(new("cond", "true"), new("break", "execute"), "execution"))
+                .Add("cond-agent", new(new("cond", "false"), new("agent", "execute"), "execution"))
+        };
+        var agent = new RecordingAgent();
+
+        var (result, events) = await RunAsync(definition, agent);
+
+        Assert.False(result.Failed);
+        Assert.Equal(["x1", "y1"], agent.Inputs);
+        lock (events)
+        {
+            Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopStopped && evt.Data!.Contains("\"reason\":\"break\"")));
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopStopped && evt.NodeId == "outer" && evt.Data!.Contains("array-exhausted"));
+        }
+    }
 }
