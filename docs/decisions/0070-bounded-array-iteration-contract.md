@@ -5361,9 +5361,33 @@ separate controlled rejection proves the target Agent never starts without
 admission.
 
 This is evidence for the first ordinary-root gate, not selection of the full
-runtime architecture. The owner is not enabled for Sequence-selected runs or
-private proof runners; it does not yet establish public For Each/Break,
+runtime architecture. It does not establish public For Each/Break,
 activation-local settlement, shared cross-path budgets, crash recovery, or
-file/SQLite persistence and passive playback. Continue with Sequence routing
-and settlement under the same owner, then failure/cancellation and persistence
-proofs, before another architecture review or public authoring contract.
+file/SQLite persistence and passive playback. The following section records
+the first narrow Sequence-path proof; continue with failure/cancellation and
+persistence proofs before another architecture review or public authoring
+contract.
+
+### Production Sequence dispatch admission proof (2026-11-23)
+
+The first Sequence integration gate now runs one normally validated unified
+schema Sequence graph through `BuildSequenceProductionWorkflow` with the same
+run-local node-ticket owner. The owner remains enabled through the internal
+admission-observer proof seam; this does not opt ordinary Sequence production
+runs into ticket enforcement. The proof covers the Sequence root receiver,
+explicit source-to-branch sends, automatic returned-message graph edges,
+collector returns, and the internal sink/terminal receivers. The root checks
+ticket quiescence after Agent Framework returns.
+
+`Unified_production_sequence_dispatches_are_admitted_and_barrier_waits_for_held_descendant`
+holds the Agent in one Sequence branch after the sibling tool step completes.
+It verifies every observed executor start has an available prior ticket, the
+Sequence output has not completed, and no root completion is recorded while
+the descendant remains held; releasing it allows both outputs and the root to
+settle. The paired
+`Unified_production_sequence_rejected_admission_prevents_first_target_start`
+rejects the first branch ticket and proves the target emits no node-start
+event. These are adapter unit proofs, not persistence tests or a claim that
+every Sequence topology is ticket-covered. Multi-target WorkflowCall
+termination, Break, active cancellation/failure races, shared cross-path
+budgets, and file/SQLite playback remain open.

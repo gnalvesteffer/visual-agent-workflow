@@ -1102,6 +1102,105 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Unified_production_sequence_dispatches_are_admitted_and_barrier_waits_for_held_descendant()
+    {
+        var definition = SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        };
+        var revision = WorkflowRevision.Create(definition, "sequence-dispatch-admission");
+        var releaseAgent = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var agent = new SequenceProofAgentExecutor(releaseWhenReady: releaseAgent);
+        var timeline = new ConcurrentQueue<(string Kind, string NodeId)>();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var otherBranchStepCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var outputAdmitted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var execution = new WorkflowRunner(new RecordingBroker(), agent)
+            .ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(), revision, "sequence input",
+                ticket =>
+                {
+                    timeline.Enqueue(("admitted", ticket.TargetNodeId));
+                    if (ticket.TargetNodeId == "output") outputAdmitted.TrySetResult(true);
+                }, evt =>
+                {
+                    events.Enqueue(evt);
+                    if (evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is { } nodeId)
+                        timeline.Enqueue(("started", nodeId));
+                    if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "architecture-tool")
+                        otherBranchStepCompleted.TrySetResult(true);
+                    return ValueTask.CompletedTask;
+                });
+
+        try
+        {
+            await Task.WhenAll(agent.Started.Task, otherBranchStepCompleted.Task, outputAdmitted.Task)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted);
+
+            var observed = timeline.ToArray();
+            var outstanding = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var (kind, nodeId) in observed)
+            {
+                outstanding.TryGetValue(nodeId, out var available);
+                if (kind == "admitted")
+                {
+                    outstanding[nodeId] = available + 1;
+                    continue;
+                }
+
+                Assert.Equal("started", kind);
+                Assert.True(available > 0, $"Sequence executor '{nodeId}' started before admission.");
+                outstanding[nodeId] = available - 1;
+            }
+
+            Assert.Contains(observed, item => item == ("admitted", "inventory-agent"));
+            Assert.Contains(observed, item => item == ("admitted", "architecture-tool"));
+            Assert.Contains(observed, item => item == ("admitted", "output"));
+            Assert.DoesNotContain(observed, item => item == ("started", "output"));
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted);
+            Assert.DoesNotContain(events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Completed);
+        }
+        finally
+        {
+            releaseAgent.TrySetResult(true);
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(result.Failed);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+        Assert.Single(events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
+    public async Task Unified_production_sequence_rejected_admission_prevents_first_target_start()
+    {
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-dispatch-admission-rejection");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new WorkflowRunner(new RecordingBroker(), new SequenceProofAgentExecutor())
+                .ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(), revision, "sequence input",
+                    ticket =>
+                    {
+                        if (ticket.TargetNodeId == "inventory-agent")
+                            throw new InvalidOperationException("Sequence target admission rejected.");
+                    }, evt =>
+                    {
+                        events.Enqueue(evt);
+                        return ValueTask.CompletedTask;
+                    }));
+
+        Assert.Contains("Sequence target admission rejected.", exception.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "inventory-agent");
+        Assert.DoesNotContain(events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
     public async Task Schema_1_43_executes_each_sequence_path_to_the_output_barrier()
     {
         var broker = new RecordingBroker();
@@ -1724,6 +1823,7 @@ public sealed class SequenceProductionRunnerTests
         private readonly bool fail;
         private readonly bool blockUntilCancellation;
         private readonly bool failFirstConcurrentInvocation;
+        private readonly TaskCompletionSource<bool>? releaseWhenReady;
         private int concurrentInvocationCount;
 
         public bool InvocationObserved { get; private set; }
@@ -1731,11 +1831,12 @@ public sealed class SequenceProductionRunnerTests
         private TaskCompletionSource<bool> BothConcurrentInvocationsStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public SequenceProofAgentExecutor(bool fail = false, bool blockUntilCancellation = false,
-            bool failFirstConcurrentInvocation = false)
+            bool failFirstConcurrentInvocation = false, TaskCompletionSource<bool>? releaseWhenReady = null)
         {
             this.fail = fail;
             this.blockUntilCancellation = blockUntilCancellation;
             this.failFirstConcurrentInvocation = failFirstConcurrentInvocation;
+            this.releaseWhenReady = releaseWhenReady;
         }
 
         public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
@@ -1763,6 +1864,8 @@ public sealed class SequenceProductionRunnerTests
                     throw new InvalidOperationException("proof agent failed");
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             }
+            else if (releaseWhenReady is not null)
+                await releaseWhenReady.Task.WaitAsync(cancellationToken);
             else if (blockUntilCancellation)
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             await invocation.RecordEventForAsync(modelCallId, ExecutionEventKinds.ModelResponded,

@@ -599,18 +599,27 @@ ownership or persistence/playback for the combined path.
   2026-11-23 returned REVISE on the VAW-owner-over-existing-builders candidate:
   ordinary held-sibling settlement is now covered by unit proof, but shared
   ownership across Sequence execution and passive persistence/playback remain
-  unproven. The first adjudicated gate now has production-path unit evidence:
-  the ordinary root `BuildWorkflow` issues run-local admission tickets before
-  executor start, including returned-message routes and explicit Fork, Join,
+  unproven. Two adjudicated routing gates now have production-path unit
+  evidence. The ordinary root `BuildWorkflow` issues run-local admission
+  tickets before executor start, including returned-message routes and explicit Fork, Join,
   and collaboration sends; receivers validate and settle tickets, and
   successful root completion requires quiescence. A validated Fork/Join graph
   proves ticket-before-start ordering and rejects a target before its start
   when admission fails. Focused `WorkflowDispatchAdmissionOwnerTests` pass 2/2;
-  the adjacent runner selection passes 53/53. This does not qualify Sequence
-  dispatch, persistence/playback, shared budgets, or public For Each/Break.
-  The next gate is to prove Sequence routing/settlement under the same owner,
-  then failure/cancellation races and file/SQLite playback, before another
-  architecture review. A three-role review on 2026-11-19
+  the adjacent runner selection passes 53/53. This ordinary-only result does
+  not qualify Sequence dispatch, persistence/playback, shared budgets, or
+  public For Each/Break.
+  A second normally validated unified-schema Sequence proof uses the same
+  run-local owner through the private observer seam; it covers explicit source
+  sends, returned graph edges, collector/source handoffs, rejection before
+  target start, and a held descendant that prevents root completion. This
+  does not enable ticket enforcement for normal Sequence runs, nor cover every
+  topology, Break, or failure/cancellation races. The next gate is to qualify
+  those races plus file/SQLite playback before another architecture review.
+  The focused selection including `SequenceProductionRunnerTests`, ordinary
+  dispatch proofs, and adjacent runner/loop cases passes 124/124 on
+  2026-11-23.
+  A three-role review on 2026-11-19
   returned REVISE and authorized only proof work: a conditional Sequence route
   may end in nearest-loop Break without a Merge or workflow Output arrival, but
   public admission still depends on unique ownership, production settlement,

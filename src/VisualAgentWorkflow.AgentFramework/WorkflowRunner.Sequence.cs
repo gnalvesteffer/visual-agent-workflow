@@ -381,7 +381,8 @@ public sealed partial class WorkflowRunner
         ImmutableArray<WorkflowApprovalScope> workflowPath,
         Func<string, CancellationTokenSource?>? callScopeCancellation = null,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
-        SequenceProductionDispatchSession? sequenceDispatchSession = null)
+        SequenceProductionDispatchSession? sequenceDispatchSession = null,
+        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null)
     {
         var sequenceInvocationId = Guid.NewGuid();
         var connectionIds = plan.Outputs.ToDictionary(output => output.OutputId, output => output.ConnectionId,
@@ -475,6 +476,18 @@ public sealed partial class WorkflowRunner
             ? plan.Outputs.Select(output => output.OutputNodeId).Distinct(StringComparer.Ordinal)
             : revision.Definition.Nodes.Where(entry => entry.Value.Type is not (NodeTypes.Input or NodeTypes.Sequence))
                 .Select(entry => entry.Key);
+        string? ResolveSequenceDispatchTarget(GraphMessage message)
+        {
+            if (message.ActivationBreakRequest is not null || message.TerminationSignal ||
+                message.SourceNode is { } sourceNode && revision.Definition.Nodes.TryGetValue(sourceNode, out var sourceDefinition) &&
+                sourceDefinition?.Type == NodeTypes.Output && message.SourcePort == "out")
+                return "sequence-collector";
+            if (message.SourceNode is null || message.SourcePort is null) return null;
+            return (revision.Definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+                .Values.SingleOrDefault(edge => edge.Source.NodeId == message.SourceNode &&
+                    edge.Source.PortId == message.SourcePort)?.Target.NodeId;
+        }
+
         var branches = branchNodeIds
             .ToDictionary(outputNodeId => outputNodeId,
             outputNodeId => (Executor<GraphMessage, GraphMessage>)new StringExecutor(outputNodeId,
@@ -495,13 +508,14 @@ public sealed partial class WorkflowRunner
                 {
                     sequenceDispatchSession.RequestBreak(lineage, request);
                     await FlushSequenceEvents();
-                }), StringComparer.Ordinal);
+                }, dispatchAdmissionOwner: dispatchAdmissionOwner,
+                dispatchTargetResolver: dispatchAdmissionOwner is null ? null : ResolveSequenceDispatchTarget), StringComparer.Ordinal);
         var source = new SequenceProductionSource(plan.SequenceNodeId, plan, coordinator, FlushSequenceEvents, emit,
-            gate, sequenceDispatchSession);
+            gate, sequenceDispatchSession, dispatchAdmissionOwner);
         var collector = new SequenceProductionCollector("sequence-collector", plan, coordinator,
-            FlushSequenceEvents, emit);
-        var sink = new SequenceProductionSink();
-        var terminal = new SequenceProductionTerminal("sequence-terminal", emit);
+            FlushSequenceEvents, emit, dispatchAdmissionOwner);
+        var sink = new SequenceProductionSink(dispatchAdmissionOwner);
+        var terminal = new SequenceProductionTerminal("sequence-terminal", emit, dispatchAdmissionOwner);
         var builder = new WorkflowBuilder(source);
 
         foreach (var output in plan.Outputs)
@@ -761,16 +775,18 @@ public sealed partial class WorkflowRunner
     private sealed class SequenceProductionSource(string id, SequenceProductionPlan plan,
         SequenceRuntimeCoordinator coordinator, Func<ValueTask> flushSequenceEvents,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
-        SequenceProductionDispatchSession? sequenceDispatchSession)
+        SequenceProductionDispatchSession? sequenceDispatchSession,
+        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner)
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
         public override async ValueTask<GraphMessage> HandleAsync(GraphMessage message, IWorkflowContext context,
             CancellationToken cancellationToken = default)
         {
+            dispatchAdmissionOwner?.Begin(message.DispatchTicketId, Id);
             var invocation = Guid.NewGuid();
-            await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message.Text, null);
             try
             {
+                await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message.Text, null);
                 if (message.SourcePort is "completed")
                 {
                     if (message.SequenceLineage is not { } completedLineage)
@@ -792,7 +808,7 @@ public sealed partial class WorkflowRunner
                             coordinator.SequenceNodeId, admitted.OutputId, admitted.Ordinal,
                             admitted.ActivationId!.Value, nextOutput.ConnectionId,
                             $"sequence/{admitted.OutputId}");
-                        await context.SendMessageAsync(new GraphMessage(message.Text, nextOutput.SourceNodeId,
+                        await SendAdmittedAsync(context, new GraphMessage(message.Text, nextOutput.SourceNodeId,
                             nextOutput.SourcePortId, DataType: "string", SequenceLineage: nextLineage,
                             ActivationFrame: sequenceDispatchSession!.ActivationFrame), nextOutput.OutputNodeId,
                             cancellationToken);
@@ -806,6 +822,7 @@ public sealed partial class WorkflowRunner
                         Text = terminal ? coordinator.DeterministicResult ?? message.Text : message.Text,
                         SourceNode = Id,
                         SourcePort = terminal ? "terminal" : "continue",
+                        DispatchTicketId = dispatchAdmissionOwner?.Admit(terminal ? "sequence-terminal" : "sequence-sink"),
                         FailureSignal = terminal && aggregateCompletion!.TerminalEventKind is
                             ExecutionEventKinds.SequenceFailed or ExecutionEventKinds.SequenceCancelled,
                         ActivationBreakRequest = terminal ? sequenceDispatchSession?.BreakRequest : null
@@ -825,7 +842,7 @@ public sealed partial class WorkflowRunner
                             activation.ActivationId!.Value, output.ConnectionId,
                             $"sequence/{activation.OutputId}");
                         await flushSequenceEvents();
-                        pendingOutputs.Add(context.SendMessageAsync(new GraphMessage(message.Text, output.SourceNodeId,
+                        pendingOutputs.Add(SendAdmittedAsync(context, new GraphMessage(message.Text, output.SourceNodeId,
                             output.SourcePortId, DataType: "string", SequenceLineage: lineage), output.OutputNodeId,
                             cancellationToken));
                     }
@@ -841,7 +858,7 @@ public sealed partial class WorkflowRunner
                             activation.ActivationId!.Value, output.ConnectionId,
                             $"sequence/{activation.OutputId}");
                         await flushSequenceEvents();
-                        pendingOutputs.Add(context.SendMessageAsync(new GraphMessage(message.Text, output.SourceNodeId,
+                        pendingOutputs.Add(SendAdmittedAsync(context, new GraphMessage(message.Text, output.SourceNodeId,
                             output.SourcePortId, DataType: "string", SequenceLineage: lineage,
                             ActivationFrame: sequenceDispatchSession.ActivationFrame), output.OutputNodeId,
                             cancellationToken));
@@ -849,7 +866,10 @@ public sealed partial class WorkflowRunner
                 }
                 await Task.WhenAll(pendingOutputs.Select(pending => pending.AsTask()));
                 await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, "All Sequence outputs dispatched.", null);
-                return new(message.Text, Id, "continue");
+                return new(message.Text, Id, "continue")
+                {
+                    DispatchTicketId = dispatchAdmissionOwner?.Admit("sequence-sink")
+                };
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -867,24 +887,46 @@ public sealed partial class WorkflowRunner
                     "Sequence dispatch failed.", null);
                 throw;
             }
+            finally
+            {
+                dispatchAdmissionOwner?.Settle(message.DispatchTicketId, Id);
+            }
+        }
+
+        private async ValueTask SendAdmittedAsync(IWorkflowContext context, GraphMessage message,
+            string targetNodeId, CancellationToken cancellationToken)
+        {
+            var ticket = dispatchAdmissionOwner?.Admit(targetNodeId);
+            try
+            {
+                await context.SendMessageAsync(ticket is { } id ? message with { DispatchTicketId = id } : message,
+                    targetNodeId, cancellationToken);
+            }
+            catch
+            {
+                if (ticket is { } id) dispatchAdmissionOwner!.Revoke(id);
+                throw;
+            }
         }
     }
 
     private sealed class SequenceProductionCollector(string id, SequenceProductionPlan plan,
         SequenceRuntimeCoordinator coordinator, Func<ValueTask> flushSequenceEvents,
-        Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit)
+        Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
+        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner)
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
         public override async ValueTask<GraphMessage> HandleAsync(GraphMessage message, IWorkflowContext context,
             CancellationToken cancellationToken = default)
         {
+            dispatchAdmissionOwner?.Begin(message.DispatchTicketId, Id);
             if (message.SequenceLineage is not { } lineage)
                 throw new InvalidOperationException("A Sequence descendant completion is missing its lineage.");
             var invocation = Guid.NewGuid();
-            await emit(ExecutionEventKinds.NodeStarted, Id, invocation, lineage.ConnectionId,
-                message.Text, lineage.DescendantScopeId);
             try
             {
+                await emit(ExecutionEventKinds.NodeStarted, Id, invocation, lineage.ConnectionId,
+                    message.Text, lineage.DescendantScopeId);
                 var terminalState = message.FailureSignal
                     ? SequenceTerminalState.Failed
                     : plan.TerminalOutputId == lineage.OutputId
@@ -903,7 +945,8 @@ public sealed partial class WorkflowRunner
                 {
                     SourceNode = Id,
                     SourcePort = "completed",
-                    SequenceAggregateCompletion = aggregateCompletion
+                    SequenceAggregateCompletion = aggregateCompletion,
+                    DispatchTicketId = dispatchAdmissionOwner?.Admit(coordinator.SequenceNodeId)
                 };
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -922,27 +965,45 @@ public sealed partial class WorkflowRunner
                     "Sequence output failed.", lineage.DescendantScopeId);
                 throw;
             }
+            finally
+            {
+                dispatchAdmissionOwner?.Settle(message.DispatchTicketId, Id);
+            }
         }
     }
 
-    private sealed class SequenceProductionSink()
+    private sealed class SequenceProductionSink(WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner)
         : Executor<GraphMessage, GraphMessage>("sequence-sink", declareCrossRunShareable: true)
     {
         public override ValueTask<GraphMessage> HandleAsync(GraphMessage message, IWorkflowContext context,
-            CancellationToken cancellationToken = default) => ValueTask.FromResult(message);
+            CancellationToken cancellationToken = default)
+        {
+            dispatchAdmissionOwner?.Begin(message.DispatchTicketId, Id);
+            try { return ValueTask.FromResult(message); }
+            finally { dispatchAdmissionOwner?.Settle(message.DispatchTicketId, Id); }
+        }
     }
 
     private sealed class SequenceProductionTerminal(string id,
-        Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit)
+        Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
+        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner)
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
         public override async ValueTask<GraphMessage> HandleAsync(GraphMessage message, IWorkflowContext context,
             CancellationToken cancellationToken = default)
         {
+            dispatchAdmissionOwner?.Begin(message.DispatchTicketId, Id);
             var invocation = Guid.NewGuid();
-            await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message.Text, null);
-            await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, message.Text, null);
-            return message with { SourceNode = Id, SourcePort = "out" };
+            try
+            {
+                await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message.Text, null);
+                await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, message.Text, null);
+                return message with { SourceNode = Id, SourcePort = "out" };
+            }
+            finally
+            {
+                dispatchAdmissionOwner?.Settle(message.DispatchTicketId, Id);
+            }
         }
     }
 }

@@ -354,7 +354,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         var activationLedger = new ExecutionActivationLedger();
         var usesProductionRootDispatcher = !skipValidationForInternalProof && activationFrame is null &&
             rootCoordinatorProof is null && arrayIterationFeedbackProof is null && proofBreakNodeIds is null;
-        var dispatchAdmissionOwner = sequencePlan is null && usesProductionRootDispatcher
+        var dispatchAdmissionOwner = usesProductionRootDispatcher &&
+            (sequencePlan is null || workflowDispatchAdmissionObserver is not null)
             ? new WorkflowDispatchAdmissionOwner(workflowDispatchAdmissionObserver)
             : null;
         using var activationFrameOwner = new StructuredActivationFrameOwner(
@@ -387,7 +388,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 dispatchAdmissionOwner: dispatchAdmissionOwner)
             : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, input, resolvedParameters, Emit,
                 activationFrameOwner.MarkRootEventRecorderUncertain, gate, rootRevision, workflowPath,
-                callScopeCancellation, afterNodeStarted, sequenceDispatchSession);
+                callScopeCancellation, afterNodeStarted, sequenceDispatchSession, dispatchAdmissionOwner);
 
         if (emitRunLifecycle) await Emit(ExecutionEventKinds.Started);
         try
@@ -432,7 +433,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             await using var run = await execution.RunStreamingAsync(workflow!,
                 new GraphMessage(input, null, null, DataType: inputType,
                     ActivationFrame: activationFrame,
-                    DispatchTicketId: dispatchAdmissionOwner?.Admit(revision.Definition.EntryNodeId)), cancellationToken: cancellationToken);
+                    DispatchTicketId: dispatchAdmissionOwner?.Admit(sequencePlan?.SequenceNodeId ??
+                        revision.Definition.EntryNodeId)), cancellationToken: cancellationToken);
             using var cancellationRegistration = cancellationToken.Register(
                 static state => _ = CancelStreamingRunAsync((StreamingRun)state!), run);
             GraphMessage? output = null;
@@ -2121,7 +2123,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         StructuredActivationFrameOwner? activationFrameOwner = null,
         string? parallelJoinContinuationTarget = null,
         ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null,
-        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null)
+        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null,
+        Func<GraphMessage, string?>? dispatchTargetResolver = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -2320,6 +2323,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
         private string? ResolveContinuationTarget(GraphMessage message)
         {
+            if (dispatchTargetResolver is not null) return dispatchTargetResolver(message);
             if (node.Type == NodeTypes.Output) return null;
             if (message.ActivationBreakRequest is not null || message.TerminationSignal)
                 return revision.Definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Output).Key;
