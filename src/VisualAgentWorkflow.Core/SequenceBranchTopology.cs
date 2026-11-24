@@ -195,7 +195,7 @@ public static class SequenceBranchTopologyAnalyzer
                 return stopAtBranch ? (current, nodes.ToImmutable()) : null;
             }
             if (currentNode.Type is NodeTypes.Merge or NodeTypes.ParallelJoin or NodeTypes.ParallelFork or
-                NodeTypes.ParallelBranch or NodeTypes.ParallelRendezvous or NodeTypes.Loop or NodeTypes.Terminate)
+                NodeTypes.ParallelBranch or NodeTypes.ParallelRendezvous or NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.Terminate)
             {
                 issue($"{diagnosticPrefix}.control", $"nodes.{current}", "Only the decision's exclusive Merge may join Sequence routes.");
                 return null;
@@ -259,7 +259,7 @@ public static class SequenceBranchTopologyAnalyzer
                 return null;
             }
             if (IsDecision(currentNode.Type) || currentNode.Type is NodeTypes.ParallelJoin or NodeTypes.ParallelFork or
-                NodeTypes.ParallelBranch or NodeTypes.ParallelRendezvous or NodeTypes.Loop or NodeTypes.Terminate)
+                NodeTypes.ParallelBranch or NodeTypes.ParallelRendezvous or NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.Terminate)
             {
                 issue("sequence.branch.nested", $"nodes.{current}", $"The {armName} route contains unsupported nested control flow.");
                 return null;

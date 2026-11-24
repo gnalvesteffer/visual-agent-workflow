@@ -393,7 +393,7 @@
                     _ => child.Kind
                 };
         }
-        if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type == NodeTypes.Loop &&
+        if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type is NodeTypes.Loop or NodeTypes.ForEach &&
             RootEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped) is { } loopActivity)
             return LoopActivity(loopActivity, "Preparing loop");
         if (parallelActivation is not null)

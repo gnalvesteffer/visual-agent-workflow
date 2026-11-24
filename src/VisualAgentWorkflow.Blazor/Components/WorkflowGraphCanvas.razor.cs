@@ -158,7 +158,7 @@ public partial class WorkflowGraphCanvas
         NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval",
         NodeTypes.ParallelFork => "Parallel fork", NodeTypes.ParallelBranch => "Parallel branch", NodeTypes.ParallelJoin => "Parallel join", NodeTypes.ParallelRendezvous => "Parallel rendezvous",
         NodeTypes.Sequence => "Sequence",
-        NodeTypes.Loop => "Bounded loop", NodeTypes.LoopBody => "Loop body", NodeTypes.Terminate => "Terminate workflow",
+        NodeTypes.Loop => "Bounded loop", NodeTypes.ForEach => "For each", NodeTypes.LoopBody => "Loop body", NodeTypes.Terminate => "Terminate workflow",
         NodeTypes.WorkflowCall => $"Workflow · {node.WorkflowCall?.WorkflowId} v{node.WorkflowCall?.Version}",
         NodeTypes.WorkflowInterfaceCall => WorkflowInterfaceCallLabel(node),
         NodeTypes.StringConstant => "String constant", NodeTypes.TextConcat => "Text concatenation",
@@ -191,7 +191,7 @@ public partial class WorkflowGraphCanvas
     private static string Kind(NodeDefinition node) => node.Type == NodeTypes.Input ? "Input" : node.Type == NodeTypes.Output ? "Output" :
         node.Type == NodeTypes.Approval ? "Approval" : node.Type == NodeTypes.Condition ? "Condition" : node.Type == NodeTypes.Merge ? "Exclusive merge" :
         node.Type == NodeTypes.ParallelFork ? "Fork" : node.Type == NodeTypes.ParallelBranch ? "Branch" : node.Type == NodeTypes.ParallelJoin ? "Barrier join" : node.Type == NodeTypes.Sequence ? "Sequence" :
-        node.Type == NodeTypes.Loop ? "Bounded loop" : node.Type == NodeTypes.LoopBody ? "Loop body" : node.Type == NodeTypes.Terminate ? "Successful exit · no result" :
+        node.Type == NodeTypes.Loop ? "Bounded loop" : node.Type == NodeTypes.ForEach ? "For each" : node.Type == NodeTypes.LoopBody ? "Loop body" : node.Type == NodeTypes.Terminate ? "Successful exit · no result" :
         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall ? "Pinned workflow call" : node.Type == NodeTypes.FunctionCall ? "Pure function" :
         node.Type is NodeTypes.FunctionInput or NodeTypes.FunctionOutput ? "Function boundary" :
         node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains ? "Pure value" :
@@ -212,7 +212,7 @@ public partial class WorkflowGraphCanvas
             NodeTypes.Approval => "<path d=\"M3 10 8 15 17 5\"/><circle cx=\"10\" cy=\"10\" r=\"8\"/>",
             NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous => "<circle cx=\"4\" cy=\"10\" r=\"1.5\"/><circle cx=\"16\" cy=\"4\" r=\"1.5\"/><circle cx=\"16\" cy=\"16\" r=\"1.5\"/><path d=\"M5.5 10h3a3 3 0 0 0 3-3V4m-3 6h3a3 3 0 0 1 3 3v1.5\"/>",
             NodeTypes.Sequence => "<path d=\"M3 5h4m-4 5h8m-8 5h12\"/><path d=\"m7 3 2 2-2 2m4 3 2 2-2 2m4 3 2 2-2 2\"/>",
-            NodeTypes.Loop or NodeTypes.LoopBody => "<path d=\"M16 7h3V4m-1 3a8 8 0 0 0-14 2m0 6H1v3m1-3a8 8 0 0 0 14-2\"/>",
+            NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.LoopBody => "<path d=\"M16 7h3V4m-1 3a8 8 0 0 0-14 2m0 6H1v3m1-3a8 8 0 0 0 14-2\"/>",
             NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.FunctionCall => "<rect x=\"3\" y=\"3\" width=\"14\" height=\"14\" rx=\"2\"/><path d=\"M7 7h6m-6 3h6m-6 3h4\"/>",
             NodeTypes.StringConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.BooleanConstant or NodeTypes.WorkflowValue or NodeTypes.ArrayLiteral => "<path d=\"M4 4h12v12H4zM7 8h6M7 12h4\"/>",
             NodeTypes.FunctionInput or NodeTypes.FunctionOutput => "<path d=\"M3 10h14m-5-5 5 5-5 5\"/><circle cx=\"4\" cy=\"10\" r=\"2\"/>",

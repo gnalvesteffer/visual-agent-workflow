@@ -164,6 +164,7 @@ public static class NodeTypes
     public const string Sequence = "core.sequence";
     public const string Loop = "core.loop";
     public const string LoopBody = "core.loop.body";
+    public const string ForEach = "core.for-each";
     public const string Terminate = "core.terminate";
     public const string WorkflowCall = "core.workflow-call";
     public const string WorkflowInterfaceCall = "core.workflow-interface-call";

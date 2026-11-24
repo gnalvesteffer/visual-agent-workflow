@@ -345,7 +345,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         StructuredActivationGraphPlan? activationGraphPlan = null;
         if (!skipValidationForInternalProof && !sequenceWorkflowCallProof && activationFrame is null &&
             revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
-            sequencePlan is null && revision.Definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Loop))
+            sequencePlan is null && revision.Definition.Nodes.Values.Any(node => node?.Type is NodeTypes.Loop or NodeTypes.ForEach))
         {
             if (!StructuredActivationGraphPlan.TryCreate(revision.Definition, out activationGraphPlan,
                     out var topologyIssues))
@@ -965,8 +965,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             this.loopEvidenceScopePrefix = loopEvidenceScopePrefix;
             EvidenceBudget = evidenceBudget ?? new WorkflowArrayEvidenceBudget();
             loopIterationLimits = definition.Nodes
-                .Where(entry => entry.Value?.Type == NodeTypes.Loop && entry.Value.Loop is not null)
-                .ToImmutableDictionary(entry => entry.Key, entry => entry.Value.Loop!.MaximumIterations,
+                .Where(entry => entry.Value?.Type == NodeTypes.ForEach ||
+                    entry.Value?.Type == NodeTypes.Loop && entry.Value.Loop is not null)
+                .ToImmutableDictionary(entry => entry.Key,
+                    entry => entry.Value.Type == NodeTypes.ForEach ? WorkflowJsonArrayLimits.MaximumItems : entry.Value.Loop!.MaximumIterations,
                     StringComparer.Ordinal);
             var graphLoopBound = ComputeMaximumLoopActivations(plan, loopIterationLimits);
             var derivedMaximum = plan is null ? graphLoopBound :
@@ -2241,6 +2243,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
+        private readonly ConcurrentDictionary<(Guid? ParentFrameId, string NodeId), JsonElement> forEachItems = new();
+
         private async ValueTask Emit(string kind, string? node = null, Guid? invocation = null,
             string? connection = null, string? data = null, string? eventScope = null,
             bool useStorageScope = false)
@@ -2717,7 +2721,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     message = outputEvaluation.Result.Value as string ??
                         throw new InvalidOperationException("A data-carried loop requires a string value.");
                 }
-                foreach (var value in (outputEvaluation?.Evaluations ?? []).Concat(branchEvaluation?.Evaluations ?? []).Concat(variableSetEvaluation?.Evaluations ?? []))
+                DataInputEvaluation? forEachArrayEvaluation = null;
+                if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+                    node.Type == NodeTypes.ForEach && received.ActivationFrame?.FindLoop(Id) is null)
+                    forEachArrayEvaluation = dataEvaluator!.ResolveInput(Id, "array");
+                foreach (var value in (outputEvaluation?.Evaluations ?? []).Concat(forEachArrayEvaluation?.Evaluations ?? []).Concat(branchEvaluation?.Evaluations ?? []).Concat(variableSetEvaluation?.Evaluations ?? []))
                 {
                     dataEvaluator!.RecordEvidenceBudget(value);
                     await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
@@ -2875,7 +2883,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(Id, message),
                     NodeTypes.BooleanBranch => string.Empty,
-                    NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.LoopBody or NodeTypes.VariableGet or NodeTypes.VariableSet => message,
+                    NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.LoopBody or NodeTypes.VariableGet or NodeTypes.VariableSet => message,
                     NodeTypes.Terminate => string.Empty,
                     NodeTypes.JsonSelectString => SelectJsonText(message, node.JsonPropertySelection!.Pointer),
                     NodeTypes.JsonProject => ProjectJson(message, node.JsonProjection!),
@@ -3033,6 +3041,71 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var nextLoopIteration = received.LoopIteration;
                 var loopIterationForEvidence = received.LoopIteration;
                 var nextActivationFrame = received.ActivationFrame;
+                if (node.Type == NodeTypes.ForEach)
+                {
+                    var elementType = node.ArrayElementType ?? WorkflowDataTypes.Json;
+                    var frameOwner = activationFrameOwner
+                        ?? throw new InvalidOperationException($"For each '{Id}' has no activation frame owner.");
+                    var forEachParent = frameOwner.ResolveLoopParent(Id, received.ActivationFrame);
+                    var itemsKey = (forEachParent?.Id, Id);
+                    var completedFrame = received.ActivationFrame?.FindLoop(Id);
+                    if (completedFrame is null)
+                    {
+                        var array = forEachArrayEvaluation!.Result.Value is JsonElement { ValueKind: JsonValueKind.Array } element
+                            ? element.Clone()
+                            : throw new InvalidOperationException($"For each '{Id}' requires a bounded array.");
+                        if (array.GetArrayLength() > WorkflowJsonArrayLimits.MaximumItems)
+                            throw new InvalidOperationException($"For each '{Id}' array exceeds {WorkflowJsonArrayLimits.MaximumItems} items.");
+                        forEachItems[itemsKey] = array;
+                    }
+                    var items = forEachItems.TryGetValue(itemsKey, out var activationItems)
+                        ? activationItems
+                        : throw new InvalidOperationException($"For each '{Id}' has no active array.");
+                    var completedIteration = completedFrame?.Index ?? 0;
+                    loopIterationForEvidence = completedIteration;
+                    if (completedFrame is not null)
+                    {
+                        activationFrameOwner?.EnsureFrameSettled(completedFrame.ScopeId, received.DispatchTicketId);
+                        await Emit(ExecutionEventKinds.LoopIterationCompleted, Id, invocation, null,
+                            JsonSerializer.Serialize(new { iteration = completedIteration }), completedFrame.ScopeId);
+                    }
+                    if (completedIteration < items.GetArrayLength())
+                    {
+                        var element = items[completedIteration];
+                        port = "body";
+                        nextLoopIteration = completedIteration + 1;
+                        var frameParameters = CurrentParameters?.ToImmutableSortedDictionary(StringComparer.Ordinal)
+                            ?? ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+                        var bodyFrame = frameOwner.CreateBodyPass(Id, nextLoopIteration, WorkflowJsonArrayLimits.MaximumItems,
+                            element.ValueKind == JsonValueKind.String ? element.GetString()! : element.GetRawText(),
+                            frameParameters, forEachParent);
+                        object typedItem = elementType switch
+                        {
+                            WorkflowDataTypes.String => element.GetString()!,
+                            WorkflowDataTypes.Boolean => element.GetBoolean(),
+                            WorkflowDataTypes.Integer => element.GetInt64(),
+                            WorkflowDataTypes.Number => element.GetDouble(),
+                            _ => element.Clone()
+                        };
+                        dataEvaluator?.SetRuntimeOutput(Id, "item", elementType, typedItem, bodyFrame);
+                        dataEvaluator?.SetRuntimeOutput(Id, "index", WorkflowDataTypes.Integer, (long)completedIteration, bodyFrame);
+                        nextActivationFrame = bodyFrame;
+                        await Emit(ExecutionEventKinds.LoopIterationStarted, Id, invocation, null,
+                            JsonSerializer.Serialize(new { iteration = nextLoopIteration, maximumIterations = items.GetArrayLength() }),
+                            bodyFrame.ScopeId);
+                    }
+                    else
+                    {
+                        port = "completed";
+                        forEachItems.TryRemove(itemsKey, out _);
+                        dataEvaluator?.PromoteRuntimeOutputs(received.ActivationFrame, forEachParent);
+                        nextActivationFrame = forEachParent ?? received.ActivationFrame;
+                        nextLoopIteration = forEachParent?.Index ?? 0;
+                        await Emit(ExecutionEventKinds.LoopStopped, Id, invocation, null,
+                            JsonSerializer.Serialize(new { reason = "array-exhausted", iterations = items.GetArrayLength(),
+                                maximumIterations = items.GetArrayLength() }));
+                    }
+                }
                 if (node.Type == NodeTypes.Loop)
                 {
                     var loop = node.Loop!;
@@ -3159,6 +3232,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
                         routeSelection is not null ? JsonSerializer.Serialize(new { routeId = agentRouteId, port }) :
                         node.Type == NodeTypes.Loop ? JsonSerializer.Serialize(new { port, iteration = loopIterationForEvidence, maximumIterations = node.Loop!.MaximumIterations }) :
+                        node.Type == NodeTypes.ForEach ? JsonSerializer.Serialize(new { port, iteration = loopIterationForEvidence }) :
                         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall && childOutcome!.Cancelled ? "Nested workflow was cancelled by its own scope." :
                         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall && childOutcome!.Failed ? "Nested workflow ended at a failure termination." :
                         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall && childOutcome!.Terminated ? "Nested workflow terminated successfully." :

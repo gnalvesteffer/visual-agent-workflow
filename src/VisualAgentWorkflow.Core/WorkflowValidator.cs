@@ -204,7 +204,7 @@ public static class WorkflowValidator
              definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && definition.Nodes.Values.Any(node => node?.Type == NodeTypes.ParallelRendezvous)) && collaborationRegions is null)
             Error("parallel.collaboration.missing", "parallelCollaborationRegions", "Collaboration schemas require one explicitly configured collaboration region.");
         if (collaborationRegions is { Count: > 0 } &&
-            definition.Nodes.Values.Any(node => node?.Type is NodeTypes.Loop or NodeTypes.LoopBody))
+            definition.Nodes.Values.Any(node => node?.Type is NodeTypes.Loop or NodeTypes.LoopBody or NodeTypes.ForEach))
             Error("parallel.collaboration.loop", "nodes", "Collaborative parallel regions cannot be re-entered by bounded workflow loops; remove the loop or the collaborative region.");
         if (collaborationRegions is not null)
         {
@@ -570,14 +570,14 @@ public static class WorkflowValidator
             else if (node.ArrayLiteral is not null)
                 Error("array.literal.unexpected", $"nodes.{id}.arrayLiteral", "Only Array literal nodes may declare literal values.");
             if (node.ArrayElementType is not null &&
-                (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains) ||
+                (node.Type is not (NodeTypes.ForEach or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains) ||
                  definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph ||
                  !WorkflowDataTypes.IsArrayType(node.ArrayElementType is null ? null : $"array<{node.ArrayElementType}>")))
                 Error("array.element-type", $"nodes.{id}.arrayElementType", "Typed array operations require a supported element type in unified schema 2.0; legacy JSON array nodes omit this field.");
             if (node.Type == NodeTypes.ArrayContains && !WorkflowDataTypes.IsPrimitiveArrayType(
                     node.ArrayElementType is null ? null : $"array<{node.ArrayElementType}>"))
                 Error("array.contains.type", $"nodes.{id}.arrayElementType", "Array contains requires a primitive element type; JSON structural equality is not defined.");
-            if (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains) && node.ArrayElementType is not null)
+            if (node.Type is not (NodeTypes.ForEach or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains) && node.ArrayElementType is not null)
                 Error("array.element-type.unexpected", $"nodes.{id}.arrayElementType", "Only array operations may declare an array element type.");
             if (node.Type is NodeTypes.IntegerAdd or NodeTypes.IntegerEquals && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.IntegerStringConversionGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph))
                 Error("node.schema", $"nodes.{id}", "Integer arithmetic nodes require schema 1.31.");
@@ -871,7 +871,7 @@ public static class WorkflowValidator
                 ValidateUnifiedSequenceGraph(definition, error);
             return;
         }
-        if (definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Loop))
+        if (definition.Nodes.Values.Any(node => node?.Type is NodeTypes.Loop or NodeTypes.ForEach))
         {
             ValidateUnifiedLoopGraph(definition, error);
             return;
@@ -934,7 +934,7 @@ public static class WorkflowValidator
             return;
         }
 
-        var loops = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.Loop).ToArray();
+        var loops = definition.Nodes.Where(entry => entry.Value?.Type is NodeTypes.Loop or NodeTypes.ForEach).ToArray();
         var anchors = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.LoopBody).ToArray();
         if (loops.Length == 0 || anchors.Length != loops.Length || definition.ExecutionConnections is not { } execution)
         {
@@ -988,7 +988,7 @@ public static class WorkflowValidator
 
         var supportedBodyNodes = new HashSet<string>(StringComparer.Ordinal)
         {
-            NodeTypes.Loop, NodeTypes.LoopBody, NodeTypes.VariableGet, NodeTypes.VariableSet,
+            NodeTypes.Loop, NodeTypes.ForEach, NodeTypes.LoopBody, NodeTypes.VariableGet, NodeTypes.VariableSet,
             NodeTypes.Agent, NodeTypes.McpTool, NodeTypes.SequenceUppercase, NodeTypes.SequenceReverse,
             NodeTypes.WorkflowCall, NodeTypes.WorkflowInterfaceCall
         };

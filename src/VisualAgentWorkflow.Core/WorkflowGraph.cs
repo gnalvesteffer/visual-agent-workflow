@@ -77,6 +77,7 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.WorkflowCall => InputsForWorkflowCall(node),
         NodeTypes.WorkflowInterfaceCall => InterfaceCallInputs(node),
         NodeTypes.FunctionCall => FunctionCallDataInputs(node),
+        NodeTypes.ForEach => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.Json))],
         NodeTypes.ArrayLength => [new("in", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.Json))],
         NodeTypes.ArrayGet => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.Json)), new("index", WorkflowDataTypes.Integer)],
         NodeTypes.ArrayAppend => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String)), new("item", node.ArrayElementType ?? WorkflowDataTypes.String)],
@@ -100,6 +101,7 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.ParallelJoin => [new("out", WorkflowDataTypes.Json)],
         NodeTypes.FunctionCall => FunctionCallDataOutputs(node),
         NodeTypes.ArrayLiteral => [new("out", WorkflowDataTypes.ArrayOf(node.ArrayLiteral?.ElementType ?? WorkflowDataTypes.String))],
+        NodeTypes.ForEach => [new("item", node.ArrayElementType ?? WorkflowDataTypes.Json), new("index", WorkflowDataTypes.Integer)],
         NodeTypes.ArrayLength => [new("out", WorkflowDataTypes.Integer)],
         NodeTypes.ArrayGet => [new("item", node.ArrayElementType ?? WorkflowDataTypes.Json)],
         NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate => [new("out", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.String))],
@@ -109,7 +111,7 @@ internal static class WorkflowPortShapeCatalog
 
     public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.Loop => ["execute", "feedback"],
+        NodeTypes.Loop or NodeTypes.ForEach => ["execute", "feedback"],
         NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.Output or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet => ["execute"],
         NodeTypes.ParallelJoin when node.ParallelJoin is { BranchIds.IsDefault: false } join => [.. join.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
@@ -119,6 +121,7 @@ internal static class WorkflowPortShapeCatalog
     public static ImmutableArray<string> ExplicitExecutionOutputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => ["then"],
+        NodeTypes.ForEach => ["body", "completed"],
         NodeTypes.Agent when node.Agent?.Routes is { IsDefaultOrEmpty: false } routes => [.. routes.Where(route => route is not null).Select(route => AgentExecutionRouteLimits.PinId(route.Id))],
         NodeTypes.Agent => ["out"],
         NodeTypes.McpTool => ["then"],

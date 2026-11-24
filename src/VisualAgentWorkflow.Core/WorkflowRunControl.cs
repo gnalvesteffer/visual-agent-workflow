@@ -27,7 +27,7 @@ public static class WorkflowDebugging
     {
         NodeTypes.Condition, NodeTypes.BooleanBranch, NodeTypes.Merge,
         NodeTypes.ParallelFork, NodeTypes.ParallelBranch, NodeTypes.ParallelJoin, NodeTypes.ParallelRendezvous,
-        NodeTypes.Sequence, NodeTypes.Loop, NodeTypes.LoopBody,
+        NodeTypes.Sequence, NodeTypes.Loop, NodeTypes.ForEach, NodeTypes.LoopBody,
         NodeTypes.WorkflowCall, NodeTypes.WorkflowInterfaceCall
     };
 

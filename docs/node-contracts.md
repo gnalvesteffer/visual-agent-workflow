@@ -84,6 +84,7 @@ change the exact typed pin set for dynamic families.
 | Collaboration rendezvous | Collaboration | Data + execution | Barrier / run-scoped | Region abort / parallel progress | Host-authorized collaboration boundary | Branch-count bound; `ParallelBranchId` dynamic pins |
 | Sequence | Flow | Execution | Fan-out / run-scoped | Propagates / Sequence progress | Run-scoped ordered dispatch | Output-count bound; `SequenceOutputId` dynamic pins |
 | Bounded loop and loop body | Flow | Data + execution | Execution / run-scoped | Routes / route decision | Run-scoped repetition | Maximum iteration bound |
+| For each | Flow | Data + execution | Execution / run-scoped | Routes / route decision | Run-scoped bounded iteration over a typed array | Item-count bound (64) plus the shared per-run body-pass and evidence limits; `TypedArrayElementType` dynamic pins |
 | Agent | Capabilities | Data + execution | Execution / host-owned | Propagates / capability invocation | External model capability; host grant required | Route, output-token, total-token, and function-tool bounds; `AgentRouteId` dynamic pins |
 | MCP tool | Capabilities | Data + execution | Execution / host-owned | Propagates / capability invocation | External tool capability; host grant required | Static argument bound; `McpArgumentId` dynamic pins |
 | Workflow call | Composition | Data + execution | Child workflow / run-scoped | Child outcome propagation / child workflow | Calls a pinned child revision | Depth and expanded-node bounds |

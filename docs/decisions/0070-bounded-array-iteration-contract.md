@@ -6095,3 +6095,7 @@ Still open from the readiness review: an atomic reservation for item activations
 shared with child runs, so a For Each item can count as a pass), gating a successor on
 the abandonable-stop signal for Sequence bodies, Break ordering against the drain, and
 the For Each contract and runtime themselves.
+
+## First For Each runtime slice (2026-11-24)
+
+The adjudicated dedicated node now exists end to end in a narrow form. Core declares `core.for-each` (contract, descriptor, validator and topology rules, draftable JSON, fail-closed for older readers and legacy schemas). The runner treats it as a frame-owning iterator: it evaluates `array` once on first entry, keeps the items per parent frame, creates one body-pass frame per item through the shared frame owner (pass limit shared with Loops), binds typed `item` and `index` as frame-scoped runtime outputs, settles the previous pass frame before advancing, emits the existing `LoopIterationStarted/Completed` and a `LoopStopped` reason `array-exhausted`, and promotes pass outputs to the parent frame on `completed`. Excluded and still gated: Break, Sequence/Fork-Join nesting, checkpoint recovery (the checkpoint allowlist rejects it), node stepping, Studio authoring, and any claim of public availability. Tests: `ForEachNodeTests` (Core) and `ForEachExecutionTests` (runtime order, index, empty array, failure stop, checkpoint rejection).

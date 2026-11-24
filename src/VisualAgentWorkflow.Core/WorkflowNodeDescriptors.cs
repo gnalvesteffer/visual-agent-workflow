@@ -644,7 +644,7 @@ public static class WorkflowNodeDescriptorResolver
         IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions,
         out WorkflowNodeDescriptor descriptor)
     {
-        if ((node.Type is NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains) &&
+        if ((node.Type is NodeTypes.ForEach or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains) &&
             !WorkflowDataTypes.IsArrayElementType(node.ArrayElementType ?? WorkflowDataTypes.Json) ||
             node.Type == NodeTypes.ArrayLiteral && node.ArrayLiteral is not null &&
                 !WorkflowDataTypes.IsArrayElementType(node.ArrayLiteral.ElementType))
@@ -733,7 +733,7 @@ public static class WorkflowNodeDescriptorResolver
     {
         if (direction == WorkflowPortDirection.Input)
         {
-            if (node.Type == NodeTypes.Loop)
+            if (node.Type is NodeTypes.Loop or NodeTypes.ForEach)
                 return pin == "feedback" ? WorkflowExecutionPinRole.LoopFeedbackInput : WorkflowExecutionPinRole.LoopInitialInput;
             if (node.Type == NodeTypes.LoopBody)
                 return WorkflowExecutionPinRole.LoopBodyEntryInput;
@@ -746,7 +746,7 @@ public static class WorkflowNodeDescriptorResolver
             return WorkflowExecutionPinRole.AlternativeOutput;
         if (node.Type is NodeTypes.Sequence or NodeTypes.ParallelFork or NodeTypes.ParallelRendezvous)
             return WorkflowExecutionPinRole.FanOutOutput;
-        if (node.Type == NodeTypes.Loop)
+        if (node.Type is NodeTypes.Loop or NodeTypes.ForEach)
             return pin == "body" ? WorkflowExecutionPinRole.LoopBodyOutput : WorkflowExecutionPinRole.LoopDoneOutput;
         return WorkflowExecutionPinRole.ContinuationOutput;
     }
@@ -774,7 +774,7 @@ public static class WorkflowNodeDescriptorResolver
         NodeTypes.Agent => "agent",
         NodeTypes.VariableGet => "variable-get",
         NodeTypes.VariableSet => "variable-set",
-        NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains => "array",
+        NodeTypes.ForEach or NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains => "array",
         NodeTypes.FunctionCall => "graph-function-call",
         NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous => "parallel",
         NodeTypes.Sequence => "sequence",
