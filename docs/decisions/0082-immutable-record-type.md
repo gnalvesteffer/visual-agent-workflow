@@ -1,6 +1,6 @@
 # Decision 0082: Immutable record type (Blueprint-struct analogue)
 
-**Status:** PROPOSED, pending three-role architecture review; not implemented
+**Status:** PROPOSED, deferred after three-role review (2026-11-24); not implemented. No slice is authorized until the prerequisites in "Review outcome" are designed.
 
 **Date:** 2026-11-24
 
@@ -93,3 +93,38 @@ Maps and sets need portable key identity, canonical key ordering, equality, hash
 6. Is no equality at all acceptable, or is field-wise primitive equality the minimum for usability?
 7. Which redaction class should a record inherit when its fields have mixed classes?
 8. Is fail-closed with no schema or capability gate sufficient for older readers, or is an explicit declaration-format version check also needed in package import?
+
+## Review outcome (2026-11-24)
+
+Three-role review (proponent, opponent, adjudicator). **Ruling: defer; do not ship staged proof steps 1-2 as proposed.** Record the prerequisites below and revisit. The proponent's slice is sound in shape, but its central premise, that `record<id@rev>` is "one more parsed family", is false in this codebase.
+
+### Claims verified (read-only)
+
+- **True:** the catalog is static and string-matched. `WorkflowDataTypeCatalog.All` is a fixed array, and `IsSupported` and `AreCompatible` are pure string checks with no context argument (`WorkflowDataTypes.cs:57-77`). A record type depends on a user declaration, so a resolution context must be threaded through every caller, which is a signature change, not a parser addition.
+- **True:** about 21 `IsArrayType`/`IsPrimitiveArrayType` call sites exist across 12 files (Validator 6, GraphFunctions 2, VariableEvidence 2, VariableSnapshots 2, and one each in WorkflowRunner, LoopVariableTopology, CheckpointFrames, WorkflowDefinition, WorkflowGraph, TypedArrayOperations, VariableEditing). The audit is real and the count matches the proponent's.
+- **True:** node contracts are static with a `TypeVersion` check and a `HasDynamicPins` flag (`GraphEditing.cs:803-807`; `GraphClipboard.cs:144`). `core.record.make` needs per-declaration pins, so it is a dynamic-pin node and hits those paths.
+- **True:** the array byte cap is 16 KiB, while `WorkflowJsonArrayLimits.cs` itself holds only the item count (64) and depth (32). A 32-field record of `json` or array fields could exceed 16 KiB unless the sum is checked after construction, which the draft already specifies. The opponent's 512 KiB figure is a worst case that the post-construction sum check would reject, so it is an argument for the check, not a blocker.
+- **False (overstated):** "no `-0` canonical double rule". `WorkflowArrayLiteral.cs:124` emits `"0"` when `number == 0d` (which covers -0) and otherwise uses `ToString("R", InvariantCulture)`. A rule exists but lives in array code, is not a pinned cross-type contract, and has no test tied to record hashing. It needs promotion to a shared, documented encoder, not invention.
+- **Not verifiable as stated:** "2.0 already shipped, so a capability gate is needed". The roadmap treats 2.0 as the current authoring identity (`roadmap.md:44-48`), and the draft's "no gate" claim contradicts the fail-closed requirement for older 2.0 readers. This stays an open prerequisite.
+
+### Why defer, not the alternatives
+
+- Revision-in-type-id makes every field edit a breaking change with no migration (draft open question 4), which makes the first slice hard to use.
+- Declaration location (open question 2) decides whether the type ID can be resolved at all, so it cannot be left open.
+- Mixed-class redaction (open question 7, Decision 0075) is a privacy risk, so it must be settled before evidence is recorded.
+- The opponent's schema-validated `json` alternative is not adopted. It is a separate design that needs its own decision (a closed-object annotation on pins and variables plus `object.get` by field ID). It is noted here as the cheaper candidate to evaluate first, and it does not need a new type family.
+
+### Prerequisites before any slice
+
+1. A declaration-resolution design: location (workflow, project or both), package pinning, and how `IsSupported`/`AreCompatible` and descriptor lookups receive that context. This includes a plan for the ~21 call sites and dynamic-pin node contracts.
+2. A shared, pinned canonical encoder for double (including -0), int64 and UTF-8 strings, extracted from `WorkflowArrayLiteral`, with golden-byte tests.
+3. A field-class redaction policy for mixed-class records (extends Decision 0075).
+4. A capability gate or explicit declaration-format version check for older 2.0 readers.
+5. A migration or revision-identity policy (content hash versus integer revision).
+6. Evaluate the schema-validated `json` annotation alternative against records using these same criteria.
+
+### First slice, once prerequisites 1-4 are accepted
+
+Flat-field records only: generated field IDs, declaration plus revision, `record<id@rev>` with exact identity and no null or implicit conversion, canonical bytes and hash sorted by field ID, pure `core.record.make` and `core.record.get`, validator rules, and fail-closed handling for unknown record types or nodes. Core unit tests and a validator matrix come first. Nesting, `array<record>`, `with`, variables, function ports, MCP projection, migration and Studio UI stay deferred.
+
+The roadmap and capability matrix already describe records as a proposal only, so neither contradicts this ruling and neither was changed.
