@@ -1,6 +1,6 @@
 # Decision 0080: Events and custom entry points
 
-**Status:** PROPOSED, pending three-role architecture review; not implemented
+**Status:** DEFERRED after three-role review (2026-11-24): Option 1 stays; Option 2 is not accepted as written; not implemented
 
 **Date:** 2026-11-24
 
@@ -125,3 +125,59 @@ canonical form changes.
    workflow revision (one run, one operation)?
 6. Are the listed conditions for dispatcher subscriptions complete, or is
    there a cheaper bounded form (host-side fan-out only)?
+
+## Review outcome (2026-11-24)
+
+Three roles reviewed this record independently: a proponent for Option 2, an
+opponent, and an adjudicator who verified the code claims below.
+
+**Ruling: DEFERRED. Option 1 satisfies the matrix row for now; Option 2 is
+rejected as written.** The matrix row stays Partial and still says "proposal
+only, not implemented", so it needs no change.
+
+**Verified code claims.**
+
+- `WorkflowInterfaceResolver.ResolveOperation`
+  (`src/VisualAgentWorkflow.Core/WorkflowInterfaces.cs:163`) takes a whole
+  `WorkflowInterfaceImplementationRevision` and throws `ArgumentException` for
+  an unknown or unimplemented operation. It validates the revision and returns
+  the signature and the bound workflow, so resolution already exists. It does
+  not validate caller fields.
+- `EntryNodeId` is a required positional field of the workflow definition
+  (`WorkflowDefinition.cs:12`). It is read at 68 lines under `src`, well beyond
+  the opponent's estimate of about 30.
+- Checkpoint seeding builds one `GraphMessage` from the single Input node's
+  output type (`AgentFramework/WorkflowCheckpoints.cs:194`).
+- `WorkflowRunner.ExecuteAsync(Guid runId, WorkflowRevision revision, string input, ...)`
+  (`WorkflowRunner.cs:45`) takes one string.
+
+**Reasoning.** An operation with several typed fields has nowhere to land
+except a flattened string Input, so Option 2 would be input validation, not a
+new entry point. Changing the Started event shape risks older readers
+replaying an operation run as a plain Input run. Run identity and idempotency,
+authorization, and stale versus latest pin handling are undefined. No current
+host needs this, so the cost is not justified.
+
+**If a need appears, ship only a host-side shim.** It resolves the operation,
+validates fields against the declared Inputs, serializes them into today's
+bounded JSON entry input, and calls `ExecuteAsync` unchanged. Operation ID and
+actor are kept in host-side metadata, not in the Started event.
+
+**Exact first slice, when a concrete host asks.** A pure Core `StartRequest`
+validator that resolves the operation with `ResolveOperation` and rejects
+missing, extra, wrong-type and oversize fields and stale pins, creating no run
+on rejection. Its tests are unit tests only, and a one-string-field operation
+must equal today's `ExecuteAsync(input)`. No runner, event, checkpoint,
+schema-gate, or Studio change is in that slice.
+
+**Rulings on the open questions.**
+
+1. Option 1 suffices; Option 2 is deferred.
+2. Reuse interface operations unchanged; no workflow-level declaration.
+3. Do not extend the Started event. If start evidence is later needed, use a
+   new event kind with an explicit older-reader skip rule.
+4. The host owns authorization and records the actor in host metadata.
+5. One run, one operation, one Input node; multi-field mapping is the JSON
+   Input serialization above.
+6. Dispatcher subscriptions remain out of scope; host-side fan-out is the
+   bounded form.
