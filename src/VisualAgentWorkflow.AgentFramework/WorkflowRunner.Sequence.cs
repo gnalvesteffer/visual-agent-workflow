@@ -476,16 +476,39 @@ public sealed partial class WorkflowRunner
             ? plan.Outputs.Select(output => output.OutputNodeId).Distinct(StringComparer.Ordinal)
             : revision.Definition.Nodes.Where(entry => entry.Value.Type is not (NodeTypes.Input or NodeTypes.Sequence))
                 .Select(entry => entry.Key);
-        string? ResolveSequenceDispatchTarget(GraphMessage message)
+        // Returns every receiver the builder's edges deliver this returned message to (empty when none match).
+        // Agent Framework fans one returned message out to all matching edges, so a call's termination reaches
+        // each terminal Output branch and the collector, while an Output branch's own internal termination
+        // handoff (its SourceNode is the call, not itself) matches no edge and must receive no ticket.
+        IReadOnlyCollection<string> ResolveSequenceDispatchTargets(string executorId, GraphMessage message)
         {
-            if (message.ActivationBreakRequest is not null || message.TerminationSignal ||
-                message.SourceNode is { } sourceNode && revision.Definition.Nodes.TryGetValue(sourceNode, out var sourceDefinition) &&
+            const string collectorId = "sequence-collector";
+            if (message.ActivationBreakRequest is not null) return [collectorId];
+            if (message.TerminationSignal)
+            {
+                if (message.SourceNode != executorId) return [];
+                return revision.Definition.Nodes.TryGetValue(executorId, out var terminating) &&
+                    terminating?.Type == NodeTypes.WorkflowCall
+                    ? [.. revision.Definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.Output)
+                        .Select(entry => entry.Key), collectorId]
+                    : [collectorId];
+            }
+            if (message.SourceNode is { } sourceNode && revision.Definition.Nodes.TryGetValue(sourceNode, out var sourceDefinition) &&
                 sourceDefinition?.Type == NodeTypes.Output && message.SourcePort == "out")
-                return "sequence-collector";
-            if (message.SourceNode is null || message.SourcePort is null) return null;
-            return (revision.Definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+                return [collectorId];
+            if (message.SourceNode is null || message.SourcePort is null) return [];
+            // The builder ignores the revision's authored execution edges when the plan bypasses them.
+            var authoredTarget = (plan.BypassRevisionExecutionEdges || revision.Definition.ExecutionConnections is null
+                    ? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                    : revision.Definition.ExecutionConnections)
                 .Values.SingleOrDefault(edge => edge.Source.NodeId == message.SourceNode &&
                     edge.Source.PortId == message.SourcePort)?.Target.NodeId;
+            if (authoredTarget is not null) return [authoredTarget];
+            // Mirrors the builder's collector edges for branches without an authored continuation: legacy
+            // Sequence graphs (no execution connections) and direct output collection.
+            return message.SequenceLineage is not null &&
+                (revision.Definition.ExecutionConnections is null || plan.DirectOutputCollection)
+                    ? [collectorId] : [];
         }
 
         var branches = branchNodeIds
@@ -509,7 +532,7 @@ public sealed partial class WorkflowRunner
                     sequenceDispatchSession.RequestBreak(lineage, request);
                     await FlushSequenceEvents();
                 }, dispatchAdmissionOwner: dispatchAdmissionOwner,
-                dispatchTargetResolver: dispatchAdmissionOwner is null ? null : ResolveSequenceDispatchTarget), StringComparer.Ordinal);
+                dispatchTargetResolver: dispatchAdmissionOwner is null ? null : ResolveSequenceDispatchTargets), StringComparer.Ordinal);
         var source = new SequenceProductionSource(plan.SequenceNodeId, plan, coordinator, FlushSequenceEvents, emit,
             gate, sequenceDispatchSession, dispatchAdmissionOwner);
         var collector = new SequenceProductionCollector("sequence-collector", plan, coordinator,

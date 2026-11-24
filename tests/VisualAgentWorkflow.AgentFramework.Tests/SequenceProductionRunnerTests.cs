@@ -1622,6 +1622,71 @@ public sealed class SequenceProductionRunnerTests
         }
     }
 
+    [Fact]
+    public async Task Unified_public_sequence_failing_pinned_child_fails_the_run_without_internal_admission_errors()
+    {
+        var deniedChild = WorkflowRevision.Create(new WorkflowDefinition("1.1", "public-denied-child", "child-input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["child-input"] = new(NodeTypes.Input, "1.0.0"),
+                ["child-tool"] = new(NodeTypes.McpTool, "1.0.0",
+                    new ToolBindingRequest("sequence-proof-denied", new string('d', 64))) { McpArgumentsJson = "{}" },
+                ["child-output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-tool"] = new(new("child-input", "out"), new("child-tool", "in"), "data"),
+                ["tool-output"] = new(new("child-tool", "out"), new("child-output", "in"), "data")
+            }.ToImmutableSortedDictionary()), "public-denied-child");
+        var okChild = WorkflowRevision.Create(
+            WorkflowEditing.InsertAfter(LinearBaseline("public-ok-child"), "input", NodeTypes.Uppercase), "test");
+        NodeDefinition Call(WorkflowRevision child) => new(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+        };
+        var parent = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "public-failing-child-parent", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
+                {
+                    Sequence = new([new("call", "Denied child"), new("sibling", "Healthy child")])
+                },
+                ["call"] = Call(deniedChild),
+                ["sibling"] = Call(okChild),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-call"] = new(new("sequence", "then.call"), new("call", "execute"), "execution"),
+                ["call-output"] = new(new("call", "out"), new("output", "execute"), "execution"),
+                ["sequence-sibling"] = new(new("sequence", "then.sibling"), new("sibling", "execute"), "execution"),
+                ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(new DeniedOutcomeBroker()).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(parent)), "test"), "hello", null,
+            evt => { events.Enqueue(evt); return ValueTask.CompletedTask; })
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        var recorded = events.ToArray();
+        Assert.True(result.Failed);
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed && evt.ScopeId == "call");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+            ReadEvidence(evt).OutputId == "call");
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.DoesNotContain(recorded, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Completed);
+        // The failure must be the child's, never an internal admission-ticket error.
+        Assert.DoesNotContain(recorded, evt => evt.Data?.Contains("graph-dispatch ticket",
+            StringComparison.OrdinalIgnoreCase) == true);
+    }
+
     private sealed record AdmittedRun(WorkflowExecutionResult Result, ExecutionEvent[] Events,
         (string Kind, string NodeId)[] Timeline);
 

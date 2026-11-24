@@ -354,8 +354,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         var activationLedger = new ExecutionActivationLedger();
         var usesProductionRootDispatcher = !skipValidationForInternalProof && activationFrame is null &&
             rootCoordinatorProof is null && arrayIterationFeedbackProof is null && proofBreakNodeIds is null;
-        var dispatchAdmissionOwner = usesProductionRootDispatcher &&
-            (sequencePlan is null || workflowDispatchAdmissionObserver is not null)
+        // Decision 0070: the run-local admission owner is always on for the production root dispatcher,
+        // Sequence graphs included; the observer is only an optional test seam.
+        var dispatchAdmissionOwner = usesProductionRootDispatcher
             ? new WorkflowDispatchAdmissionOwner(workflowDispatchAdmissionObserver)
             : null;
         using var activationFrameOwner = new StructuredActivationFrameOwner(
@@ -2124,7 +2125,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         string? parallelJoinContinuationTarget = null,
         ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null,
         WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null,
-        Func<GraphMessage, string?>? dispatchTargetResolver = null)
+        Func<string, GraphMessage, IReadOnlyCollection<string>>? dispatchTargetResolver = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -2311,8 +2312,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
                 var completed = await HandleCoreAsync(received, Dispatch, cancellationToken,
                     deferUnifiedJoinCommitToReceiverBatch: true);
-                if (dispatchAdmissionOwner is not null && ResolveContinuationTarget(completed) is { } target)
-                    completed = completed with { DispatchTicketId = dispatchAdmissionOwner.Admit(target) };
+                if (dispatchAdmissionOwner is not null && ResolveContinuationTargets(completed) is { Count: > 0 } targets)
+                    completed = completed with { DispatchTicketId = dispatchAdmissionOwner.Admit(targets) };
                 return completed;
             }
             finally
@@ -2321,9 +2322,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
         }
 
-        private string? ResolveContinuationTarget(GraphMessage message)
+        private IReadOnlyCollection<string> ResolveContinuationTargets(GraphMessage message)
         {
-            if (dispatchTargetResolver is not null) return dispatchTargetResolver(message);
+            if (dispatchTargetResolver is not null) return dispatchTargetResolver(Id, message);
+            if (ResolveOrdinaryContinuationTarget(message) is { } target) return [target];
+            return [];
+        }
+
+        private string? ResolveOrdinaryContinuationTarget(GraphMessage message)
+        {
             if (node.Type == NodeTypes.Output) return null;
             if (message.ActivationBreakRequest is not null || message.TerminationSignal)
                 return revision.Definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Output).Key;

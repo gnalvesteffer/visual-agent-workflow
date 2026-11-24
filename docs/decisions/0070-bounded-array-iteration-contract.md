@@ -5594,3 +5594,60 @@ which changes terminal timing; (b) the ordinary-path policy when the store tail
 is unreadable: orphaned `running` or a failed-with-reconcile outcome. Neither
 conflicts with the no-schema, no-capability-gate rule, and public For Each and
 Break stay gated. This review selects no runtime architecture.
+
+### Always-on admission owner and multi-receiver tickets (2026-11-23)
+
+**User decision:** the run-local admission owner is now created for every
+production run, Sequence graphs included, instead of only when the internal
+observer is passed. The observer remains an optional test seam.
+
+**What enabling it exposed.** Agent Framework delivers one returned message to
+every matching builder edge, so one ticket per message cannot cover a fan-out.
+The Sequence builder sends a WorkflowCall's `terminated` message to every
+terminal Output branch **and** the collector. With the owner always-on, a
+normal unified Sequence whose pinned child fails died with an internal
+"graph-dispatch ticket" error instead of failing cleanly. Regression:
+`Unified_public_sequence_failing_pinned_child_fails_the_run_without_internal_admission_errors`
+passes with the owner off and failed with it on. Six proof-API WorkflowCall
+tests failed the same way.
+
+**Three-role review (three distinct agents; the adjudicator saw both
+arguments and read the code, nothing was run): REVISE.** Multi-receiver
+tickets proceed in revised form. The opponent's preferred fix, removing the
+call-to-collector edge, was **rejected**: in an explicit-graph Sequence with a
+call that edge is the only route to the collector, which emits the
+output-failure and aggregate events, so removing it would change recorded
+events and ordering. Scoping always-on away from WorkflowCall graphs was also
+rejected. The adjudicator additionally found that an Output branch's internal
+termination handoff matches no edge, so it must receive no ticket.
+
+**Implemented (internal, no schema or capability gate):**
+
+- A ticket now carries one slot per distinct receiver; `Begin` consumes the
+  receiver's own slot, `Settle` closes it, quiescence needs every slot settled,
+  and `Revoke` is legal only while every slot is still admitted. Single-target
+  `Admit` is the one-element case. The observer sees one admission per slot
+  with the shared ticket id.
+- The Sequence resolver returns the set of receivers the builder's edges
+  deliver to, knows which executor returned the message, returns no receivers
+  for an Output's termination handoff, and honours `BypassRevisionExecutionEdges`
+  as the builder does. An earlier single-target fallback also covers legacy and
+  direct-output collection routes.
+
+**Evidence:** 11 owner-only unit tests; the public repro and six proofs pass;
+the Sequence, admission, collaboration, and Fork/Join selection passes 362/362
+over five repeated runs. The full Agent Framework suite has 13 remaining
+failures, all loop or array-iteration tests that fail on a clean HEAD with the
+validator message "A root Loop may follow an Agent only through the exact
+Input → Agent → Loop prefix" (9 were checked against a clean checkout, the
+other 4 share the same selection and were not individually re-checked). They
+are unrelated to this change and are not fixed here.
+
+**Still open:** the resolver is a hand-maintained mirror of the builder's edge
+predicates; the review recommended deriving both from one shared edge list plus
+a resolver/builder parity test, which is not built. Root quiescence is asserted
+only on the success path, so a stray slot on a failed run would not be
+reported. Child workflow executors still run through a nested runner outside
+the owner. The drain-before-terminal rule, abandon-on-timeout, and
+reconcile-or-suppress recorder faults from the earlier review remain
+unimplemented. The ordinary-path store-fault policy question is still open.
