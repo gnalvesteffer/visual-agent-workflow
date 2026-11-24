@@ -119,6 +119,28 @@ internal static class LoopFeedbackTopologyProofAnalyzer
         var analyzedLoops = new HashSet<string>(StringComparer.Ordinal);
         var visitedBreakNodes = new HashSet<string>(StringComparer.Ordinal);
         var visitedForEachBreaks = new HashSet<string>(StringComparer.Ordinal);
+        var breaksByForEach = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+
+        // A For each Break must be terminal, sit in a For each body, and follow only Condition/Boolean Branch/Merge,
+        // Agent, MCP and Fork/Join steps: no Sequence, nested Loop or nested For each on its path. A Fork/Join before a
+        // Break is accepted because the runner cancels and drains the Break's in-flight pass siblings.
+        void CheckForEachBreak(string breakNodeId, string loopId, HashSet<string> path)
+        {
+            visitedForEachBreaks.Add(breakNodeId);
+            if (!breaksByForEach.TryGetValue(loopId, out var ownBreaks))
+                breaksByForEach[loopId] = ownBreaks = new HashSet<string>(StringComparer.Ordinal);
+            // Two deciding Boolean Branches would each wait for the other's started work while draining.
+            if (ownBreaks.Add(breakNodeId) && ownBreaks.Count > 1)
+                Issue("foreach.break.multiple", $"nodes.{breakNodeId}", "A For each body may contain at most one Break.");
+            if (definition.Nodes[loopId].Type != NodeTypes.ForEach)
+                Issue("foreach.break.outside", $"nodes.{breakNodeId}", "A Break is legal only inside a For each body.");
+            else if (path.Any(id => definition.Nodes.TryGetValue(id, out var onPath) &&
+                         onPath?.Type is NodeTypes.ParallelRendezvous or NodeTypes.Sequence or NodeTypes.Loop or NodeTypes.ForEach))
+                Issue("foreach.break.nonlinear", $"nodes.{breakNodeId}",
+                    "A Break cannot follow a sequence, collaboration rendezvous or nested loop in its For each body.");
+            if ((outgoing.GetValueOrDefault(breakNodeId) ?? []).Length > 0)
+                Issue("foreach.break.terminal", $"nodes.{breakNodeId}", "A Break has no outputs.");
+        }
 
         bool AnalyzeRegion(string loopId, string? parentLoopId)
         {
@@ -235,16 +257,7 @@ internal static class LoopFeedbackTopologyProofAnalyzer
 
                 if (node.Type == NodeTypes.Break)
                 {
-                    visitedForEachBreaks.Add(current);
-                    if (definition.Nodes[loopId].Type != NodeTypes.ForEach)
-                        Issue("foreach.break.outside", $"nodes.{current}", "A Break is legal only inside a For each body.");
-                    else if (path.Any(id => definition.Nodes.TryGetValue(id, out var onPath) &&
-                                 onPath?.Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or
-                                     NodeTypes.ParallelRendezvous or NodeTypes.Sequence or NodeTypes.Loop or NodeTypes.ForEach))
-                        Issue("foreach.break.nonlinear", $"nodes.{current}",
-                            "A Break requires a strictly linear For each body path with no fork, join, sequence or nested loop before it.");
-                    if ((outgoing.GetValueOrDefault(current) ?? []).Length > 0)
-                        Issue("foreach.break.terminal", $"nodes.{current}", "A Break has no outputs.");
+                    CheckForEachBreak(current, loopId, path);
                     continue;
                 }
 
@@ -296,6 +309,10 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                     }
                     foreach (var parallelNodeId in parallelNodes)
                     {
+                        // A Break on a Boolean Branch outcome inside a fork branch cancels its in-flight siblings
+                        // (Decision 0070, waiting frame drain slice 3); the branch grammar admits it only there.
+                        if (definition.Nodes.TryGetValue(parallelNodeId, out var parallelNode) && parallelNode?.Type == NodeTypes.Break)
+                            CheckForEachBreak(parallelNodeId, loopId, path);
                         if (!bodyNodeIds.Add(parallelNodeId) && parallelNodeId != current)
                             Issue("loop.feedback.multiple-owner", $"nodes.{parallelNodeId}",
                                 "Parallel region nodes must remain inside their unique loop owner.");

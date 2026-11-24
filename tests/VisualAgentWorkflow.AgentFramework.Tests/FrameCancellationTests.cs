@@ -214,6 +214,27 @@ public sealed class FrameCancellationTests
         }
     }
 
+    private sealed class SelfCancellingAgent : IAgentNodeExecutor
+    {
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("fixture", "Fixture", "fixture", false)]);
+
+        // A simulated internal timeout: cancelled by its own token, not by the frame or the run.
+        public Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default) => throw new OperationCanceledException(new CancellationToken(true));
+    }
+
+    [Fact]
+    public async Task A_node_that_cancels_itself_while_its_frame_is_not_cancelled_still_fails_the_run()
+    {
+        var (result, failure, events, owner) = await RunAsync(new SelfCancellingAgent(), onPassStarted: null);
+
+        Assert.True(failure is not null || result is { Failed: true }, "The run must not swallow an unrelated cancellation.");
+        // The executor's failure surfaces as such, not as a swallowed cancellation that leaves "no output".
+        Assert.DoesNotContain("no output", failure?.Message ?? string.Empty, StringComparison.Ordinal);
+        Assert.Contains("failed", failure?.Message ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string[] Shape(List<ExecutionEvent> events)
     {
         lock (events)

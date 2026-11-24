@@ -293,6 +293,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     private sealed class LoopEvidenceBudgetExceededException(int maximumEvidenceEvents) : InvalidOperationException(
         $"Workflow exceeded its Loop-scoped evidence event limit ({maximumEvidenceEvents}).");
 
+    /// <summary>A For each Break cancelled its pass siblings, but one did not settle within the grace.</summary>
+    private sealed class BreakDrainTimeoutException(string breakNodeId, string scopeId, TimeSpan grace) : InvalidOperationException(
+        $"For each Break '{breakNodeId}' could not end pass '{scopeId}': work in the pass did not stop within {grace.TotalSeconds:0.###}s after cancellation. A node ignored its cancellation token.")
+    {
+        public string ScopeId { get; } = scopeId;
+    }
+
     private sealed class WorkflowBodyEvidenceWriteException(Exception innerException)
         : InvalidOperationException("The activation proof could not persist body evidence.", innerException);
 
@@ -485,6 +492,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         revision.Definition.EntryNodeId)), cancellationToken: cancellationToken);
             await using var runLifetime = new DetachableRun(run);
             Volatile.Write(ref detachableRun, runLifetime);
+            activationFrameOwner.AbandonRun = runLifetime.Detach;
             using var cancellationRegistration = cancellationToken.Register(
                 static state => _ = CancelStreamingRunAsync((StreamingRun)state!), run);
             GraphMessage? output = null;
@@ -504,6 +512,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         output = message;
                 }
             }
+            // A detached Break drain failure ends the stream without output: report it, not a missing output.
+            if (activationFrameOwner.BreakDrainFailure is { } breakDrainFailure) throw breakDrainFailure;
             // The framework may finish its event stream normally when the execution token is cancelled.
             cancellationToken.ThrowIfCancellationRequested();
             if (Volatile.Read(ref abandonedByGrace) != 0) throw new OperationCanceledException(observationCts.Token);
@@ -1029,6 +1039,21 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         public void EnsureFrameSettled(string? scopeId, Guid? exceptTicketId) =>
             admissionOwner?.EnsureScopeSettled(scopeId, exceptTicketId);
 
+        /// <summary>
+        /// How long a For each Break waits for its cancelled pass siblings to settle before failing the run
+        /// (Decision 0070, waiting frame drain slice 3). Internal; tests shorten it.
+        /// </summary>
+        internal TimeSpan BreakDrainGrace { get; set; } = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// Detaches the streaming run so a failure can end it. Agent Framework 1.26.0 blocks teardown while an executor
+        /// ignores its token, so a Break whose sibling ignored cancellation past the grace must not wait for it.
+        /// </summary>
+        internal Action? AbandonRun { get; set; }
+
+        /// <summary>The drain failure that detached the run; surfaced as the run's failure when the stream ends without output.</summary>
+        internal Exception? BreakDrainFailure { get; set; }
+
         private int lateEventsClosed;
 
         /// <summary>Drops every later event; used once an abandoned run has recorded its terminal.</summary>
@@ -1103,6 +1128,63 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     data: "Parallel join cancelled because its iterator frame ended.", scopeId: scopeId);
         }
 
+        /// <summary>
+        /// Drains a For each pass for its Break (Decision 0070, waiting frame drain slice 3). When work admitted in the
+        /// pass is unsettled (Fork siblings), it cancels the pass frame and waits for that work to settle, bounded by
+        /// <see cref="BreakDrainGrace"/>. Each cancelled node records its own NodeCancelled before it settles, so those
+        /// events precede any frame close. <paramref name="requestOnly"/> is the Boolean Branch that selects the Break:
+        /// it runs in the same superstep as the siblings, so it waits only for work that already started; work whose
+        /// message is delivered in the next superstep would never begin while the branch waits. The Break itself, in
+        /// that next superstep, waits for everything and cancels the pass's pending Joins.
+        /// </summary>
+        internal async ValueTask DrainPassForBreakAsync(string nodeId, string scopeId, Guid? ownTicketId,
+            WorkflowDefinition definition, bool requestOnly, CancellationToken cancellationToken)
+        {
+            var owner = admissionOwner;
+            if (owner is not null && owner.HasUnsettledWork(scopeId, ownTicketId))
+            {
+                CancelFrame(scopeId);
+                var settled = requestOnly
+                    ? owner.WhenScopeStartedWorkSettledAsync(scopeId, ownTicketId, cancellationToken)
+                    : owner.WhenScopeSettledAsync(scopeId, ownTicketId, cancellationToken);
+                try { await settled.WaitAsync(BreakDrainGrace, cancellationToken); }
+                catch (TimeoutException)
+                {
+                    throw new BreakDrainTimeoutException(nodeId, scopeId, BreakDrainGrace);
+                }
+            }
+            if (requestOnly) return;
+            // A Join that already received one branch never completes once its sibling broke out.
+            if (activationLedger is not null) await CancelPendingParallelJoinsAsync(scopeId, definition);
+            owner?.EnsureScopeSettled(scopeId, ownTicketId);
+        }
+
+        /// <summary>
+        /// Re-arms <paramref name="scopeId"/> after a Break drained it: its next token is not cancelled. A top-level For
+        /// each continues in its last pass frame's scope, so nodes after the Break must not see the drain's cancellation.
+        /// Descendant scopes stay cancelled; they ended with the pass.
+        /// </summary>
+        internal void ResetFrameCancellation(string scopeId)
+        {
+            CancellationTokenSource? previous;
+            lock (frameCancellationSync)
+            {
+                if (frameCancellationsDisposed) return;
+                cancelledFrames.Remove(scopeId);
+                if (!frameCancellations.Remove(scopeId, out previous)) return;
+            }
+            // Every holder of the old token has settled; dispose it with the owner like the others.
+            lock (frameCancellationSync) retiredFrameCancellations.Add(previous);
+        }
+
+        private readonly List<CancellationTokenSource> retiredFrameCancellations = [];
+
+        /// <summary>True when the pass frame (or an ancestor) was cancelled, i.e. a Break cancelled work in it.</summary>
+        internal bool IsFrameCancelled(string scopeId)
+        {
+            lock (frameCancellationSync) return IsScopeOrAncestorCancelled(scopeId);
+        }
+
         private readonly object frameCancellationSync = new();
         private readonly Dictionary<string, CancellationTokenSource> frameCancellations = new(StringComparer.Ordinal);
         private readonly HashSet<string> cancelledFrames = new(StringComparer.Ordinal);
@@ -1170,8 +1252,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             lock (frameCancellationSync)
             {
                 frameCancellationsDisposed = true;
-                sources = [.. frameCancellations.Values];
+                sources = [.. frameCancellations.Values, .. retiredFrameCancellations];
                 frameCancellations.Clear();
+                retiredFrameCancellations.Clear();
             }
             foreach (var source in sources) source.Dispose();
             eventWriter?.Dispose();
@@ -2522,9 +2605,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             // Frame cancellation (Decision 0070 slice 2): link the frame's token only when the activation has a frame,
             // so unframed work and every run without a frame cancel see the framework token unchanged.
             CancellationTokenSource? frameLink = null;
+            var runToken = cancellationToken;
             try
             {
-                if (activationFrameOwner is not null && received.ActivationFrame is { } handlingFrame)
+                // The nodes that cancel a pass frame for a For each Break (the Break and a Boolean Branch routing to
+                // it) must not run under the token they cancel, or they would cancel themselves while draining.
+                if (activationFrameOwner is not null && !CancelsItsOwnPassFrame &&
+                    received.ActivationFrame is { } handlingFrame)
                 {
                     frameLink = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
                         activationFrameOwner.GetFrameToken(handlingFrame.ScopeId));
@@ -2556,12 +2643,31 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     completed = completed with { DispatchTicketId = dispatchAdmissionOwner.Admit(targets, completed.ActivationFrame?.ScopeId) };
                 return completed;
             }
+            catch (OperationCanceledException) when (frameLink is not null && !runToken.IsCancellationRequested &&
+                frameLink.Token.IsCancellationRequested)
+            {
+                // Only the pass frame was cancelled (its For each Break is draining it). HandleCoreAsync already
+                // recorded NodeCancelled. Return a message no execution edge matches so the cancelled sibling ends
+                // quietly instead of failing the run; the finally below still settles its admission ticket.
+                return new GraphMessage(string.Empty, Id, "frame-cancelled", HasValue: false,
+                    ActivationFrame: received.ActivationFrame);
+            }
             finally
             {
                 dispatchAdmissionOwner?.Settle(received.DispatchTicketId, Id);
                 frameLink?.Dispose();
             }
         }
+
+        /// <summary>
+        /// True for a For each Break and for a Boolean Branch with an outcome entering one. Agent Framework delivers a
+        /// node's output only in the next superstep, which cannot start while an in-flight sibling is still running, so
+        /// the branch that selects the Break has to request the pass cancellation itself.
+        /// </summary>
+        private bool CancelsItsOwnPassFrame => node.Type == NodeTypes.Break ||
+            node.Type == NodeTypes.BooleanBranch && revision.Definition.ExecutionConnections is { } connections &&
+            connections.Values.Any(edge => edge.Source.NodeId == Id &&
+                revision.Definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) && target.Type == NodeTypes.Break);
 
         private IReadOnlyCollection<string> ResolveContinuationTargets(GraphMessage message)
         {
@@ -3154,6 +3260,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         : JsonSerializer.Serialize(new { port });
                     await Emit(ExecutionEventKinds.BranchSelected, Id, invocation, null,
                         AddSequenceLineage(decisionEvidence));
+                    if (activationFrameOwner is not null && received.ActivationFrame is { } deciderFrame &&
+                        revision.Definition.ExecutionConnections!.Values.Any(edge => edge.Source.NodeId == Id &&
+                            edge.Source.PortId == port && revision.Definition.Nodes[edge.Target.NodeId].Type == NodeTypes.Break))
+                        await activationFrameOwner.DrainPassForBreakAsync(Id, deciderFrame.ScopeId, received.DispatchTicketId,
+                            revision.Definition, requestOnly: true, cancellationToken);
                 }
                 if (node.Type == NodeTypes.Condition)
                 {
@@ -3167,6 +3278,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var loopIterationForEvidence = received.LoopIteration;
                 var nextActivationFrame = received.ActivationFrame;
                 string? continuationSource = null;
+                var breakDrained = false;
                 if (node.Type == NodeTypes.Break)
                 {
                     // A Break ends its enclosing For each. The validator guarantees a linear body path, so the
@@ -3176,7 +3288,17 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     continuationSource = passFrame.LoopNodeId;
                     if (!revision.Definition.Nodes.TryGetValue(continuationSource, out var breakOwner) || breakOwner?.Type != NodeTypes.ForEach)
                         throw new InvalidOperationException($"Break '{Id}' is not inside a For each pass.");
-                    activationFrameOwner?.EnsureFrameSettled(passFrame.ScopeId, received.DispatchTicketId);
+                    // Finish draining this pass: its Fork siblings were cancelled when the branch selected this Break, and any
+                    // that started late (their message arrived in this superstep) are cancelled and awaited here.
+                    if (activationFrameOwner is not null)
+                    {
+                        await activationFrameOwner.DrainPassForBreakAsync(Id, passFrame.ScopeId, received.DispatchTicketId,
+                            revision.Definition, requestOnly: false, cancellationToken);
+                        // Everything in the pass has settled. A top-level For each continues in its last pass frame's scope,
+                        // so downstream nodes must not inherit the cancelled token (nor can the scope be closed).
+                        breakDrained = activationFrameOwner.IsFrameCancelled(passFrame.ScopeId);
+                        activationFrameOwner.ResetFrameCancellation(passFrame.ScopeId);
+                    }
                     loopIterationForEvidence = passFrame.Index;
                     await Emit(ExecutionEventKinds.LoopIterationCompleted, continuationSource, invocation, null,
                         JsonSerializer.Serialize(new { iteration = passFrame.Index, outcome = "break" }), passFrame.ScopeId);
@@ -3185,7 +3307,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     nextActivationFrame = passFrame.Parent ?? passFrame;
                     nextLoopIteration = passFrame.Parent?.Index ?? 0;
                     await Emit(ExecutionEventKinds.LoopStopped, continuationSource, invocation, null,
-                        JsonSerializer.Serialize(new { reason = "break", iterations = passFrame.Index }));
+                        breakDrained
+                            ? JsonSerializer.Serialize(new { reason = "break", iterations = passFrame.Index, drained = true })
+                            : JsonSerializer.Serialize(new { reason = "break", iterations = passFrame.Index }));
                 }
                 if (node.Type == NodeTypes.ForEach)
                 {
@@ -3441,6 +3565,21 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (recordSequenceTerminal is not null && received.SequenceLineage is { } sequenceLineage)
                     await recordSequenceTerminal(sequenceLineage, SequenceTerminalState.Cancelled);
                 await Emit(ExecutionEventKinds.NodeCancelled, Id, invocation, null, "Node execution cancelled.");
+                throw;
+            }
+            catch (BreakDrainTimeoutException exception)
+            {
+                boundaryTracker?.AbortHandler();
+                if (recordSequenceTerminal is not null && received.SequenceLineage is { } sequenceLineage)
+                    await recordSequenceTerminal(sequenceLineage, SequenceTerminalState.Failed);
+                await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, exception.Message);
+                // The run fails: late events from the sibling that ignored cancellation must not reach the record.
+                activationFrameOwner?.CloseFrame(exception.ScopeId);
+                if (activationFrameOwner is not null)
+                {
+                    activationFrameOwner.BreakDrainFailure = exception;
+                    activationFrameOwner.AbandonRun?.Invoke();
+                }
                 throw;
             }
             catch (JsonProjectionContractException exception)

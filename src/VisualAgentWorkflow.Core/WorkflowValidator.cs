@@ -2934,6 +2934,15 @@ public static class WorkflowValidator
                         }
                         return ContinueFrom(childOutput[0]);
                     }
+                    // A For each Break may end a branch, but only as a Boolean Branch outcome: the branch's other
+                    // outcome still reaches its join, and the runner cancels the in-flight siblings.
+                    if (edge.Target.PortId == "execute" && definition.Nodes.TryGetValue(edge.Target.NodeId, out var breakTarget) &&
+                        breakTarget?.Type == NodeTypes.Break && definition.Nodes.TryGetValue(edge.Source.NodeId, out var breakSource) &&
+                        breakSource?.Type == NodeTypes.BooleanBranch && edge.Source.PortId is "true" or "false")
+                    {
+                        branchNodes.Add(edge.Target.NodeId);
+                        return true;
+                    }
                     if (!definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) || target is null ||
                         target.Type is not (NodeTypes.Agent or NodeTypes.BooleanBranch or NodeTypes.McpTool or NodeTypes.WorkflowCall) ||
                         target.Type == NodeTypes.WorkflowCall &&

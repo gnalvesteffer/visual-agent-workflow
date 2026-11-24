@@ -139,6 +139,13 @@ public sealed class ForEachExecutionTests
         Assert.NotNull(failure);
     }
 
+    [Fact]
+    public void Checkpoint_recovery_rejects_a_workflow_containing_a_for_each_break()
+    {
+        Assert.ThrowsAny<InvalidOperationException>(() =>
+            WorkflowRunner.ValidateCheckpointGraph(BreakWorkflow(), allowLoopCheckpointRecovery: true));
+    }
+
     /// <summary>Outer For Each over ["x","y"]; each pass runs an inner For Each over ["1","2"] whose body records outer+inner item.</summary>
     private static WorkflowDefinition NestedWorkflow()
     {
@@ -230,7 +237,7 @@ public sealed class ForEachExecutionTests
             Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
             Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
             var stopped = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopStopped);
-            Assert.Contains("\"reason\":\"break\"", stopped.Data);
+            Assert.Equal("{\"reason\":\"break\",\"iterations\":2}", stopped.Data);
             Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
         }
     }

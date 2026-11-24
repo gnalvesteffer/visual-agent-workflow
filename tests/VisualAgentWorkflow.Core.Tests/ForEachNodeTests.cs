@@ -257,31 +257,163 @@ public sealed class ForEachNodeTests
         Assert.NotEmpty(WorkflowValidator.Validate(definition));
     }
 
-    [Fact]
-    public void A_break_after_a_fork_join_in_the_body_is_rejected_as_nonlinear()
-    {
-        var branches = ImmutableArray.Create(new ParallelBranchDescriptor("a", "A", "anchor-a"),
+    private static ImmutableArray<ParallelBranchDescriptor> ForkBranches() =>
+        ImmutableArray.Create(new ParallelBranchDescriptor("a", "A", "anchor-a"),
             new ParallelBranchDescriptor("b", "B", "anchor-b"));
-        var definition = BreakWorkflow(nodes: nodes =>
-        {
-            nodes["fork"] = new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(branches) };
-            nodes["join"] = new(NodeTypes.ParallelJoin, "1.0.0") { ParallelJoin = new("fork", ["a", "b"]) };
-            nodes["anchor-a"] = new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("fork", "a") };
-            nodes["anchor-b"] = new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("fork", "b") };
-            nodes["agent-a"] = new(NodeTypes.Agent, "1.0.0", Agent: new("fixture", null, "A", []));
-            nodes["agent-b"] = new(NodeTypes.Agent, "1.0.0", Agent: new("fixture", null, "B", []));
-            return nodes;
-        }, execution: edges => edges.Remove("body-cond")
-            .Add("body-fork", Execution("body", "then", "fork", "execute"))
+
+    private static ImmutableSortedDictionary<string, NodeDefinition>.Builder AddForkJoinNodes(
+        ImmutableSortedDictionary<string, NodeDefinition>.Builder nodes)
+    {
+        nodes["fork"] = new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(ForkBranches()) };
+        nodes["join"] = new(NodeTypes.ParallelJoin, "1.0.0") { ParallelJoin = new("fork", ["a", "b"]) };
+        nodes["anchor-a"] = new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("fork", "a") };
+        nodes["anchor-b"] = new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("fork", "b") };
+        nodes["agent-a"] = new(NodeTypes.Agent, "1.0.0", Agent: new("fixture", null, "A", []));
+        nodes["agent-b"] = new(NodeTypes.Agent, "1.0.0", Agent: new("fixture", null, "B", []));
+        return nodes;
+    }
+
+    private static ImmutableSortedDictionary<string, ConnectionDefinition> ForkJoinBodyEdges(
+        ImmutableSortedDictionary<string, ConnectionDefinition> edges) => edges
             .Add("fork-a", Execution("fork", ParallelBranchLimits.PinId("a"), "anchor-a", "execute"))
             .Add("fork-b", Execution("fork", ParallelBranchLimits.PinId("b"), "anchor-b", "execute"))
             .Add("anchor-a-agent", Execution("anchor-a", "then", "agent-a", "execute"))
+            .Add("agent-a-join", Execution("agent-a", "out", "join", ParallelBranchLimits.PinId("a")));
+
+    [Fact]
+    public void A_break_after_a_fork_join_in_the_body_validates()
+    {
+        var definition = BreakWorkflow(nodes: AddForkJoinNodes,
+            execution: edges => ForkJoinBodyEdges(edges.Remove("body-cond"))
+                .Add("body-fork", Execution("body", "then", "fork", "execute"))
+                .Add("anchor-b-agent", Execution("anchor-b", "then", "agent-b", "execute"))
+                .Add("agent-b-join", Execution("agent-b", "out", "join", ParallelBranchLimits.PinId("b")))
+                .Add("join-cond", Execution("join", "then", "cond", "execute")));
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    /// <summary>body → fork; branch b decides with a Boolean Branch whose true outcome is a Break.</summary>
+    private static WorkflowDefinition BreakInForkBranch(Func<ImmutableSortedDictionary<string, ConnectionDefinition>,
+        ImmutableSortedDictionary<string, ConnectionDefinition>>? execution = null) =>
+        Workflow(nodes: nodes =>
+        {
+            AddForkJoinNodes(nodes);
+            nodes["route"] = new(NodeTypes.BooleanBranch, "1.0.0");
+            nodes["is-b"] = new(NodeTypes.StringEquals, "1.0.0");
+            nodes["b-text"] = new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("b") };
+            nodes["break"] = new(NodeTypes.Break, "1.0.0");
+            return nodes;
+        }, data: edges => edges
+            .Add("item-eq", Data("each", "item", "is-b", "left"))
+            .Add("text-eq", Data("b-text", "out", "is-b", "right"))
+            .Add("eq-route", Data("is-b", "out", "route", "condition")),
+        execution: edges =>
+        {
+            var wired = ForkJoinBodyEdges(edges.Remove("body-step").Remove("return"))
+                .Add("body-fork", Execution("body", "then", "fork", "execute"))
+                .Add("anchor-b-route", Execution("anchor-b", "then", "route", "execute"))
+                .Add("route-break", Execution("route", "true", "break", "execute"))
+                .Add("route-agent-b", Execution("route", "false", "agent-b", "execute"))
+                .Add("agent-b-join", Execution("agent-b", "out", "join", ParallelBranchLimits.PinId("b")))
+                .Add("join-step", Execution("join", "then", "step", "execute"))
+                .Add("return", Execution("step", "then", "each", "feedback"));
+            return execution?.Invoke(wired) ?? wired;
+        });
+
+    [Fact]
+    public void A_break_on_a_boolean_branch_outcome_inside_a_fork_branch_validates()
+    {
+        Assert.Empty(WorkflowValidator.Validate(BreakInForkBranch()));
+    }
+
+    [Fact]
+    public void A_fork_branch_break_that_is_not_a_boolean_branch_outcome_is_rejected()
+    {
+        var definition = BreakInForkBranch(edges => edges.Remove("anchor-b-route").Remove("route-break")
+            .Remove("route-agent-b").Remove("agent-b-join")
             .Add("anchor-b-agent", Execution("anchor-b", "then", "agent-b", "execute"))
-            .Add("agent-a-join", Execution("agent-a", "out", "join", ParallelBranchLimits.PinId("a")))
-            .Add("agent-b-join", Execution("agent-b", "out", "join", ParallelBranchLimits.PinId("b")))
-            .Add("join-cond", Execution("join", "then", "cond", "execute")));
+            .Add("agent-b-break", Execution("agent-b", "out", "break", "execute")));
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "parallel.branch.node");
+    }
+
+    [Fact]
+    public void A_break_after_a_nested_for_each_in_the_body_is_still_rejected_as_nonlinear()
+    {
+        var definition = BreakWorkflow(nodes: nodes =>
+        {
+            nodes["inner"] = ForEach();
+            nodes["inner-items"] = new(NodeTypes.ArrayLiteral, "1.0.0") { ArrayLiteral = new(WorkflowDataTypes.String, "[\"x\"]") };
+            nodes["inner-body"] = new(NodeTypes.LoopBody, "1.0.0");
+            nodes["inner-step"] = new(NodeTypes.SequenceReverse, "1.0.0");
+            return nodes;
+        }, execution: edges => edges.Remove("body-cond")
+            .Add("body-inner", Execution("body", "then", "inner", "execute"))
+            .Add("inner-body-start", Execution("inner", "body", "inner-body", "execute"))
+            .Add("inner-body-step", Execution("inner-body", "then", "inner-step", "execute"))
+            .Add("inner-return", Execution("inner-step", "then", "inner", "feedback"))
+            .Add("inner-cond", Execution("inner", "completed", "cond", "execute")));
+        definition = definition with
+        {
+            Connections = definition.Connections
+                .Add("inner-array", Data("inner-items", "out", "inner", "array"))
+                .Add("inner-item-step", Data("inner", "item", "inner-step", "in"))
+        };
 
         Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "foreach.break.nonlinear");
+    }
+
+    [Fact]
+    public void Two_breaks_in_one_for_each_body_are_rejected()
+    {
+        var definition = BreakWorkflow(nodes: nodes =>
+        {
+            nodes["cond2"] = new(NodeTypes.Condition, "1.0.0") { Condition = new("contains", "also") };
+            nodes["break2"] = new(NodeTypes.Break, "1.0.0");
+            return nodes;
+        }, execution: edges => edges.Remove("cond-step")
+            .Add("cond-cond2", Execution("cond", "false", "cond2", "execute"))
+            .Add("cond2-break", Execution("cond2", "true", "break2", "execute"))
+            .Add("cond2-step", Execution("cond2", "false", "step", "execute")));
+        definition = definition with { Connections = definition.Connections.Add("item-cond2", Data("each", "item", "cond2", "in")) };
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "foreach.break.multiple");
+    }
+
+    [Fact]
+    public void An_outer_and_an_inner_for_each_may_each_own_one_break()
+    {
+        var definition = BreakWorkflow(nodes: nodes =>
+        {
+            nodes["inner"] = ForEach();
+            nodes["inner-items"] = new(NodeTypes.ArrayLiteral, "1.0.0") { ArrayLiteral = new(WorkflowDataTypes.String, "[\"x\"]") };
+            nodes["inner-body"] = new(NodeTypes.LoopBody, "1.0.0");
+            nodes["cond2"] = new(NodeTypes.Condition, "1.0.0") { Condition = new("contains", "also") };
+            nodes["break2"] = new(NodeTypes.Break, "1.0.0");
+            return nodes;
+        }, execution: edges => edges.Remove("cond-step").Remove("return")
+            .Add("cond-inner", Execution("cond", "false", "inner", "execute"))
+            .Add("inner-body-start", Execution("inner", "body", "inner-body", "execute"))
+            .Add("inner-body-cond2", Execution("inner-body", "then", "cond2", "execute"))
+            .Add("cond2-break", Execution("cond2", "true", "break2", "execute"))
+            .Add("cond2-step", Execution("cond2", "false", "step", "execute"))
+            .Add("inner-return", Execution("step", "then", "inner", "feedback"))
+            .Add("outer-return", Execution("inner", "completed", "each", "feedback")));
+        definition = definition with
+        {
+            Connections = definition.Connections
+                .Add("inner-array", Data("inner-items", "out", "inner", "array"))
+                .Add("inner-item-cond2", Data("inner", "item", "cond2", "in"))
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void Node_stepping_is_not_supported_for_a_for_each_body_with_a_break()
+    {
+        Assert.False(WorkflowDebugging.SupportsNodeStepping(BreakWorkflow()));
     }
 
     private static void PortOf(WorkflowNodeDescriptor descriptor, string id, WorkflowPortDirection direction,

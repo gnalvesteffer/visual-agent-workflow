@@ -72,29 +72,46 @@ internal sealed class WorkflowDispatchAdmissionOwner
         }
     }
 
-    private sealed record ScopeWaiter(string ScopeId, Guid? ExceptTicketId, TaskCompletionSource Source);
+    private sealed record ScopeWaiter(string ScopeId, Guid? ExceptTicketId, TaskCompletionSource Source, bool StartedOnly = false);
 
     private readonly List<ScopeWaiter> scopeWaiters = [];
 
-    private bool HasUnsettledIn(string scopeId, Guid? exceptTicketId) =>
+    private bool HasUnsettledIn(string scopeId, Guid? exceptTicketId, bool startedOnly = false) =>
         tickets.Any(pair => pair.Value.ScopeId == scopeId && pair.Key != exceptTicketId &&
-            pair.Value.Slots.Values.Any(state => state != TicketState.Settled));
+            pair.Value.Slots.Values.Any(state => startedOnly ? state == TicketState.Started : state != TicketState.Settled));
+
+    /// <summary>True when work admitted in the scope, other than the excepted ticket, is not yet settled.</summary>
+    public bool HasUnsettledWork(string? scopeId, Guid? exceptTicketId)
+    {
+        if (scopeId is null) return false;
+        lock (sync) return HasUnsettledIn(scopeId, exceptTicketId);
+    }
+
+    /// <summary>
+    /// Like <see cref="WhenScopeSettledAsync"/> but ignores work that is admitted and has not started: a caller that
+    /// shares a superstep with that work cannot wait for it, because it begins only in the next superstep.
+    /// </summary>
+    public Task WhenScopeStartedWorkSettledAsync(string? scopeId, Guid? exceptTicketId, CancellationToken cancellationToken = default) =>
+        WhenScopeSettledCoreAsync(scopeId, exceptTicketId, startedOnly: true, cancellationToken);
 
     /// <summary>
     /// Completes when no work admitted in <paramref name="scopeId"/> (other than <paramref name="exceptTicketId"/>) is
     /// unsettled, i.e. after the last such slot settles or its ticket is revoked. Completes immediately when nothing
     /// is outstanding or the scope is null (the unframed root). Waiters complete asynchronously, outside the lock.
     /// </summary>
-    public Task WhenScopeSettledAsync(string? scopeId, Guid? exceptTicketId, CancellationToken cancellationToken = default)
+    public Task WhenScopeSettledAsync(string? scopeId, Guid? exceptTicketId, CancellationToken cancellationToken = default) =>
+        WhenScopeSettledCoreAsync(scopeId, exceptTicketId, startedOnly: false, cancellationToken);
+
+    private Task WhenScopeSettledCoreAsync(string? scopeId, Guid? exceptTicketId, bool startedOnly, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (scopeId is null) return Task.CompletedTask;
         ScopeWaiter waiter;
         lock (sync)
         {
-            if (!HasUnsettledIn(scopeId, exceptTicketId)) return Task.CompletedTask;
+            if (!HasUnsettledIn(scopeId, exceptTicketId, startedOnly)) return Task.CompletedTask;
             waiter = new ScopeWaiter(scopeId, exceptTicketId,
-                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously), startedOnly);
             scopeWaiters.Add(waiter);
         }
         if (!cancellationToken.CanBeCanceled) return waiter.Source.Task;
@@ -111,7 +128,7 @@ internal sealed class WorkflowDispatchAdmissionOwner
     private List<ScopeWaiter>? TakeSatisfiedWaiters()
     {
         if (scopeWaiters.Count == 0) return null;
-        var ready = scopeWaiters.Where(waiter => !HasUnsettledIn(waiter.ScopeId, waiter.ExceptTicketId)).ToList();
+        var ready = scopeWaiters.Where(waiter => !HasUnsettledIn(waiter.ScopeId, waiter.ExceptTicketId, waiter.StartedOnly)).ToList();
         if (ready.Count == 0) return null;
         foreach (var waiter in ready) scopeWaiters.Remove(waiter);
         return ready;
