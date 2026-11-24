@@ -614,11 +614,15 @@ ownership or persistence/playback for the combined path.
   sends, returned graph edges, collector/source handoffs, rejection before
   target start, and a held descendant that prevents root completion. This
   does not enable ticket enforcement for normal Sequence runs, nor cover every
-  topology, Break, or failure/cancellation races. The next gate is to qualify
-  those races plus file/SQLite playback before another architecture review.
-  The focused selection including `SequenceProductionRunnerTests`, ordinary
-  dispatch proofs, and adjacent runner/loop cases passes 124/124 on
-  2026-11-23.
+  topology or Break. New unit tests now qualify the tested path's agent-failure
+  and host-cancellation cases: each started executor has a prior admission,
+  Sequence interruption evidence precedes the root terminal, and no successful
+  terminal is recorded. Broader failure/cancellation races and file/SQLite
+  playback remain the next gates before another architecture review.
+  Before the failure/cancellation additions, the focused selection including
+  `SequenceProductionRunnerTests`, ordinary dispatch proofs, and adjacent
+  runner/loop cases passed 124/124 on 2026-11-23. The latest targeted owner and
+  unified-Sequence admission unit selection passes 6/6.
   A three-role review on 2026-11-19
   returned REVISE and authorized only proof work: a conditional Sequence route
   may end in nearest-loop Break without a Merge or workflow Output arrival, but

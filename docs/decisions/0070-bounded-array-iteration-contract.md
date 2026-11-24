@@ -5391,3 +5391,14 @@ event. These are adapter unit proofs, not persistence tests or a claim that
 every Sequence topology is ticket-covered. Multi-target WorkflowCall
 termination, Break, active cancellation/failure races, shared cross-path
 budgets, and file/SQLite playback remain open.
+
+The same normally validated unified-schema Sequence path now has deterministic
+agent-failure and host-cancellation proofs under the observer seam. Both tests
+check that every started executor was admitted first, the Sequence failure or
+cancellation evidence is recorded, and neither Sequence nor root success is
+fabricated. The cancellation test also verifies node and Sequence cancellation
+events, with the Sequence cancellation terminal ordered before the root
+cancellation terminal. These tests qualify only the single-agent interruption
+paths; broader in-flight sibling failure/cancel races and file/SQLite playback
+remain unproven. They do not enable admission ticket enforcement for normal
+Sequence runs or select the final iterator architecture.

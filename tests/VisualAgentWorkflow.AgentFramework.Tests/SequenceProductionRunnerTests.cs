@@ -1201,6 +1201,95 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Unified_production_sequence_agent_failure_preserves_admission_before_start_and_failure_order()
+    {
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-dispatch-admission-failure");
+        var timeline = new ConcurrentQueue<(string Kind, string NodeId)>();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new WorkflowRunner(new RecordingBroker(), new SequenceProofAgentExecutor(fail: true))
+                .ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(), revision, "sequence input",
+                    ticket => timeline.Enqueue(("admitted", ticket.TargetNodeId)), evt =>
+                    {
+                        events.Enqueue(evt);
+                        if (evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is { } nodeId)
+                            timeline.Enqueue(("started", nodeId));
+                        return ValueTask.CompletedTask;
+                    }));
+
+        AssertEveryStartedExecutorWasAdmitted(timeline);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "inventory-agent");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+            ReadEvidence(evt).OutputId == "inventory");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+        Assert.DoesNotContain(events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Completed);
+        Assert.Contains(events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Failed);
+        var recorded = events.ToArray();
+        Assert.True(Array.FindIndex(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceFailed) <
+            Array.FindIndex(recorded, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Failed));
+    }
+
+    [Fact]
+    public async Task Unified_production_sequence_cancellation_preserves_admission_before_start_and_cancellation_order()
+    {
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-dispatch-admission-cancel");
+        var timeline = new ConcurrentQueue<(string Kind, string NodeId)>();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var agent = new SequenceProofAgentExecutor(blockUntilCancellation: true);
+        using var cancellation = new CancellationTokenSource();
+        var execution = new WorkflowRunner(new RecordingBroker(), agent)
+            .ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(), revision, "sequence input",
+                ticket => timeline.Enqueue(("admitted", ticket.TargetNodeId)), evt =>
+                {
+                    events.Enqueue(evt);
+                    if (evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is { } nodeId)
+                        timeline.Enqueue(("started", nodeId));
+                    return ValueTask.CompletedTask;
+                }, cancellation.Token);
+
+        await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution);
+
+        AssertEveryStartedExecutorWasAdmitted(timeline);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "inventory-agent");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
+            ReadEvidence(evt).OutputId == "inventory");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceCancelled);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+        Assert.DoesNotContain(events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Completed);
+        Assert.Contains(events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Cancelled);
+        var recorded = events.ToArray();
+        Assert.True(Array.FindIndex(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceCancelled) <
+            Array.FindIndex(recorded, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Cancelled));
+    }
+
+    private static void AssertEveryStartedExecutorWasAdmitted(
+        ConcurrentQueue<(string Kind, string NodeId)> timeline)
+    {
+        var admitted = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (kind, nodeId) in timeline)
+        {
+            if (kind == "admitted")
+            {
+                admitted.Add(nodeId);
+                continue;
+            }
+
+            Assert.Equal("started", kind);
+            Assert.Contains(nodeId, admitted);
+        }
+    }
+
+    [Fact]
     public async Task Schema_1_43_executes_each_sequence_path_to_the_output_barrier()
     {
         var broker = new RecordingBroker();
