@@ -6063,3 +6063,35 @@ were run for that commit.
 **Still open:** quiescence and slot disposition for abandoned executors, a single
 timer rule before child inheritance, wiring the checkpoint host, a public
 `WorkflowRunner` option, and a test that a child does not inherit the bound.
+
+### Frame-scoped tickets and the linked frame owner (2026-11-24)
+
+First prerequisite from the public For Each readiness review: the frame owner and the
+admission owner were unlinked. They are now linked, in the smallest form that is
+checkable on the real production builder.
+
+- A ticket carries an optional activation scope. The three ordinary admission sites
+  (explicit dispatch, returned messages, Join continuation) tag it with the message's
+  activation frame scope; the unframed root stays unscoped.
+- The admission owner exposes `OutstandingIn(scope)` and `EnsureScopeSettled(scope,
+  exceptTicket)`, which fails closed naming the unsettled receivers. A null scope is
+  never checked and other scopes are ignored.
+- `StructuredActivationFrameOwner` is bound to the run's admission owner and exposes
+  `EnsureFrameSettled`. A Loop pass now calls it before recording
+  `LoopIterationCompleted`, so a pass frame cannot complete, and its successor is not
+  admitted, while work admitted in that frame is unsettled. The ticket the Loop is
+  itself processing is excepted.
+
+Evidence: four owner tests for scoped outstanding work and scope enforcement; two
+runner tests, one where a three-iteration Loop completes normally and one where work
+injected into a live pass frame stops that pass (no completion event, no second pass,
+a failed root naming the stuck work), which would simply have completed without the
+guard. The guard held on every existing graph: Loop, nested Loop, Fork/Join bodies,
+Sequence, collaboration, variables and the array-iteration proofs (1095 tests in that
+selection). Agent Framework passes 1273 tests, Core 748, Hosting 286.
+
+Still open from the readiness review: an atomic reservation for item activations
+(the existing atomic pass and evidence budgets already cover loop passes and are
+shared with child runs, so a For Each item can count as a pass), gating a successor on
+the abandonable-stop signal for Sequence bodies, Break ordering against the drain, and
+the For Each contract and runtime themselves.

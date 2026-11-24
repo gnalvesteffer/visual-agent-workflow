@@ -163,4 +163,65 @@ public sealed class WorkflowDispatchAdmissionOwnerSlotTests
         Assert.Throws<InvalidOperationException>(() => owner.Admit(["a", "b"]));
         owner.EnsureQuiescent();
     }
+
+    [Fact]
+    public void Scoped_tickets_report_outstanding_work_per_activation_scope()
+    {
+        var owner = new WorkflowDispatchAdmissionOwner();
+        var inPass = owner.Admit(["a", "b"], "pass-1");
+        var otherPass = owner.Admit(["c"], "pass-2");
+        var unscoped = owner.Admit(["d"]);
+
+        Assert.Equal(["a:Admitted", "b:Admitted"], owner.OutstandingIn("pass-1"));
+        Assert.Equal(["c:Admitted"], owner.OutstandingIn("pass-2"));
+        Assert.Empty(owner.OutstandingIn("pass-3"));
+
+        owner.Begin(inPass, "a");
+        owner.Begin(inPass, "b");
+        owner.Settle(inPass, "a");
+        Assert.Equal(["b:Started"], owner.OutstandingIn("pass-1"));
+        owner.Settle(inPass, "b");
+        Assert.Empty(owner.OutstandingIn("pass-1"));
+        _ = (otherPass, unscoped);
+    }
+
+    [Fact]
+    public void A_scope_is_settled_only_when_nothing_but_the_excepted_ticket_is_outstanding()
+    {
+        var owner = new WorkflowDispatchAdmissionOwner();
+        var current = owner.Admit(["loop"], "pass-1");
+        owner.Begin(current, "loop");
+        var sibling = owner.Admit(["worker"], "pass-1");
+        owner.Begin(sibling, "worker");
+
+        var unsettled = Assert.Throws<InvalidOperationException>(() => owner.EnsureScopeSettled("pass-1", current));
+        Assert.Contains("worker", unsettled.Message);
+        Assert.Contains("pass-1", unsettled.Message);
+
+        owner.Settle(sibling, "worker");
+        owner.EnsureScopeSettled("pass-1", current);
+    }
+
+    [Fact]
+    public void Scope_enforcement_ignores_other_scopes_and_the_unscoped_root()
+    {
+        var owner = new WorkflowDispatchAdmissionOwner();
+        owner.Begin(owner.Admit(["other"], "pass-2"), "other");
+        owner.Begin(owner.Admit(["root"]), "root");
+
+        owner.EnsureScopeSettled("pass-1", null);
+        owner.EnsureScopeSettled(null, null);
+    }
+
+    [Fact]
+    public void A_revoked_scoped_ticket_no_longer_counts_as_outstanding()
+    {
+        var owner = new WorkflowDispatchAdmissionOwner();
+        var id = owner.Admit(["a"], "pass-1");
+
+        owner.Revoke(id);
+
+        Assert.Empty(owner.OutstandingIn("pass-1"));
+        owner.EnsureScopeSettled("pass-1", null);
+    }
 }

@@ -376,6 +376,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             countLoopEvidenceEvents: ownsLoopEvidenceBudget,
             loopEvidenceScopePrefix: loopEvidenceScopePrefix);
         activationFrameOwner.BindRootEventRecorder(runId, revision.RevisionId, record, activationLedger);
+        activationFrameOwner.BindAdmissionOwner(dispatchAdmissionOwner);
         var variableStore = activationFrameOwner.CreateVariableStore(revision.Definition);
         ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null,
             string? data = null, string? scopeId = null) =>
@@ -999,6 +1000,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             activationLedger = ledger;
             eventWriter = new SequencedExecutionEventWriter(ownerRunId, ownerRevisionId, AcceptEventAsync, ledger);
         }
+
+        private WorkflowDispatchAdmissionOwner? admissionOwner;
+
+        /// <summary>Links this frame owner to the run's admission owner so frame completion can require settled work.</summary>
+        public void BindAdmissionOwner(WorkflowDispatchAdmissionOwner? owner) => admissionOwner = owner;
+
+        /// <summary>
+        /// Fails closed when work admitted in a frame's scope is still unsettled, ignoring the ticket the caller is
+        /// processing. A frame completes, and its successor is admitted, only when its own admitted work has settled.
+        /// </summary>
+        public void EnsureFrameSettled(string? scopeId, Guid? exceptTicketId) =>
+            admissionOwner?.EnsureScopeSettled(scopeId, exceptTicketId);
 
         private int lateEventsClosed;
 
@@ -2366,7 +2379,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     throw new InvalidOperationException("The parallel Join continuation is missing.");
                 var continuation = completion.Message with
                 {
-                    DispatchTicketId = dispatchAdmissionOwner?.Admit(target)
+                    DispatchTicketId = dispatchAdmissionOwner?.Admit(target, completion.Message.ActivationFrame?.ScopeId)
                 };
                 try
                 {
@@ -2395,7 +2408,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     Guid? ticket = null;
                     if (dispatchAdmissionOwner is not null)
                     {
-                        ticket = dispatchAdmissionOwner.Admit(target);
+                        ticket = dispatchAdmissionOwner.Admit(target, outgoing.ActivationFrame?.ScopeId);
                         message = outgoing with { DispatchTicketId = ticket };
                     }
                     try
@@ -2412,7 +2425,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var completed = await HandleCoreAsync(received, Dispatch, cancellationToken,
                     deferUnifiedJoinCommitToReceiverBatch: true);
                 if (dispatchAdmissionOwner is not null && ResolveContinuationTargets(completed) is { Count: > 0 } targets)
-                    completed = completed with { DispatchTicketId = dispatchAdmissionOwner.Admit(targets) };
+                    completed = completed with { DispatchTicketId = dispatchAdmissionOwner.Admit(targets, completed.ActivationFrame?.ScopeId) };
                 return completed;
             }
             finally
@@ -3085,9 +3098,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         loopIterationForEvidence = loopIteration;
                         nextLoopIteration = loopIteration;
                         if (loopIteration > 0)
+                        {
+                            var completedPassScope = received.ActivationFrame?.FindLoop(Id)?.ScopeId ?? received.ActivationFrame?.ScopeId;
+                            // A pass frame must not complete, and its successor must not be admitted, while work admitted
+                            // in that frame is unsettled (the ticket this Loop is processing is excepted).
+                            activationFrameOwner?.EnsureFrameSettled(completedPassScope, received.DispatchTicketId);
                             await Emit(ExecutionEventKinds.LoopIterationCompleted, Id, invocation, null,
-                                JsonSerializer.Serialize(new { iteration = loopIteration }),
-                                received.ActivationFrame?.FindLoop(Id)?.ScopeId ?? received.ActivationFrame?.ScopeId);
+                                JsonSerializer.Serialize(new { iteration = loopIteration }), completedPassScope);
+                        }
                         if (shouldContinue && loopIteration < loop.MaximumIterations)
                         {
                             port = "body";
