@@ -5680,3 +5680,38 @@ settling and the iterations active for that loop. After both fixes the full
 Agent Framework suite passes 1221/1221 and Core passes 744/744. The earlier
 roadmap statements of full-suite passes were therefore stale at HEAD between
 `ddda361c` and this repair.
+
+### Shared Sequence edge table and resolver parity (2026-11-24)
+
+The settlement review asked for the admission resolver and the workflow builder
+to derive from one edge list instead of a hand-kept mirror. A new internal
+`SequenceDispatchEdgeTable` now holds every branch-sourced edge of a production
+Sequence workflow (legacy lineage edges, authored branch edges, Output and
+Terminate edges to the collector, WorkflowCall edges to each terminal Output and
+the collector, and direct output collection). The builder registers exactly
+those edges, and the resolver returns the receivers whose edges match a message,
+so the two cannot drift. The source's own explicit sends and the
+source/sink/terminal/collector wiring stay in the builder.
+
+Edges between the same pair of executors are merged into one edge whose
+predicate is the union of the originals, so a message is never wired to a
+receiver twice. This removes the earlier duplicate collector wiring for the
+legacy-plus-direct-collection combination by construction. Whether Agent
+Framework 1.26.0 itself deduplicates identical edges was not established and is
+no longer relevant to this path.
+
+Eight unit tests (`SequenceDispatchEdgeTableTests`) pin the receiver sets: a
+call's termination reaches each terminal Output and the collector, an Output
+branch's internal termination handoff matches no edge, a normal Output result
+reaches only the collector, authored edges match only their port, the legacy and
+direct-collection combination yields one edge, a bypassing plan ignores authored
+edges, no two edges share an executor pair in any tested shape, and a Break
+request reaches the collector only for a declared Break node. Disabling the merge
+makes two of them fail. `GraphMessage` and the two private types it exposed are
+now assembly-internal so tests can build messages.
+
+The Sequence, admission, collaboration, and Fork/Join selection passes 362/362
+and the full Agent Framework suite passes 1229/1229 with the always-on owner
+and the table-driven builder. Root quiescence is still asserted only on the
+success path, child workflow executors still run outside the owner, and
+drain-before-terminal and reconcile-or-suppress remain open.

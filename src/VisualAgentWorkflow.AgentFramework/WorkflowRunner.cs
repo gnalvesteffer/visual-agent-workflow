@@ -723,7 +723,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         return builder.Build();
     }
 
-    private sealed record GraphMessage(string Text, string? SourceNode, string? SourcePort,
+    internal sealed record GraphMessage(string Text, string? SourceNode, string? SourcePort,
         WorkflowApprovalPermit? Approval = null, string DataType = "string", int LoopIteration = 0,
         bool TerminationSignal = false, bool FailureSignal = false,
         Guid? ParallelActivationId = null, string? ParallelBranchId = null, string? ParallelForkNodeId = null,
@@ -739,7 +739,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     private sealed record ArrayIterationFeedbackProof(string LoopNodeId, int ItemCount,
         string IndexParameterId);
 
-    private sealed record ParallelForkLineageEntry(string ForkNodeId, Guid? ActivationId, string? BranchId,
+    internal sealed record ParallelForkLineageEntry(string ForkNodeId, Guid? ActivationId, string? BranchId,
         string? ParentForkNodeId, Guid? ParentActivationId, string? ParentBranchId);
 
     internal sealed class ActivationAbortScope
@@ -1108,7 +1108,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     private sealed record GraphFunctionAudit(string FunctionId, int Version, string ContentHash, string OutputId,
         IReadOnlyDictionary<string, object> Inputs, ImmutableArray<GraphFunctionValueEvidence> EvaluatedValues);
 
-    private sealed class ParallelCollaborationRuntime : IDisposable
+    internal sealed class ParallelCollaborationRuntime : IDisposable
     {
         private const int EventPayloadVersion = 1;
         private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);

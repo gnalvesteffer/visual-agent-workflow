@@ -476,40 +476,13 @@ public sealed partial class WorkflowRunner
             ? plan.Outputs.Select(output => output.OutputNodeId).Distinct(StringComparer.Ordinal)
             : revision.Definition.Nodes.Where(entry => entry.Value.Type is not (NodeTypes.Input or NodeTypes.Sequence))
                 .Select(entry => entry.Key);
-        // Returns every receiver the builder's edges deliver this returned message to (empty when none match).
-        // Agent Framework fans one returned message out to all matching edges, so a call's termination reaches
-        // each terminal Output branch and the collector, while an Output branch's own internal termination
-        // handoff (its SourceNode is the call, not itself) matches no edge and must receive no ticket.
-        IReadOnlyCollection<string> ResolveSequenceDispatchTargets(string executorId, GraphMessage message)
-        {
-            const string collectorId = "sequence-collector";
-            if (message.ActivationBreakRequest is not null) return [collectorId];
-            if (message.TerminationSignal)
-            {
-                if (message.SourceNode != executorId) return [];
-                return revision.Definition.Nodes.TryGetValue(executorId, out var terminating) &&
-                    terminating?.Type == NodeTypes.WorkflowCall
-                    ? [.. revision.Definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.Output)
-                        .Select(entry => entry.Key), collectorId]
-                    : [collectorId];
-            }
-            if (message.SourceNode is { } sourceNode && revision.Definition.Nodes.TryGetValue(sourceNode, out var sourceDefinition) &&
-                sourceDefinition?.Type == NodeTypes.Output && message.SourcePort == "out")
-                return [collectorId];
-            if (message.SourceNode is null || message.SourcePort is null) return [];
-            // The builder ignores the revision's authored execution edges when the plan bypasses them.
-            var authoredTarget = (plan.BypassRevisionExecutionEdges || revision.Definition.ExecutionConnections is null
-                    ? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
-                    : revision.Definition.ExecutionConnections)
-                .Values.SingleOrDefault(edge => edge.Source.NodeId == message.SourceNode &&
-                    edge.Source.PortId == message.SourcePort)?.Target.NodeId;
-            if (authoredTarget is not null) return [authoredTarget];
-            // Mirrors the builder's collector edges for branches without an authored continuation: legacy
-            // Sequence graphs (no execution connections) and direct output collection.
-            return message.SequenceLineage is not null &&
-                (revision.Definition.ExecutionConnections is null || plan.DirectOutputCollection)
-                    ? [collectorId] : [];
-        }
+        // The builder registers exactly these branch-sourced edges, and the admission resolver predicts a returned
+        // message's receivers from the same table (Agent Framework fans one returned message out to every
+        // matching edge), so the two cannot drift. A call's termination reaches each terminal Output branch and
+        // the collector; an Output branch's own internal termination handoff matches no edge and gets no ticket.
+        var edgeTable = SequenceDispatchEdgeTable.Create(revision.Definition, plan, sequenceDispatchSession?.BreakNodeIds);
+        IReadOnlyCollection<string> ResolveSequenceDispatchTargets(string executorId, GraphMessage message) =>
+            edgeTable.TargetsFor(executorId, message);
 
         var branches = branchNodeIds
             .ToDictionary(outputNodeId => outputNodeId,
@@ -542,58 +515,13 @@ public sealed partial class WorkflowRunner
         var builder = new WorkflowBuilder(source);
 
         foreach (var output in plan.Outputs)
-        {
             builder.AddEdge<GraphMessage>((ExecutorBinding)source, branches[output.OutputNodeId],
                 message => message?.SequenceLineage?.OutputId == output.OutputId &&
                     message.SourceNode == output.SourceNodeId && message.SourcePort == output.SourcePortId);
-            if (revision.Definition.ExecutionConnections is null)
-                builder.AddEdge<GraphMessage>(branches[output.OutputNodeId], (ExecutorBinding)collector,
-                    message => message?.SequenceLineage?.OutputId == output.OutputId);
-        }
-        var revisionExecutionEdges = plan.BypassRevisionExecutionEdges
-            ? Enumerable.Empty<ConnectionDefinition>()
-            : (revision.Definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty).Values;
-        foreach (var edge in revisionExecutionEdges.Where(edge =>
-                     edge.Source.NodeId != plan.SequenceNodeId && edge.Target.NodeId != plan.SequenceNodeId &&
-                     edge.Source.NodeId != revision.Definition.EntryNodeId))
-        {
-            builder.AddEdge<GraphMessage>(branches[edge.Source.NodeId], branches[edge.Target.NodeId],
-                message => message?.SourceNode == edge.Source.NodeId && message.SourcePort == edge.Source.PortId);
-        }
-        foreach (var outputNodeId in plan.BypassRevisionExecutionEdges ? [] : revision.Definition.ExecutionConnections is null
-                     ? []
-                     : revision.Definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.Output).Select(entry => entry.Key))
-        {
-            builder.AddEdge<GraphMessage>(branches[outputNodeId], (ExecutorBinding)collector,
-                message => message?.SourceNode == outputNodeId &&
-                    message.SourcePort == "out" || sequenceDispatchSession is not null &&
-                    message?.ActivationBreakRequest is { } breakRequest &&
-                    message.SourceNode == breakRequest.SourceNodeId && message.SourcePort == "break" &&
-                    sequenceDispatchSession.BreakNodeIds.Contains(breakRequest.SourceNodeId));
-        }
-        foreach (var terminateNodeId in plan.BypassRevisionExecutionEdges ? [] : revision.Definition.Nodes
-                     .Where(entry => entry.Value.Type == NodeTypes.Terminate)
-                     .Select(entry => entry.Key))
-        {
-            builder.AddEdge<GraphMessage>(branches[terminateNodeId], (ExecutorBinding)collector,
-                message => message?.SourceNode == terminateNodeId && message.SourcePort == "terminated" && message.TerminationSignal);
-        }
-        foreach (var callNodeId in revision.Definition.Nodes
-                     .Where(entry => entry.Value.Type == NodeTypes.WorkflowCall)
-                     .Select(entry => entry.Key))
-        {
-            foreach (var terminalOutputNodeId in revision.Definition.Nodes
-                         .Where(entry => entry.Value.Type == NodeTypes.Output)
-                         .Select(entry => entry.Key))
-                builder.AddEdge<GraphMessage>(branches[callNodeId], branches[terminalOutputNodeId],
-                    message => message?.SourceNode == callNodeId && message.SourcePort == "terminated" && message.TerminationSignal);
-            builder.AddEdge<GraphMessage>(branches[callNodeId], (ExecutorBinding)collector,
-                message => message?.SourceNode == callNodeId && message.SourcePort == "terminated" && message.TerminationSignal);
-        }
-        if (plan.DirectOutputCollection)
-            foreach (var output in plan.Outputs)
-                builder.AddEdge<GraphMessage>(branches[output.OutputNodeId], (ExecutorBinding)collector,
-                    message => message?.SequenceLineage?.OutputId == output.OutputId);
+        foreach (var edge in edgeTable.Edges)
+            builder.AddEdge<GraphMessage>(branches[edge.SourceId],
+                edge.TargetId == SequenceDispatchEdgeTable.CollectorId ? (ExecutorBinding)collector : branches[edge.TargetId],
+                edge.Matches);
         builder.AddEdge<GraphMessage>((ExecutorBinding)source, (ExecutorBinding)sink,
             message => message?.SourcePort == "continue");
         builder.AddEdge<GraphMessage>((ExecutorBinding)source, (ExecutorBinding)terminal,

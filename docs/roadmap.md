@@ -647,9 +647,9 @@ ownership or persistence/playback for the combined path.
   review rejected removing the call-to-collector edge. Sequence, admission,
   collaboration, and Fork/Join unit tests pass 362/362; 13 loop tests that
   already failed on a clean HEAD were repaired (two bugs, see Decision 0070) and
-  the full Agent Framework suite now passes 1221/1221. Child-workflow ticketing, a shared builder/
-  resolver edge list, drain-before-terminal, and reconcile-or-suppress remain
-  open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  the full Agent Framework suite now passes 1221/1221. A shared builder/resolver edge table with parity tests is now in place
+  (full Agent Framework suite 1229/1229). Child-workflow ticketing,
+  drain-before-terminal, and reconcile-or-suppress remain open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   Before the failure/cancellation additions, the focused selection including
   `SequenceProductionRunnerTests`, ordinary dispatch proofs, and adjacent
   runner/loop cases passed 124/124 on 2026-11-23. The latest targeted owner and
