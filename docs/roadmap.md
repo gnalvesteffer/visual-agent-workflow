@@ -653,8 +653,11 @@ ownership or persistence/playback for the combined path.
   outstanding-slot probe, with failed-run and held-child proofs. Production
   Sequence runs now drain in-flight outputs before recording an output cancel or
   the Sequence terminal (full Agent Framework suite 1239/1239); a bounded
-  abandon with an outcome-unknown representation, Break drain ordering, and
-  reconcile-or-suppress remain open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  abandon was reviewed (REVISE): a framework spike shows cancel and dispose
+  block while a token-ignoring executor runs, so abandon must detach teardown;
+  it needs a distinct abandoned state, a runner-owned opt-in timer, and a
+  post-terminal event gate. Break drain ordering and reconcile-or-suppress remain
+  open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   Before the failure/cancellation additions, the focused selection including
   `SequenceProductionRunnerTests`, ordinary dispatch proofs, and adjacent
   runner/loop cases passed 124/124 on 2026-11-23. The latest targeted owner and

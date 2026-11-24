@@ -5825,3 +5825,73 @@ the run stops. Break drain ordering (siblings drained before
 faults and the unreadable-store policy remain open. Reordering executors to emit
 `NodeCancelled` before reporting their Sequence settlement was considered and
 left out to keep recorded event order stable.
+
+### Bounded-abandon architecture review (2026-11-24)
+
+The user chose to add a bounded abandon to the Sequence drain. Three distinct
+agents reviewed the candidate (a grace timer that records unreported outputs as
+`failed` with reason `abandoned`, records the Sequence terminal, abandons the
+framework run, and ends the root `run.outcome-unknown`). The proponent and
+opponent worked independently and the adjudicator saw both and read the code.
+Verdict: **REVISE; keep the bound, not as specified.** No architecture is
+selected and nothing in the runtime changed.
+
+**Confirmed facts (adjudicator, file references as of this date):**
+
+- Playback rejects any event carrying `Reason` except a `SequenceBreakCompleted`
+  with reason `break` (`SequenceEvidence.cs`, ~128-129), so a `failed` output with
+  a reason would make the whole Sequence history unreconstructable, and the
+  candidate's "reuse Reason, no playback change" was wrong. Output states are
+  only dispatched, completed, failed, cancelled, skipped. Older binaries reading a
+  new kind or state fail closed rather than fabricate a result.
+- Today's `AbandonUnsettled` records unreported outputs as **cancelled**, and is
+  reachable only after the framework run has stopped.
+- The collaboration timeout is a precedent for a timer, host options, and null
+  meaning unbounded, but it stops the run through the ordinary cancellation path;
+  it never abandons a hung executor.
+- The Sequence production path can already end `run.outcome-unknown`, but only
+  when a tool-invocation exception with that disposition is thrown, so an abandon
+  path must raise an equivalent.
+- Node events from an abandoned executor after the Sequence and root terminals
+  are the main hazard. The ticket owner's quiescence check and the activation
+  ledger throw on unsettled work; their behaviour for post-terminal events was
+  not traced and is assumed unsafe until a test shows otherwise.
+
+**Framework spike (unit tests, this slice).** Pinned Agent Framework 1.26.0,
+with a running executor that never observes its token:
+
+- `CancelRunAsync()` and `DisposeAsync()` both **do not return** while that
+  executor runs, and complete once it is released.
+- Cancelling only the `WatchStreamAsync` token ends observation (the enumeration
+  faults with cancellation) while the executor keeps running.
+
+So a run can be abandoned for observation but not for teardown. In
+`ExecuteCoreAsync` the `await using` disposal would block the caller even after
+the root terminal has been recorded. A bounded abandon therefore has to end
+observation by token, record the Sequence and root terminals, and detach
+cancel/dispose (fire-and-forget with a swallowed fault), accepting a leaked
+executor task. This had been the review's central unverified assumption.
+
+**Directions the review recommends, in order:**
+
+1. Run-level deadline through the existing cancellation path (cheap, honest,
+   but does not bound a hung executor).
+2. A distinct abandoned output state or event for playback, not `failed` with a
+   reason: `failed` reads as "did not happen" to a retry or reconcile consumer
+   and a typed For Each needs unknown distinguishable from failure. This is a
+   playback change with old-reader and replay tests. A validated reason on
+   `SequenceOutputFailed` is the fallback if a new state is rejected.
+3. The timer lives in the runner (the coordinator is synchronous under a lock and
+   has no clock); the coordinator gets a separate abandon entry with a durable
+   recorded set so late reports are no-ops.
+4. A run-level closed gate that drops post-terminal node events without
+   throwing, and a deliberate rule for ticket slots of abandoned executors.
+5. Root ends `run.outcome-unknown`, never completed or cancelled.
+6. The bound is **opt-in** (null keeps today's behaviour) and its configured
+   value is recorded in the evidence, because a finite default would turn slow
+   but legitimate tool calls and child workflows into abandoned outcomes for
+   existing hosts.
+
+**Open for the user:** confirm that a new abandoned output state (a playback
+change) is acceptable, and that the default stays opt-in. Break drain ordering
+interacts with the same timer and is still open.
