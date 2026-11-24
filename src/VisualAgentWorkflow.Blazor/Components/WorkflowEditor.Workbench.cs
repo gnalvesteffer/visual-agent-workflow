@@ -342,6 +342,7 @@ public partial class WorkflowEditor
             ContractEntry(NodeTypes.Condition, canAdd),
             ContractEntry(NodeTypes.Merge, canAdd),
             ContractEntry(NodeTypes.Loop, canAdd),
+            ContractEntry(NodeTypes.ForEach, canAdd, "Run the body once per item of a typed array, in order."),
             ContractEntry(NodeTypes.LoopBody, canAdd),
             ContractEntry(NodeTypes.StringConstant, canAdd),
             ContractEntry(NodeTypes.TextConcat, canAdd),
@@ -476,7 +477,7 @@ public partial class WorkflowEditor
     private bool CanRemove(string id) => !ReadOnly && !Disabled && Definition.Nodes.TryGetValue(id, out var node) &&
         node.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.LoopBody) && !GuardedTool(id);
     private bool CanDuplicate(string id) => CanRemove(id) && Definition.Nodes[id].Type is not
-        (NodeTypes.Loop or NodeTypes.Approval or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous);
+        (NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.Approval or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous);
     private async Task RemoveSelected(string id, GraphContextRequest? context = null)
     {
         await CloseMenu(context);

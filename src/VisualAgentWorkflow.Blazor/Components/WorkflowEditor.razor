@@ -653,7 +653,7 @@
                         }
                         <p>A successful end is recorded as <strong>Terminated</strong>; a failure end is recorded as a failed run with no result.</p>
                     }
-                    else if (node.Type == NodeTypes.ArrayGet)
+                    else if (node.Type is NodeTypes.ArrayGet or NodeTypes.ForEach)
                     {
                         @if (!ReadOnly)
                         {
@@ -664,7 +664,14 @@
                                 </select>
                             </label>
                         }
-                        <p>Selects one value from a bounded array using a zero-based index. Negative or out-of-range indices fail at this node.</p>
+                        @if (node.Type == NodeTypes.ForEach)
+                        {
+                            <p>Runs the body once per array item in order. Outputs the item and its zero-based index, then continues on Completed. Return the body to Feedback; add a Loop body node after Body.</p>
+                        }
+                        else
+                        {
+                            <p>Selects one value from a bounded array using a zero-based index. Negative or out-of-range indices fail at this node.</p>
+                        }
                     }
                     else if (node.Type == NodeTypes.ArrayLength)
                     {
@@ -1060,6 +1067,7 @@
         NodeTypes.JsonToArray => "JSON array · array<json>",
         NodeTypes.ArrayLiteral => $"Array literal · array<{node.ArrayLiteral?.ElementType ?? WorkflowDataTypes.String}>",
         NodeTypes.ArrayLength => $"Count array<{node.ArrayElementType ?? WorkflowDataTypes.Json}>",
+        NodeTypes.ForEach => $"For each array<{node.ArrayElementType ?? WorkflowDataTypes.String}>",
         NodeTypes.ArrayGet => $"Read array<{node.ArrayElementType ?? WorkflowDataTypes.Json}>",
         NodeTypes.ArrayAppend => $"Append array<{node.ArrayElementType ?? WorkflowDataTypes.String}>",
         NodeTypes.ArrayInsert => $"Insert array<{node.ArrayElementType ?? WorkflowDataTypes.String}>",
@@ -1540,7 +1548,7 @@
             return new(NodeTypes.JsonProject, "1.0.0") { JsonProjection = existing?.JsonProjection ?? new([new("name", "/name")]) };
         if (value == NodeTypes.ArrayLiteral)
             return new(value, "1.0.0") { ArrayLiteral = existing?.ArrayLiteral ?? new(WorkflowDataTypes.String, "[]") };
-        if (value is NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains)
+        if (value is NodeTypes.ForEach or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains)
             return new(value, "1.0.0") { ArrayElementType = existing?.ArrayElementType ?? WorkflowDataTypes.String };
         if (value == NodeTypes.JsonToArray) return new(value, "1.0.0");
         if (value == NodeTypes.TextTemplate)

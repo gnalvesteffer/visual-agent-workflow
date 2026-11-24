@@ -194,6 +194,18 @@ public sealed class ForEachNodeTests
         Assert.False(WorkflowDebugging.SupportsNodeStepping(Workflow()));
     }
 
+    [Fact]
+    public void Changing_the_element_type_of_a_for_each_is_an_editing_operation_that_revalidates()
+    {
+        var definition = Workflow();
+
+        // The connected array<string> source no longer matches array<integer>, so the edit is rejected, not silently kept.
+        Assert.ThrowsAny<Exception>(() => GraphEditing.ReplaceNode(definition, "each",
+            definition.Nodes["each"] with { ArrayElementType = WorkflowDataTypes.Integer }));
+        var same = GraphEditing.ReplaceNode(definition, "each", definition.Nodes["each"] with { ArrayElementType = WorkflowDataTypes.String });
+        Assert.Equal(WorkflowDataTypes.String, same.Nodes["each"].ArrayElementType);
+    }
+
     private static void PortOf(WorkflowNodeDescriptor descriptor, string id, WorkflowPortDirection direction,
         WorkflowPortKind kind, out WorkflowPortDescriptor port) =>
         port = Assert.Single(descriptor.Ports, candidate => candidate.Id == id && candidate.Direction == direction &&
