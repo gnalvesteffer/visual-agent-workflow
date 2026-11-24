@@ -5482,3 +5482,37 @@ owner's ticket state.
 
 The combined `SequenceProductionRunnerTests` and `WorkflowDispatchAdmissionOwnerTests`
 selection passes 113/113, and the 21 new cases passed five repeated runs.
+
+### Sequence topology shapes through the admission seam (2026-11-23)
+
+Four unit tests run additional normally validated unified-schema Sequence
+shapes through the same internal admission-observer seam, each checking that
+every observed executor start was admitted first and that the run completes:
+a direct-MCP step followed by an Agent, a two-step deterministic transform
+chain, a pinned WorkflowCall branch, and a pinned JSON chain
+(`Project → SelectString`). Hop order is asserted as: source started, then
+target admitted, then target started. The shared Output barrier is admitted
+once per arriving branch, so its assertions allow an earlier admission from a
+sibling. Four selected cases pass five repeated runs and the combined
+`SequenceProductionRunnerTests` plus owner selection passes 117/117.
+
+Observed boundaries these tests pin rather than fix:
+
+- A Sequence graph's own entry node is not ticketed; the first ticket goes to
+  the Sequence node.
+- A pinned WorkflowCall child runs through a nested runner without the
+  observer. Parent call nodes are ticketed, but no child executor reaches the
+  seam (the child's own `input` node is never admitted). Child-level admission
+  therefore remains unqualified.
+- Pure JSON data nodes are evaluated with recorded `DataEvaluated` evidence
+  but are not dispatched executors and receive no tickets.
+- Unified validation requires one data wire into each deterministic transform;
+  historical 1.49 fixtures were execution-only and needed those wires added.
+
+An earlier audit suggested a Break-plus-Sequence-plus-observer negative test.
+That was not written: the seam takes no Break identifiers, and the guard the
+audit cited lives on a different proof path, so such a test would not exercise
+the claim. Break in Sequence remains outside this seam. Mutable variables inside
+Fork/Sequence, the Join duplicate-arrival production race, and cross-path
+shared budgets remain open, and the shared-budget owner and any Break-in-Sequence
+ticket model still need three-role adjudication.

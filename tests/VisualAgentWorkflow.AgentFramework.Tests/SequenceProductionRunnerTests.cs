@@ -1622,6 +1622,188 @@ public sealed class SequenceProductionRunnerTests
         }
     }
 
+    private sealed record AdmittedRun(WorkflowExecutionResult Result, ExecutionEvent[] Events,
+        (string Kind, string NodeId)[] Timeline);
+
+    private static async Task<AdmittedRun> RunAdmittedAsync(WorkflowRunner runner, WorkflowDefinition definition,
+        string input, string revisionLabel, Func<ExecutionEvent, bool>? isObservedStart = null)
+    {
+        var revision = WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(definition)),
+            revisionLabel);
+        var timeline = new ConcurrentQueue<(string Kind, string NodeId)>();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var result = await runner.ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(), revision, input,
+                ticket => timeline.Enqueue(("admitted", ticket.TargetNodeId)), evt =>
+                {
+                    events.Enqueue(evt);
+                    if (evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is { } nodeId &&
+                        (isObservedStart?.Invoke(evt) ?? true))
+                        timeline.Enqueue(("started", nodeId));
+                    return ValueTask.CompletedTask;
+                })
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+        AssertEveryStartedExecutorWasAdmitted(new ConcurrentQueue<(string Kind, string NodeId)>(timeline));
+        return new(result, events.ToArray(), timeline.ToArray());
+    }
+
+    // A node reached from several branches (the Output barrier) is admitted once per arriving branch, so the
+    // hop is "an admission of `to` after `from` started, then a start of `to` after that admission".
+    private static void AssertHopOrder(AdmittedRun run, string from, string to)
+    {
+        var fromStarted = Array.IndexOf(run.Timeline, ("started", from));
+        var toAdmitted = fromStarted < 0 ? -1 : Array.FindIndex(run.Timeline, fromStarted + 1,
+            item => item == ("admitted", to));
+        var toStarted = toAdmitted < 0 ? -1 : Array.FindIndex(run.Timeline, toAdmitted + 1,
+            item => item == ("started", to));
+        Assert.True(fromStarted >= 0 && toAdmitted > fromStarted && toStarted > toAdmitted,
+            $"Expected '{from}' started, then '{to}' admitted, then '{to}' started; timeline: " +
+            string.Join(", ", run.Timeline.Select(item => $"{item.Kind}:{item.NodeId}")));
+    }
+
+    [Fact]
+    public async Task Unified_production_sequence_mcp_then_agent_path_admits_each_hop_in_order()
+    {
+        var run = await RunAdmittedAsync(new WorkflowRunner(new RecordingBroker(), new SequenceProofAgentExecutor()),
+            SequenceMixedPathDefinition() with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph },
+            "hello", "sequence-admission-mixed");
+
+        AssertHopOrder(run, "inventory-tool", "inventory-agent");
+        AssertHopOrder(run, "inventory-agent", "output");
+        Assert.Equal(2, run.Events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+        Assert.Single(run.Events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
+    public async Task Unified_production_sequence_transform_chain_admits_each_deterministic_step()
+    {
+        // Unified validation requires one data wire into each transform input; the historical 1.49 fixture
+        // is execution-only.
+        var source = SequenceTransformChainDefinition();
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Connections = source.Connections
+                .Add("input-uppercase-first", new(new("input", "out"), new("uppercase-first", "in"), "data"))
+                .Add("uppercase-reverse-first", new(new("uppercase-first", "out"), new("reverse-first", "in"), "data"))
+                .Add("input-reverse-second", new(new("input", "out"), new("reverse-second", "in"), "data"))
+                .Add("reverse-uppercase-second", new(new("reverse-second", "out"), new("uppercase-second", "in"), "data"))
+        };
+        var run = await RunAdmittedAsync(new WorkflowRunner(new RecordingBroker()), definition,
+            "hello", "sequence-admission-transform-chain");
+
+        Assert.Equal("OLLEH", run.Result.Output);
+        AssertHopOrder(run, "uppercase-first", "reverse-first");
+        AssertHopOrder(run, "reverse-second", "uppercase-second");
+        AssertHopOrder(run, "reverse-first", "output");
+        Assert.Equal(2, run.Events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+    }
+
+    [Fact]
+    public async Task Unified_production_sequence_workflow_call_branch_tickets_parent_and_leaves_child_unobserved()
+    {
+        var child = WorkflowRevision.Create(
+            WorkflowEditing.InsertAfter(LinearBaseline("admission-sequence-child"), "input", NodeTypes.Uppercase),
+            "test");
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+        };
+        var parent = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "admission-sequence-parent", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
+                {
+                    Sequence = new([new("call", "Pinned child"), new("sibling", "Pinned child again")])
+                },
+                ["call"] = call,
+                ["sibling"] = call,
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-call"] = new(new("sequence", "then.call"), new("call", "execute"), "execution"),
+                ["call-output"] = new(new("call", "out"), new("output", "execute"), "execution"),
+                ["sequence-sibling"] = new(new("sequence", "then.sibling"), new("sibling", "execute"), "execution"),
+                ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+
+        // Child node events carry the call's scope; only parent-scope starts are checked against the observer.
+        var run = await RunAdmittedAsync(new WorkflowRunner(), parent, "hello", "sequence-admission-call",
+            evt => evt.ScopeId is null);
+
+        Assert.Equal("HELLO", run.Result.Output);
+        AssertHopOrder(run, "call", "output");
+        AssertHopOrder(run, "sibling", "output");
+        // The child workflow runs through a nested runner without the observer. The child's entry node is also
+        // named "input" and the parent's entry is not ticketed in a Sequence graph, so no "input" admission
+        // proves the child's executors never reach this seam; each call node is admitted once.
+        Assert.DoesNotContain(run.Timeline, item => item == ("admitted", "input"));
+        Assert.Equal(1, run.Timeline.Count(item => item == ("admitted", "call")));
+        Assert.Contains(run.Events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.ScopeId == "call");
+        Assert.Contains(run.Events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.ScopeId == "sibling");
+    }
+
+    [Fact]
+    public async Task Unified_production_sequence_json_chain_admits_execution_nodes_and_evaluates_data_nodes_unticketed()
+    {
+        var child = WorkflowRevision.Create(JsonChild("admission-sequence-json-child"), "test");
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+        };
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "admission-sequence-json-parent", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
+                {
+                    Sequence = new([new("call", "Pinned child"), new("sibling", "Second child")])
+                },
+                ["call"] = call,
+                ["sibling"] = call,
+                ["project"] = new(NodeTypes.JsonProject, "1.0.0")
+                {
+                    JsonProjection = new([new JsonProjectionField("answer", "/answer")])
+                },
+                ["select"] = new(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = new("/answer") },
+                ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String }
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["call-project"] = new(new("call", "out"), new("project", "in"), "data"),
+                ["project-select"] = new(new("project", "out"), new("select", "in"), "data"),
+                ["select-output-data"] = new(new("select", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-call"] = new(new("sequence", "then.call"), new("call", "execute"), "execution"),
+                ["call-output"] = new(new("call", "out"), new("output", "execute"), "execution"),
+                ["sequence-sibling"] = new(new("sequence", "then.sibling"), new("sibling", "execute"), "execution"),
+                ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+
+        var run = await RunAdmittedAsync(new WorkflowRunner(), definition, "{\"answer\":\"hello\"}",
+            "sequence-admission-json", evt => evt.ScopeId is null);
+
+        Assert.Equal("hello", run.Result.Output);
+        AssertHopOrder(run, "call", "output");
+        // Pure JSON data nodes are evaluated with recorded evidence but are not dispatched executors.
+        Assert.Contains(run.Events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "project");
+        Assert.Contains(run.Events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "select");
+        Assert.DoesNotContain(run.Timeline, item => item.NodeId is "project" or "select");
+    }
+
     private sealed class FaultOnceRunStore(IWorkflowRunStore inner, string eventKind, bool commitBeforeFault)
         : IWorkflowRunStore
     {

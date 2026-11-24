@@ -632,14 +632,16 @@ ownership or persistence/playback for the combined path.
   rejected append the ordinary runner persists an honest failed run reusing the
   rejected sequence number, unlike Sequence's nonterminal prefix. Both are
   observed behavior, not endorsed contract; settlement ownership and ordinary/
-  Sequence fault consistency go to the next architecture review, with other
-  topologies still unqualified. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  Sequence fault consistency go to the next architecture review. Four shape
+  tests now run a direct-MCP-then-Agent path, a transform chain, a pinned
+  WorkflowCall branch, and a JSON chain through the admission seam; WorkflowCall
+  children remain outside the observer, and Break in Sequence is untested here. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   Before the failure/cancellation additions, the focused selection including
   `SequenceProductionRunnerTests`, ordinary dispatch proofs, and adjacent
   runner/loop cases passed 124/124 on 2026-11-23. The latest targeted owner and
   unified-Sequence admission unit selection, including the File/SQLite
   store-reopen and store-fault theories, passes 24/24; the full
-  `SequenceProductionRunnerTests` plus owner selection passes 113/113.
+  `SequenceProductionRunnerTests` plus owner selection passes 117/117.
   A three-role review on 2026-11-19
   returned REVISE and authorized only proof work: a conditional Sequence route
   may end in nearest-loop Break without a Merge or workflow Output arrival, but
