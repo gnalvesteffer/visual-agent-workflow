@@ -5323,3 +5323,17 @@ its Agent invocation while MCP outcome is unknown; the run remains open, emits
 no root terminal, and admits no next item until the held Agent settles. Its
 completion event precedes the root unknown-outcome terminal. The focused Agent
 Framework selection passes 64/64.
+
+### Concurrent Sequence barrier under a held body step (2026-11-23)
+
+The multi-item Sequence coordinator proof now exercises two concurrently
+admitted Sequence outputs with one Agent held behind a deterministic test
+gate. Both body Agents start, but the shared Output barrier emits no completed
+Sequence output, no item completion, and no next-item admission while one
+branch remains active. Releasing the held Agent allows both outputs and the
+item to settle before the following item begins. This test preserves the
+validated Sequence requirement that all ordered paths converge at one Output
+barrier. The focused Agent Framework unit test passes. This remains proof-only
+coordinator evidence; it does not show that an authored iterator node owns
+production scheduler admission or that persisted playback/recovery supports
+the combined path.

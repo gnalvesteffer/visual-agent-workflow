@@ -148,6 +148,73 @@ public sealed class SingleSequenceActivationProductionProofTests
     }
 
     [Fact]
+    public async Task Sequence_coordinator_waits_for_every_concurrent_output_before_admitting_next_item()
+    {
+        var revision = CreateSequenceRevision("held-multi-item-sequence-proof");
+        var agent = new CapturingAgentExecutor(holdNodeId: "agent");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        ValueTask Record(ExecutionEvent evt)
+        {
+            events.Enqueue(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(agents: agent)
+            .ExecuteMultiItemSequenceActivationCoordinatorProofAsync(Guid.NewGuid(), revision,
+                "[\"alpha\",\"beta\"]", "index", "item", WorkflowDataTypes.String,
+                Record, maximumConcurrentSequenceOutputs: 2);
+        try
+        {
+            await Task.WhenAll(agent.HeldAgentStarted.Task, agent.OtherAgentStarted.Task)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted,
+                "The Sequence item must stay active until every admitted Sequence output settles.");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted &&
+                evt.ScopeId == "array-loop/1");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+                evt.ScopeId == "array-loop/1");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.ScopeId == "array-loop/1");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.ScopeId == "array-loop/2");
+            Assert.DoesNotContain(agent.Invocations, invocation => invocation.Input == "beta");
+        }
+        catch (TimeoutException exception)
+        {
+            throw new Xunit.Sdk.XunitException(exception.Message + " Events: " +
+                string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.ScopeId}:{evt.ConnectionId}")) +
+                " Invocations: " + string.Join(" | ", agent.Invocations.Select(call => $"{call.NodeId}:{call.Input}")));
+        }
+        finally
+        {
+            agent.ReleaseHeldAgent.TrySetResult();
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(result.Failed);
+        Assert.Equal("beta", result.Output);
+        var recorded = events.ToArray();
+        var firstItemOutputs = recorded.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+            evt.ScopeId == "array-loop/1").ToArray();
+        Assert.Equal(2, firstItemOutputs.Length);
+        var firstSequenceCompleted = Array.FindIndex(recorded, evt =>
+            evt.Kind == ExecutionEventKinds.SequenceCompleted && evt.ScopeId == "array-loop/1");
+        var firstIterationCompleted = Array.FindIndex(recorded, evt =>
+            evt.Kind == ExecutionEventKinds.LoopIterationCompleted && evt.ScopeId == "array-loop/1");
+        var secondIterationStarted = Array.FindIndex(recorded, evt =>
+            evt.Kind == ExecutionEventKinds.LoopIterationStarted && evt.ScopeId == "array-loop/2");
+        Assert.All(firstItemOutputs, evt => Assert.True(evt.Sequence < recorded[firstSequenceCompleted].Sequence));
+        Assert.True(firstSequenceCompleted < firstIterationCompleted);
+        Assert.True(firstIterationCompleted < secondIterationStarted);
+        Assert.Equal(new[] { ("alpha", "0"), ("alpha", "0"), ("beta", "1"), ("beta", "1") },
+            agent.Invocations.Select(invocation => (invocation.Input, invocation.Parameters!["index"]))
+                .OrderBy(value => value.Input, StringComparer.Ordinal)
+                .ThenBy(value => value.Item2, StringComparer.Ordinal));
+        AssertTerminalAndContiguous(recorded, ExecutionEventKinds.Completed);
+    }
+
+    [Fact]
     public async Task Multi_item_ordinary_coordinator_uses_validated_graph_dispatch_and_root_frames()
     {
         var revision = CreateOrdinaryRevision("multi-item-ordinary-proof");
@@ -741,24 +808,39 @@ public sealed class SingleSequenceActivationProductionProofTests
         public sealed record Invocation(string NodeId, string Input,
             IReadOnlyDictionary<string, string>? Parameters);
 
-        public CapturingAgentExecutor(string? failOnInput = null, CancellationTokenSource? cancelOnInput = null)
+        public CapturingAgentExecutor(string? failOnInput = null, CancellationTokenSource? cancelOnInput = null,
+            string? holdNodeId = null)
         {
             this.failOnInput = failOnInput;
             this.cancelOnInput = cancelOnInput;
+            this.holdNodeId = holdNodeId;
         }
 
         private readonly string? failOnInput;
         private readonly CancellationTokenSource? cancelOnInput;
+        private readonly string? holdNodeId;
+        public TaskCompletionSource HeldAgentStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource OtherAgentStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseHeldAgent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
             Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
                 [new("proof.echo", "Proof Echo", "proof", true)]);
 
-        public Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             invocations.Enqueue(new(invocation.NodeId, input, invocation.Parameters));
+            if (invocation.NodeId == holdNodeId)
+            {
+                HeldAgentStarted.TrySetResult();
+                await ReleaseHeldAgent.Task.WaitAsync(cancellationToken);
+            }
+            else if (holdNodeId is not null)
+            {
+                OtherAgentStarted.TrySetResult();
+            }
             if (input == failOnInput)
                 throw new InvalidOperationException("Deterministic proof failure.");
             if (input == "beta" && cancelOnInput is not null)
@@ -766,7 +848,7 @@ public sealed class SingleSequenceActivationProductionProofTests
                 cancelOnInput.Cancel();
                 cancellationToken.ThrowIfCancellationRequested();
             }
-            return Task.FromResult(input);
+            return input;
         }
     }
 

@@ -437,6 +437,13 @@ playback for the combined path remains unproven. Public For Each and Break
 remain gated. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
+The private multi-item Sequence proof also holds one of two concurrently
+admitted body Agents while the other finishes. The validated shared Output
+barrier does not settle either Sequence output or admit the next array item
+until the held Agent drains; the focused unit regression passes. This confirms
+the in-memory Sequence barrier behavior only, not outer graph-scheduler
+ownership or persistence/playback for the combined path.
+
 - [x] Add the schema-2.0 immutable typed-array contract and compose literal,
   length, and indexed-read nodes with existing pure scalar dataflow. Verify
   exact type identity, item and payload bounds, scalar output, node-attributed
