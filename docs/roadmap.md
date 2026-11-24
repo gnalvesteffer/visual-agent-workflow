@@ -617,12 +617,23 @@ ownership or persistence/playback for the combined path.
   topology or Break. New unit tests now qualify the tested path's agent-failure
   and host-cancellation cases: each started executor has a prior admission,
   Sequence interruption evidence precedes the root terminal, and no successful
-  terminal is recorded. Broader failure/cancellation races and file/SQLite
-  playback remain the next gates before another architecture review.
+  terminal is recorded. A store-boundary unit theory now persists the admitted
+  path's success, Agent failure, and host cancellation runs to File and SQLite
+  stores, reopens them, and reconstructs Sequence/Agent passive playback with
+  matching status, contiguous events, and one root terminal after the Sequence
+  terminal (6/6). A companion theory injects a pre-commit append rejection or a
+  committed lost acknowledgement on dispatch, output-completion, and Sequence-
+  completion events in both stores (12/12): the faulted event is the last
+  attempt, no root terminal is attempted, and the reopened run stays running
+  with the exact accepted prefix and no fabricated output failure. Sibling
+  failure/cancellation races and other topologies remain the next gates before
+  another architecture review.
   Before the failure/cancellation additions, the focused selection including
   `SequenceProductionRunnerTests`, ordinary dispatch proofs, and adjacent
   runner/loop cases passed 124/124 on 2026-11-23. The latest targeted owner and
-  unified-Sequence admission unit selection passes 6/6.
+  unified-Sequence admission unit selection, including the File/SQLite
+  store-reopen and store-fault theories, passes 24/24; the full
+  `SequenceProductionRunnerTests` plus owner selection passes 93/93.
   A three-role review on 2026-11-19
   returned REVISE and authorized only proof work: a conditional Sequence route
   may end in nearest-loop Break without a Merge or workflow Output arrival, but

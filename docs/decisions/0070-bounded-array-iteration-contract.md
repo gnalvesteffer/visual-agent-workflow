@@ -5402,3 +5402,40 @@ cancellation terminal. These tests qualify only the single-agent interruption
 paths; broader in-flight sibling failure/cancel races and file/SQLite playback
 remain unproven. They do not enable admission ticket enforcement for normal
 Sequence runs or select the final iterator architecture.
+
+### Production Sequence admission evidence in File/SQLite stores (2026-11-23)
+
+The same admitted unified-schema Sequence path now appends every recorded
+event to a real `FileRunJournal` or `SqliteWorkflowRunStore` with
+expected-sequence checks, then reopens a new store instance for passive
+reads. `Unified_production_sequence_admitted_run_reopens_from_store_for_passive_playback`
+covers success, Agent failure, and host cancellation for both stores (6/6).
+Each case checks admission before every observed executor start, an identical
+contiguous event stream after reopen, the persisted run status, exactly one
+root terminal ordered after the single Sequence terminal, and
+`SequenceAgentEvidence` playback of the Sequence status, the inventory output
+state, its Agent invocation lineage, and the model-call state. Failed and
+cancelled runs do not reconstruct a completed Agent or model call. This is a
+narrow store-boundary unit proof using real stores because the claim concerns
+persisted evidence rather than in-memory recording.
+
+A companion theory,
+`Unified_production_sequence_admitted_store_fault_preserves_reopened_nonterminal_prefix`,
+injects one store fault on the same admitted path for `SequenceOutputDispatched`,
+`SequenceOutputCompleted`, and `SequenceCompleted`, either rejecting the append
+before commit or committing it and losing the acknowledgement, in both stores
+(12/12). The runtime cannot distinguish those two faults, and the tests confirm
+it treats both as uncertain delivery: the faulted event is the last recorder
+attempt, no root terminal is attempted, and admission still precedes every
+observed start. After reopen, the stored history equals the attempted prefix
+with or without the faulted event, numbered contiguously; the run stays
+`running`, and Sequence playback reports `running` (or `completed` only when a
+committed `SequenceCompleted` lost its acknowledgement) with no failed or
+cancelled output fabricated. Reconciling such a run remains out of scope.
+
+These store tests do not cover faults on other event kinds, sibling
+failure/cancellation races, other Sequence topologies, Break, shared
+cross-path budgets, or checkpoint recovery. It also does not enable
+ticket enforcement for normal Sequence runs. Review those remaining topology
+and failure/cancellation gaps before another architecture review or any public
+For Each/Break contract.

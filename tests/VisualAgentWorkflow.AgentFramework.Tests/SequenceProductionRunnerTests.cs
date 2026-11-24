@@ -1272,6 +1272,201 @@ public sealed class SequenceProductionRunnerTests
             Array.FindIndex(recorded, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Cancelled));
     }
 
+    [Theory]
+    [InlineData(false, "completed")]
+    [InlineData(true, "completed")]
+    [InlineData(false, "failed")]
+    [InlineData(true, "failed")]
+    [InlineData(false, "cancelled")]
+    [InlineData(true, "cancelled")]
+    public async Task Unified_production_sequence_admitted_run_reopens_from_store_for_passive_playback(
+        bool sqlite, string expectedStatus)
+    {
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, $"sequence-dispatch-admission-store-{expectedStatus}");
+        using var runStore = new ReopenableRunStore(revision, "sequence input", sqlite);
+        var agent = expectedStatus switch
+        {
+            "failed" => new SequenceProofAgentExecutor(fail: true),
+            "cancelled" => new SequenceProofAgentExecutor(blockUntilCancellation: true),
+            _ => new SequenceProofAgentExecutor()
+        };
+        var timeline = new ConcurrentQueue<(string Kind, string NodeId)>();
+        var recorded = new List<ExecutionEvent>();
+        var recordLock = new object();
+        using var cancellation = new CancellationTokenSource();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            lock (recordLock)
+            {
+                runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+                recorded.Add(evt);
+            }
+            if (evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is { } nodeId)
+                timeline.Enqueue(("started", nodeId));
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(new RecordingBroker(), agent)
+            .ExecuteWithProductionDispatchAdmissionProofAsync(runStore.RunId, revision, "sequence input",
+                ticket => timeline.Enqueue(("admitted", ticket.TargetNodeId)), Record, cancellation.Token);
+        switch (expectedStatus)
+        {
+            case "completed":
+                Assert.False((await execution.WaitAsync(TimeSpan.FromSeconds(5))).Failed);
+                break;
+            case "failed":
+                await Assert.ThrowsAsync<InvalidOperationException>(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+                break;
+            default:
+                await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+                break;
+        }
+
+        AssertEveryStartedExecutorWasAdmitted(timeline);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(expectedStatus, reopened.Status);
+        Assert.Equal(recorded, reopened.Events);
+        Assert.Equal(Enumerable.Range(1, reopened.Events.Length).Select(value => (long)value),
+            reopened.Events.Select(evt => evt.Sequence));
+        var rootTerminal = Assert.Single(reopened.Events, evt => evt.NodeId is null && evt.Kind is
+            ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+            ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown);
+        Assert.Equal($"run.{expectedStatus}", rootTerminal.Kind);
+        var sequenceTerminal = Assert.Single(reopened.Events, evt => evt.Kind is
+            ExecutionEventKinds.SequenceCompleted or ExecutionEventKinds.SequenceFailed or
+            ExecutionEventKinds.SequenceCancelled);
+        Assert.True(sequenceTerminal.Sequence < rootTerminal.Sequence);
+
+        Assert.True(SequenceAgentEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal(expectedStatus, playback!.Sequence.Status);
+        Assert.Equal(["inventory", "architecture"], playback.Sequence.Outputs.Select(output => output.OutputId));
+        var inventory = Assert.Single(playback.Sequence.Outputs, output => output.OutputId == "inventory");
+        Assert.Equal(expectedStatus, inventory.State);
+        var inventoryAgent = Assert.Single(playback.Agents);
+        Assert.Equal(("inventory-agent", "inventory", inventory.ActivationId),
+            (inventoryAgent.NodeId, inventoryAgent.OutputId, (Guid?)inventoryAgent.ActivationId));
+        Assert.Equal(expectedStatus == "completed", inventoryAgent.State == "completed");
+        Assert.Equal(expectedStatus == "completed", Assert.Single(playback.ModelCalls).State == "completed");
+    }
+
+    [Theory]
+    [InlineData(false, ExecutionEventKinds.SequenceOutputDispatched, false)]
+    [InlineData(true, ExecutionEventKinds.SequenceOutputDispatched, false)]
+    [InlineData(false, ExecutionEventKinds.SequenceOutputDispatched, true)]
+    [InlineData(true, ExecutionEventKinds.SequenceOutputDispatched, true)]
+    [InlineData(false, ExecutionEventKinds.SequenceOutputCompleted, false)]
+    [InlineData(true, ExecutionEventKinds.SequenceOutputCompleted, false)]
+    [InlineData(false, ExecutionEventKinds.SequenceOutputCompleted, true)]
+    [InlineData(true, ExecutionEventKinds.SequenceOutputCompleted, true)]
+    [InlineData(false, ExecutionEventKinds.SequenceCompleted, false)]
+    [InlineData(true, ExecutionEventKinds.SequenceCompleted, false)]
+    [InlineData(false, ExecutionEventKinds.SequenceCompleted, true)]
+    [InlineData(true, ExecutionEventKinds.SequenceCompleted, true)]
+    public async Task Unified_production_sequence_admitted_store_fault_preserves_reopened_nonterminal_prefix(
+        bool sqlite, string faultedKind, bool commitBeforeFault)
+    {
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-dispatch-admission-store-fault");
+        using var runStore = new ReopenableRunStore(revision, "sequence input", sqlite);
+        var store = new FaultOnceRunStore(runStore.Store, faultedKind, commitBeforeFault);
+        var timeline = new ConcurrentQueue<(string Kind, string NodeId)>();
+        var attempted = new List<ExecutionEvent>();
+        var recordLock = new object();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            lock (recordLock)
+            {
+                attempted.Add(evt);
+                store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            }
+            if (evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is { } nodeId)
+                timeline.Enqueue(("started", nodeId));
+            return ValueTask.CompletedTask;
+        }
+
+        await Assert.ThrowsAnyAsync<Exception>(() => new WorkflowRunner(new RecordingBroker(),
+                new SequenceProofAgentExecutor())
+            .ExecuteWithProductionDispatchAdmissionProofAsync(runStore.RunId, revision, "sequence input",
+                ticket => timeline.Enqueue(("admitted", ticket.TargetNodeId)), Record)
+            .WaitAsync(TimeSpan.FromSeconds(5)));
+
+        AssertEveryStartedExecutorWasAdmitted(timeline);
+        var faulted = attempted[^1];
+        Assert.Equal(faultedKind, faulted.Kind);
+        Assert.Single(attempted, evt => evt.Kind == faultedKind);
+        Assert.DoesNotContain(attempted, evt => evt.NodeId is null && evt.Kind is
+            ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+            ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown);
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        var expectedPrefix = commitBeforeFault ? attempted : attempted[..^1];
+        Assert.Equal(expectedPrefix, reopened.Events);
+        Assert.Equal(Enumerable.Range(1, reopened.Events.Length).Select(value => (long)value),
+            reopened.Events.Select(evt => evt.Sequence));
+        Assert.Equal("running", reopened.Status);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        var expectedSequenceStatus = commitBeforeFault && faultedKind == ExecutionEventKinds.SequenceCompleted
+            ? "completed" : "running";
+        Assert.Equal(expectedSequenceStatus, playback!.Status);
+        Assert.DoesNotContain(playback.Outputs, output => output.State is "failed" or "cancelled");
+    }
+
+    private sealed class FaultOnceRunStore(IWorkflowRunStore inner, string eventKind, bool commitBeforeFault)
+        : IWorkflowRunStore
+    {
+        private bool faulted;
+
+        public RunSnapshot Create(WorkflowRevision revision, string input) => inner.Create(revision, input);
+        public RunSnapshot? Get(Guid runId) => inner.Get(runId);
+        public IReadOnlyList<RunSnapshot> List() => inner.List();
+
+        public RunSnapshot Append(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events)
+        {
+            var injectFault = !faulted && events.Any(evt => evt.Kind == eventKind);
+            if (injectFault && !commitBeforeFault)
+            {
+                faulted = true;
+                throw new IOException($"Injected rejected {eventKind} append before commit.");
+            }
+            var snapshot = inner.Append(runId, expectedSequence, events);
+            if (!injectFault) return snapshot;
+            faulted = true;
+            throw new IOException($"Injected committed {eventKind} append with lost acknowledgment.");
+        }
+    }
+
+    private sealed class ReopenableRunStore : IDisposable
+    {
+        private readonly string directory = Path.Combine(Path.GetTempPath(), $"vaw-sequence-admission-{Guid.NewGuid():N}");
+        private readonly bool sqlite;
+
+        public ReopenableRunStore(WorkflowRevision revision, string input, bool sqlite)
+        {
+            this.sqlite = sqlite;
+            Directory.CreateDirectory(directory);
+            Store = ReopenStore();
+            RunId = Store.Create(revision, input).Header.RunId;
+        }
+
+        public IWorkflowRunStore Store { get; }
+        public Guid RunId { get; }
+
+        public IWorkflowRunStore ReopenStore() => sqlite
+            ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
+            : new FileRunJournal(directory);
+
+        public void Dispose() => Directory.Delete(directory, recursive: true);
+    }
+
     private static void AssertEveryStartedExecutorWasAdmitted(
         ConcurrentQueue<(string Kind, string NodeId)> timeline)
     {
