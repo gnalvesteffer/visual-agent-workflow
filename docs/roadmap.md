@@ -658,8 +658,14 @@ ownership or persistence/playback for the combined path.
   it is now implemented with a distinct abandoned output state, a
   runner-owned opt-in timer (internal option), detached teardown, a post-terminal
   event gate, and an outcome-unknown root (Agent Framework suite 1249/1249, Core
-  748/748). A public host option, Break drain ordering, and reconcile-or-suppress
-  remain open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  748/748). A host option now exists in Hosting (`SequenceDrainOptions`, validated,
+  opt-in, Hosting-only), and reconciliation reports an abandoned output as
+  unresolved unknown work (Agent Framework 1267 tests, Core 748, Hosting 284/286;
+  the two failures are a pre-existing Blazor-to-Mcp layering violation). A public
+  `WorkflowRunner` option, child inheritance, Break drain ordering, and
+  reconcile-or-suppress remain open. A public For Each readiness review
+  (REVISE) requires the iteration owner and admission owner to be unified first;
+  see Decision 0070. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   Before the failure/cancellation additions, the focused selection including
   `SequenceProductionRunnerTests`, ordinary dispatch proofs, and adjacent
   runner/loop cases passed 124/124 on 2026-11-23. The latest targeted owner and

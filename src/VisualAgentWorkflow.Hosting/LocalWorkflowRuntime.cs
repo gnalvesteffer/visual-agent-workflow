@@ -20,6 +20,18 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
         IWorkflowAdmissionSnapshotProvider? admissionProvider = null)
         : this((IWorkflowRunStore)journal, logger, tools, agents, collaborationOptions, admissionProvider) { }
 
+    private readonly SequenceDrainOptions? sequenceDrainOptions;
+
+    /// <summary>Adds host-owned Sequence drain settings; the new parameter is required so existing calls never bind here.</summary>
+    public LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools,
+        IAgentNodeExecutor? agents, ParallelCollaborationRuntimeOptions? collaborationOptions,
+        IWorkflowAdmissionSnapshotProvider? admissionProvider, SequenceDrainOptions sequenceDrainOptions)
+        : this(journal, logger, tools, agents, collaborationOptions, admissionProvider)
+    {
+        ArgumentNullException.ThrowIfNull(sequenceDrainOptions);
+        this.sequenceDrainOptions = sequenceDrainOptions;
+    }
+
     private const int MaximumOwnedRuns = 32;
     private sealed record Request(Guid RunId, WorkflowRevision Revision, string Input,
         System.Collections.Immutable.ImmutableSortedDictionary<string, string>? Parameters, ControlledRun Control);
@@ -252,7 +264,8 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, request.Control.Cancellation.Token);
         try
         {
-            await new WorkflowRunner(tools, agents, collaborationOptions).ExecuteControlledWithParametersAsync(request.RunId, request.Revision, request.Input,
+            await new WorkflowRunner(tools, agents, collaborationOptions) { SequenceAbandonGrace = sequenceDrainOptions?.AbandonGrace }
+                .ExecuteControlledWithParametersAsync(request.RunId, request.Revision, request.Input,
                 request.Parameters, request.Control.RecordAsync, request.Control, linked.Token);
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested) { }

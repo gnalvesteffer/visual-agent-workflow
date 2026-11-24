@@ -71,6 +71,17 @@ public static class WorkflowWorkEvidence
                         else tool.Resolved = true;
                     }
                     break;
+                case ExecutionEventKinds.SequenceOutputAbandoned:
+                    // The abandoned executor may still be running or may already have produced external effects, so the
+                    // output is never settled. It reuses the existing node/outcome-unknown shape, correlated by its
+                    // activation, so older consumers need no new enum value.
+                    if (!SequenceEvidence.TryRead(evt, out var abandoned) || abandoned?.ActivationId is not { } activationId ||
+                        evt.NodeId is null || evt.InvocationId is null || !snapshot.Header.Definition.Nodes.ContainsKey(evt.NodeId))
+                        incomplete = true;
+                    else
+                        work.Add(new(UnresolvedWorkKind.Node, evt.NodeId, evt.InvocationId, activationId, evt.Sequence)
+                        { State = UnresolvedWorkState.OutcomeUnknown });
+                    break;
                 case ExecutionEventKinds.ApprovalRequested: Start(UnresolvedWorkKind.Approval, Correlation("requestId")); break;
                 case ExecutionEventKinds.ApprovalApproved or ExecutionEventKinds.ApprovalRejected or ExecutionEventKinds.ApprovalCancelled:
                     Finish(UnresolvedWorkKind.Approval, Correlation("requestId")); break;

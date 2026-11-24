@@ -32,6 +32,7 @@ public static class WorkflowHostingExtensions
         services.AddSingleton(new Registration(directory));
         services.AddLogging();
         services.TryAddSingleton<ParallelCollaborationRuntimeOptions>();
+        services.TryAddSingleton(_ => new SequenceDrainOptions());
         services.TryAddSingleton(_ => new FileRunJournal(directory));
         services.TryAddSingleton<IWorkflowRunStore>(provider => provider.GetRequiredService<FileRunJournal>());
         services.TryAddSingleton(provider => new LocalWorkflowRuntime(
@@ -39,7 +40,8 @@ public static class WorkflowHostingExtensions
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LocalWorkflowRuntime>>(),
             provider.GetService<INodeToolBroker>(), provider.GetService<IAgentNodeExecutor>(),
             provider.GetRequiredService<ParallelCollaborationRuntimeOptions>(),
-            provider.GetService<IWorkflowAdmissionSnapshotProvider>()));
+            provider.GetService<IWorkflowAdmissionSnapshotProvider>(),
+            provider.GetRequiredService<SequenceDrainOptions>()));
         services.TryAddSingleton<IWorkflowClient>(provider => provider.GetRequiredService<LocalWorkflowRuntime>());
         services.TryAddSingleton<IWorkflowRunControl>(provider => provider.GetRequiredService<LocalWorkflowRuntime>());
         services.TryAddSingleton<IWorkflowDebugControl>(provider => provider.GetRequiredService<LocalWorkflowRuntime>());

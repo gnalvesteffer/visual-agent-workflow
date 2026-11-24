@@ -29,6 +29,26 @@ The optional [OpenAI provider library](model-providers.md) can supply host-owned
 
 There is no automatic authoring catalog, SQLite database, published client, UI component, endpoint, credential lookup or live model registration. Studio explicitly adds its catalog and replaces client aliases with its publication-aware client; the service sample uses the runtime directly. Hosts must await start before accepting work, explicitly stop on shutdown, and give one runtime exclusive ownership of its run store. Pause/cancel semantics and admission bounds remain those in [run control](run-control.md).
 
+## Optional Sequence drain bound
+
+A production Sequence waits for every in-flight output after a failure or cancellation, so a hung executor that ignores its cancellation token holds the Sequence and the run open indefinitely. `SequenceDrainOptions(TimeSpan? abandonGrace)` lets the **host** bound that wait. Register an instance before `AddLocalWorkflowRuntime` (the runtime registers an unbounded default with `TryAddSingleton`), or pass it to the `LocalWorkflowRuntime` constructor overload that takes it as a required last parameter. Existing constructors and registrations are unchanged and behave as before.
+
+```csharp
+builder.Services.AddSingleton(new SequenceDrainOptions(TimeSpan.FromSeconds(30)));
+builder.Services.AddLocalWorkflowRuntime(".local/my-service-runs");
+```
+
+The grace must be positive, finite, and at most 24 hours; `null` (the default) waits indefinitely, and invalid values throw at construction. It is one host-wide value: workflow authors and run input cannot set or override it, so it applies to every workflow the host runs, including ones with side-effecting tools. Choose it deliberately; a finite value does not know whether a slow tool call is healthy.
+
+When the grace elapses after a failure or cancellation, each output that never reported is recorded `abandoned`, the Sequence ends failed, and the run ends `run.outcome-unknown`, even if the host also cancelled it. This changes what run control reports for a cancelled run in that case. Be aware that an abandoned executor is **not stopped**:
+
+- it keeps running in-process and its external effects may still land;
+- its admission slot stays open, and quiescence is not asserted on this path;
+- events it writes after the run terminal are dropped;
+- reconciliation reports the abandoned output as unresolved work in the unknown-outcome state and never as resumable, so do not retry such a run on the assumption that nothing happened.
+
+Limits: a child workflow's own Sequence does not inherit the bound, and `CheckpointWorkflowHost` and the standalone service sample build their own runners and ignore it. `WorkflowRunner` itself exposes no public option yet. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Consumption and distribution contract
 
 Today, consume reviewed source using project references at a pinned repository commit and the committed SDK/package lockfiles. The sample is included in solution restore/build and CI verification. No Visual Agent Workflow package is published or declared stable by this milestone; do not assume the project assembly names identify available NuGet releases.

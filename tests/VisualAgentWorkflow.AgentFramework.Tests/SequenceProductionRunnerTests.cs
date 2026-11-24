@@ -1938,6 +1938,156 @@ public sealed class SequenceProductionRunnerTests
         Assert.Equal(recorded.Length, events.Count);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Reconciliation_of_an_abandoned_run_is_unresolved_and_not_resumable_with_the_abandon_as_unknown_work(
+        bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-abandon-reconciliation");
+        using var runStore = new ReopenableRunStore(revision, "sequence input", sqlite);
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var broker = new SequencePathBroker((_, _) => release.Task);
+        var agent = new SiblingRaceAgentExecutor(broker.Started.Task, failOnRelease: true);
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(broker, agent) { SequenceAbandonGrace = TimeSpan.FromMilliseconds(300) }
+            .ExecuteWithProductionDispatchAdmissionProofAsync(runStore.RunId, revision, "sequence input", _ => { }, Record);
+        await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        agent.ReleaseFailure();
+        Assert.True((await execution.WaitAsync(TimeSpan.FromSeconds(10))).OutcomeUnknown);
+
+        var reconciliation = WorkflowRunReconciliation.Assess(runStore.ReopenStore().Get(runStore.RunId)!, null);
+
+        Assert.Equal(RunRecoveryDisposition.UnresolvedWork, reconciliation.Disposition);
+        Assert.False(reconciliation.CanResume);
+        Assert.Contains(reconciliation.UnresolvedWork, work => work.Kind == UnresolvedWorkKind.Node &&
+            work.NodeId == "architecture-tool" && work.State == UnresolvedWorkState.AwaitingOutcome);
+        Assert.Contains(reconciliation.UnresolvedWork, work => work.State == UnresolvedWorkState.OutcomeUnknown);
+        release.TrySetResult("{}");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Reconciliation_marks_an_output_abandoned_before_any_node_event_as_unknown_work_not_a_plain_terminal_run(
+        bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-abandon-no-node-events");
+        using var runStore = new ReopenableRunStore(revision, "sequence input", sqlite);
+        var runId = runStore.RunId;
+        var sequenceInvocation = Guid.NewGuid();
+        var activation = Guid.NewGuid();
+        ExecutionEvent Event(long sequence, string kind, string? nodeId = null, Guid? invocation = null,
+            string? connection = null, string? data = null) =>
+            new(runId, revision.RevisionId, sequence, DateTimeOffset.UtcNow, kind, nodeId, invocation, connection, data);
+        string Evidence(string? outputId, int? ordinal, Guid? activationId, string? connectionId) =>
+            SequenceEvidence.Serialize(new SequenceLifecycleEvidence(sequenceInvocation, "sequence", outputId, ordinal,
+                activationId, connectionId));
+        ExecutionEvent[] history =
+        [
+            Event(1, ExecutionEventKinds.Started),
+            Event(2, ExecutionEventKinds.SequenceStarted, "sequence", sequenceInvocation, null,
+                Evidence(null, null, null, null)),
+            Event(3, ExecutionEventKinds.SequenceOutputDispatched, "sequence", sequenceInvocation, "sequence-inventory",
+                Evidence("inventory", 0, activation, "sequence-inventory")),
+            Event(4, ExecutionEventKinds.SequenceOutputAbandoned, "sequence", sequenceInvocation, "sequence-inventory",
+                Evidence("inventory", 0, activation, "sequence-inventory")),
+            Event(5, ExecutionEventKinds.SequenceFailed, "sequence", sequenceInvocation, null,
+                Evidence(null, null, null, null)),
+            Event(6, ExecutionEventKinds.OutcomeUnknown, data: "abandoned")
+        ];
+        runStore.Store.Append(runId, 0, history);
+
+        var reconciliation = WorkflowRunReconciliation.Assess(runStore.ReopenStore().Get(runId)!, null);
+
+        Assert.Equal(RunRecoveryDisposition.UnresolvedWork, reconciliation.Disposition);
+        Assert.False(reconciliation.CanResume);
+        Assert.False(reconciliation.HasIncompleteCorrelation);
+        var unknown = Assert.Single(reconciliation.UnresolvedWork);
+        Assert.Equal(UnresolvedWorkState.OutcomeUnknown, unknown.State);
+        Assert.Equal("sequence", unknown.NodeId);
+        Assert.Equal(activation, unknown.CallId);
+    }
+
+    [Fact]
+    public async Task Local_runtime_applies_the_host_drain_option_and_unbounded_remains_the_default()
+    {
+        var definition = SequenceAgentPathDefinition() with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
+        var directory = Path.Combine(Path.GetTempPath(), $"vaw-drain-runtime-{Guid.NewGuid():N}");
+        try
+        {
+            async Task<(RunSnapshot Snapshot, TaskCompletionSource<string> Release)> RunHungSiblingAsync(
+                Func<FileRunJournal, SequencePathBroker, SiblingRaceAgentExecutor, LocalWorkflowRuntime> build,
+                TimeSpan waitForTerminal, string journalName)
+            {
+                var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var broker = new SequencePathBroker((_, _) => release.Task);
+                var agent = new SiblingRaceAgentExecutor(broker.Started.Task, failOnRelease: true);
+                using var runtime = build(new FileRunJournal(Path.Combine(directory, journalName)), broker, agent);
+                await runtime.StartAsync(CancellationToken.None);
+                try
+                {
+                    var run = await runtime.StartRunAsync(definition, "sequence input");
+                    await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    agent.ReleaseFailure();
+                    using var timeout = new CancellationTokenSource(waitForTerminal);
+                    RunSnapshot snapshot;
+                    try
+                    {
+                        do
+                        {
+                            await Task.Delay(20, timeout.Token);
+                            snapshot = (await runtime.GetRunAsync(run.Header.RunId))!;
+                        } while (!snapshot.IsTerminal);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        snapshot = (await runtime.GetRunAsync(run.Header.RunId))!;
+                    }
+                    return (snapshot, release);
+                }
+                finally
+                {
+                    release.TrySetResult("{}");
+                    await runtime.StopAsync(CancellationToken.None);
+                }
+            }
+
+            var (bounded, _) = await RunHungSiblingAsync((journal, broker, agent) =>
+                new LocalWorkflowRuntime(journal, Microsoft.Extensions.Logging.Abstractions.NullLogger<LocalWorkflowRuntime>.Instance,
+                    broker, agent, null, null, new SequenceDrainOptions(TimeSpan.FromMilliseconds(300))),
+                TimeSpan.FromSeconds(10), "bounded");
+            var (unbounded, _) = await RunHungSiblingAsync((journal, broker, agent) =>
+                new LocalWorkflowRuntime(journal, Microsoft.Extensions.Logging.Abstractions.NullLogger<LocalWorkflowRuntime>.Instance,
+                    broker, agent),
+                TimeSpan.FromSeconds(1.5), "unbounded");
+
+            Assert.True(bounded.IsTerminal);
+            Assert.Equal(ExecutionEventKinds.OutcomeUnknown, bounded.Events[^1].Kind);
+            Assert.Contains(bounded.Events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputAbandoned);
+            // With no option the hung sibling still holds the run open, exactly as before.
+            Assert.False(unbounded.IsTerminal);
+            Assert.DoesNotContain(unbounded.Events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputAbandoned);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private sealed record AdmittedRun(WorkflowExecutionResult Result, ExecutionEvent[] Events,
         (string Kind, string NodeId)[] Timeline);
 

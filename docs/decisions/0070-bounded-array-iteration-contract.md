@@ -5958,3 +5958,108 @@ Core passes 748/748.
 - A hung executor with no grace configured still blocks the Sequence terminal and
   the root, as before. Break drain ordering and reconcile-or-suppress for recorder
   faults remain open.
+
+### Public For Each readiness review (2026-11-24)
+
+With the settlement groundwork in place, three distinct agents reviewed whether the
+architecture gate could now be passed and a public typed `For Each` built. The
+proponent argued for one narrow first slice (an ordinary-body For Each without
+Break); the opponent argued the gate was still open; the adjudicator read the code.
+Verdict: **REVISE: do not build the public node yet.** The opponent's sequencing
+was adopted, with the proponent's narrow slice kept as the eventual first slice.
+
+**Confirmed by the adjudicator (file references as of this date):**
+
+- The gate's core claim, one VAW-owned owner that settles work, evidence and
+  budgets, is **not met in code**. The admission owner is null on every iteration
+  proof path: `usesProductionRootDispatcher` is false whenever an activation frame,
+  root-coordinator proof, feedback proof or proof Break IDs are passed
+  (`WorkflowRunner.cs` ~364-369), and the proof entry points pass those.
+- `StructuredActivationFrameOwner` (~929) holds only the loop budgets, the
+  evidence budget and the plan; it has no reference to
+  `WorkflowDispatchAdmissionOwner`. Admitting an item reserves no ticket and a
+  ticket settling closes no frame. Child owners are per-run.
+- Budgets: `WorkflowLoopPassBudget` and `WorkflowLoopExecutionBudget` are atomic
+  but count only loop passes and loop-scoped evidence; `StructuredActivationBudgetLedger`
+  is proof-only and was not confirmed atomic. Nothing counts item activations,
+  tickets or array evidence atomically across the ordinary and Sequence paths.
+- Core has no For Each node type (only the proof type `vaw.proof.array-break`), so
+  no production path runs a typed array iteration.
+- A node type missing from the contract catalog already fails validation with
+  `node.unsupported`, so an older reader fails closed on a saved workflow that
+  contains a new node.
+- Checkpoint exclusion exists for loops (`AllowLoopCheckpointRecovery` false); it
+  is not confirmed to cover a new node type automatically.
+
+**Order of work adopted:** (1) make the frame owner hold the admission owner so an
+item admission takes a ticket and its frame closes only when its slots settle, on
+the real ordinary builder with no proof flags; (2) one atomic run-level reservation
+object for item activations, passes and evidence, inherited by child runs and
+Sequence; (3) gate item N+1 on `Outstanding()` being empty and the abandonable-stop
+signal not having fired, and assert quiescence on failure and cancellation too;
+(4) settle Break against the drain; (5) Core contract, descriptor and validator for
+For Each, with a package round trip and an older-reader fixture; (6) explicit
+checkpoint exclusion, then the runner node with additive events and playback;
+(7) Studio authoring and a final architecture review. The first public slice is the
+proponent's ordinary-body For Each without Break.
+
+**Work packages with disjoint file sets:** runner owner and budget
+(`WorkflowRunner.cs`, `WorkflowDispatchAdmissionOwner.cs`,
+`WorkflowLoopExecutionBudget.cs`, a new budget file, `StructuredProof.cs`);
+Core contract and validator; checkpoint exclusion and older-reader fixtures;
+Studio last. Parallel code work could not be isolated in this environment (no
+git worktree: the harness cannot read the repository's git configuration from this
+container, and repository guidance says not to create worktrees), so code packages
+that edit one project run one at a time.
+
+**Unverified:** whether a child run can receive the parent's admission owner while
+keeping its tickets distinct, whether the checkpoint host rejects an unknown
+loop-like node by itself, and how reconciliation treats an abandoned output (now
+covered separately).
+
+### Host drain option, reconciliation and the Hosting-only surface (2026-11-24)
+
+Three distinct agents reviewed exposing the bounded-abandon grace as a public host
+option. Verdict: **REVISE; Hosting-only first.** The adjudicator confirmed that
+reconciliation (`WorkflowWorkEvidence`) tracked only node, model, tool and approval
+events, so an output abandoned before any node event left no unresolved work and a
+run read as a plain `Terminal`; that adding an optional parameter to the primary
+`WorkflowRunner` constructor is a binary break while a new overload with a required
+last parameter is not; and that child inheritance needs a single-timer rule before it
+is safe. Decisions made on delegated judgment:
+
+- `SequenceDrainOptions(TimeSpan? abandonGrace)` is a public immutable record in
+  Hosting, validated at construction (null unbounded; zero, negative, infinite or
+  over 24 hours rejected). `WorkflowRunner.SequenceAbandonGrace` stays internal and
+  its public constructor is unchanged; Agent Framework exposes internals to Hosting.
+- `LocalWorkflowRuntime` gains a constructor overload that takes the options as a
+  required last parameter; `AddLocalWorkflowRuntime` registers an unbounded default
+  and honors a host-registered instance. Existing constructors and registrations
+  are unchanged (checked by reflection tests).
+- The bound is not recorded in event evidence: `abandoned` already means a grace
+  elapsed, and a new field would burden playback and older readers.
+- Child workflows do not inherit the bound. The checkpoint host and the service
+  sample ignore it. This is documented in [the hosting SDK guide](../hosting-sdk.md).
+
+**Reconciliation fix.** An abandoned output now becomes an unresolved item in the
+existing unknown-outcome state (kind node, correlated by its activation id), so a
+run with an abandoned output is `UnresolvedWork`, not resumable, and never a plain
+terminal run. No new enum value was added, so older consumers are unaffected. Two
+new tests prove it against a real runner history and a minimal synthetic one
+(File and SQLite). The synthetic case failed first.
+
+**Evidence.** Option validation, constructor compatibility, DI default, and an
+end-to-end hosted test: a runtime with a 300 ms bound ends a hung-sibling run
+`outcome-unknown` with an abandoned output, while one without the option stays open.
+Agent Framework passes 1267 tests, Core 748. Hosting passes 284 of 286: the two
+failing tests are `ArchitectureBoundaryTests`, caused by commit `3ece1be0`, which
+made the embeddable Blazor project reference the Mcp project (its editor calls
+`McpToolInputSchemas.CreateNestedInputPorts`); that predates this work and is not
+fixed here. One Hosting persistence test that pinned the old cascade (a second
+output `cancelled`) was updated, the same correction as the Agent Framework test;
+it was missed when the drain landed because only the Agent Framework and Core suites
+were run for that commit.
+
+**Still open:** quiescence and slot disposition for abandoned executors, a single
+timer rule before child inheritance, wiring the checkpoint host, a public
+`WorkflowRunner` option, and a test that a child does not inherit the bound.

@@ -124,7 +124,9 @@ public sealed class SequencePathEvidencePersistenceTests : IDisposable
         Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
         Assert.Equal("failed", playback!.Status);
         Assert.Contains(playback.Outputs, output => output.State == "failed");
-        Assert.Contains(playback.Outputs, output => output.State == "cancelled");
+        // Each output settles with its own executor's outcome (drained Sequence, Decision 0070), so the second tool
+        // ends failed or cancelled depending on whether the first failure's cancellation reached it first.
+        Assert.All(playback.Outputs, output => Assert.Contains(output.State, new[] { "failed", "cancelled" }));
         Assert.InRange(broker.InvocationCount, 1, 2);
     }
 
