@@ -383,6 +383,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         if (linkedCancellation is not null) cancellationToken = linkedCancellation.Token;
         if (arrayIterationFeedbackProof is not null && sequencePlan is not null)
             throw new InvalidOperationException("The private feedback proof requires the ordinary graph builder.");
+        Func<ValueTask>? abandonUnsettledSequenceOutputs = null;
         var workflow = rootCoordinatorProof is not null ? null : sequencePlan is null
             ? BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 collaborationRuntime, variableStore, afterNodeStarted: afterNodeStarted,
@@ -391,7 +392,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 dispatchAdmissionOwner: dispatchAdmissionOwner)
             : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, input, resolvedParameters, Emit,
                 activationFrameOwner.MarkRootEventRecorderUncertain, gate, rootRevision, workflowPath,
-                callScopeCancellation, afterNodeStarted, sequenceDispatchSession, dispatchAdmissionOwner);
+                callScopeCancellation, afterNodeStarted, sequenceDispatchSession, dispatchAdmissionOwner,
+                abandon => abandonUnsettledSequenceOutputs = abandon);
 
         if (emitRunLifecycle) await Emit(ExecutionEventKinds.Started);
         try
@@ -498,6 +500,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (emitRunLifecycle) await Emit(ExecutionEventKinds.Cancelled);
                 return new(null, false, Cancelled: true, HasOutput: false);
             }
+            // The framework has stopped, so no live executor can still settle; close any output that never reported.
+            if (abandonUnsettledSequenceOutputs is not null) await abandonUnsettledSequenceOutputs();
             if (collaborationRuntime?.IsTimedOut == true && !callerCancellationToken.IsCancellationRequested)
             {
                 if (collaborationRuntime is not null) await collaborationRuntime.AbortAsync("The collaboration region timed out.");
@@ -511,6 +515,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         catch (Exception exception)
         {
             if (activationFrameOwner.HasUncertainRootEventRecorder) throw;
+            // The framework has stopped, so no live executor can still settle; close any output that never reported.
+            if (abandonUnsettledSequenceOutputs is not null) await abandonUnsettledSequenceOutputs();
             if (allowOutcomeUnknown && IsOutcomeUnknownException(exception))
             {
                 if (emitRunLifecycle)

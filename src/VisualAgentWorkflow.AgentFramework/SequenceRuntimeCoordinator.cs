@@ -29,6 +29,13 @@ internal sealed class SequenceRuntimeCoordinator
     private int activeEventDeliveryOffset;
     private bool eventDeliveryUncertain;
 
+    /// <summary>
+    /// When set, a failed or cancelled output does not cascade-cancel dispatched siblings. They stay open until
+    /// their own executors report settlement (or <see cref="AbandonUnsettled"/> runs once the run has stopped),
+    /// so an output is never recorded cancelled while its executor can still complete (Decision 0070).
+    /// </summary>
+    public bool DrainInFlightOutputs { get; init; }
+
     public SequenceRuntimeCoordinator(Guid sequenceInvocationId, string sequenceNodeId,
         IReadOnlyList<string> outputIds, IReadOnlyDictionary<string, string> connectionIds,
         bool allowSingleOutput = false,
@@ -227,15 +234,16 @@ internal sealed class SequenceRuntimeCoordinator
             Add(new(terminalKind, sequenceNodeId, sequenceInvocationId, snapshot.OutputId,
                 snapshot.Ordinal, activationId, connectionIds[snapshot.OutputId]));
 
-            var settled = terminalState == SequenceTerminalState.Completed ? [] : CancelProjectedPending();
-            foreach (var cancelled in settled.Where(item => item.State == SequenceActivationState.Cancelled))
-                if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled && evt.OutputId == cancelled.OutputId))
-                    Add(new(ExecutionEventKinds.SequenceOutputCancelled, sequenceNodeId, sequenceInvocationId, cancelled.OutputId,
-                        cancelled.Ordinal, cancelled.ActivationId, connectionIds[cancelled.OutputId]));
-            foreach (var skipped in settled.Where(item => item.State == SequenceActivationState.Skipped))
-                if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.OutputId == skipped.OutputId))
-                    Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId, skipped.OutputId,
-                        skipped.Ordinal, null, connectionIds[skipped.OutputId]));
+            var settled = terminalState == SequenceTerminalState.Completed ? []
+                : DrainInFlightOutputs ? ProjectSettledPending() : CancelProjectedPending();
+            // A drained call cancels nothing, and its own output was already recorded above; re-scanning the
+            // snapshot would re-emit cancellations that earlier calls already delivered.
+            if (!DrainInFlightOutputs)
+                foreach (var cancelled in settled.Where(item => item.State == SequenceActivationState.Cancelled))
+                    if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled && evt.OutputId == cancelled.OutputId))
+                        Add(new(ExecutionEventKinds.SequenceOutputCancelled, sequenceNodeId, sequenceInvocationId, cancelled.OutputId,
+                            cancelled.Ordinal, cancelled.ActivationId, connectionIds[cancelled.OutputId]));
+            RecordSkippedOutputs(settled);
 
             RecordTerminalIfComplete();
             return snapshot;
@@ -316,17 +324,58 @@ internal sealed class SequenceRuntimeCoordinator
         {
             admissionStopped = true;
             if (ledger.IsTerminal) return;
-            var cancelled = CancelProjectedPending();
-            terminalState ??= SequenceTerminalState.Cancelled;
-            foreach (var active in cancelled.Where(item => item.State == SequenceActivationState.Cancelled))
-                Add(new(ExecutionEventKinds.SequenceOutputCancelled, sequenceNodeId, sequenceInvocationId, active.OutputId,
-                    active.Ordinal, active.ActivationId, connectionIds[active.OutputId]));
-            foreach (var skipped in cancelled.Where(item => item.State == SequenceActivationState.Skipped))
-                if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.OutputId == skipped.OutputId))
-                    Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId, skipped.OutputId,
-                        skipped.Ordinal, null, connectionIds[skipped.OutputId]));
-            RecordTerminalIfComplete();
+            if (DrainInFlightOutputs)
+            {
+                // Dispatched outputs stay open until their executors report; only outputs that never
+                // started are skipped now.
+                ProjectSettledPending();
+                terminalState ??= SequenceTerminalState.Cancelled;
+                RecordSkippedOutputs(ledger.SkipPending());
+                RecordTerminalIfComplete();
+                return;
+            }
+            CancelEveryPendingUnderLock();
         }
+    }
+
+    /// <summary>
+    /// Settles outputs whose executors never reported (a hung or lost executor) as cancelled. Called by the
+    /// root only after the run has stopped, so it cannot race a live executor's own settlement.
+    /// </summary>
+    public void AbandonUnsettled()
+    {
+        lock (gate)
+        {
+            admissionStopped = true;
+            if (ledger.IsTerminal) return;
+            CancelEveryPendingUnderLock();
+        }
+    }
+
+    private void CancelEveryPendingUnderLock()
+    {
+        var cancelled = CancelProjectedPending();
+        terminalState ??= SequenceTerminalState.Cancelled;
+        // Outputs a drained call already recorded as cancelled were settled by their own executors; only the
+        // outputs this cascade newly cancels are recorded here.
+        foreach (var active in cancelled.Where(item => item.State == SequenceActivationState.Cancelled &&
+                     !cancelledOutputsRecorded.Contains(item.OutputId)))
+            Add(new(ExecutionEventKinds.SequenceOutputCancelled, sequenceNodeId, sequenceInvocationId, active.OutputId,
+                active.Ordinal, active.ActivationId, connectionIds[active.OutputId]));
+        RecordSkippedOutputs(cancelled);
+        RecordTerminalIfComplete();
+    }
+
+    private readonly HashSet<string> skippedOutputsRecorded = new(StringComparer.Ordinal);
+    private readonly HashSet<string> cancelledOutputsRecorded = new(StringComparer.Ordinal);
+
+    /// <summary>Records each skipped output once; the set survives event delivery, unlike the pending event list.</summary>
+    private void RecordSkippedOutputs(IReadOnlyList<SequenceActivationSnapshot> snapshots)
+    {
+        foreach (var skipped in snapshots.Where(item => item.State == SequenceActivationState.Skipped))
+            if (!skippedOutputsRecorded.Contains(skipped.OutputId))
+                Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId, skipped.OutputId,
+                    skipped.Ordinal, null, connectionIds[skipped.OutputId]));
     }
 
     private void RecordTerminalIfComplete()
@@ -346,6 +395,11 @@ internal sealed class SequenceRuntimeCoordinator
 
     private void Add(SequenceRuntimeEvent runtimeEvent)
     {
+        // Every skip and cancellation is registered here, whichever path emits it, so later scans never repeat one.
+        if (runtimeEvent.Kind == ExecutionEventKinds.SequenceOutputSkipped && runtimeEvent.OutputId is { } skippedOutputId)
+            lock (gate) skippedOutputsRecorded.Add(skippedOutputId);
+        if (runtimeEvent.Kind == ExecutionEventKinds.SequenceOutputCancelled && runtimeEvent.OutputId is { } cancelledOutputId)
+            lock (gate) cancelledOutputsRecorded.Add(cancelledOutputId);
         lock (gate) events.Add(runtimeEvent.ScopeId is null && scopeId is not null
             ? runtimeEvent with { ScopeId = scopeId }
             : runtimeEvent);
@@ -358,6 +412,13 @@ internal sealed class SequenceRuntimeCoordinator
     /// sequence-level journal agrees with the per-call evidence regardless of collector order.
     /// </summary>
     private IReadOnlyList<SequenceActivationSnapshot> CancelProjectedPending()
+    {
+        ProjectSettledPending();
+        return ledger.CancelAll();
+    }
+
+    /// <summary>Records the settled outcome of dispatched outputs whose call already settled; cancels nothing.</summary>
+    private IReadOnlyList<SequenceActivationSnapshot> ProjectSettledPending()
     {
         foreach (var pending in ledger.Snapshot
             .Where(item => item.State == SequenceActivationState.Dispatched && item.ActivationId is not null)
@@ -372,7 +433,7 @@ internal sealed class SequenceRuntimeCoordinator
                 _ => ExecutionEventKinds.SequenceOutputCompleted
             }, sequenceNodeId, sequenceInvocationId, snapshot.OutputId, snapshot.Ordinal, pending.ActivationId, connectionIds[snapshot.OutputId]));
         }
-        return ledger.CancelAll();
+        return ledger.Snapshot;
     }
 
     private SequenceTerminalState? ProjectSettlement(string outputId)

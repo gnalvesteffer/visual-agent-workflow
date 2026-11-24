@@ -382,7 +382,8 @@ public sealed partial class WorkflowRunner
         Func<string, CancellationTokenSource?>? callScopeCancellation = null,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
         SequenceProductionDispatchSession? sequenceDispatchSession = null,
-        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null)
+        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null,
+        Action<Func<ValueTask>>? registerAbandonUnsettledOutputs = null)
     {
         var sequenceInvocationId = Guid.NewGuid();
         var connectionIds = plan.Outputs.ToDictionary(output => output.OutputId, output => output.ConnectionId,
@@ -436,7 +437,7 @@ public sealed partial class WorkflowRunner
                     path.ChildRevisionId, path.ChildContentHash)), StringComparer.Ordinal);
         var coordinator = sequenceDispatchSession?.Coordinator ?? new SequenceRuntimeCoordinator(sequenceInvocationId, plan.SequenceNodeId,
             plan.Outputs.Select(output => output.OutputId).ToArray(), connectionIds, plan.AllowSingleOutput,
-            callSettlements, sequenceDispatchSession?.ActivationFrame.ScopeId);
+            callSettlements, sequenceDispatchSession?.ActivationFrame.ScopeId) { DrainInFlightOutputs = true };
         var sequenceEventGate = new SemaphoreSlim(1, 1);
 
         async ValueTask FlushSequenceEvents()
@@ -470,6 +471,12 @@ public sealed partial class WorkflowRunner
                 sequenceEventGate.Release();
             }
         }
+
+        registerAbandonUnsettledOutputs?.Invoke(async () =>
+        {
+            coordinator.AbandonUnsettled();
+            await FlushSequenceEvents();
+        });
 
         var dataEvaluator = new ExplicitGraphDataEvaluator(revision.Definition, input, parameters);
         var branchNodeIds = revision.Definition.ExecutionConnections is null

@@ -650,8 +650,11 @@ ownership or persistence/playback for the combined path.
   the full Agent Framework suite now passes 1221/1221. A shared builder/resolver edge table with parity tests is now in place
   (full Agent Framework suite 1233/1233). Pinned child runs keep their own
   run-local owner, now visible to the seam through a shared observer and an
-  outstanding-slot probe, with failed-run and held-child proofs. Drain-before-
-  terminal, abandon-on-timeout, and reconcile-or-suppress remain open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  outstanding-slot probe, with failed-run and held-child proofs. Production
+  Sequence runs now drain in-flight outputs before recording an output cancel or
+  the Sequence terminal (full Agent Framework suite 1239/1239); a bounded
+  abandon with an outcome-unknown representation, Break drain ordering, and
+  reconcile-or-suppress remain open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   Before the failure/cancellation additions, the focused selection including
   `SequenceProductionRunnerTests`, ordinary dispatch proofs, and adjacent
   runner/loop cases passed 124/124 on 2026-11-23. The latest targeted owner and

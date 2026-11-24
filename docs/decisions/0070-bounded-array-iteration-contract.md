@@ -5763,3 +5763,65 @@ a single owner counting parent and child work together is not provided.
 Child workflows on legacy or non-production schemas are not ticketed (the
 owner is created only for the production root dispatcher). Drain-before-terminal,
 abandon-on-timeout, and reconcile-or-suppress remain open.
+
+### Drain before Sequence output settlement (2026-11-24)
+
+**Change.** Production Sequence runs now use a coordinator drain mode
+(`DrainInFlightOutputs`). Before, when one output failed or the host cancelled,
+the coordinator cascade-cancelled every still-dispatched sibling and recorded the
+Sequence terminal at once, while a sibling's executor could still complete. Now a
+failure or cancel records only the failing output, skips outputs that never
+started, and projects call outputs whose call already settled. Dispatched
+siblings stay open until their own executors report settlement, and the Sequence
+terminal is recorded only when every output is settled. Proof harnesses keep the
+old cascade; only the production builder turns drain on.
+
+**Abandon.** `AbandonUnsettled()` cascade-cancels any output that never
+reported. The root calls it from its failure and cancellation handlers (including
+before an outcome-unknown terminal), after the framework has stopped, so a
+Sequence terminal is never lost if an executor dies without reporting.
+
+**Observed consequences, now deliberate:**
+
+- An output is no longer recorded `cancelled` while its executor can still
+  complete. The WorkflowCall proof that documented this "two-level divergence"
+  now asserts the sibling's output records `completed`, with the Sequence
+  terminal after both the output and the call.
+- Each output settles with its own executor's outcome. When two tools both
+  throw, the second ends `failed` or `cancelled` depending on whether the first
+  failure's cancellation reached it first, so that test accepts either.
+- The relative recorded order is unchanged (output settlement, then Sequence
+  terminal, then the held node's own `NodeCancelled`, then the root terminal).
+  Executors report their Sequence settlement just before emitting
+  `NodeCancelled`, so the Sequence terminal can still precede that one node
+  event; the drain guarantees the executor has observed cancellation and reached
+  its settlement handler, not that its node event has been written. Playback
+  reads only Sequence lifecycle events, so old histories should reconstruct
+  identically; no stored old fixture was replayed.
+
+**A bug found on the way.** Delivered events leave the coordinator's pending
+list, so the old duplicate guards (`events.Any`) stopped working once settlement
+happened across several calls. Skips and cancellations are now registered in a
+durable set at `Add` time, so a later cascade or abandon never re-emits an
+output already settled. Before that fix, a host cancel raised an internal
+"output settlement does not match accepted active work" error instead of
+cancelling. The ledger's rejection message now names the event kind and output.
+
+**Evidence (unit tests):** six coordinator tests (failure leaves a dispatched
+sibling open; a late completing sibling records its real outcome; never-started
+outputs skip immediately; abandon settles only unreported outputs once and
+repeats nothing; host cancel waits for dispatched outputs; the non-drain
+cascade is unchanged); five fail when the drain is turned off. The four
+sibling-race tests now assert the held sibling's output and the Sequence
+terminal are absent until it settles. The Sequence, admission, collaboration,
+and Fork/Join selection passes 380/380 over five runs and the full Agent
+Framework suite passes 1239/1239.
+
+**Still open:** no bounded cancel grace and no explicit abandoned or
+outcome-unknown representation: a hung executor still blocks the Sequence
+terminal and the root, as the root already waited, and abandon runs only after
+the run stops. Break drain ordering (siblings drained before
+`SequenceBreakCompleted`) is untouched. Reconcile-or-suppress for recorder
+faults and the unreadable-store policy remain open. Reordering executors to emit
+`NodeCancelled` before reporting their Sequence settlement was considered and
+left out to keep recorded event order stable.

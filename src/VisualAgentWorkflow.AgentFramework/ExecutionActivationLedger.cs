@@ -65,7 +65,12 @@ internal sealed class ExecutionActivationLedger
                 case ExecutionEventKinds.SequenceOutputFailed:
                 case ExecutionEventKinds.SequenceOutputCancelled:
                     if (!activeSequenceOutputs.TryGetValue(key, out var activeWork) || activeWork != work)
-                        throw new InvalidOperationException("Sequence output settlement does not match accepted active work.");
+                        throw new InvalidOperationException(
+                            "Sequence output settlement does not match accepted active work. " +
+                            $"Settling {executionEvent.Kind} for output '{work.OutputId}' activation {work.ActivationId}; " +
+                            (activeSequenceOutputs.ContainsKey(key)
+                                ? "the active work for that activation differs in identity."
+                                : "that activation has no accepted active work (already settled or never dispatched)."));
                     break;
             }
         }

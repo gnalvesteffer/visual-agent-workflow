@@ -636,12 +636,18 @@ public sealed class SequenceProductionRunnerTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed && evt.ScopeId == "call");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
             ReadEvidence(evt).OutputId == "call");
-        // The sibling was still running when the barrier settled: it is cascade-cancelled at the sequence level...
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
+        // The sibling was still running when the call failed. Drained settlement (Decision 0070) leaves its output
+        // open until its call settles, so the output records what the call actually did: it is not cascade-cancelled
+        // while its child later completes (the former two-level divergence).
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
             ReadEvidence(evt).OutputId == "sibling");
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
-        // ...while its child completes at the call level once the gate releases (the documented two-level divergence).
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.ScopeId == "sibling");
+        var siblingOutput = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+            ReadEvidence(evt).OutputId == "sibling");
+        var siblingCall = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted &&
+            evt.ScopeId == "sibling");
+        var sequenceFailed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.True(siblingOutput.Sequence < sequenceFailed.Sequence);
+        Assert.True(siblingCall.Sequence < sequenceFailed.Sequence);
     }
 
     [Fact]
@@ -1485,11 +1491,13 @@ public sealed class SequenceProductionRunnerTests
         Assert.False(execution.IsCompleted);
         Assert.DoesNotContain(Snapshot(), evt => evt.NodeId is null && evt.Kind is ExecutionEventKinds.Completed or
             ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
-        // Observed runtime behavior: the Sequence settles its outputs and records its own terminal while the
-        // held descendant executor is still unsettled; only the root terminal waits for the descendant.
+        // Drained settlement (Decision 0070): the held sibling has observed cancellation but its executor has not
+        // reported, so its output is still open and the Sequence has recorded no terminal. Earlier behavior
+        // cascade-cancelled the output and recorded the Sequence terminal while the executor could still finish.
         var beforeRelease = Snapshot();
-        Assert.DoesNotContain(beforeRelease, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
-        Assert.Single(beforeRelease, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
+        Assert.DoesNotContain(beforeRelease, evt => evt.Kind is ExecutionEventKinds.SequenceCompleted or
+            ExecutionEventKinds.SequenceFailed or ExecutionEventKinds.SequenceCancelled);
+        Assert.DoesNotContain(beforeRelease, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
             ReadEvidence(evt).OutputId == "architecture");
         Assert.DoesNotContain(beforeRelease, evt => evt.NodeId == "architecture-tool" && evt.Kind is
             ExecutionEventKinds.NodeCancelled or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCompleted);
@@ -2271,7 +2279,9 @@ public sealed class SequenceProductionRunnerTests
         Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var playback));
         Assert.Equal("failed", playback!.Status);
         Assert.Contains(playback.Outputs, output => output.State == "failed");
-        Assert.Contains(playback.Outputs, output => output.State == "cancelled");
+        // Each output now settles with its own executor's outcome rather than a cascade cancel, so the second
+        // tool ends failed or cancelled depending on whether the first failure's cancellation reached it first.
+        Assert.All(playback.Outputs, output => Assert.Contains(output.State, new[] { "failed", "cancelled" }));
     }
 
     [Fact]

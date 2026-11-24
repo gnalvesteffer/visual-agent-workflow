@@ -311,4 +311,126 @@ public sealed class SequenceRuntimeCoordinatorTests
         Assert.All(recorded, evt => Assert.True(SequenceEvidence.TryRead(evt, out _)));
         Assert.Equal(ExecutionEventKinds.SequenceOutputDispatched, recorded[1].Kind);
     }
+
+    private static SequenceRuntimeCoordinator Drained(params string[] outputs) =>
+        new(Guid.NewGuid(), "sequence", outputs,
+            outputs.ToDictionary(id => id, id => $"connection-{id}"), allowSingleOutput: false)
+        { DrainInFlightOutputs = true };
+
+    private static string[] Kinds(SequenceRuntimeCoordinator coordinator) =>
+        coordinator.Events.Select(evt => $"{evt.Kind}:{evt.OutputId}").ToArray();
+
+    [Fact]
+    public void Drained_failure_leaves_a_dispatched_sibling_open_until_it_reports()
+    {
+        var coordinator = Drained("first", "second");
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        coordinator.DispatchNext(first);
+        coordinator.DispatchNext(second);
+
+        coordinator.Complete(first, SequenceTerminalState.Failed);
+
+        Assert.False(coordinator.IsTerminal);
+        Assert.DoesNotContain(coordinator.Events, evt => evt.Kind is ExecutionEventKinds.SequenceFailed or
+            ExecutionEventKinds.SequenceOutputCancelled);
+
+        coordinator.Complete(second, SequenceTerminalState.Cancelled);
+
+        Assert.True(coordinator.IsTerminal);
+        Assert.Equal(["sequence.output.failed:first", "sequence.output.cancelled:second", "sequence.failed:"],
+            Kinds(coordinator).Skip(3).ToArray());
+    }
+
+    [Fact]
+    public void Drained_sibling_that_completes_after_a_failure_records_its_real_outcome()
+    {
+        var coordinator = Drained("first", "second");
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        coordinator.DispatchNext(first);
+        coordinator.DispatchNext(second);
+        coordinator.Complete(first, SequenceTerminalState.Failed);
+
+        coordinator.Complete(second, SequenceTerminalState.Completed);
+
+        Assert.Contains("sequence.output.completed:second", Kinds(coordinator));
+        Assert.DoesNotContain(coordinator.Events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled);
+        Assert.Equal(ExecutionEventKinds.SequenceFailed, coordinator.Events[^1].Kind);
+    }
+
+    [Fact]
+    public void Drained_failure_skips_outputs_that_never_started_immediately()
+    {
+        var coordinator = Drained("first", "second", "third");
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        coordinator.DispatchNext(first);
+        coordinator.DispatchNext(second);
+
+        coordinator.Complete(first, SequenceTerminalState.Failed);
+
+        Assert.Contains("sequence.output.skipped:third", Kinds(coordinator));
+        Assert.False(coordinator.IsTerminal);
+    }
+
+    [Fact]
+    public void Abandoning_settles_only_outputs_that_never_reported_and_repeats_nothing()
+    {
+        var coordinator = Drained("first", "second", "third");
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var third = Guid.NewGuid();
+        coordinator.DispatchNext(first);
+        coordinator.DispatchNext(second);
+        coordinator.DispatchNext(third);
+        coordinator.Complete(first, SequenceTerminalState.Cancelled);
+        coordinator.CancelPending();
+        Assert.False(coordinator.IsTerminal);
+
+        coordinator.AbandonUnsettled();
+        coordinator.AbandonUnsettled();
+
+        var kinds = Kinds(coordinator);
+        Assert.True(coordinator.IsTerminal);
+        Assert.Equal(1, kinds.Count(kind => kind == "sequence.output.cancelled:first"));
+        Assert.Equal(1, kinds.Count(kind => kind == "sequence.output.cancelled:second"));
+        Assert.Equal(1, kinds.Count(kind => kind == "sequence.output.cancelled:third"));
+        Assert.Single(kinds, kind => kind == "sequence.cancelled:");
+        Assert.Equal(ExecutionEventKinds.SequenceCancelled, coordinator.Events[^1].Kind);
+    }
+
+    [Fact]
+    public void Drained_host_cancel_waits_for_dispatched_outputs_then_terminates_cancelled()
+    {
+        var coordinator = Drained("first", "second");
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        coordinator.DispatchNext(first);
+        coordinator.DispatchNext(second);
+
+        coordinator.CancelPending();
+        Assert.False(coordinator.IsTerminal);
+        coordinator.Complete(first, SequenceTerminalState.Cancelled);
+        Assert.False(coordinator.IsTerminal);
+        coordinator.Complete(second, SequenceTerminalState.Cancelled);
+
+        Assert.True(coordinator.IsTerminal);
+        Assert.Equal(ExecutionEventKinds.SequenceCancelled, coordinator.Events[^1].Kind);
+    }
+
+    [Fact]
+    public void Without_drain_a_failure_still_cascade_cancels_a_dispatched_sibling()
+    {
+        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence", ["first", "second"],
+            new Dictionary<string, string> { ["first"] = "connection-first", ["second"] = "connection-second" });
+        var first = Guid.NewGuid();
+        coordinator.DispatchNext(first);
+        coordinator.DispatchNext(Guid.NewGuid());
+
+        coordinator.Complete(first, SequenceTerminalState.Failed);
+
+        Assert.True(coordinator.IsTerminal);
+        Assert.Contains("sequence.output.cancelled:second", Kinds(coordinator));
+    }
 }
