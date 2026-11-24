@@ -35,6 +35,11 @@ public sealed record ParallelCollaborationRuntimeOptions(TimeSpan? DefaultTimeou
 public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null,
     ParallelCollaborationRuntimeOptions? collaborationOptions = null)
 {
+    private TimeProvider clock = TimeProvider.System;
+
+    /// <summary>Clock for event timestamps and deadlines (Decision 0081). Internal so the public constructor stays exact.</summary>
+    internal TimeProvider? Clock { init => clock = value ?? TimeProvider.System; }
+
     /// <summary>
     /// Opt-in bound (null means unbounded, today's behavior) on how long a production Sequence waits for in-flight
     /// outputs after a failure or cancellation before recording them abandoned and ending the run outcome-unknown.
@@ -385,7 +390,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             loopPassBudget: sharedLoopPassBudget,
             countLoopEvidenceEvents: ownsLoopEvidenceBudget,
             loopEvidenceScopePrefix: loopEvidenceScopePrefix);
-        activationFrameOwner.BindRootEventRecorder(runId, revision.RevisionId, record, activationLedger);
+        activationFrameOwner.BindRootEventRecorder(runId, revision.RevisionId, record, activationLedger, clock);
         activationFrameOwner.BindAdmissionOwner(dispatchAdmissionOwner);
         frameOwnerProbe?.Invoke(activationFrameOwner);
         var variableStore = activationFrameOwner.CreateVariableStore(revision.Definition);
@@ -395,7 +400,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
         using var collaborationRuntime = collaborationRegion is null ? null :
             new ParallelCollaborationRuntime(runId, revision.RevisionId, collaborationRegion,
-                resolvedCollaborationTimeout!.Value, Emit);
+                resolvedCollaborationTimeout!.Value, Emit, clock);
         using var linkedCancellation = collaborationRuntime is null
             ? null
             : CancellationTokenSource.CreateLinkedTokenSource(callerCancellationToken, collaborationRuntime.TimeoutToken);
@@ -416,7 +421,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
         async Task AbandonAfterGraceAsync(TimeSpan grace)
         {
-            try { await Task.Delay(grace, graceCts.Token); }
+            try { await Task.Delay(grace, clock, graceCts.Token); }
             catch (OperationCanceledException) { return; }
             try
             {
@@ -768,6 +773,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             n => (Executor<GraphMessage, GraphMessage>)new StringExecutor(n.Key, n.Value,
                 runId, revision, parameters, tools, agents, dataEvaluator, variableStore, emit, gate, null,
                 rootRevision, workflowPath, collaborationOptions, collaborationRuntime, null, boundaryTracker,
+                timeProvider: clock,
                 afterNodeStarted: afterNodeStarted,
                 activationBreakNode: proofBreakNodeIds?.Contains(n.Key) == true,
                 proofBreakNodeIds: proofBreakNodeIds,
@@ -1014,7 +1020,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         public void MarkRootEventRecorderUncertain() => Interlocked.Exchange(ref rootEventRecorderUncertain, 1);
 
         public void BindRootEventRecorder(Guid ownerRunId, Guid ownerRevisionId,
-            Func<ExecutionEvent, ValueTask> recorder, ExecutionActivationLedger ledger)
+            Func<ExecutionEvent, ValueTask> recorder, ExecutionActivationLedger ledger, TimeProvider? timeProvider = null)
         {
             if (ownerRunId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(ownerRunId));
             ArgumentNullException.ThrowIfNull(recorder);
@@ -1024,7 +1030,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
             rootEventRecorder = recorder;
             activationLedger = ledger;
-            eventWriter = new SequencedExecutionEventWriter(ownerRunId, ownerRevisionId, AcceptEventAsync, ledger);
+            eventWriter = new SequencedExecutionEventWriter(ownerRunId, ownerRevisionId, AcceptEventAsync, ledger, timeProvider);
         }
 
         private WorkflowDispatchAdmissionOwner? admissionOwner;
@@ -1423,6 +1429,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private readonly Guid runId;
         private readonly Guid revisionId;
         private readonly TimeSpan effectiveTimeout;
+        private readonly TimeProvider clock;
         private readonly Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit;
         private readonly SemaphoreSlim stateAndEventGate = new(1, 1);
         private readonly CancellationTokenSource timeoutSignal = new();
@@ -1438,8 +1445,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private string activePhase = ParallelCollaborationPhases.Phase1;
 
         public ParallelCollaborationRuntime(Guid runId, Guid revisionId, ParallelCollaborationRegion region,
-            TimeSpan effectiveTimeout, Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit)
+            TimeSpan effectiveTimeout, Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
+            TimeProvider? timeProvider = null)
         {
+            clock = timeProvider ?? TimeProvider.System;
             this.runId = runId;
             this.revisionId = revisionId;
             Region = region;
@@ -1460,7 +1469,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             {
                 if (phase1Exchange is not null) throw new InvalidOperationException("A collaborative region cannot be activated twice in one run.");
                 RegionInvocationId = invocationId;
-                deadline = DateTimeOffset.UtcNow.Add(effectiveTimeout);
+                deadline = clock.GetUtcNow().Add(effectiveTimeout);
                 var branchIds = Region.Branches.Select(branch => branch.BranchId);
                 phase1Exchange = new ParallelCollaborationExchange(runId, invocationId, branchIds, Region.ChannelIds, budget);
                 if (IsPhased) phase2Exchange = new ParallelCollaborationExchange(runId, invocationId, branchIds, Region.ChannelIds, budget);
@@ -1606,7 +1615,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 while (remaining > TimeSpan.Zero)
                 {
                     var delay = remaining < maxDelay ? remaining : maxDelay;
-                    await Task.Delay(delay, cancellationToken);
+                    await Task.Delay(delay, clock, cancellationToken);
                     remaining -= delay;
                 }
                 await AbortAsync("The collaboration region timed out.");
@@ -2437,7 +2446,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         string? parallelJoinContinuationTarget = null,
         ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null,
         WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null,
-        Func<string, GraphMessage, IReadOnlyCollection<string>>? dispatchTargetResolver = null)
+        Func<string, GraphMessage, IReadOnlyCollection<string>>? dispatchTargetResolver = null,
+        TimeProvider? timeProvider = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -3753,7 +3763,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                             child.ContentHash, nestedScope, childEvent.Data).Serialize(), nestedScope);
             }
 
-            var runner = new WorkflowRunner(tools, agents, collaborationOptions);
+            var runner = new WorkflowRunner(tools, agents, collaborationOptions) { Clock = timeProvider };
             var childWorkflowPath = workflowPath.Add(new WorkflowApprovalScope(Id, child.RevisionId, child.ContentHash));
             var childBudgetScopePrefix = string.IsNullOrEmpty(activationFrameOwner?.LoopEvidenceScopePrefix)
                 ? childScope

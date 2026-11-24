@@ -39,7 +39,7 @@ event-driven waits are out of scope.
   See the 2026-11-24 sections of [0070](0070-bounded-array-iteration-contract.md).
 - **Checkpoint recovery** ([checkpoint recovery](../checkpoint-recovery.md))
   admits only pure graphs. It rejects agents, MCP tools, and approvals before
-  admission. No production time source or Delay node exists.
+  admission. No Delay node exists, and no durable timer source exists (see "TimeProvider seam" for the in-process clock seam).
 
 ## Options
 
@@ -147,7 +147,7 @@ prerequisites first, then a narrowed duration-only slice.
   are pre-filtered by `IsCollaborationEvent`.) Fail-closed
   old-reader behavior for new kinds is unproven, so the "Evidence and
   compatibility" paragraph above is unverified and must not be relied on.
-- True: no `TimeProvider` exists in `src` or `tests`. `DateTimeOffset.UtcNow`
+- True at review time (since addressed for the run path, see "TimeProvider seam"): no `TimeProvider` exists in `src` or `tests`. `DateTimeOffset.UtcNow`
   is called directly in 22 places (for example `ControlledRun.cs:47,90,146,192`).
   An injected clock is a cross-cutting refactor, not a node-local detail.
 - True: `WaitForApprovalAsync` (`ControlledRun.cs:182-225`) allows exactly one
@@ -231,3 +231,43 @@ change, together with a documented minimum reader version. Adding a new
 `UnresolvedWorkKind` also needs care: `HttpWorkflowRunObserver` treats an
 undefined enum value as an invalid report. Prerequisite 1 is now met for
 characterization only; fail-closed behavior remains unbuilt.
+
+## TimeProvider seam (2026-11-24)
+
+Prerequisite 2 is met only for the sites below. There is no behavior or
+serialized-value change: every owner defaults to `TimeProvider.System`,
+resolved once. Public surface is additive only: `LocalWorkflowRuntime` and
+`CheckpointWorkflowHost` gain overloads with a required `TimeProvider`
+parameter (existing constructors are unchanged, and the pinned-signature tests
+still pass), `MarkUnfinishedAsInterrupted(store, clock)` is a new overload, and
+`WorkflowRunner` takes an internal `Clock` init property. Internal owners take
+optional parameters. The clock overload of `LocalWorkflowRuntime` does not
+combine with `SequenceDrainOptions`.
+
+**Reads from the provider (event or evidence timestamps, deadlines):**
+
+- `ControlledRun`: control events, breakpoint events, approval request time
+  and approval event timestamps.
+- `WorkflowRunner`: root event timestamps (`SequencedExecutionEventWriter`,
+  structured-proof and checkpointed emitters), the collaboration deadline and
+  its timeout monitor (`Task.Delay(delay, clock, ...)`), the Sequence
+  `AbandonGrace` delay, and child workflow runners.
+- `LocalWorkflowRuntime`: the queue-full failure event, restart interruption
+  (`MarkUnfinishedAsInterrupted(store, timeProvider)`), and the provider handed
+  to each `ControlledRun` and `WorkflowRunner`.
+- `CheckpointWorkflowHost`: checkpoint-captured and suspended events.
+
+**Intentionally not on the provider:**
+
+- Diagnostics: `Stopwatch` in `AgentNodeExecutor`.
+- Metadata, not run timing: revision `CreatedAt`, Studio project and catalog
+  timestamps, and the reconciliation-decision timestamp.
+- `FileRunJournal.MarkUnfinishedAsInterrupted()` (the store's own method) and
+  `SequenceRunnerProof`, a test proof.
+- `DemoMcpServer` `Task.Delay`, a demo fixture.
+- Provider and tool `CancelAfter` deadlines and collaboration channel waits.
+
+Tests use a deterministic manual `TimeProvider` (no new package): timestamps
+equal the fake clock and move only when it is advanced, and the collaboration
+timeout fires only on `Advance` with no sleeping. The Wait node must still use
+`GetTimestamp` for monotonic duration; the seam does not add that yet.

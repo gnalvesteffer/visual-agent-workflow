@@ -15,10 +15,17 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
     private readonly SemaphoreSlim execution = new(1, 1);
     private readonly CancellationTokenSource lifetime = new();
     private readonly CheckpointWorkflowHostOptions options;
+    private readonly TimeProvider clock;
     private bool disposed;
 
     public CheckpointWorkflowHost(IWorkflowCheckpointHostStore store, CheckpointWorkflowHostOptions? options = null)
+        : this(store, options, TimeProvider.System) { }
+
+    /// <summary>Adds a host clock; the parameter is required so existing calls never bind here.</summary>
+    public CheckpointWorkflowHost(IWorkflowCheckpointHostStore store, CheckpointWorkflowHostOptions? options, TimeProvider timeProvider)
     {
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        clock = timeProvider;
         ArgumentNullException.ThrowIfNull(store);
         this.store = store;
         this.options = options ?? new();
@@ -72,8 +79,8 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
                 WorkflowRunner.ValidateCheckpointGraph(revision.Definition, options.EnableLoopCheckpointRecovery);
                 snapshot = store.Create(revision, input);
             }
-            var sink = new Sink(store, snapshot, revision!, restored?.Native, suspendAfterCompletedNodes, options.EnableLoopCheckpointRecovery);
-            await new WorkflowRunner().ExecuteCheckpointedAsync(snapshot.Header.RunId, revision!, input!, sink.RecordAsync, sink, linked.Token);
+            var sink = new Sink(store, snapshot, revision!, restored?.Native, suspendAfterCompletedNodes, options.EnableLoopCheckpointRecovery, clock);
+            await new WorkflowRunner() { Clock = clock }.ExecuteCheckpointedAsync(snapshot.Header.RunId, revision!, input!, sink.RecordAsync, sink, linked.Token);
             return store.Get(snapshot.Header.RunId)!;
         }
         finally { execution.Release(); }
@@ -94,7 +101,7 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
     }
 
     private sealed class Sink(IWorkflowCheckpointHostStore store, RunSnapshot initial, WorkflowRevision revision,
-        NativeWorkflowCheckpoint? restored, int? suspendAfter, bool allowLoopCheckpointRecovery) : IWorkflowCheckpointSink, IWorkflowCheckpointBoundarySink
+        NativeWorkflowCheckpoint? restored, int? suspendAfter, bool allowLoopCheckpointRecovery, TimeProvider clock) : IWorkflowCheckpointSink, IWorkflowCheckpointBoundarySink
     {
         private RunSnapshot snapshot = initial;
         private (NativeWorkflowCheckpoint Checkpoint, CheckpointBoundaryObservation Observation)? boundary;
@@ -133,11 +140,11 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
             var metadata = JsonSerializer.Serialize(new { native.CheckpointId, payloadHash = hash, runtimeVersion = WorkflowRunner.CheckpointRuntimeVersion });
             var events = new List<ExecutionEvent>
             {
-                new(snapshot.Header.RunId, snapshot.Header.RevisionId, snapshot.Events.Length + 1, DateTimeOffset.UtcNow,
+                new(snapshot.Header.RunId, snapshot.Header.RevisionId, snapshot.Events.Length + 1, clock.GetUtcNow(),
                     ExecutionEventKinds.CheckpointCaptured, Data: metadata)
             };
             if (suspended) events.Add(new(snapshot.Header.RunId, snapshot.Header.RevisionId, snapshot.Events.Length + 2,
-                DateTimeOffset.UtcNow, ExecutionEventKinds.Suspended, Data: "Saved deterministic boundary; explicit host recovery required."));
+                clock.GetUtcNow(), ExecutionEventKinds.Suspended, Data: "Saved deterministic boundary; explicit host recovery required."));
             var checkpoint = new WorkflowRunCheckpoint("1.0", WorkflowRunner.CheckpointRuntimeVersion, snapshot.Header.RunId,
                 snapshot.Header.RevisionId, snapshot.Header.ContentHash, snapshot.Events.Length + events.Count, native, hash)
             {

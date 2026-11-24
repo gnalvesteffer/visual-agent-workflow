@@ -4,9 +4,11 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>One process-owned continuation and sequenced journal writer. The framework still executes the graph.</summary>
-internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header, SemaphoreSlim executionSlot)
+internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header, SemaphoreSlim executionSlot,
+    TimeProvider? timeProvider = null)
     : IWorkflowExecutionGate, IWorkflowApprovalGate, IDisposable
 {
+    private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private readonly object gate = new();
     private TaskCompletionSource resumed = NewSignal();
     private bool pauseRequested;
@@ -44,7 +46,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
     }
 
     private void RecordControl(string kind, string? nodeId = null) => Append(new(header.RunId, header.RevisionId, 0,
-        DateTimeOffset.UtcNow, kind, NodeId: nodeId,
+        clock.GetUtcNow(), kind, NodeId: nodeId,
         Data: JsonSerializer.Serialize(new { actor = "local-developer", boundary = nodeId ?? "run-boundary" })));
 
     public void RequestPause()
@@ -87,7 +89,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             if (breakpoints.SetEquals(nodeIds)) return;
             breakpoints.Clear();
             breakpoints.UnionWith(nodeIds);
-            Append(new(header.RunId, header.RevisionId, 0, DateTimeOffset.UtcNow,
+            Append(new(header.RunId, header.RevisionId, 0, clock.GetUtcNow(),
                 ExecutionEventKinds.BreakpointsChanged, Data: JsonSerializer.Serialize(new { nodeIds = breakpoints.Order(StringComparer.Ordinal).ToArray() })));
         }
     }
@@ -143,7 +145,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
                 }
                 if (!boundaryEvaluated && nextNodeId is not null && breakpoints.Contains(nextNodeId) && skipBreakpointOnce != nextNodeId)
                 {
-                    Append(new(header.RunId, header.RevisionId, 0, DateTimeOffset.UtcNow,
+                    Append(new(header.RunId, header.RevisionId, 0, clock.GetUtcNow(),
                         ExecutionEventKinds.BreakpointHit, nextNodeId,
                         Data: JsonSerializer.Serialize(new { nodeId = nextNodeId })));
                     RecordControl(ExecutionEventKinds.PauseRequested, nextNodeId);
@@ -189,7 +191,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             cancellationToken.ThrowIfCancellationRequested();
             ValidateAction(action, prompt);
             if (pendingApproval is not null) throw new InvalidOperationException("An approval is already pending.");
-            request = new(Guid.NewGuid(), action, action.ComputeHash(), prompt, DateTimeOffset.UtcNow);
+            request = new(Guid.NewGuid(), action, action.ComputeHash(), prompt, clock.GetUtcNow());
             RecordApproval(ExecutionEventKinds.ApprovalRequested, request, action.ApprovalNodeId, action.ApprovalInvocationId, action.ScopeId);
             pendingApproval = request;
             approvalSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -258,7 +260,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
     }
 
     private void RecordApproval<T>(string kind, T data, string nodeId, Guid invocationId, string? scopeId = null) => Append(new(header.RunId, header.RevisionId, 0,
-        DateTimeOffset.UtcNow, kind, nodeId, invocationId, Data: JsonSerializer.Serialize(data, JsonSerializerOptions.Web)) { ScopeId = scopeId });
+        clock.GetUtcNow(), kind, nodeId, invocationId, Data: JsonSerializer.Serialize(data, JsonSerializerOptions.Web)) { ScopeId = scopeId });
 
     private void AcknowledgePause(string? nextNodeId)
     {

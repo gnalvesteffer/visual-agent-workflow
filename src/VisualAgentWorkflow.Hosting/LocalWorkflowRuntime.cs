@@ -21,6 +21,17 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
         : this((IWorkflowRunStore)journal, logger, tools, agents, collaborationOptions, admissionProvider) { }
 
     private readonly SequenceDrainOptions? sequenceDrainOptions;
+    private TimeProvider clock = TimeProvider.System;
+
+    /// <summary>Adds a host clock for event timestamps and deadlines; the parameter is required so existing calls never bind here.</summary>
+    public LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools,
+        IAgentNodeExecutor? agents, ParallelCollaborationRuntimeOptions? collaborationOptions,
+        IWorkflowAdmissionSnapshotProvider? admissionProvider, TimeProvider timeProvider)
+        : this(journal, logger, tools, agents, collaborationOptions, admissionProvider)
+    {
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        clock = timeProvider;
+    }
 
     /// <summary>Adds host-owned Sequence drain settings; the new parameter is required so existing calls never bind here.</summary>
     public LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools,
@@ -53,7 +64,7 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
         }
         try
         {
-            lock (admission) journal.MarkUnfinishedAsInterrupted();
+            lock (admission) journal.MarkUnfinishedAsInterrupted(clock);
             await base.StartAsync(cancellationToken);
             lock (admission) accepting = true;
         }
@@ -141,7 +152,7 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
                 : ((IParameterizedWorkflowRunStore)journal).Create(revision, input, parameters);
             if (accepting && ownedRuns.Count < MaximumOwnedRuns)
             {
-                var control = new ControlledRun(journal, snapshot.Header, executionSlot);
+                var control = new ControlledRun(journal, snapshot.Header, executionSlot, clock);
                 if (startPaused) control.RequestPause();
                 ownedRuns[snapshot.Header.RunId] = control;
                 if (queue.Writer.TryWrite(new(snapshot.Header.RunId, revision, input, parameters, control)))
@@ -150,7 +161,7 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
                 control.Dispose();
             }
             var latest = journal.Get(snapshot.Header.RunId)!;
-            journal.Append(new(snapshot.Header.RunId, revision.RevisionId, latest.Events.Length + 1, DateTimeOffset.UtcNow,
+            journal.Append(new(snapshot.Header.RunId, revision.RevisionId, latest.Events.Length + 1, clock.GetUtcNow(),
                 ExecutionEventKinds.Failed, Data: "The local execution queue is full or stopping."));
             return journal.Get(snapshot.Header.RunId)!;
         }
@@ -248,7 +259,7 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
                 ownedRuns.TryRemove(pending.RunId, out _);
                 pending.Control.Dispose();
             }
-            try { journal.MarkUnfinishedAsInterrupted(); }
+            try { journal.MarkUnfinishedAsInterrupted(clock); }
             finally { ownership?.Dispose(); ownership = null; }
         }
     }
@@ -264,7 +275,7 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, request.Control.Cancellation.Token);
         try
         {
-            await new WorkflowRunner(tools, agents, collaborationOptions) { SequenceAbandonGrace = sequenceDrainOptions?.AbandonGrace }
+            await new WorkflowRunner(tools, agents, collaborationOptions) { Clock = clock, SequenceAbandonGrace = sequenceDrainOptions?.AbandonGrace }
                 .ExecuteControlledWithParametersAsync(request.RunId, request.Revision, request.Input,
                 request.Parameters, request.Control.RecordAsync, request.Control, linked.Token);
         }

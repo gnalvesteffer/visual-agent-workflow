@@ -14,11 +14,13 @@ internal sealed class SequencedExecutionEventWriter : IDisposable
     private readonly Func<ExecutionEvent, ValueTask> accept;
     private readonly ExecutionActivationLedger activationLedger;
     private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly TimeProvider clock;
     private long sequence;
 
     public SequencedExecutionEventWriter(Guid runId, Guid revisionId,
-        Func<ExecutionEvent, ValueTask> accept, ExecutionActivationLedger activationLedger)
+        Func<ExecutionEvent, ValueTask> accept, ExecutionActivationLedger activationLedger, TimeProvider? timeProvider = null)
     {
+        clock = timeProvider ?? TimeProvider.System;
         if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
         if (revisionId == Guid.Empty) throw new ArgumentException("A revision ID is required.", nameof(revisionId));
         ArgumentNullException.ThrowIfNull(accept);
@@ -36,7 +38,7 @@ internal sealed class SequencedExecutionEventWriter : IDisposable
         try
         {
             var nextSequence = sequence + 1;
-            var executionEvent = new ExecutionEvent(runId, revisionId, nextSequence, DateTimeOffset.UtcNow,
+            var executionEvent = new ExecutionEvent(runId, revisionId, nextSequence, clock.GetUtcNow(),
                 kind, nodeId, invocationId, connectionId, data) { ScopeId = scopeId };
             activationLedger.Validate(executionEvent);
             await accept(executionEvent);

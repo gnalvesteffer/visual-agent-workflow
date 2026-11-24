@@ -515,7 +515,7 @@ public sealed partial class WorkflowRunner
                     coordinator.Complete(lineage.OutputActivationId, terminalState);
                     await FlushSequenceEvents();
                 }, null, callSettlements.GetValueOrDefault(outputNodeId), true, callScopeCancellation,
-                afterNodeStarted: afterNodeStarted,
+                afterNodeStarted: afterNodeStarted, timeProvider: clock,
                 activationBreakNode: sequenceDispatchSession?.BreakNodeIds.Contains(outputNodeId) == true,
                 proofBreakNodeIds: sequenceDispatchSession?.BreakNodeIds,
                 onSequenceBreakRequested: sequenceDispatchSession is null ? null : async (lineage, request) =>

@@ -28,11 +28,15 @@ public static class WorkflowRunStoreExtensions
         store.Append(evt.RunId, evt.Sequence - 1, [evt]);
 
     /// <summary>Only an exclusive local runtime owner may interrupt abandoned runs. This is not recovery or a lease.</summary>
-    public static void MarkUnfinishedAsInterrupted(this IWorkflowRunStore store)
+    public static void MarkUnfinishedAsInterrupted(this IWorkflowRunStore store) =>
+        MarkUnfinishedAsInterrupted(store, TimeProvider.System);
+
+    /// <summary>As the parameterless overload, stamping the interruption from the supplied clock.</summary>
+    public static void MarkUnfinishedAsInterrupted(this IWorkflowRunStore store, TimeProvider clock)
     {
         foreach (var snapshot in store.List().Where(r => !r.IsTerminal))
             store.Append(new(snapshot.Header.RunId, snapshot.Header.RevisionId, snapshot.Events.Length + 1,
-                DateTimeOffset.UtcNow, ExecutionEventKinds.Interrupted,
+                clock.GetUtcNow(), ExecutionEventKinds.Interrupted,
                 Data: "The runtime stopped before recording a terminal outcome. This run was not resumed."));
     }
 }

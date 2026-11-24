@@ -180,7 +180,7 @@ public sealed partial class WorkflowRunner
         var manager = CheckpointManager.CreateJson(bridge, new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() });
         long sequence = 0;
         ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null, string? data = null) =>
-            record(new(runId, revision.RevisionId, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow, kind, node, invocation, connection, data));
+            record(new(runId, revision.RevisionId, Interlocked.Increment(ref sequence), clock.GetUtcNow(), kind, node, invocation, connection, data));
         var workflow = BuildWorkflow(runId, revision, input, null,
             (kind, node, invocation, connection, data, _) => Emit(kind, node, invocation, connection, data), null, revision, [],
             variableStore: variableStore,

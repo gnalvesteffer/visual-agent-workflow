@@ -422,6 +422,47 @@ public sealed class WorkflowRunnerCollaborationTests
     }
 
     [Fact]
+    public async Task CollaborationDeadlineAndEventTimestampsComeFromTheInjectedClock()
+    {
+        var start = new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero);
+        var clock = new ManualTimeProvider(start);
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        await new WorkflowRunner(agents: new CollaborationAgentExecutor(2)) { Clock = clock }
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(CreateGraph(2, timeoutSeconds: 30), "test"), "question",
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; })
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.All(events, evt => Assert.Equal(start, evt.Timestamp));
+        using var region = JsonDocument.Parse(events.Single(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationRegionStarted).Data!);
+        Assert.Equal(start.AddSeconds(30), region.RootElement.GetProperty("deadline").GetDateTimeOffset());
+        Assert.Equal(0, clock.ActiveTimerCount);
+    }
+
+    [Fact]
+    public async Task HostCollaborationTimeoutFiresOnlyWhenTheInjectedClockAdvances()
+    {
+        var clock = new ManualTimeProvider(new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero));
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var run = new WorkflowRunner(agents: new CollaborationAgentExecutor(2, blockPublishUntilCancellation: true),
+                collaborationOptions: new(TimeSpan.FromSeconds(60))) { Clock = clock }
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(CreateGraph(2, timeoutSeconds: null), "test"), "question",
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
+        using var ready = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (clock.ActiveTimerCount == 0) await Task.Delay(5, ready.Token);
+
+        clock.Advance(TimeSpan.FromSeconds(59));
+        await Task.Delay(50);
+        Assert.False(run.IsCompleted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationAborted);
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await Assert.ThrowsAsync<TimeoutException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
+        var aborted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationAborted);
+        Assert.Equal(clock.GetUtcNow(), aborted.Timestamp);
+    }
+
+    [Fact]
     public async Task HostTimeoutAfterRelease_AbortsWithoutPartialJoinOutput()
     {
         var revision = WorkflowRevision.Create(CreateGraph(3, timeoutSeconds: null), "test");

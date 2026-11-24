@@ -1906,7 +1906,7 @@ public sealed partial class WorkflowRunner
             entry => (StringExecutor)new StringExecutor(entry.Key, entry.Value, runId, revision, resolvedParameters,
                 tools, agents, dataEvaluator, variableStore,
                 retainedSession is null ? EmitNodeEvent : retainedSession.RecordNodeEventAsync,
-                gate, null, revision, [], collaborationOptions, afterNodeStarted: afterNodeStarted,
+                gate, null, revision, [], collaborationOptions, afterNodeStarted: afterNodeStarted, timeProvider: clock,
                 activationVariableStore: activationVariableStore,
                 activationFrameOwner: activationFrameOwner));
         if (retainedSession is not null)
@@ -1926,7 +1926,7 @@ public sealed partial class WorkflowRunner
             try
             {
                 await record(new ExecutionEvent(runId, revision.RevisionId, Interlocked.Increment(ref sequence),
-                    DateTimeOffset.UtcNow, kind, nodeId, invocationId, connectionId, data)
+                    clock.GetUtcNow(), kind, nodeId, invocationId, connectionId, data)
                     { ScopeId = eventScope ?? activationScopeId });
             }
             finally
@@ -1941,7 +1941,7 @@ public sealed partial class WorkflowRunner
 
         using var collaborationRuntime = collaborationRegion is null ? null :
             new ParallelCollaborationRuntime(runId, revision.RevisionId, collaborationRegion,
-                collaborationTimeout!.Value, EmitNodeEvent);
+                collaborationTimeout!.Value, EmitNodeEvent, clock);
         using var collaborationCancellation = collaborationRuntime is null
             ? null
             : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, collaborationRuntime.TimeoutToken);
