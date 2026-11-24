@@ -6155,3 +6155,15 @@ Review fixes (same day): the validator rejects a second Break in one For Each bo
 Further limits: `NodeCancelled` on an MCP or Agent sibling does not mean no external effect happened, since the request may already have been sent; no outcome-unknown flag is recorded in this slice. `BreakDrainGrace` (5 seconds) is a global internal constant, not configurable per workflow. A run that fails through `BreakDrainTimeoutException` leaves its tickets admitted and is never resumable. Break remains unsupported with node stepping (`SupportsNodeStepping` rejects For Each; `ForEachNodeTests.Node_stepping_is_not_supported_for_a_for_each_body_with_a_break`) and checkpoint recovery (the allowlist rejects For Each; `ForEachExecutionTests.Checkpoint_recovery_rejects_a_workflow_containing_a_for_each_break`). Studio branch editing with a Break inside a Fork branch is not exercised by tests.
 
 Remaining limits: Break after a Sequence, in checkpoint-recovered runs and under node stepping is still unsupported. A sibling that ignores cancellation fails the run rather than being abandoned and continued. The follow-on message of a late-finishing sibling that was admitted into a failed, detached run is never delivered, so its ticket stays admitted (the run has already failed). MCP cancellation is tested through the `INodeToolBroker` boundary with a blocking fixture; the stdio and sandbox transports were not exercised. Studio authoring checks (region removal, branch editing) were not extended for a Break inside a branch. Tests: `ForEachBreakDrainTests` (AgentFramework), `ForEachNodeTests` (Core).
+
+## For Each checkpoint recovery and node stepping: deferred (2026-11-24)
+
+A read-only design memo found both unsupported for good reasons, and recommends deferring recovery until agents, MCP or approvals get a recovery policy. This is a recommendation from one memo, not a three-role review.
+
+- **State a checkpoint would need and does not have:** the activation's items live in an executor-instance dictionary (`forEachItems`), not in any frame; the pass frame ids are Guids; `item` and `index` are runtime outputs keyed by frame id and are lost on recovery.
+- **The Loop cursor does not transfer:** `LoopCheckpointCursor` validation assumes exactly one Loop plus one LoopBody anchor and a static maximum iteration bound; For Each has neither.
+- **Re-evaluating the array on recovery is unsafe in general:** an array from a mutable variable or from an outer For Each item would differ from the first entry. Storing the items with a hash is the safer shape.
+- **Smallest future slice:** one top-level For Each with a constant array and only pure allowlisted body nodes, a `ForEachCheckpointCursor` {node id, index, items hash and JSON, last evidence sequence}, and a host opt-in.
+- **Node stepping is independent:** the execution gate names one next node, but a For Each boundary has several candidates, so the gate would need a frame and iteration boundary, a defined meaning for step into versus over, and per-frame breakpoint keys.
+
+Current behavior is unchanged: the checkpoint allowlist and `SupportsNodeStepping` reject For Each, with tests.
