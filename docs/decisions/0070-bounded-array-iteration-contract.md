@@ -6111,3 +6111,12 @@ A three-role review (proponent, opponent, adjudicator; clean-context read-only a
 - **Implemented (same day):** `core.break` is declared in Core; `LoopFeedbackTopologyProof` accepts it as a terminal body route (`foreach.break.outside`, `foreach.break.nonlinear`, `foreach.break.terminal`), and For Each bodies may now contain Condition and Boolean Branch nodes so a Break can be conditional. The runner ends the pass (`LoopIterationCompleted` with `outcome:"break"`, `LoopStopped` `{reason:"break", iterations:<passes started>}`; `maximumIterations` is omitted because the Break executor does not hold the array), promotes pass outputs, restores the parent frame, and continues on the For Each's `completed` edges through synthetic edges from the Break executor. Still unreleased: Break in bodies with Fork/Join siblings, checkpoint recovery and node stepping stay excluded; runtime tests cover a single conditional Break and an inner Break that exits only the inner For Each; Break inside a fork branch is untested.
 
 Tests required by the ruling: Break at iteration 2 of 5 runs downstream once; validator rejects Break in a Fork body, outside For Each, and in a nested loop; checkpoint cursor accepts a `break` stop; viewer renders the label; an unbroken For Each is unchanged; a final-iteration Break equals exhaustion except for the reason.
+
+## Waiting frame drain, slice 1 (2026-11-24)
+
+Two internal primitives that the deferred Break-with-siblings work needs now exist, with production behavior unchanged and nothing wired into `WorkflowRunner`'s Break, For Each or Loop paths yet.
+
+- `WorkflowDispatchAdmissionOwner.WhenScopeSettledAsync(scopeId, exceptTicketId, cancellationToken)` returns a completed task when nothing in the scope (ignoring the excepted ticket) is unsettled, and otherwise completes when the last such slot settles or its ticket is revoked. It honors cancellation, never awaits under the owner's lock, and completes waiters asynchronously after the lock is released. A null scope completes immediately, like `EnsureScopeSettled`, which is unchanged and still fails closed.
+- `StructuredActivationFrameOwner.CloseFrame(scopeId)` marks a frame scope and every descendant scope (path-like ids such as `outer/2/inner/1`) closed; `RecordEventAsync` then drops events in closed scopes, and `IsFrameClosed(scopeId)` reports it. Events with no scope are never suppressed, and run-level `CloseLateEvents` is unchanged.
+
+Tests: `WorkflowDispatchAdmissionOwnerWaitTests` and `StructuredActivationFrameCloseTests`.

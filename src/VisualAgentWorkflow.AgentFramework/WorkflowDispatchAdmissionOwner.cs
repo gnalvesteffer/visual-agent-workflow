@@ -72,6 +72,57 @@ internal sealed class WorkflowDispatchAdmissionOwner
         }
     }
 
+    private sealed record ScopeWaiter(string ScopeId, Guid? ExceptTicketId, TaskCompletionSource Source);
+
+    private readonly List<ScopeWaiter> scopeWaiters = [];
+
+    private bool HasUnsettledIn(string scopeId, Guid? exceptTicketId) =>
+        tickets.Any(pair => pair.Value.ScopeId == scopeId && pair.Key != exceptTicketId &&
+            pair.Value.Slots.Values.Any(state => state != TicketState.Settled));
+
+    /// <summary>
+    /// Completes when no work admitted in <paramref name="scopeId"/> (other than <paramref name="exceptTicketId"/>) is
+    /// unsettled, i.e. after the last such slot settles or its ticket is revoked. Completes immediately when nothing
+    /// is outstanding or the scope is null (the unframed root). Waiters complete asynchronously, outside the lock.
+    /// </summary>
+    public Task WhenScopeSettledAsync(string? scopeId, Guid? exceptTicketId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (scopeId is null) return Task.CompletedTask;
+        ScopeWaiter waiter;
+        lock (sync)
+        {
+            if (!HasUnsettledIn(scopeId, exceptTicketId)) return Task.CompletedTask;
+            waiter = new ScopeWaiter(scopeId, exceptTicketId,
+                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+            scopeWaiters.Add(waiter);
+        }
+        if (!cancellationToken.CanBeCanceled) return waiter.Source.Task;
+        var registration = cancellationToken.Register(() =>
+        {
+            lock (sync) scopeWaiters.Remove(waiter);
+            waiter.Source.TrySetCanceled(cancellationToken);
+        });
+        return waiter.Source.Task.ContinueWith(task => { registration.Dispose(); return task; },
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default).Unwrap();
+    }
+
+    /// <summary>Caller holds <c>sync</c>. Removes satisfied waiters; the caller completes them after releasing the lock.</summary>
+    private List<ScopeWaiter>? TakeSatisfiedWaiters()
+    {
+        if (scopeWaiters.Count == 0) return null;
+        var ready = scopeWaiters.Where(waiter => !HasUnsettledIn(waiter.ScopeId, waiter.ExceptTicketId)).ToList();
+        if (ready.Count == 0) return null;
+        foreach (var waiter in ready) scopeWaiters.Remove(waiter);
+        return ready;
+    }
+
+    private static void Release(List<ScopeWaiter>? ready)
+    {
+        if (ready is null) return;
+        foreach (var waiter in ready) waiter.Source.TrySetResult();
+    }
+
     public Guid Admit(string targetNodeId, string? scopeId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetNodeId);
@@ -99,7 +150,13 @@ internal sealed class WorkflowDispatchAdmissionOwner
         }
         catch
         {
-            lock (sync) tickets.Remove(id);
+            List<ScopeWaiter>? ready;
+            lock (sync)
+            {
+                tickets.Remove(id);
+                ready = TakeSatisfiedWaiters();
+            }
+            Release(ready);
             throw;
         }
     }
@@ -120,24 +177,30 @@ internal sealed class WorkflowDispatchAdmissionOwner
     public void Settle(Guid? ticketId, string nodeId)
     {
         if (ticketId is not { } id) return;
+        List<ScopeWaiter>? ready;
         lock (sync)
         {
             if (!tickets.TryGetValue(id, out var entry) || !entry.Slots.TryGetValue(nodeId, out var state) ||
                 state != TicketState.Started)
                 throw new InvalidOperationException($"Node '{nodeId}' settled a missing or inactive graph-dispatch ticket.");
             entry.Slots[nodeId] = TicketState.Settled;
+            ready = TakeSatisfiedWaiters();
         }
+        Release(ready);
     }
 
     /// <summary>Withdraws a ticket whose send failed; legal only while no receiver has started.</summary>
     public void Revoke(Guid ticketId)
     {
+        List<ScopeWaiter>? ready;
         lock (sync)
         {
             if (!tickets.TryGetValue(ticketId, out var entry) || entry.Slots.Values.Any(state => state != TicketState.Admitted))
                 throw new InvalidOperationException("Only an unsent graph-dispatch ticket can be revoked.");
             tickets.Remove(ticketId);
+            ready = TakeSatisfiedWaiters();
         }
+        Release(ready);
     }
 
     public void EnsureQuiescent()

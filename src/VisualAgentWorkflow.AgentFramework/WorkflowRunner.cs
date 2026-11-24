@@ -1030,10 +1030,35 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         /// <summary>Drops every later event; used once an abandoned run has recorded its terminal.</summary>
         public void CloseLateEvents() => Volatile.Write(ref lateEventsClosed, 1);
 
+        private readonly object closedFrameSync = new();
+        private ImmutableHashSet<string> closedFrames = ImmutableHashSet<string>.Empty.WithComparer(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Drops every later event recorded in <paramref name="scopeId"/> or any descendant scope (scope ids are
+        /// path-like: "outer/2/inner/1" descends from "outer/2"). Events with no scope are never suppressed.
+        /// </summary>
+        public void CloseFrame(string scopeId)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(scopeId);
+            lock (closedFrameSync) closedFrames = closedFrames.Add(scopeId);
+        }
+
+        /// <summary>True when <paramref name="scopeId"/> is, or descends from, a closed frame scope.</summary>
+        public bool IsFrameClosed(string? scopeId)
+        {
+            if (scopeId is null) return false;
+            var closed = Volatile.Read(ref closedFrames);
+            if (closed.IsEmpty) return false;
+            if (closed.Contains(scopeId)) return true;
+            for (var slash = scopeId.LastIndexOf('/'); slash > 0; slash = scopeId.LastIndexOf('/', slash - 1))
+                if (closed.Contains(scopeId[..slash])) return true;
+            return false;
+        }
+
         public async ValueTask RecordEventAsync(string kind, string? nodeId = null, Guid? invocationId = null,
             string? connectionId = null, string? data = null, string? scopeId = null)
         {
-            if (Volatile.Read(ref lateEventsClosed) != 0) return;
+            if (Volatile.Read(ref lateEventsClosed) != 0 || IsFrameClosed(scopeId)) return;
             var writer = eventWriter
                 ?? throw new InvalidOperationException("The activation owner has no root event recorder.");
             await writer.RecordAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
