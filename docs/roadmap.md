@@ -626,14 +626,20 @@ ownership or persistence/playback for the combined path.
   completion events in both stores (12/12): the faulted event is the last
   attempt, no root terminal is attempted, and the reopened run stays running
   with the exact accepted prefix and no fabricated output failure. Sibling
-  failure/cancellation races and other topologies remain the next gates before
-  another architecture review.
+  race tests (File/SQLite, failure and host cancellation, 4/4) show the root
+  terminal waits for a held sibling while the Sequence records its own terminal
+  first, and ordinary-path persistence/fault tests (16 cases) show that after a
+  rejected append the ordinary runner persists an honest failed run reusing the
+  rejected sequence number, unlike Sequence's nonterminal prefix. Both are
+  observed behavior, not endorsed contract; settlement ownership and ordinary/
+  Sequence fault consistency go to the next architecture review, with other
+  topologies still unqualified. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   Before the failure/cancellation additions, the focused selection including
   `SequenceProductionRunnerTests`, ordinary dispatch proofs, and adjacent
   runner/loop cases passed 124/124 on 2026-11-23. The latest targeted owner and
   unified-Sequence admission unit selection, including the File/SQLite
   store-reopen and store-fault theories, passes 24/24; the full
-  `SequenceProductionRunnerTests` plus owner selection passes 93/93.
+  `SequenceProductionRunnerTests` plus owner selection passes 113/113.
   A three-role review on 2026-11-19
   returned REVISE and authorized only proof work: a conditional Sequence route
   may end in nearest-loop Break without a Merge or workflow Output arrival, but

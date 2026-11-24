@@ -1420,6 +1420,208 @@ public sealed class SequenceProductionRunnerTests
         Assert.DoesNotContain(playback.Outputs, output => output.State is "failed" or "cancelled");
     }
 
+    [Theory]
+    [InlineData(false, "failure")]
+    [InlineData(true, "failure")]
+    [InlineData(false, "cancellation")]
+    [InlineData(true, "cancellation")]
+    public async Task Unified_production_sequence_sibling_race_settles_both_branches_before_root_terminal(
+        bool sqlite, string scenario)
+    {
+        var failing = scenario == "failure";
+        var expectedStatus = failing ? "failed" : "cancelled";
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, $"sequence-dispatch-admission-sibling-{scenario}");
+        using var runStore = new ReopenableRunStore(revision, "sequence input", sqlite);
+        var toolStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var toolCancellationObserved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var settleTool = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var agent = new SiblingRaceAgentExecutor(toolStarted.Task, failing);
+        var broker = new HeldToolBroker(toolStarted, toolCancellationObserved, settleTool.Task);
+        var timeline = new ConcurrentQueue<(string Kind, string NodeId)>();
+        var recorded = new List<ExecutionEvent>();
+        var recordLock = new object();
+        var cancelRequestedAt = -1;
+        using var cancellation = new CancellationTokenSource();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            lock (recordLock)
+            {
+                runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+                recorded.Add(evt);
+            }
+            if (evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is { } nodeId)
+                timeline.Enqueue(("started", nodeId));
+            return ValueTask.CompletedTask;
+        }
+
+        ExecutionEvent[] Snapshot()
+        {
+            lock (recordLock) return [.. recorded];
+        }
+
+        var execution = new WorkflowRunner(broker, agent)
+            .ExecuteWithProductionDispatchAdmissionProofAsync(runStore.RunId, revision, "sequence input",
+                ticket => timeline.Enqueue(("admitted", ticket.TargetNodeId)), Record, cancellation.Token);
+
+        await toolStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        if (failing)
+        {
+            agent.ReleaseFailure();
+        }
+        else
+        {
+            lock (recordLock) cancelRequestedAt = recorded.Count;
+            cancellation.Cancel();
+        }
+        await toolCancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The sibling observed cancellation but has not settled: the run must still be open.
+        await Task.Delay(100);
+        Assert.False(execution.IsCompleted);
+        Assert.DoesNotContain(Snapshot(), evt => evt.NodeId is null && evt.Kind is ExecutionEventKinds.Completed or
+            ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
+        // Observed runtime behavior: the Sequence settles its outputs and records its own terminal while the
+        // held descendant executor is still unsettled; only the root terminal waits for the descendant.
+        var beforeRelease = Snapshot();
+        Assert.DoesNotContain(beforeRelease, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+        Assert.Single(beforeRelease, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
+            ReadEvidence(evt).OutputId == "architecture");
+        Assert.DoesNotContain(beforeRelease, evt => evt.NodeId == "architecture-tool" && evt.Kind is
+            ExecutionEventKinds.NodeCancelled or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCompleted);
+
+        settleTool.TrySetResult(true);
+        if (failing)
+            await Assert.ThrowsAsync<InvalidOperationException>(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+        else
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        AssertEveryStartedExecutorWasAdmitted(timeline);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(expectedStatus, reopened.Status);
+        Assert.Equal(recorded, reopened.Events);
+        Assert.Equal(Enumerable.Range(1, reopened.Events.Length).Select(value => (long)value),
+            reopened.Events.Select(evt => evt.Sequence));
+        if (!failing)
+            Assert.DoesNotContain(reopened.Events.Skip(cancelRequestedAt), evt => evt.Kind == ExecutionEventKinds.NodeStarted);
+        Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+        Assert.DoesNotContain(reopened.Events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Completed);
+        var rootTerminal = Assert.Single(reopened.Events, evt => evt.NodeId is null && evt.Kind is
+            ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+            ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown);
+        Assert.Equal($"run.{expectedStatus}", rootTerminal.Kind);
+        var sequenceTerminal = Assert.Single(reopened.Events, evt => evt.Kind is
+            ExecutionEventKinds.SequenceCompleted or ExecutionEventKinds.SequenceFailed or
+            ExecutionEventKinds.SequenceCancelled);
+        Assert.Equal(failing ? ExecutionEventKinds.SequenceFailed : ExecutionEventKinds.SequenceCancelled,
+            sequenceTerminal.Kind);
+        Assert.True(sequenceTerminal.Sequence < rootTerminal.Sequence);
+        // Every output-level settlement precedes the Sequence terminal.
+        Assert.All(reopened.Events.Where(evt => evt.Kind is ExecutionEventKinds.SequenceOutputFailed or
+                ExecutionEventKinds.SequenceOutputCancelled),
+            evt => Assert.True(evt.Sequence < sequenceTerminal.Sequence));
+        var toolSettled = Assert.Single(reopened.Events, evt => evt.NodeId == "architecture-tool" &&
+            evt.Kind is ExecutionEventKinds.NodeCancelled or ExecutionEventKinds.NodeFailed or
+            ExecutionEventKinds.NodeCompleted);
+        Assert.Equal(ExecutionEventKinds.NodeCancelled, toolSettled.Kind);
+        Assert.True(toolSettled.Sequence < rootTerminal.Sequence);
+
+        Assert.True(SequenceAgentEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal(expectedStatus, playback!.Sequence.Status);
+        var inventory = Assert.Single(playback.Sequence.Outputs, output => output.OutputId == "inventory");
+        var architecture = Assert.Single(playback.Sequence.Outputs, output => output.OutputId == "architecture");
+        Assert.Equal(expectedStatus, inventory.State);
+        Assert.Equal("cancelled", architecture.State);
+        var inventoryAgent = Assert.Single(playback.Agents);
+        Assert.Equal(("inventory-agent", "inventory"), (inventoryAgent.NodeId, inventoryAgent.OutputId));
+        // Observed: agent playback state comes from agent lifecycle events, which the throwing/cancelled proof
+        // executor never emits, so it stays "running"; the output-level state carries failed/cancelled.
+        Assert.NotEqual("completed", inventoryAgent.State);
+    }
+
+    private sealed class SiblingRaceAgentExecutor(Task siblingStarted, bool failOnRelease) : IAgentNodeExecutor
+    {
+        private readonly TaskCompletionSource<bool> release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void ReleaseFailure() => release.TrySetResult(true);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("sequence-proof", "Proof", "proof", false)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            await invocation.RecordEventAsync(ExecutionEventKinds.AgentStarted,
+                JsonSerializer.Serialize(new { provider = new { modelId = "sequence-proof" } }));
+            var modelCallId = Guid.NewGuid();
+            await invocation.RecordEventForAsync(modelCallId, ExecutionEventKinds.ModelRequested,
+                JsonSerializer.Serialize(new { modelCallId, input }));
+            Started.TrySetResult(true);
+            await siblingStarted.WaitAsync(cancellationToken);
+            if (failOnRelease)
+            {
+                await release.Task.WaitAsync(cancellationToken);
+                throw new InvalidOperationException("sibling race agent failed");
+            }
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return input;
+        }
+    }
+
+    // Holds the tool branch until the test releases it; after cancellation is observed the tool refuses to
+    // settle until `settle` completes, so the test can prove the root waits for the sibling.
+    private sealed class HeldToolBroker : INodeToolBroker
+    {
+        private readonly TaskCompletionSource<bool> started;
+        private readonly TaskCompletionSource<bool> cancellationObserved;
+        private readonly Task settle;
+
+        public HeldToolBroker(TaskCompletionSource<bool> started, TaskCompletionSource<bool> cancellationObserved,
+            Task settle)
+        {
+            this.started = started;
+            this.cancellationObserved = cancellationObserved;
+            this.settle = settle;
+        }
+
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(this);
+
+        private sealed class Scope(HeldToolBroker owner) : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string bindingId, string input, CancellationToken cancellationToken = default) =>
+                HoldAsync(cancellationToken);
+
+            public Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments, CancellationToken cancellationToken = default) =>
+                HoldAsync(cancellationToken);
+
+            private async Task<string> HoldAsync(CancellationToken cancellationToken)
+            {
+                owner.started.TrySetResult(true);
+                try { await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); }
+                catch (OperationCanceledException)
+                {
+                    owner.cancellationObserved.TrySetResult(true);
+                    await owner.settle;
+                    throw;
+                }
+                return "unreachable";
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
     private sealed class FaultOnceRunStore(IWorkflowRunStore inner, string eventKind, bool commitBeforeFault)
         : IWorkflowRunStore
     {

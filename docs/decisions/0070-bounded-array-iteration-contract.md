@@ -5439,3 +5439,46 @@ cross-path budgets, or checkpoint recovery. It also does not enable
 ticket enforcement for normal Sequence runs. Review those remaining topology
 and failure/cancellation gaps before another architecture review or any public
 For Each/Break contract.
+
+### Sibling failure/cancellation and ordinary-path persistence evidence (2026-11-23)
+
+Two further unit proofs, written in parallel and then run together, record
+observed behavior. They add no public contract and change no `src/` code.
+
+**Sequence sibling races.**
+`Unified_production_sequence_sibling_race_settles_both_branches_before_root_terminal`
+(File/SQLite × Agent failure/host cancellation, 4/4) holds the direct-MCP
+branch while the Agent branch fails, or while the host cancels with both
+branches active. Observed: the root terminal waits for the held descendant, and
+every started executor is admitted first. The Sequence, however, records its
+output settlements and its own `SequenceFailed`/`SequenceCancelled` terminal
+**while the held sibling's executor is still unsettled**; that node's
+`NodeCancelled` follows the Sequence terminal and precedes the root terminal.
+Reopened stores match the recorded events with contiguous numbering, one root
+terminal, and Sequence playback `failed`/`cancelled`. The held sibling's
+output is `cancelled` in both scenarios. Playback of the failing Agent itself
+reports `running` because the failing test executor emits no Agent lifecycle
+event, so the failed/cancelled state is carried at output level. Whether a
+Sequence terminal may precede settlement of its own descendants is a settlement
+ownership question for the architecture review, not something this test
+endorses.
+
+**Ordinary-path persistence.** `WorkflowDispatchAdmissionOwnerTests` now covers
+Agent failure and host cancellation with a held sibling (the run settles only
+after the sibling and records exactly one `run.failed`/`run.cancelled`, no
+completion, no Output start) and File/SQLite reopen for success, failure, and
+cancellation (6/6), plus a store fault on `NodeCompleted` and the Join arrival.
+The fault behavior differs from the Sequence path: after a **committed append
+with a lost acknowledgement**, the runner's follow-up `node.failed`/`run.failed`
+reuse the committed sequence number and are rejected, so the reopened history is
+the committed prefix and stays `running`. After an **append rejected before
+commit**, the follow-up events reuse the rejected event's sequence number and
+are accepted, so the reopened history is `…, node.failed, run.failed` with
+status `failed` and the rejected event absent. The second case is pinned as
+observed behavior; whether the ordinary path should instead stay nonterminal
+like Sequence is an open consistency question. Ticket quiescence after
+interruption is not directly asserted because the tests cannot reach the
+owner's ticket state.
+
+The combined `SequenceProductionRunnerTests` and `WorkflowDispatchAdmissionOwnerTests`
+selection passes 113/113, and the 21 new cases passed five repeated runs.
