@@ -1,6 +1,6 @@
 # Decision 0081: Bounded Wait/Delay (latent) node
 
-**Status:** PROPOSED, pending three-role architecture review; not implemented
+**Status:** PROPOSED, reviewed 2026-11-24: option 2 deferred behind prerequisites (see Review outcome); not implemented
 
 **Date:** 2026-11-24
 
@@ -130,3 +130,70 @@ host-owned. Workflows, MCP outputs, and run input cannot raise them.
    placed between a tool authorization and its outcome?
 7. Is fail-closed old-reader behavior required to name the event kind, and does
    it need a documented minimum reader version?
+
+## Review outcome (2026-11-24)
+
+Three-role review (proponent, opponent, adjudicator). **Ruling: defer.** Option
+2 is the right shape, but the proposal as written is not accepted. Ship
+prerequisites first, then a narrowed duration-only slice.
+
+**Claims verified (read-only):**
+
+- True: the "unknown event kind" playback error does not exist. The only
+  related code is `ParallelCollaborationJournalValidation.cs:87,303`, which
+  rejects unknown kinds inside the collaboration region only. Fail-closed
+  old-reader behavior for new kinds is unproven, so the "Evidence and
+  compatibility" paragraph above is unverified and must not be relied on.
+- True: no `TimeProvider` exists in `src` or `tests`. `DateTimeOffset.UtcNow`
+  is called directly in 22 places (for example `ControlledRun.cs:47,90,146,192`).
+  An injected clock is a cross-cutting refactor, not a node-local detail.
+- True: `WaitForApprovalAsync` (`ControlledRun.cs:182-225`) allows exactly one
+  pending approval (`:191`). Per-Fork-branch waiting is not supported by that
+  path, so the Concurrency paragraph overreaches.
+- True: runs are capped at 32 (`LocalWorkflowRuntime.cs:35,142`). A waiting run
+  keeps its slot, so 32 waits saturate the host. A waiting-run cap and a
+  cumulative budget are requirements.
+- Resolved in the proponent's favor: checkpoint exclusion is an allowlist of
+  deterministic node types (`WorkflowCheckpoints.cs:238-246`), so a new Wait
+  type is rejected by default. A regression test is still required, and Wait
+  inside Loop/Sequence frames stays out of scope.
+- Not verified as a defect: the tool-authorization placement concern
+  (open question 6) follows from the existing `tool.outcome-unknown` model and
+  is handled by a placement restriction below.
+
+**Prerequisites, in order:**
+
+1. A test proving how readers (File, SQLite, playback, reconciliation) treat an
+   unknown event kind, plus any code change needed to make it fail closed.
+   Document the minimum reader version.
+2. A `TimeProvider` seam for run timing, with fake-clock tests. Waits measure
+   duration on the monotonic clock (`TimeProvider.GetTimestamp`); the recorded
+   wall-clock deadline is informational only.
+3. A checkpoint-rejection test for a Wait node.
+
+**Exact first slice (after the prerequisites):**
+
+- Duration-only Wait; absolute deadlines are cut. Duration is graph-authored
+  and validated at admission against a host per-wait cap (<= 24h, configured
+  like `AbandonGrace`). No silent clamping; run input cannot alter it.
+- Allowed only on top-level paths: no Sequence, Loop, Fork/Join, subworkflow,
+  and not between a tool authorization and its outcome.
+- Host-owned cumulative per-run wait budget, and a global waiting-run cap well
+  below 32 (the default must leave admission headroom for non-waiting runs).
+- Reuse the approval path: `wait.requested` (wait ID, invocation, duration,
+  monotonic start, host bound) recorded under the gate lock, release the
+  execution slot, await with cancellation, then settle with exactly one of
+  `wait.elapsed`, `wait.cancelled`, `wait.interrupted`; reacquire the slot
+  before the node completes. Pause, stop, cancel, and elapse races are decided
+  by the gate lock: the first recorded settlement wins, and tests cover each.
+- Restart leaves `wait.requested` unsettled; reconciliation reports it as
+  unresolved and non-resumable.
+
+**Open questions resolved:** 1 yes (in-process, non-resumable); 2 yes, a
+separate waiting-run cap; 3 duration only; 4 24h per-wait ceiling plus a
+cumulative per-run budget, both host-owned; 5 inferred by reconciliation, with
+`wait.interrupted` recorded only on a clean shutdown; 6 forbidden placement;
+7 yes, the reader must name the kind and the minimum version is documented.
+
+No change to the capability matrix or roadmap is needed: both still call the
+work proposal-only.
