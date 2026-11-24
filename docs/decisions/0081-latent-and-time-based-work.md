@@ -87,9 +87,10 @@ iteration bound. In Sequence drain, a wait that does not settle before
 holds no external effect. It never produces `outcome-unknown` on its own, but
 a sibling's unknown outcome still does.
 
-**Evidence and compatibility.** Additive event kinds only. Older readers must
-fail closed on unknown kinds (an `unknown event kind` playback error), never
-silently skip them. Playback shows a pending wait and its deadline as recorded
+**Evidence and compatibility.** Additive event kinds only. **Corrected
+2026-11-24:** older readers do not fail closed. Every reader ignores an unknown
+kind (see "Unknown event kind behavior"); fail-closed behavior would be new
+work, not an existing property. Playback shows a pending wait and its deadline as recorded
 data and never recomputes elapsed time from the current clock. No schema
 version or capability gate is added, per repository policy.
 
@@ -97,7 +98,7 @@ version or capability gate is added, per repository policy.
 advance. There are no sleeping tests. Required cases: elapse, cancellation
 before and during, shutdown, deadline already past, bound exceeded, restart
 with an unsettled wait, parallel waits, Sequence abandon, a Loop of waits,
-File and SQLite playback, and older-reader rejection.
+File and SQLite playback, and older-reader behavior (currently: ignored, not rejected).
 
 **Security.** The maximum, the time source, and any total-run wait budget are
 host-owned. Workflows, MCP outputs, and run input cannot raise them.
@@ -106,7 +107,7 @@ host-owned. Workflows, MCP outputs, and run input cannot raise them.
 
 - A runner proof that the permit is released during a wait and reacquired
   after it, with the admission count unchanged.
-- Journal tests for the event kinds, with an old-reader fixture failing closed.
+- Journal tests for the event kinds, with an old-reader fixture pinning ignore-or-reject behavior (today: ignore).
 - Reconciliation tests classifying a dangling wait as unresolved and
   non-resumable.
 - Studio and playback tests showing the pending, elapsed, cancelled, and
@@ -141,7 +142,9 @@ prerequisites first, then a narrowed duration-only slice.
 
 - True: the "unknown event kind" playback error does not exist. The only
   related code is `ParallelCollaborationJournalValidation.cs:87,303`, which
-  rejects unknown kinds inside the collaboration region only. Fail-closed
+  rejects unknown kinds inside the collaboration region only. (Refined: those
+  defaults are unreachable for any kind outside its fixed list, because events
+  are pre-filtered by `IsCollaborationEvent`.) Fail-closed
   old-reader behavior for new kinds is unproven, so the "Evidence and
   compatibility" paragraph above is unverified and must not be relied on.
 - True: no `TimeProvider` exists in `src` or `tests`. `DateTimeOffset.UtcNow`
@@ -197,3 +200,34 @@ cumulative per-run budget, both host-owned; 5 inferred by reconciliation, with
 
 No change to the capability matrix or roadmap is needed: both still call the
 work proposal-only.
+
+## Unknown event kind behavior (2026-11-24)
+
+Characterization tests feed `future.unknown-kind` and the realistic additive
+kind `wait.requested` to each reader. **No reader rejects or crashes on an
+unknown kind; all ignore it.** The earlier claim that older readers "fail
+closed on unknown kinds" is disproved. No code was changed: nothing crashes
+or misclassifies run status or terminal state.
+
+| Reader | Behavior | Tests |
+| --- | --- | --- |
+| `RunSnapshot.Status` / `IsTerminal` | Ignore. An unknown kind alone gives `running`; it never changes completed, failed, paused, suspended or waiting-approval. | Core `UnknownEventKindTests`: `Unknown_event_kind_leaves_run_status_running_and_non_terminal`, `..._does_not_change_terminal_pause_suspension_or_approval_status`, `..._as_the_only_event_is_running_not_queued` |
+| `WorkflowWorkEvidence` (reconciliation work) | Ignore. An unsettled `wait.requested` is never reported as unresolved work. | `Unknown_event_kind_is_ignored_by_work_evidence`, `Unsettled_wait_requested_is_not_reported_as_unresolved_work_by_older_readers` |
+| `WorkflowApprovalEvidence` | Ignore. | `Unknown_event_kind_is_ignored_by_pending_approval_projection` |
+| `SequenceEvidence`, `VariableEvidence`, `WorkflowCallEvidence` playback | Ignore (kind filters or fall-through); an unknown-only history yields no playback. | `..._ignored_by_sequence_playback`, `..._ignored_by_variable_playback`, `..._ignored_by_workflow_call_playback` |
+| Loop checkpoint frame (`WorkflowCheckpointFrame.Validate`) | Not interpreted, but hashed into the evidence prefix, so a frame cannot validate against a prefix lacking it. | `Unknown_event_kind_is_covered_by_loop_checkpoint_evidence_hash_but_not_interpreted` |
+| `FileRunJournal` and `SqliteWorkflowRunStore` write/read | Accept and round-trip. Only blank kinds, bad sequence, or events after a terminal are rejected, for every kind. | Hosting `UnknownEventKindTests`: `..._accepted_persisted_and_read_back_by_run_stores`, `..._after_a_terminal_outcome_is_rejected_like_any_other_kind`, `Blank_event_kind_is_rejected_by_run_stores_but_unknown_nonblank_kind_is_not` |
+| `ParallelCollaborationJournalValidation` | Ignore outside its fixed kind list, including `parallel.collaboration.*` kinds it does not list. | covered by the blank-kind test above |
+| `WorkflowRunReconciliation.Assess` | Ignore. A run ending `run.interrupted` with an unsettled `wait.requested` is `Terminal` with zero unresolved work. After a saved suspension, an unknown kind yields `EvidenceAdvanced` and is not resumable. | `Unknown_event_kind_is_ignored_by_reconciliation_and_terminal_status_still_wins`, `..._after_a_saved_suspension_makes_evidence_advanced_and_not_resumable` |
+| `WorkflowRunViewer` (Blazor) | Render with the raw, HTML-escaped kind in the recorded-events table; node state ignores it. | `Unknown_event_kind_is_rendered_with_its_raw_kind_by_the_recorded_viewer` |
+| `ParallelJoinEvidence` playback | Ignore by source reading (falls through the kind checks); after a root terminal any late event is rejected, whatever its kind. Not separately tested. | none |
+
+**Consequences for Wait.** Ignore-by-default is a compatibility hazard: an old
+reader sees an unsettled `wait.requested` as no work at all, so reconciliation
+from an older build would not flag it as unresolved. Wait therefore needs
+either a reader that names the kind in `WorkflowWorkEvidence` (as the proposal
+already requires) or an explicit fail-closed reader check added in the same
+change, together with a documented minimum reader version. Adding a new
+`UnresolvedWorkKind` also needs care: `HttpWorkflowRunObserver` treats an
+undefined enum value as an invalid report. Prerequisite 1 is now met for
+characterization only; fail-closed behavior remains unbuilt.
