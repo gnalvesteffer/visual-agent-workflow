@@ -285,6 +285,65 @@ public partial class WorkflowEditor
         catch (ArgumentException exception) { error = $"The graph edit is invalid: {exception.Message}"; }
     }
 
+    private bool CanInsertForEachRegion(GraphContextRequest context)
+    {
+        if (!IsUnifiedGraph || !TryGetExecutionConnectionId(context.ConnectionId, out var connectionId)) return false;
+        try
+        {
+            _ = GraphEditing.InsertForEachAtExecutionConnection(Definition, connectionId);
+            return true;
+        }
+        catch (ArgumentException) { return false; }
+    }
+
+    private async Task InsertForEachRegion(GraphContextRequest context)
+    {
+        if (!CanInsertForEachRegion(context) || !TryGetExecutionConnectionId(context.ConnectionId, out var connectionId)) return;
+        await CloseMenu(context);
+        if (ReadOnly || Disabled) return;
+        try
+        {
+            var next = GraphEditing.InsertForEachAtExecutionConnection(Definition, connectionId);
+            var added = next.Nodes.Keys.Where(id => !Definition.Nodes.ContainsKey(id)).ToArray();
+            var eachId = added.Single(id => next.Nodes[id].Type == NodeTypes.ForEach);
+            var layout = PlaceForEachRegion(EffectiveLayout.Reconcile(next), context.Position, eachId,
+                added.Single(id => next.Nodes[id].Type == NodeTypes.ArrayLiteral),
+                added.Single(id => next.Nodes[id].Type == NodeTypes.LoopBody));
+            canvas?.FitAfterNextRender();
+            await CommitEdit(next, layout, eachId);
+        }
+        catch (ArgumentException exception) { error = $"The graph edit is invalid: {exception.Message}"; }
+    }
+
+    private WorkflowLayout PlaceForEachRegion(WorkflowLayout layout, GraphPoint pointer, string eachId, string arrayId, string bodyId)
+    {
+        const double step = 360;
+        const double collisionWidth = 320;
+        const double collisionHeight = 300;
+        var existingPositions = Definition.Nodes.Keys.Select(id => layout.Nodes[id].Position).ToArray();
+        var origin = new GraphPoint(Math.Max(step, pointer.X), Math.Max(0, pointer.Y));
+        var positions = new GraphPoint[3];
+        var found = false;
+        for (var attempt = 0; attempt < 512 && !found; attempt++)
+        {
+            var candidate = new GraphPoint(
+                Math.Min(WorkflowLayoutJson.MaximumCoordinate - step * 2, origin.X + attempt / 16 * collisionWidth),
+                Math.Min(WorkflowLayoutJson.MaximumCoordinate - collisionHeight, origin.Y + attempt % 16 * collisionHeight));
+            positions = [candidate, new(candidate.X - step, candidate.Y + collisionHeight / 2), new(candidate.X + step, candidate.Y + collisionHeight / 2)];
+            found = positions.All(position => existingPositions.All(existing =>
+                Math.Abs(position.X - existing.X) >= collisionWidth || Math.Abs(position.Y - existing.Y) >= collisionHeight / 2));
+        }
+
+        if (!found) throw new ArgumentException("No clear canvas space is available for the For each region.");
+        return layout with
+        {
+            Nodes = layout.Nodes
+                .SetItem(eachId, layout.Nodes[eachId] with { Position = positions[0] })
+                .SetItem(arrayId, layout.Nodes[arrayId] with { Position = positions[1] })
+                .SetItem(bodyId, layout.Nodes[bodyId] with { Position = positions[2] })
+        };
+    }
+
     private WorkflowLayout PlaceParallelRegion(WorkflowLayout layout, GraphPoint pointer,
         string forkId, string[] branchIds, string joinId)
     {

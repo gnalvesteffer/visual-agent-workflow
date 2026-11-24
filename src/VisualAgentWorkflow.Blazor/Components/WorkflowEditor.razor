@@ -74,6 +74,14 @@
                 <button type="button" @onclick="() => InsertParallelRegion(context)">Insert parallel region</button>
             </section>
         }
+        @if (CanInsertForEachRegion(context))
+        {
+            <section class="vaw-context-recovery" aria-label="For each region">
+                <strong>For each region</strong>
+                <p class="vaw-help">Insert a For each with its loop body, return wire, completed wire and a sample string array on this execution path. Edit the array and body afterwards.</p>
+                <button type="button" @onclick="() => InsertForEachRegion(context)">Insert For each region</button>
+            </section>
+        }
         <WorkflowNodeLibrary @key="context.Id" Title="Add node" SearchLabel="Search node actions" Entries="LibraryEntries(context)"
             Disabled="Disabled" EmptyMessage="@ContextualLibraryEmptyMessage(context)"
             OnSelected="key => AddLibraryNode(key, context)" />

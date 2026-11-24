@@ -263,4 +263,30 @@ public sealed class ForEachExecutionTests
             Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopStopped && evt.NodeId == "outer" && evt.Data!.Contains("array-exhausted"));
         }
     }
+
+    [Fact]
+    public async Task A_region_inserted_by_the_graph_editor_runs_two_passes_and_returns_the_input()
+    {
+        var baseline = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "inserted-for-each", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("data-path", new(new("input", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("execution-path", new(new("input", "then"), new("output", "execute"), "execution"))
+        };
+        var inserted = GraphEditing.InsertForEachAtExecutionConnection(baseline, "execution-path");
+
+        var (result, events) = await RunAsync(inserted, new RecordingAgent());
+
+        Assert.False(result.Failed);
+        lock (events)
+        {
+            Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+            Assert.Contains("array-exhausted", Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopStopped).Data);
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
+        }
+    }
 }

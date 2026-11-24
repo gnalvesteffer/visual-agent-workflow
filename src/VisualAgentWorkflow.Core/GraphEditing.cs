@@ -1007,6 +1007,50 @@ public static class GraphEditing
         });
     }
 
+    /// <summary>
+    /// Inserts a valid For Each region on one explicit execution edge of a unified schema 2.0 graph: the iterator,
+    /// its <c>LoopBody</c> anchor, an empty body that returns to the feedback pin, and a string Array literal
+    /// supplying the required array input. Existing data wires are unchanged.
+    /// </summary>
+    public static WorkflowDefinition InsertForEachAtExecutionConnection(WorkflowDefinition definition,
+        string executionConnectionId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph || definition.ExecutionConnections is null)
+            throw new ArgumentException("For each regions are inserted on explicit execution paths in unified schema 2.0.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!definition.ExecutionConnections.TryGetValue(executionConnectionId, out var edge) ||
+            edge.Target.PortId != "execute" || definition.Nodes[edge.Target.NodeId].Type is NodeTypes.ParallelBranch or NodeTypes.LoopBody)
+            throw new ArgumentException("Select an execution edge entering a node's execute pin, not a branch or loop-body anchor or feedback input.", nameof(executionConnectionId));
+        if (definition.Nodes.Count > 253 || definition.Connections.Count + definition.ExecutionConnections.Count > 506)
+            throw new ArgumentException("The For each region would exceed the unified workflow graph limits.", nameof(definition));
+
+        var eachId = NewId("for-each");
+        var bodyId = NewId("loop-body");
+        var itemsId = NewId("array");
+        var nodes = definition.Nodes
+            .Add(eachId, new(NodeTypes.ForEach, "1.0.0") { ArrayElementType = WorkflowDataTypes.String })
+            .Add(bodyId, new(NodeTypes.LoopBody, "1.0.0"))
+            .Add(itemsId, new(NodeTypes.ArrayLiteral, "1.0.0")
+            {
+                ArrayLiteral = new(WorkflowDataTypes.String, "[\"first\",\"second\"]")
+            });
+        var execution = definition.ExecutionConnections.Remove(executionConnectionId)
+            .Add(NewId("execution-link"), new(edge.Source, new(eachId, "execute"), "execution"))
+            .Add(NewId("execution-link"), new(new(eachId, "body"), new(bodyId, "execute"), "execution"))
+            .Add(NewId("execution-link"), new(new(bodyId, "then"), new(eachId, "feedback"), "execution"))
+            .Add(NewId("execution-link"), new(new(eachId, "completed"), edge.Target, "execution"));
+        var data = definition.Connections
+            .Add(NewId("link"), new(new(itemsId, "out"), new(eachId, "array"), "data"));
+
+        return WorkflowDraftEditing.ValidateEdit(Checked(definition with
+        {
+            Nodes = nodes,
+            Connections = data,
+            ExecutionConnections = execution
+        }));
+    }
+
     public static WorkflowDefinition InsertBoundedLoopAfter(WorkflowDefinition definition, string sourceId, string portId)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
