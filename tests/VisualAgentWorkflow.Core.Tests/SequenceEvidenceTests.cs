@@ -437,6 +437,70 @@ public sealed class SequenceEvidenceTests
             [started, dispatched with { ConnectionId = "connection-tampered" }], out _));
     }
 
+    private static ExecutionEvent[] AbandonedHistory(string terminalKind, string siblingKind = ExecutionEventKinds.SequenceOutputFailed)
+    {
+        var sequenceId = Guid.NewGuid();
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        return
+        [
+            Lifecycle(runId, revisionId, 1, ExecutionEventKinds.SequenceStarted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null)),
+            Lifecycle(runId, revisionId, 2, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+                new(sequenceId, "sequence", "first", 0, first, "connection-a")),
+            Lifecycle(runId, revisionId, 3, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+                new(sequenceId, "sequence", "second", 1, second, "connection-b")),
+            Lifecycle(runId, revisionId, 4, siblingKind, sequenceId,
+                new(sequenceId, "sequence", "first", 0, first, "connection-a")),
+            Lifecycle(runId, revisionId, 5, ExecutionEventKinds.SequenceOutputAbandoned, sequenceId,
+                new(sequenceId, "sequence", "second", 1, second, "connection-b")),
+            Lifecycle(runId, revisionId, 6, terminalKind, sequenceId, new(sequenceId, "sequence", null, null, null, null))
+        ];
+    }
+
+    [Fact]
+    public void Playback_reconstructs_an_abandoned_output_as_a_distinct_state_under_a_failed_sequence()
+    {
+        Assert.True(SequenceEvidence.TryReconstructPlayback(AbandonedHistory(ExecutionEventKinds.SequenceFailed),
+            out var snapshot));
+
+        Assert.Equal("failed", snapshot!.Status);
+        Assert.Equal(["failed", "abandoned"], snapshot.Outputs.Select(output => output.State));
+    }
+
+    [Fact]
+    public void A_sequence_whose_only_unsuccessful_output_is_abandoned_still_ends_failed()
+    {
+        var history = AbandonedHistory(ExecutionEventKinds.SequenceFailed, ExecutionEventKinds.SequenceOutputCompleted);
+
+        Assert.True(SequenceEvidence.TryReconstructPlayback(history, out var snapshot));
+        Assert.Equal("failed", snapshot!.Status);
+        Assert.Equal(["completed", "abandoned"], snapshot.Outputs.Select(output => output.State));
+    }
+
+    [Fact]
+    public void An_abandoned_output_cannot_be_hidden_under_a_cancelled_or_completed_sequence()
+    {
+        Assert.False(SequenceEvidence.TryReconstructPlayback(
+            AbandonedHistory(ExecutionEventKinds.SequenceCancelled, ExecutionEventKinds.SequenceOutputCancelled), out _));
+        Assert.False(SequenceEvidence.TryReconstructPlayback(
+            AbandonedHistory(ExecutionEventKinds.SequenceCompleted, ExecutionEventKinds.SequenceOutputCompleted), out _));
+    }
+
+    [Fact]
+    public void An_abandoned_output_must_have_been_dispatched_and_settles_only_once()
+    {
+        var history = AbandonedHistory(ExecutionEventKinds.SequenceFailed);
+        var duplicate = history.SelectMany((evt, index) => index == 4
+            ? new[] { evt, evt with { Sequence = 6 } }
+            : [evt with { Sequence = index < 4 ? evt.Sequence : evt.Sequence + 1 }]).ToArray();
+
+        Assert.False(SequenceEvidence.TryReconstructPlayback(duplicate, out _));
+        Assert.True(SequenceEvidence.IsLifecycleEvent(ExecutionEventKinds.SequenceOutputAbandoned));
+    }
+
     private static ExecutionEvent Lifecycle(Guid runId, Guid revisionId, long sequence, string kind, Guid invocationId,
         SequenceLifecycleEvidence evidence, string? scopeId = null) => new(runId, revisionId, sequence,
         DateTimeOffset.UtcNow, kind, evidence.SequenceNodeId, invocationId, evidence.ConnectionId,

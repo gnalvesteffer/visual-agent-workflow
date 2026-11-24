@@ -5895,3 +5895,66 @@ executor task. This had been the review's central unverified assumption.
 **Open for the user:** confirm that a new abandoned output state (a playback
 change) is acceptable, and that the default stays opt-in. Break drain ordering
 interacts with the same timer and is still open.
+
+### Bounded abandon implemented (2026-11-24)
+
+The user delegated the two open confirmations to judgment. Choices made, following
+the adjudicated review: add a **distinct abandoned output state** (not `failed`
+with a reason), and keep the bound **opt-in** with no public host option yet.
+
+**Contract (Core).** A new `sequence.output.abandoned` event settles a dispatched
+output whose executor never reported; playback reconstructs it as output state
+`abandoned`. A Sequence containing an abandoned output can end only as
+`SequenceFailed` (an unknown outcome is never completed or cancelled); playback
+rejects `SequenceCancelled` or `SequenceCompleted` over an abandoned output and
+rejects an abandoned output that was not dispatched or is settled twice. Older
+binaries do not know the kind, so a history containing it fails closed rather than
+being misread. No existing history contains the kind.
+
+**Runtime.**
+
+- `SequenceRuntimeCoordinator.AbandonOutputs()` records every unreported output as
+  abandoned (outputs whose call already settled keep their state), skips unstarted
+  ones, and ends the Sequence failed. A later report from an abandoned executor is
+  a no-op because its ledger entry is no longer dispatched. The coordinator raises
+  `AbandonableStop` once when a failure or cancel first stops admission.
+- `WorkflowRunner.SequenceAbandonGrace` (internal, `null` means unbounded, today's
+  behavior) starts a runner-owned timer at that signal. On expiry it abandons the
+  outputs, detaches the run's teardown, and cancels a linked observation token.
+- The root then ends `run.outcome-unknown`, **including when the host also
+  cancelled**: a host-cancel run first ended `run.cancelled` over an abandoned
+  output, which a regression test caught and which would have claimed more than is
+  known.
+- Teardown: a failing executor makes the run loop throw, and the run's disposal
+  (which blocks while an executor ignores its token, see the framework spike)
+  runs before any catch handler. Disposal therefore races a detach signal; once
+  detached it finishes in the background and its fault is ignored.
+- Late events from the orphaned executor are dropped without throwing after the
+  root terminal, so the stored history does not change when the executor is
+  eventually released.
+
+**Evidence (unit tests).** Coordinator tests cover abandon, late-report no-op and
+idempotence, failed termination after a prior host cancel, and the stop signal
+firing once and never for success. Four Core playback tests cover the new state and
+its terminal rules. Four runner tests cover: a hung token-ignoring tool abandoned
+after the grace with File and SQLite reopen and playback, and nothing written after
+releasing the orphan; a sibling that settles within the grace is not abandoned; and
+a host cancel with a hung sibling ending outcome-unknown. The Sequence selection
+passes 390/390 over five runs; the full Agent Framework suite passes 1249/1249 and
+Core passes 748/748.
+
+**Limits.**
+
+- The option is internal; hosts cannot opt in until a public option is reviewed. A
+  child workflow's own Sequence does not inherit the grace.
+- Abandoned executors' admission slots stay `Started` and appear in
+  `Outstanding()`; quiescence is not asserted on this path, and the activation
+  ledger's `ThrowIfActive` is not run. Their disposition is deliberate but
+  unreviewed.
+- The abandoned executor keeps running in-process (a leaked task); its side effects
+  may still land, which is why the outcome is recorded as unknown.
+- Whether run reconciliation treats a root outcome-unknown with an abandoned
+  Sequence output the way it treats a tool outcome-unknown was not verified.
+- A hung executor with no grace configured still blocks the Sequence terminal and
+  the root, as before. Break drain ordering and reconcile-or-suppress for recorder
+  faults remain open.

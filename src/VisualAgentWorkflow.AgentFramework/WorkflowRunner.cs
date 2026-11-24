@@ -35,6 +35,13 @@ public sealed record ParallelCollaborationRuntimeOptions(TimeSpan? DefaultTimeou
 public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null,
     ParallelCollaborationRuntimeOptions? collaborationOptions = null)
 {
+    /// <summary>
+    /// Opt-in bound (null means unbounded, today's behavior) on how long a production Sequence waits for in-flight
+    /// outputs after a failure or cancellation before recording them abandoned and ending the run outcome-unknown.
+    /// Internal until a public host option is reviewed (Decision 0070).
+    /// </summary>
+    internal TimeSpan? SequenceAbandonGrace { get; init; }
+
     public async Task<string> ExecuteAsync(Guid runId, WorkflowRevision revision, string input,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default) =>
         (await ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken)).Output ?? string.Empty;
@@ -384,6 +391,36 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         if (arrayIterationFeedbackProof is not null && sequencePlan is not null)
             throw new InvalidOperationException("The private feedback proof requires the ordinary graph builder.");
         Func<ValueTask>? abandonUnsettledSequenceOutputs = null;
+        Func<ValueTask>? abandonSequenceOutputsAfterGrace = null;
+        using var observationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var graceCts = new CancellationTokenSource();
+        var abandonedByGrace = 0;
+        DetachableRun? detachableRun = null;
+        void StartAbandonGrace()
+        {
+            if (SequenceAbandonGrace is not { } grace || grace <= TimeSpan.Zero) return;
+            _ = AbandonAfterGraceAsync(grace);
+        }
+
+        async Task AbandonAfterGraceAsync(TimeSpan grace)
+        {
+            try { await Task.Delay(grace, graceCts.Token); }
+            catch (OperationCanceledException) { return; }
+            try
+            {
+                if (abandonSequenceOutputsAfterGrace is not null) await abandonSequenceOutputsAfterGrace();
+            }
+            catch
+            {
+                // A recorder fault is already marked uncertain; observation must still end.
+            }
+            Volatile.Write(ref abandonedByGrace, 1);
+            // Teardown blocks on a running executor, so detach it before observation ends.
+            Volatile.Read(ref detachableRun)?.Detach();
+            try { observationCts.Cancel(); }
+            catch (ObjectDisposedException) { }
+        }
+
         var workflow = rootCoordinatorProof is not null ? null : sequencePlan is null
             ? BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 collaborationRuntime, variableStore, afterNodeStarted: afterNodeStarted,
@@ -393,7 +430,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, input, resolvedParameters, Emit,
                 activationFrameOwner.MarkRootEventRecorderUncertain, gate, rootRevision, workflowPath,
                 callScopeCancellation, afterNodeStarted, sequenceDispatchSession, dispatchAdmissionOwner,
-                abandon => abandonUnsettledSequenceOutputs = abandon);
+                abandon => abandonUnsettledSequenceOutputs = abandon, StartAbandonGrace,
+                abandonAfter => abandonSequenceOutputsAfterGrace = abandonAfter);
 
         if (emitRunLifecycle) await Emit(ExecutionEventKinds.Started);
         try
@@ -435,16 +473,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var execution = sequencePlan is not null || revision.Definition.Nodes.Values.Any(node => node?.Type == NodeTypes.ParallelFork)
                 ? InProcessExecution.Concurrent
                 : InProcessExecution.Default;
-            await using var run = await execution.RunStreamingAsync(workflow!,
+            var run = await execution.RunStreamingAsync(workflow!,
                 new GraphMessage(input, null, null, DataType: inputType,
                     ActivationFrame: activationFrame,
                     DispatchTicketId: dispatchAdmissionOwner?.Admit(sequencePlan?.SequenceNodeId ??
                         revision.Definition.EntryNodeId)), cancellationToken: cancellationToken);
+            await using var runLifetime = new DetachableRun(run);
+            Volatile.Write(ref detachableRun, runLifetime);
             using var cancellationRegistration = cancellationToken.Register(
                 static state => _ = CancelStreamingRunAsync((StreamingRun)state!), run);
             GraphMessage? output = null;
             GraphMessage? activationBreakOutput = null;
-            await foreach (var evt in run.WatchStreamAsync(cancellationToken))
+            await foreach (var evt in run.WatchStreamAsync(observationCts.Token))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (evt is WorkflowErrorEvent error)
@@ -461,6 +501,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
             // The framework may finish its event stream normally when the execution token is cancelled.
             cancellationToken.ThrowIfCancellationRequested();
+            if (Volatile.Read(ref abandonedByGrace) != 0) throw new OperationCanceledException(observationCts.Token);
             output = activationBreakOutput ?? output;
             if (output is null) throw new InvalidOperationException("The workflow produced no output.");
             dispatchAdmissionOwner?.EnsureQuiescent();
@@ -491,6 +532,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             activationLedger.ThrowIfActive();
             if (emitRunLifecycle) await Emit(ExecutionEventKinds.Completed, data: output.Text);
             return new(output.Text, false, HasOutput: true);
+        }
+        catch (Exception) when (Volatile.Read(ref abandonedByGrace) != 0)
+        {
+            if (activationFrameOwner.HasUncertainRootEventRecorder) throw;
+            // The Sequence recorded its unreported outputs as abandoned; the executors may still be running, so
+            // the run's real outcome is unknown, even when the host also cancelled: a cancelled root would claim
+            // more than is known. Late events from them are dropped once the terminal is recorded.
+            if (emitRunLifecycle)
+                await Emit(ExecutionEventKinds.OutcomeUnknown,
+                    data: "Workflow execution was abandoned after its cancel grace elapsed.");
+            activationFrameOwner.CloseLateEvents();
+            return new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -529,6 +582,38 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 await Emit(ExecutionEventKinds.Failed, data: FindWorkflowLoopBudgetFailure(exception)?.Message ??
                     "Workflow execution failed.");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Disposes a streaming run, or, once detached, lets disposal and cancellation finish in the background. Agent
+    /// Framework 1.26.0 blocks both while an executor ignores its token, so abandoning a run must not await them.
+    /// </summary>
+    private sealed class DetachableRun(StreamingRun run) : IAsyncDisposable
+    {
+        private readonly TaskCompletionSource detachSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int detached;
+
+        public void Detach()
+        {
+            if (Interlocked.Exchange(ref detached, 1) != 0) return;
+            _ = CancelStreamingRunAsync(run);
+            detachSignal.TrySetResult();
+        }
+
+        /// <summary>
+        /// Disposes the run. Disposal can already be blocked on a running executor when the abandon timer fires, so it
+        /// races the detach signal: once detached, disposal finishes in the background and its fault is ignored.
+        /// </summary>
+        public async ValueTask DisposeAsync()
+        {
+            var disposal = run.DisposeAsync().AsTask();
+            if (Volatile.Read(ref detached) == 0 && await Task.WhenAny(disposal, detachSignal.Task) == disposal)
+            {
+                await disposal;
+                return;
+            }
+            _ = disposal.ContinueWith(static task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);
         }
     }
 
@@ -915,9 +1000,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             eventWriter = new SequencedExecutionEventWriter(ownerRunId, ownerRevisionId, AcceptEventAsync, ledger);
         }
 
+        private int lateEventsClosed;
+
+        /// <summary>Drops every later event; used once an abandoned run has recorded its terminal.</summary>
+        public void CloseLateEvents() => Volatile.Write(ref lateEventsClosed, 1);
+
         public async ValueTask RecordEventAsync(string kind, string? nodeId = null, Guid? invocationId = null,
             string? connectionId = null, string? data = null, string? scopeId = null)
         {
+            if (Volatile.Read(ref lateEventsClosed) != 0) return;
             var writer = eventWriter
                 ?? throw new InvalidOperationException("The activation owner has no root event recorder.");
             await writer.RecordAsync(kind, nodeId, invocationId, scopeId, data, connectionId);

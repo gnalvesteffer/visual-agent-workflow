@@ -64,6 +64,7 @@ internal sealed class ExecutionActivationLedger
                 case ExecutionEventKinds.SequenceOutputCompleted:
                 case ExecutionEventKinds.SequenceOutputFailed:
                 case ExecutionEventKinds.SequenceOutputCancelled:
+                case ExecutionEventKinds.SequenceOutputAbandoned:
                     if (!activeSequenceOutputs.TryGetValue(key, out var activeWork) || activeWork != work)
                         throw new InvalidOperationException(
                             "Sequence output settlement does not match accepted active work. " +
@@ -118,7 +119,8 @@ internal sealed class ExecutionActivationLedger
                 if (executionEvent.Kind == ExecutionEventKinds.SequenceOutputDispatched)
                     activeSequenceOutputs.Add(sequenceKey, sequenceWork);
                 else if (executionEvent.Kind is ExecutionEventKinds.SequenceOutputCompleted or
-                         ExecutionEventKinds.SequenceOutputFailed or ExecutionEventKinds.SequenceOutputCancelled)
+                         ExecutionEventKinds.SequenceOutputFailed or ExecutionEventKinds.SequenceOutputCancelled or
+                         ExecutionEventKinds.SequenceOutputAbandoned)
                     activeSequenceOutputs.Remove(sequenceKey);
             }
         }
@@ -197,7 +199,7 @@ internal sealed class ExecutionActivationLedger
         work = default!;
         if (executionEvent.Kind is not (ExecutionEventKinds.SequenceOutputDispatched or
             ExecutionEventKinds.SequenceOutputCompleted or ExecutionEventKinds.SequenceOutputFailed or
-            ExecutionEventKinds.SequenceOutputCancelled)) return false;
+            ExecutionEventKinds.SequenceOutputCancelled or ExecutionEventKinds.SequenceOutputAbandoned)) return false;
         if (!SequenceEvidence.TryRead(executionEvent, out var evidence) || evidence is null ||
             evidence.OutputId is null || evidence.Ordinal is not { } ordinal || ordinal < 0 ||
             evidence.ActivationId is not { } activationId || activationId == Guid.Empty ||

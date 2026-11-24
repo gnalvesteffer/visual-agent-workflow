@@ -99,6 +99,8 @@ public static class ExecutionEventKinds
     public const string SequenceOutputFailed = "sequence.output.failed";
     public const string SequenceOutputCancelled = "sequence.output.cancelled";
     public const string SequenceOutputSkipped = "sequence.output.skipped";
+    /// <summary>An output whose executor never reported: its real outcome is unknown, not failed or cancelled.</summary>
+    public const string SequenceOutputAbandoned = "sequence.output.abandoned";
     public const string SequenceBreakAccepted = "sequence.break_accepted";
     public const string SequenceCompleted = "sequence.completed";
     public const string SequenceBreakCompleted = "sequence.break_completed";

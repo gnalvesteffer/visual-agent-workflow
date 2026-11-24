@@ -57,6 +57,7 @@ public static class SequenceEvidence
         ExecutionEventKinds.SequenceOutputFailed,
         ExecutionEventKinds.SequenceOutputCancelled,
         ExecutionEventKinds.SequenceOutputSkipped,
+        ExecutionEventKinds.SequenceOutputAbandoned,
         ExecutionEventKinds.SequenceCompleted,
         ExecutionEventKinds.SequenceBreakCompleted,
         ExecutionEventKinds.SequenceFailed,
@@ -164,6 +165,7 @@ public static class SequenceEvidence
                 case ExecutionEventKinds.SequenceOutputCompleted:
                 case ExecutionEventKinds.SequenceOutputFailed:
                 case ExecutionEventKinds.SequenceOutputCancelled:
+                case ExecutionEventKinds.SequenceOutputAbandoned:
                     if (evidence.ActivationId is not { } terminalActivation ||
                         !activeActivations.TryGetValue(terminalActivation, out var terminalOrdinal) ||
                         evidence.OutputId is null || evidence.Ordinal != terminalOrdinal ||
@@ -173,6 +175,7 @@ public static class SequenceEvidence
                     {
                         ExecutionEventKinds.SequenceOutputCompleted => "completed",
                         ExecutionEventKinds.SequenceOutputFailed => "failed",
+                        ExecutionEventKinds.SequenceOutputAbandoned => "abandoned",
                         _ => "cancelled"
                     };
                     outputs[terminalOrdinal] = dispatched with { State = outputState };
@@ -209,12 +212,15 @@ public static class SequenceEvidence
                     terminal = true;
                     break;
                 case ExecutionEventKinds.SequenceFailed:
-                    if (activeActivations.Count != 0 || !outputs.Values.Any(output => output.State == "failed")) return false;
+                    // An abandoned output's outcome is unknown, so it can end a Sequence only as failed.
+                    if (activeActivations.Count != 0 ||
+                        !outputs.Values.Any(output => output.State is "failed" or "abandoned")) return false;
                     status = "failed";
                     terminal = true;
                     break;
                 case ExecutionEventKinds.SequenceCancelled:
-                    if (activeActivations.Count != 0 || !outputs.Values.Any(output => output.State is "cancelled" or "skipped")) return false;
+                    if (activeActivations.Count != 0 || outputs.Values.Any(output => output.State == "abandoned") ||
+                        !outputs.Values.Any(output => output.State is "cancelled" or "skipped")) return false;
                     status = "cancelled";
                     terminal = true;
                     break;

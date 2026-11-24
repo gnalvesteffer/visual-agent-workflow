@@ -1783,6 +1783,161 @@ public sealed class SequenceProductionRunnerTests
         lock (owners) Assert.All(owners, owner => Assert.Empty(owner.Outstanding()));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Unified_production_sequence_hung_sibling_is_abandoned_after_the_grace_and_the_run_ends_outcome_unknown(
+        bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-abandon-grace");
+        using var runStore = new ReopenableRunStore(revision, "sequence input", sqlite);
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // The tool holds until released and never observes its cancellation token.
+        var broker = new SequencePathBroker((_, _) => release.Task);
+        var agent = new SiblingRaceAgentExecutor(broker.Started.Task, failOnRelease: true);
+        var timeline = new ConcurrentQueue<(string Kind, string NodeId)>();
+        var recorded = new List<ExecutionEvent>();
+        var recordLock = new object();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            lock (recordLock)
+            {
+                runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+                recorded.Add(evt);
+            }
+            if (evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is { } nodeId)
+                timeline.Enqueue(("started", nodeId));
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(broker, agent) { SequenceAbandonGrace = TimeSpan.FromMilliseconds(300) }
+            .ExecuteWithProductionDispatchAdmissionProofAsync(runStore.RunId, revision, "sequence input",
+                ticket => timeline.Enqueue(("admitted", ticket.TargetNodeId)), Record);
+        await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        agent.ReleaseFailure();
+
+        // The hung tool never settles, yet the bounded abandon lets the run return.
+        WorkflowExecutionResult result;
+        try { result = await execution.WaitAsync(TimeSpan.FromSeconds(10)); }
+        catch (TimeoutException)
+        {
+            string[] kinds;
+            lock (recordLock) kinds = recorded.Select(evt => $"{evt.Kind}:{evt.NodeId}").ToArray();
+            throw new Xunit.Sdk.XunitException("The run did not return after the abandon grace. Recorded: " +
+                string.Join(" | ", kinds));
+        }
+
+        Assert.True(result.Failed);
+        Assert.True(result.OutcomeUnknown);
+        AssertEveryStartedExecutorWasAdmitted(timeline);
+        ExecutionEvent[] atReturn;
+        lock (recordLock) atReturn = [.. recorded];
+        var rootTerminal = Assert.Single(atReturn, evt => evt.NodeId is null && evt.Kind is
+            ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+            ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown);
+        Assert.Equal(ExecutionEventKinds.OutcomeUnknown, rootTerminal.Kind);
+        var abandoned = Assert.Single(atReturn, evt => evt.Kind == ExecutionEventKinds.SequenceOutputAbandoned);
+        Assert.Equal("architecture", ReadEvidence(abandoned).OutputId);
+        Assert.Contains(atReturn, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+            ReadEvidence(evt).OutputId == "inventory");
+        var sequenceTerminal = Assert.Single(atReturn, evt => evt.Kind is ExecutionEventKinds.SequenceCompleted or
+            ExecutionEventKinds.SequenceFailed or ExecutionEventKinds.SequenceCancelled);
+        Assert.Equal(ExecutionEventKinds.SequenceFailed, sequenceTerminal.Kind);
+        Assert.True(abandoned.Sequence < sequenceTerminal.Sequence && sequenceTerminal.Sequence < rootTerminal.Sequence);
+        Assert.DoesNotContain(atReturn, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled);
+        // The abandoned executor was started and never reported before the terminal.
+        Assert.Contains(atReturn, evt => evt.NodeId == "architecture-tool" && evt.Kind == ExecutionEventKinds.NodeStarted);
+        Assert.DoesNotContain(atReturn, evt => evt.NodeId == "architecture-tool" && evt.Kind is
+            ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
+
+        // Releasing the orphan afterwards must not add events, throw into the caller, or disturb the stored history.
+        release.TrySetResult("{}");
+        await Task.Delay(300);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(atReturn, reopened.Events);
+        Assert.Equal(Enumerable.Range(1, reopened.Events.Length).Select(value => (long)value),
+            reopened.Events.Select(evt => evt.Sequence));
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("failed", playback!.Status);
+        Assert.Equal(["failed", "abandoned"], playback.Outputs.Select(output => output.State));
+    }
+
+    [Fact]
+    public async Task Unified_production_sequence_sibling_that_settles_within_the_grace_is_not_abandoned()
+    {
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-abandon-grace-not-needed");
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var broker = new SequencePathBroker((_, _) => release.Task);
+        var agent = new SiblingRaceAgentExecutor(broker.Started.Task, failOnRelease: true);
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var execution = new WorkflowRunner(broker, agent) { SequenceAbandonGrace = TimeSpan.FromSeconds(30) }
+            .ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(), revision, "sequence input", _ => { },
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; });
+        await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        agent.ReleaseFailure();
+        await Task.Delay(100);
+        release.TrySetResult("{}");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => execution.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var recorded = events.ToArray();
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputAbandoned);
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown);
+        Assert.Single(recorded, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Failed);
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+    }
+
+    [Fact]
+    public async Task Unified_production_sequence_host_cancel_with_a_hung_sibling_ends_outcome_unknown_after_the_grace()
+    {
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-abandon-grace-host-cancel");
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var broker = new SequencePathBroker((_, _) => release.Task);
+        var agent = new SequenceProofAgentExecutor(blockUntilCancellation: true);
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        using var cancellation = new CancellationTokenSource();
+
+        var execution = new WorkflowRunner(broker, agent) { SequenceAbandonGrace = TimeSpan.FromMilliseconds(300) }
+            .ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(), revision, "sequence input", _ => { },
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }, cancellation.Token);
+        await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+
+        WorkflowExecutionResult result;
+        try { result = await execution.WaitAsync(TimeSpan.FromSeconds(10)); }
+        catch (Exception exception) when (exception is not Xunit.Sdk.XunitException)
+        {
+            throw new Xunit.Sdk.XunitException($"Unexpected {exception.GetType().Name}. Recorded: " +
+                string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}")));
+        }
+
+        var recorded = events.ToArray();
+        Assert.True(result.OutcomeUnknown);
+        Assert.Equal(ExecutionEventKinds.OutcomeUnknown,
+            Assert.Single(recorded, evt => evt.NodeId is null && evt.Kind is ExecutionEventKinds.Completed or
+                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated or
+                ExecutionEventKinds.OutcomeUnknown).Kind);
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceOutputAbandoned);
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        release.TrySetResult("{}");
+        await Task.Delay(200);
+        Assert.Equal(recorded.Length, events.Count);
+    }
+
     private sealed record AdmittedRun(WorkflowExecutionResult Result, ExecutionEvent[] Events,
         (string Kind, string NodeId)[] Timeline);
 

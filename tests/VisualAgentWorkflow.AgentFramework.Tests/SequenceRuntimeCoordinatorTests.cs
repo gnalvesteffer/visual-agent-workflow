@@ -433,4 +433,81 @@ public sealed class SequenceRuntimeCoordinatorTests
         Assert.True(coordinator.IsTerminal);
         Assert.Contains("sequence.output.cancelled:second", Kinds(coordinator));
     }
+
+    [Fact]
+    public void Abandoning_records_unreported_outputs_as_abandoned_and_ends_the_sequence_failed()
+    {
+        var coordinator = Drained("first", "second", "third");
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        coordinator.DispatchNext(first);
+        coordinator.DispatchNext(second);
+        coordinator.Complete(first, SequenceTerminalState.Failed);
+
+        coordinator.AbandonOutputs();
+
+        var kinds = Kinds(coordinator);
+        Assert.Contains("sequence.output.abandoned:second", kinds);
+        Assert.Contains("sequence.output.skipped:third", kinds);
+        Assert.DoesNotContain(kinds, kind => kind.StartsWith("sequence.output.cancelled", StringComparison.Ordinal));
+        Assert.True(coordinator.IsTerminal);
+        Assert.Equal(ExecutionEventKinds.SequenceFailed, coordinator.Events[^1].Kind);
+    }
+
+    [Fact]
+    public void A_late_report_after_abandoning_is_ignored_and_abandoning_again_repeats_nothing()
+    {
+        var coordinator = Drained("first", "second");
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        coordinator.DispatchNext(first);
+        coordinator.DispatchNext(second);
+        coordinator.Complete(first, SequenceTerminalState.Failed);
+        coordinator.AbandonOutputs();
+        var before = coordinator.Events.Count;
+
+        coordinator.Complete(second, SequenceTerminalState.Completed);
+        coordinator.AbandonOutputs();
+
+        Assert.Equal(before, coordinator.Events.Count);
+        Assert.DoesNotContain("sequence.output.completed:second", Kinds(coordinator));
+        Assert.Single(Kinds(coordinator), kind => kind == "sequence.failed:");
+    }
+
+    [Fact]
+    public void An_abandoned_output_ends_the_sequence_failed_even_after_a_host_cancel()
+    {
+        var coordinator = Drained("first", "second");
+        coordinator.DispatchNext(Guid.NewGuid());
+        coordinator.DispatchNext(Guid.NewGuid());
+        coordinator.CancelPending();
+
+        coordinator.AbandonOutputs();
+
+        Assert.Equal(["sequence.output.abandoned:first", "sequence.output.abandoned:second", "sequence.failed:"],
+            Kinds(coordinator).Skip(3).ToArray());
+    }
+
+    [Fact]
+    public void The_abandonable_stop_signal_fires_once_for_a_failure_or_cancel_and_never_for_success()
+    {
+        var signals = 0;
+        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence", ["first", "second"],
+            new Dictionary<string, string> { ["first"] = "c1", ["second"] = "c2" })
+        {
+            DrainInFlightOutputs = true,
+            AbandonableStop = () => signals++
+        };
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        coordinator.DispatchNext(first);
+        coordinator.DispatchNext(second);
+
+        coordinator.Complete(first, SequenceTerminalState.Completed);
+        Assert.Equal(0, signals);
+
+        coordinator.Complete(second, SequenceTerminalState.Failed);
+        coordinator.CancelPending();
+        Assert.Equal(1, signals);
+    }
 }

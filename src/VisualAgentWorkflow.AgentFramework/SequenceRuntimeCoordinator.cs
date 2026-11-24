@@ -24,6 +24,13 @@ internal sealed class SequenceRuntimeCoordinator
     private bool terminalEventRecorded;
     private bool breakCompletionRequested;
     private bool admissionStopped;
+    private bool abandonableStopSignalled;
+
+    /// <summary>
+    /// Raised once, under the coordinator lock, when a failed or cancelled output first stops admission while
+    /// outputs may still be in flight. The handler must only start a timer and must not call back in.
+    /// </summary>
+    public Action? AbandonableStop { get; init; }
     private Guid? activeEventDeliveryId;
     private ImmutableArray<SequenceRuntimeEvent> activeEventDelivery = [];
     private int activeEventDeliveryOffset;
@@ -223,6 +230,7 @@ internal sealed class SequenceRuntimeCoordinator
             {
                 admissionStopped = true;
                 this.terminalState ??= terminalState;
+                SignalAbandonableStop();
             }
             var terminalKind = terminalState switch
             {
@@ -328,6 +336,7 @@ internal sealed class SequenceRuntimeCoordinator
             {
                 // Dispatched outputs stay open until their executors report; only outputs that never
                 // started are skipped now.
+                SignalAbandonableStop();
                 ProjectSettledPending();
                 terminalState ??= SequenceTerminalState.Cancelled;
                 RecordSkippedOutputs(ledger.SkipPending());
@@ -350,6 +359,41 @@ internal sealed class SequenceRuntimeCoordinator
             if (ledger.IsTerminal) return;
             CancelEveryPendingUnderLock();
         }
+    }
+
+    /// <summary>
+    /// Records every output that has not reported as abandoned (its outcome is unknown) and ends the Sequence
+    /// failed. Outputs whose call already settled keep their settled state, and a later report from an abandoned
+    /// executor is ignored because its ledger entry is no longer dispatched.
+    /// </summary>
+    public void AbandonOutputs()
+    {
+        lock (gate)
+        {
+            admissionStopped = true;
+            if (ledger.IsTerminal) return;
+            ProjectSettledPending();
+            foreach (var pending in ledger.Snapshot
+                         .Where(item => item.State == SequenceActivationState.Dispatched && item.ActivationId is not null)
+                         .ToArray())
+            {
+                // The ledger only tracks that the output is settled; the recorded kind carries the unknown outcome.
+                ledger.RecordTerminal(pending.ActivationId!.Value, SequenceTerminalState.Failed);
+                Add(new(ExecutionEventKinds.SequenceOutputAbandoned, sequenceNodeId, sequenceInvocationId,
+                    pending.OutputId, pending.Ordinal, pending.ActivationId, connectionIds[pending.OutputId]));
+            }
+            RecordSkippedOutputs(ledger.SkipPending());
+            // An unknown outcome can only end the Sequence as failed, whatever stopped admission first.
+            terminalState = SequenceTerminalState.Failed;
+            RecordTerminalIfComplete();
+        }
+    }
+
+    private void SignalAbandonableStop()
+    {
+        if (abandonableStopSignalled) return;
+        abandonableStopSignalled = true;
+        AbandonableStop?.Invoke();
     }
 
     private void CancelEveryPendingUnderLock()
