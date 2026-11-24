@@ -56,7 +56,9 @@ public sealed class StoreAppendFailureTests
             new WorkflowRunner(BrokerTests.CreateBroker(registrations)).ExecuteWithOutcomeAsync(
                 limitedRunId, revision, "unused", null, recorder.RecordAsync));
 
-        Assert.Contains("evidence budget", failure.ToString(), StringComparison.OrdinalIgnoreCase);
+        // The broker and runner deliberately redact the recorder's message, so the rejection is proven by the
+        // persisted, not-dispatched tool failure rather than by exception text.
+        Assert.IsType<ToolInvocationException>(failure.InnerException);
         var events = recorder.Snapshot();
         var persisted = limitedStore.Get(limitedRunId)!;
         Assert.Equal("failed", persisted.Status);
@@ -66,7 +68,8 @@ public sealed class StoreAppendFailureTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ToolRequested);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
         Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolUncertain);
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed);
+        using (var toolFailure = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed).Data!))
+            Assert.Equal("tool.host_failure", toolFailure.RootElement.GetProperty("failureCode").GetString());
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed);
         Assert.Equal(0, recorder.PendingOutcomeReservations);
         Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
@@ -359,6 +362,10 @@ public sealed class StoreAppendFailureTests
             ExecutionEventKinds.ToolFailed,
             ExecutionEventKinds.NodeFailed,
             ExecutionEventKinds.SequenceOutputFailed,
+            // Sequence teardown after a failed branch closes sibling outputs; that evidence exists only on the
+            // failure path, so it spends the failure reserve rather than the ordinary budget.
+            ExecutionEventKinds.SequenceOutputCancelled,
+            ExecutionEventKinds.SequenceOutputAbandoned,
             ExecutionEventKinds.SequenceFailed,
             ExecutionEventKinds.Failed
         ];
