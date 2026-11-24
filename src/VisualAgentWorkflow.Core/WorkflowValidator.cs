@@ -1001,7 +1001,9 @@ public static class WorkflowValidator
                     $"A bounded Loop body may contain at most {LoopVariableTopologyAnalyzer.MaximumBodyNodes} nodes.");
             foreach (var bodyNodeId in region.BodyNodeIds)
                 if (!definition.Nodes.TryGetValue(bodyNodeId, out var bodyNode) || bodyNode is null ||
-                    !supportedBodyNodes.Contains(bodyNode.Type))
+                    !supportedBodyNodes.Contains(bodyNode.Type) &&
+                    !(definition.Nodes[region.LoopNodeId].Type == NodeTypes.ForEach &&
+                        bodyNode.Type is NodeTypes.Condition or NodeTypes.BooleanBranch or NodeTypes.Break))
                     error("loop.body.node", $"nodes.{bodyNodeId}",
                         "A bounded Loop body may contain supported processing nodes and nested Loops.");
         }

@@ -813,6 +813,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             builder.AddEdge<GraphMessage>(executors[breakNodeId], executors[outputId], message =>
                 message?.SourceNode == breakNodeId &&
                 message.ActivationBreakRequest?.SourceNodeId == breakNodeId);
+        // A Break continues on its enclosing For each's completed edges; the message carries the owner as its source.
+        foreach (var breakNode in definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.Break))
+        {
+            var breakPlan = activationGraphPlan ?? activationFrameOwner.Plan;
+            if (breakPlan is null || !breakPlan.OwningLoopByBodyNodeId.TryGetValue(breakNode.Key, out var ownerId)) continue;
+            foreach (var completedEdge in executionEdges.Where(edge => edge.Source.NodeId == ownerId && edge.Source.PortId == "completed"))
+                builder.AddEdge<GraphMessage>(executors[breakNode.Key], executors[completedEdge.Target.NodeId], message =>
+                    message?.SourceNode == ownerId && message.SourcePort == "completed");
+        }
         builder.WithOutputFrom(executors[outputId]);
         return builder.Build();
     }
@@ -979,6 +988,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             maximumLoopActivations = proofMaximumLoopActivations ?? derivedMaximum;
         }
 
+        public StructuredActivationGraphPlan? Plan => plan;
         public WorkflowArrayEvidenceBudget EvidenceBudget { get; }
         public WorkflowLoopExecutionBudget LoopExecutionBudget => loopExecutionBudget;
         public WorkflowLoopPassBudget LoopPassBudget => loopPassBudget;
@@ -2887,7 +2897,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(Id, message),
                     NodeTypes.BooleanBranch => string.Empty,
-                    NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.LoopBody or NodeTypes.VariableGet or NodeTypes.VariableSet => message,
+                    NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.Break or NodeTypes.LoopBody or NodeTypes.VariableGet or NodeTypes.VariableSet => message,
                     NodeTypes.Terminate => string.Empty,
                     NodeTypes.JsonSelectString => SelectJsonText(message, node.JsonPropertySelection!.Pointer),
                     NodeTypes.JsonProject => ProjectJson(message, node.JsonProjection!),
@@ -3045,6 +3055,27 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var nextLoopIteration = received.LoopIteration;
                 var loopIterationForEvidence = received.LoopIteration;
                 var nextActivationFrame = received.ActivationFrame;
+                string? continuationSource = null;
+                if (node.Type == NodeTypes.Break)
+                {
+                    // A Break ends its enclosing For each. The validator guarantees a linear body path, so the
+                    // pass frame is the For each's own frame and nothing else can be in flight inside it.
+                    var passFrame = received.ActivationFrame
+                        ?? throw new InvalidOperationException($"Break '{Id}' ran outside a For each pass.");
+                    continuationSource = passFrame.LoopNodeId;
+                    if (!revision.Definition.Nodes.TryGetValue(continuationSource, out var breakOwner) || breakOwner?.Type != NodeTypes.ForEach)
+                        throw new InvalidOperationException($"Break '{Id}' is not inside a For each pass.");
+                    activationFrameOwner?.EnsureFrameSettled(passFrame.ScopeId, received.DispatchTicketId);
+                    loopIterationForEvidence = passFrame.Index;
+                    await Emit(ExecutionEventKinds.LoopIterationCompleted, continuationSource, invocation, null,
+                        JsonSerializer.Serialize(new { iteration = passFrame.Index, outcome = "break" }), passFrame.ScopeId);
+                    port = "completed";
+                    dataEvaluator?.PromoteRuntimeOutputs(passFrame, passFrame.Parent);
+                    nextActivationFrame = passFrame.Parent ?? passFrame;
+                    nextLoopIteration = passFrame.Parent?.Index ?? 0;
+                    await Emit(ExecutionEventKinds.LoopStopped, continuationSource, invocation, null,
+                        JsonSerializer.Serialize(new { reason = "break", iterations = passFrame.Index }));
+                }
                 if (node.Type == NodeTypes.ForEach)
                 {
                     var elementType = node.ArrayElementType ?? WorkflowDataTypes.Json;
@@ -3286,7 +3317,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var next = revision.Definition.ExecutionConnections?.Values.FirstOrDefault(edge =>
                     edge.Source.NodeId == Id && edge.Source.PortId == port);
                 boundaryTracker?.PublishTransition(Id, port, next?.Target.NodeId, next?.Target.PortId, nextLoopIteration);
-                return new(result, internalTerminationHandoff ? received.SourceNode : Id, terminated ? "terminated" : port, permit, outputType, nextLoopIteration,
+                return new(result, continuationSource ?? (internalTerminationHandoff ? received.SourceNode : Id), terminated ? "terminated" : port, permit, outputType, nextLoopIteration,
                     terminated, failureSignal, received.ParallelActivationId, received.ParallelBranchId, received.ParallelForkNodeId,
                     ParallelForkLineage: received.ParallelForkLineage,
                     SequenceLineage: received.SequenceLineage, HasValue: resultAvailable,

@@ -206,6 +206,84 @@ public sealed class ForEachNodeTests
         Assert.Equal(WorkflowDataTypes.String, same.Nodes["each"].ArrayElementType);
     }
 
+    /// <summary>each.body → anchor → condition; true → break, false → step → feedback.</summary>
+    private static WorkflowDefinition BreakWorkflow(Func<ImmutableSortedDictionary<string, NodeDefinition>.Builder, ImmutableSortedDictionary<string, NodeDefinition>.Builder>? nodes = null,
+        Func<ImmutableSortedDictionary<string, ConnectionDefinition>, ImmutableSortedDictionary<string, ConnectionDefinition>>? execution = null) =>
+        Workflow(nodes: builder =>
+        {
+            builder["cond"] = new(NodeTypes.Condition, "1.0.0") { Condition = new("contains", "stop") };
+            builder["break"] = new(NodeTypes.Break, "1.0.0");
+            nodes?.Invoke(builder);
+            return builder;
+        }, data: edges => edges.Add("item-cond", Data("each", "item", "cond", "in")),
+        execution: edges =>
+        {
+            var wired = edges.Remove("body-step")
+                .Add("body-cond", Execution("body", "then", "cond", "execute"))
+                .Add("cond-break", Execution("cond", "true", "break", "execute"))
+                .Add("cond-step", Execution("cond", "false", "step", "execute"));
+            return execution?.Invoke(wired) ?? wired;
+        });
+
+    [Fact]
+    public void A_break_on_one_branch_of_a_linear_for_each_body_validates()
+    {
+        Assert.Empty(WorkflowValidator.Validate(BreakWorkflow()));
+    }
+
+    [Fact]
+    public void A_break_in_a_workflow_with_no_for_each_is_rejected()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("break", new(NodeTypes.Break, "1.0.0"))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "lonely-break", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.Add("data", Data("input", "out", "output", "in")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("start", Execution("input", "then", "break", "execute"))
+        };
+
+        Assert.NotEmpty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void A_break_outside_any_for_each_body_is_rejected()
+    {
+        var definition = BreakWorkflow(execution: edges => edges.Remove("cond-break")
+            .Add("stray", Execution("input", "then", "break", "execute")));
+
+        Assert.NotEmpty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void A_break_after_a_fork_join_in_the_body_is_rejected_as_nonlinear()
+    {
+        var branches = ImmutableArray.Create(new ParallelBranchDescriptor("a", "A", "anchor-a"),
+            new ParallelBranchDescriptor("b", "B", "anchor-b"));
+        var definition = BreakWorkflow(nodes: nodes =>
+        {
+            nodes["fork"] = new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(branches) };
+            nodes["join"] = new(NodeTypes.ParallelJoin, "1.0.0") { ParallelJoin = new("fork", ["a", "b"]) };
+            nodes["anchor-a"] = new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("fork", "a") };
+            nodes["anchor-b"] = new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("fork", "b") };
+            nodes["agent-a"] = new(NodeTypes.Agent, "1.0.0", Agent: new("fixture", null, "A", []));
+            nodes["agent-b"] = new(NodeTypes.Agent, "1.0.0", Agent: new("fixture", null, "B", []));
+            return nodes;
+        }, execution: edges => edges.Remove("body-cond")
+            .Add("body-fork", Execution("body", "then", "fork", "execute"))
+            .Add("fork-a", Execution("fork", ParallelBranchLimits.PinId("a"), "anchor-a", "execute"))
+            .Add("fork-b", Execution("fork", ParallelBranchLimits.PinId("b"), "anchor-b", "execute"))
+            .Add("anchor-a-agent", Execution("anchor-a", "then", "agent-a", "execute"))
+            .Add("anchor-b-agent", Execution("anchor-b", "then", "agent-b", "execute"))
+            .Add("agent-a-join", Execution("agent-a", "out", "join", ParallelBranchLimits.PinId("a")))
+            .Add("agent-b-join", Execution("agent-b", "out", "join", ParallelBranchLimits.PinId("b")))
+            .Add("join-cond", Execution("join", "then", "cond", "execute")));
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "foreach.break.nonlinear");
+    }
+
     private static void PortOf(WorkflowNodeDescriptor descriptor, string id, WorkflowPortDirection direction,
         WorkflowPortKind kind, out WorkflowPortDescriptor port) =>
         port = Assert.Single(descriptor.Ports, candidate => candidate.Id == id && candidate.Direction == direction &&

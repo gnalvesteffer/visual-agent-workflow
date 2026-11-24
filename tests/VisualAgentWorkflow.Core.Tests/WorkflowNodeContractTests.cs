@@ -273,6 +273,7 @@ public sealed class WorkflowNodeContractTests
             [NodeTypes.Merge] = ("merge", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("then", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)]),
             [NodeTypes.Approval] = ("approval", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("then", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)]),
             [NodeTypes.Loop] = ("loop", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("body", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String), ("done", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("feedback", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("body", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null), ("done", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)]),
+            [NodeTypes.Break] = ("break", [("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null)]),
             [NodeTypes.LoopBody] = ("loop-body", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("then", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)]),
             [NodeTypes.BooleanBranch] = ("boolean-branch", [("condition", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Boolean), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("true", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null), ("false", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)])
         };
@@ -480,7 +481,7 @@ public sealed class WorkflowNodeContractTests
         {
             NodeTypes.JsonSelectString, NodeTypes.JsonProject, NodeTypes.TextTemplate,
             NodeTypes.Condition, NodeTypes.Merge, NodeTypes.Approval, NodeTypes.Loop,
-            NodeTypes.LoopBody
+            NodeTypes.Break, NodeTypes.LoopBody
         };
 
         foreach (var nodeType in fixedFamilies)

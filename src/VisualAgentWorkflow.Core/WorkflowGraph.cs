@@ -112,7 +112,7 @@ internal static class WorkflowPortShapeCatalog
     public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Loop or NodeTypes.ForEach => ["execute", "feedback"],
-        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.Output or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet => ["execute"],
+        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.Output or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Break => ["execute"],
         NodeTypes.ParallelJoin when node.ParallelJoin is { BranchIds.IsDefault: false } join => [.. join.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         _ => []

@@ -197,4 +197,41 @@ public sealed class ForEachExecutionTests
             Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopStopped));
         }
     }
+
+    /// <summary>For Each over [a,b,c]; the body breaks when the item contains "b", otherwise runs the agent.</summary>
+    private static WorkflowDefinition BreakWorkflow()
+    {
+        var definition = Workflow(WorkflowDataTypes.String, "[\"a\",\"b\",\"c\"]", outputFromAgent: false);
+        return definition with
+        {
+            Nodes = definition.Nodes
+                .SetItem("cond", new(NodeTypes.Condition, "1.0.0") { Condition = new("contains", "b") })
+                .SetItem("break", new(NodeTypes.Break, "1.0.0")),
+            Connections = definition.Connections.Add("item-cond", new(new("each", "item"), new("cond", "in"), "data")),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("process")
+                .Add("body-cond", new(new("body", "then"), new("cond", "execute"), "execution"))
+                .Add("cond-break", new(new("cond", "true"), new("break", "execute"), "execution"))
+                .Add("cond-agent", new(new("cond", "false"), new("agent", "execute"), "execution"))
+        };
+    }
+
+    [Fact]
+    public async Task A_break_ends_the_for_each_early_and_continues_on_completed()
+    {
+        var agent = new RecordingAgent();
+
+        var (result, events) = await RunAsync(BreakWorkflow(), agent);
+
+        Assert.False(result.Failed);
+        Assert.Equal(["a0"], agent.Inputs);
+        lock (events)
+        {
+            Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+            Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
+            var stopped = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopStopped);
+            Assert.Contains("\"reason\":\"break\"", stopped.Data);
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
+        }
+    }
 }

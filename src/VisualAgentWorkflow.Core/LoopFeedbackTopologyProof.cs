@@ -118,6 +118,7 @@ internal static class LoopFeedbackTopologyProofAnalyzer
         var activeLoops = new HashSet<string>(StringComparer.Ordinal);
         var analyzedLoops = new HashSet<string>(StringComparer.Ordinal);
         var visitedBreakNodes = new HashSet<string>(StringComparer.Ordinal);
+        var visitedForEachBreaks = new HashSet<string>(StringComparer.Ordinal);
 
         bool AnalyzeRegion(string loopId, string? parentLoopId)
         {
@@ -231,6 +232,21 @@ internal static class LoopFeedbackTopologyProofAnalyzer
 
                 if (HasRole(current, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopBodyEntryInput) && current != loopAnchors[loopId])
                     Issue("loop.feedback.anchor", $"nodes.{current}", "A body anchor must have one owning loop.");
+
+                if (node.Type == NodeTypes.Break)
+                {
+                    visitedForEachBreaks.Add(current);
+                    if (definition.Nodes[loopId].Type != NodeTypes.ForEach)
+                        Issue("foreach.break.outside", $"nodes.{current}", "A Break is legal only inside a For each body.");
+                    else if (path.Any(id => definition.Nodes.TryGetValue(id, out var onPath) &&
+                                 onPath?.Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or
+                                     NodeTypes.ParallelRendezvous or NodeTypes.Sequence or NodeTypes.Loop or NodeTypes.ForEach))
+                        Issue("foreach.break.nonlinear", $"nodes.{current}",
+                            "A Break requires a strictly linear For each body path with no fork, join, sequence or nested loop before it.");
+                    if ((outgoing.GetValueOrDefault(current) ?? []).Length > 0)
+                        Issue("foreach.break.terminal", $"nodes.{current}", "A Break has no outputs.");
+                    continue;
+                }
 
                 if (HasRole(current, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopBreakInput))
                 {
@@ -406,6 +422,11 @@ internal static class LoopFeedbackTopologyProofAnalyzer
 
         foreach (var loopId in loops.Where(id => !analyzedLoops.Contains(id)))
             Issue("loop.feedback.unreachable", $"nodes.{loopId}", "Every loop must be reachable from the root loop through one owning body.");
+
+        foreach (var breakNodeId in definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Break)
+                     .Select(pair => pair.Key).Where(nodeId => !visitedForEachBreaks.Contains(nodeId))
+                     .Order(StringComparer.Ordinal))
+            Issue("foreach.break.outside", $"nodes.{breakNodeId}", "A Break is legal only inside a For each body.");
 
         foreach (var breakNodeId in pinDescriptors.Keys
                      .Where(nodeId => HasRole(nodeId, WorkflowPortDirection.Input, WorkflowExecutionPinRole.LoopBreakInput))

@@ -463,6 +463,7 @@ public static class WorkflowNodeDescriptorRegistry
         Descriptor(NodeTypes.Merge, "merge", [ManyInput("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.0"),
         Descriptor(NodeTypes.Approval, "approval", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.0"),
         Descriptor(NodeTypes.Loop, "loop", [OptionalInput("in", WorkflowDataTypes.String), Output("body", WorkflowDataTypes.String), Output("done", WorkflowDataTypes.String), ExecutionInput("execute", WorkflowExecutionPinRole.LoopInitialInput), ExecutionInput("feedback", WorkflowExecutionPinRole.LoopFeedbackInput), ExecutionOutput("body", WorkflowExecutionPinRole.LoopBodyOutput), ExecutionOutput("done", WorkflowExecutionPinRole.LoopDoneOutput)], "1.0"),
+        Descriptor(NodeTypes.Break, "break", [ExecutionInput("execute")], "1.0"),
         Descriptor(NodeTypes.LoopBody, "loop-body", [OptionalInput("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute", WorkflowExecutionPinRole.LoopBodyEntryInput), ExecutionOutput("then")], "1.45"),
         Descriptor(NodeTypes.BooleanBranch, "boolean-branch", [
             Input("condition", WorkflowDataTypes.Boolean),

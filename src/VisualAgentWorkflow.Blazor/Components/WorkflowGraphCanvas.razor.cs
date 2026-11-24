@@ -158,7 +158,7 @@ public partial class WorkflowGraphCanvas
         NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval",
         NodeTypes.ParallelFork => "Parallel fork", NodeTypes.ParallelBranch => "Parallel branch", NodeTypes.ParallelJoin => "Parallel join", NodeTypes.ParallelRendezvous => "Parallel rendezvous",
         NodeTypes.Sequence => "Sequence",
-        NodeTypes.Loop => "Bounded loop", NodeTypes.ForEach => "For each", NodeTypes.LoopBody => "Loop body", NodeTypes.Terminate => "Terminate workflow",
+        NodeTypes.Loop => "Bounded loop", NodeTypes.ForEach => "For each", NodeTypes.Break => "Break", NodeTypes.LoopBody => "Loop body", NodeTypes.Terminate => "Terminate workflow",
         NodeTypes.WorkflowCall => $"Workflow · {node.WorkflowCall?.WorkflowId} v{node.WorkflowCall?.Version}",
         NodeTypes.WorkflowInterfaceCall => WorkflowInterfaceCallLabel(node),
         NodeTypes.StringConstant => "String constant", NodeTypes.TextConcat => "Text concatenation",
