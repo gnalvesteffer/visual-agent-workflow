@@ -5337,3 +5337,33 @@ barrier. The focused Agent Framework unit test passes. This remains proof-only
 coordinator evidence; it does not show that an authored iterator node owns
 production scheduler admission or that persisted playback/recovery supports
 the combined path.
+
+### Ordinary production graph dispatch admission tickets (2026-11-23)
+
+Following the three-role **REVISE** verdict above, the first requested gate now
+has a narrow unit proof in the normally validated ordinary `BuildWorkflow`
+root path. A run-local `WorkflowDispatchAdmissionOwner` issues a ticket before
+the entry Input starts and before each downstream executor can start. Receivers
+consume a matching one-use ticket before the node handler emits its start event
+or performs node work. Ordinary returned-message routes carry tickets in the
+private `GraphMessage` envelope; explicit Fork fan-out, Join batch-finished
+continuations, and collaboration rendezvous continuations are also ticketed
+before `IWorkflowContext.SendMessageAsync`. Successful root completion asserts
+that every admitted ticket settled.
+
+This proof confirms an important Agent Framework 1.26.0 routing distinction:
+the framework automatically routes an executor's returned message along an
+ordinary edge, so that path does not pass through the executor's explicit
+`SendMessageAsync` callback. A deterministic test uses a normally validated
+Input → Fork → two Anchors → two Agents → Join → Output graph and verifies
+ticket-before-start ordering, both Join arrivals, and complete drain. A
+separate controlled rejection proves the target Agent never starts without
+admission.
+
+This is evidence for the first ordinary-root gate, not selection of the full
+runtime architecture. The owner is not enabled for Sequence-selected runs or
+private proof runners; it does not yet establish public For Each/Break,
+activation-local settlement, shared cross-path budgets, crash recovery, or
+file/SQLite persistence and passive playback. Continue with Sequence routing
+and settlement under the same owner, then failure/cancellation and persistence
+proofs, before another architecture review or public authoring contract.

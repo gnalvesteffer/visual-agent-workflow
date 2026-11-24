@@ -599,7 +599,18 @@ ownership or persistence/playback for the combined path.
   2026-11-23 returned REVISE on the VAW-owner-over-existing-builders candidate:
   ordinary held-sibling settlement is now covered by unit proof, but shared
   ownership across Sequence execution and passive persistence/playback remain
-  unproven. A three-role review on 2026-11-19
+  unproven. The first adjudicated gate now has production-path unit evidence:
+  the ordinary root `BuildWorkflow` issues run-local admission tickets before
+  executor start, including returned-message routes and explicit Fork, Join,
+  and collaboration sends; receivers validate and settle tickets, and
+  successful root completion requires quiescence. A validated Fork/Join graph
+  proves ticket-before-start ordering and rejects a target before its start
+  when admission fails. Focused `WorkflowDispatchAdmissionOwnerTests` pass 2/2;
+  the adjacent runner selection passes 53/53. This does not qualify Sequence
+  dispatch, persistence/playback, shared budgets, or public For Each/Break.
+  The next gate is to prove Sequence routing/settlement under the same owner,
+  then failure/cancellation races and file/SQLite playback, before another
+  architecture review. A three-role review on 2026-11-19
   returned REVISE and authorized only proof work: a conditional Sequence route
   may end in nearest-loop Break without a Merge or workflow Output arrival, but
   public admission still depends on unique ownership, production settlement,

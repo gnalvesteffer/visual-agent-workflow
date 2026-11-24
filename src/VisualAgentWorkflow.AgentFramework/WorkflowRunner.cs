@@ -96,6 +96,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             proofMaximumLoopActivations: maximumLoopActivations);
     }
 
+    internal Task<WorkflowExecutionResult> ExecuteWithProductionDispatchAdmissionProofAsync(Guid runId,
+        WorkflowRevision revision, string input, Action<WorkflowDispatchAdmissionOwner.Ticket> onAdmitted,
+        Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(onAdmitted);
+        ArgumentNullException.ThrowIfNull(record);
+        return ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken,
+            workflowDispatchAdmissionObserver: onAdmitted);
+    }
+
     internal Task<WorkflowExecutionResult> ExecuteWithLoopBudgetsProofAsync(Guid runId,
         WorkflowRevision revision, string input, int maximumLoopPasses, int maximumLoopEvidenceEvents,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default)
@@ -305,7 +315,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Func<StructuredActivationFrameOwner,
             Func<string, string?, Guid?, string?, string?, string?, ValueTask>, Action, CancellationToken,
             Task<WorkflowExecutionResult>>? rootCoordinatorProof = null,
-        ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null)
+        ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null,
+        Action<WorkflowDispatchAdmissionOwner.Ticket>? workflowDispatchAdmissionObserver = null)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -341,6 +352,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         sequencePlan ??= CreateSequenceProductionPlan(revision);
         workflowPath = workflowPath.IsDefault ? [] : workflowPath;
         var activationLedger = new ExecutionActivationLedger();
+        var usesProductionRootDispatcher = !skipValidationForInternalProof && activationFrame is null &&
+            rootCoordinatorProof is null && arrayIterationFeedbackProof is null && proofBreakNodeIds is null;
+        var dispatchAdmissionOwner = sequencePlan is null && usesProductionRootDispatcher
+            ? new WorkflowDispatchAdmissionOwner(workflowDispatchAdmissionObserver)
+            : null;
         using var activationFrameOwner = new StructuredActivationFrameOwner(
             activationGraphPlan, activationFrame, revision.Definition,
             proofMaximumLoopActivations: proofMaximumLoopActivations,
@@ -367,7 +383,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             ? BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 collaborationRuntime, variableStore, afterNodeStarted: afterNodeStarted,
                 proofBreakNodeIds: proofBreakNodeIds, activationFrameOwner: activationFrameOwner,
-                arrayIterationFeedbackProof: arrayIterationFeedbackProof)
+                arrayIterationFeedbackProof: arrayIterationFeedbackProof,
+                dispatchAdmissionOwner: dispatchAdmissionOwner)
             : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, input, resolvedParameters, Emit,
                 activationFrameOwner.MarkRootEventRecorderUncertain, gate, rootRevision, workflowPath,
                 callScopeCancellation, afterNodeStarted, sequenceDispatchSession);
@@ -414,7 +431,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 : InProcessExecution.Default;
             await using var run = await execution.RunStreamingAsync(workflow!,
                 new GraphMessage(input, null, null, DataType: inputType,
-                    ActivationFrame: activationFrame), cancellationToken: cancellationToken);
+                    ActivationFrame: activationFrame,
+                    DispatchTicketId: dispatchAdmissionOwner?.Admit(revision.Definition.EntryNodeId)), cancellationToken: cancellationToken);
             using var cancellationRegistration = cancellationToken.Register(
                 static state => _ = CancelStreamingRunAsync((StreamingRun)state!), run);
             GraphMessage? output = null;
@@ -438,6 +456,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             cancellationToken.ThrowIfCancellationRequested();
             output = activationBreakOutput ?? output;
             if (output is null) throw new InvalidOperationException("The workflow produced no output.");
+            dispatchAdmissionOwner?.EnsureQuiescent();
             if (gate is not null) await gate.WaitForBoundaryAsync(null, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             if (output.ActivationBreakRequest is { } activationBreak)
@@ -621,7 +640,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         IReadOnlySet<string>? proofBreakNodeIds = null,
         StructuredActivationGraphPlan? activationGraphPlan = null,
         StructuredActivationFrameOwner? activationFrameOwner = null,
-        ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null)
+        ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null,
+        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null)
     {
         var definition = revision.Definition;
         var executionEdges = WorkflowSchemaVersions.UsesExplicitGraph(definition)
@@ -643,6 +663,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 variableEvidenceUsesActivationScope: false,
                 activationFrameOwner: activationFrameOwner,
                 arrayIterationFeedbackProof: arrayIterationFeedbackProof,
+                dispatchAdmissionOwner: dispatchAdmissionOwner,
                 parallelJoinContinuationTarget: definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
                     n.Value.Type == NodeTypes.ParallelJoin
                     ? executionEdges.Single(edge => edge.Source.NodeId == n.Key && edge.Source.PortId == "then").Target.NodeId
@@ -663,7 +684,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     .Where(edge => edge.Source.NodeId == rendezvousId)
                     .ToDictionary(edge => edge.Source.PortId["branch.".Length..], edge => edge.Target.NodeId, StringComparer.Ordinal);
                 executors[rendezvousId] = new ParallelCollaborationRendezvousExecutor(
-                    rendezvousId, phase, region, arrivals, destinations, emit, collaborationRuntime);
+                    rendezvousId, phase, region, arrivals, destinations, emit, collaborationRuntime,
+                    dispatchAdmissionOwner);
             }
         }
         var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
@@ -708,7 +730,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         StructuredActivationFrame? ActivationFrame = null,
         ParallelCollaborationRuntime? CollaborationRuntime = null,
         StructuredActivationBreakRequest? ActivationBreakRequest = null,
-        SequenceAggregateCompletionSignal? SequenceAggregateCompletion = null);
+        SequenceAggregateCompletionSignal? SequenceAggregateCompletion = null,
+        Guid? DispatchTicketId = null);
 
     private sealed record ArrayIterationFeedbackProof(string LoopNodeId, int ItemCount,
         string IndexParameterId);
@@ -1316,6 +1339,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private readonly IReadOnlyDictionary<string, string> branchDestinations;
         private readonly Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit;
         private readonly ParallelCollaborationRuntime runtime;
+        private readonly WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner;
         private readonly object sync = new();
         private readonly Dictionary<string, GraphMessage> arrivals = new(StringComparer.Ordinal);
         private readonly Dictionary<string, Guid> arrivalInvocations = new(StringComparer.Ordinal);
@@ -1323,7 +1347,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         public ParallelCollaborationRendezvousExecutor(string id, string phase, ParallelCollaborationRegion region,
             IReadOnlyDictionary<string, string> arrivalSources, IReadOnlyDictionary<string, string> branchDestinations,
             Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
-            ParallelCollaborationRuntime runtime) : base(id, declareCrossRunShareable: true)
+            ParallelCollaborationRuntime runtime, WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner) : base(id, declareCrossRunShareable: true)
         {
             executorId = id;
             this.phase = phase;
@@ -1332,11 +1356,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             this.branchDestinations = branchDestinations;
             this.emit = emit;
             this.runtime = runtime;
+            this.dispatchAdmissionOwner = dispatchAdmissionOwner;
         }
 
         public override async ValueTask<GraphMessage> HandleAsync(GraphMessage message, IWorkflowContext context,
             CancellationToken cancellationToken = default)
         {
+            dispatchAdmissionOwner?.Begin(message.DispatchTicketId, executorId);
             var branchId = message.ParallelBranchId ?? throw new InvalidOperationException("A collaboration arrival has no stable branch ID.");
             if (!arrivalSources.TryGetValue(branchId, out var expectedSource) || message.SourceNode != expectedSource ||
                 message.ParallelForkNodeId != region.ForkNodeId || message.ParallelActivationId != runtime.RegionInvocationId)
@@ -1368,13 +1394,23 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         throw new InvalidOperationException($"The collaboration branch '{branch.BranchId}' has no post-rendezvous route.");
                     var branchIndex = region.Branches.IndexOf(branch);
                     var source = allArrivals[branchIndex];
-                    await context.SendMessageAsync(source with
+                    var continuation = source with
                     {
                         SourceNode = executorId,
                         SourcePort = $"{ExecutorPinPrefix}{branch.BranchId}",
                         CollaborationTargetBranchId = branch.BranchId,
-                        CollaborationTransition = true
-                    }, target, cancellationToken);
+                        CollaborationTransition = true,
+                        DispatchTicketId = dispatchAdmissionOwner?.Admit(target)
+                    };
+                    try
+                    {
+                        await context.SendMessageAsync(continuation, target, cancellationToken);
+                    }
+                    catch
+                    {
+                        if (continuation.DispatchTicketId is { } ticketId) dispatchAdmissionOwner!.Revoke(ticketId);
+                        throw;
+                    }
                     await emit(ExecutionEventKinds.NodeCompleted, executorId, allInvocations[branchIndex],
                         $"collaboration:{branch.BranchId}", runtime.IsPhased ? $"The {phase} snapshot was released." : "The shared snapshot was released.", null);
                 }
@@ -1389,6 +1425,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             {
                 await emit(ExecutionEventKinds.NodeFailed, executorId, invocationId, null, "Collaboration rendezvous failed.", null);
                 throw;
+            }
+            finally
+            {
+                dispatchAdmissionOwner?.Settle(message.DispatchTicketId, executorId);
             }
         }
     }
@@ -2080,7 +2120,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         bool variableEvidenceUsesActivationScope = true,
         StructuredActivationFrameOwner? activationFrameOwner = null,
         string? parallelJoinContinuationTarget = null,
-        ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null)
+        ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null,
+        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -2218,16 +2259,77 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     dataEvaluator!.SetRuntimeOutput(Id, "out", "json", document.RootElement.Clone());
                 await Emit(ExecutionEventKinds.NodeCompleted, Id, completion.InvocationId,
                     data: completion.Result, eventScope: completion.Message.ActivationFrame?.ScopeId);
-                await context.SendMessageAsync(completion.Message,
-                    parallelJoinContinuationTarget ?? throw new InvalidOperationException("The parallel Join continuation is missing."),
-                    cancellationToken);
+                var target = parallelJoinContinuationTarget ??
+                    throw new InvalidOperationException("The parallel Join continuation is missing.");
+                var continuation = completion.Message with
+                {
+                    DispatchTicketId = dispatchAdmissionOwner?.Admit(target)
+                };
+                try
+                {
+                    await context.SendMessageAsync(continuation, target, cancellationToken);
+                }
+                catch
+                {
+                    if (continuation.DispatchTicketId is { } ticketId) dispatchAdmissionOwner!.Revoke(ticketId);
+                    throw;
+                }
             }
         }
 
         public override ValueTask<GraphMessage> HandleAsync(GraphMessage received, IWorkflowContext context,
-            CancellationToken cancellationToken = default) =>
-            HandleCoreAsync(received, (message, target, token) => context.SendMessageAsync(message, target, token),
-                cancellationToken, deferUnifiedJoinCommitToReceiverBatch: true);
+            CancellationToken cancellationToken = default) => HandleWithAdmissionAsync(received, context, cancellationToken);
+
+        private async ValueTask<GraphMessage> HandleWithAdmissionAsync(GraphMessage received,
+            IWorkflowContext context, CancellationToken cancellationToken)
+        {
+            dispatchAdmissionOwner?.Begin(received.DispatchTicketId, Id);
+            try
+            {
+                async ValueTask Dispatch(GraphMessage outgoing, string target, CancellationToken token)
+                {
+                    var message = outgoing;
+                    Guid? ticket = null;
+                    if (dispatchAdmissionOwner is not null)
+                    {
+                        ticket = dispatchAdmissionOwner.Admit(target);
+                        message = outgoing with { DispatchTicketId = ticket };
+                    }
+                    try
+                    {
+                        await context.SendMessageAsync(message, target, token);
+                    }
+                    catch
+                    {
+                        if (ticket is { } ticketId) dispatchAdmissionOwner!.Revoke(ticketId);
+                        throw;
+                    }
+                }
+
+                var completed = await HandleCoreAsync(received, Dispatch, cancellationToken,
+                    deferUnifiedJoinCommitToReceiverBatch: true);
+                if (dispatchAdmissionOwner is not null && ResolveContinuationTarget(completed) is { } target)
+                    completed = completed with { DispatchTicketId = dispatchAdmissionOwner.Admit(target) };
+                return completed;
+            }
+            finally
+            {
+                dispatchAdmissionOwner?.Settle(received.DispatchTicketId, Id);
+            }
+        }
+
+        private string? ResolveContinuationTarget(GraphMessage message)
+        {
+            if (node.Type == NodeTypes.Output) return null;
+            if (message.ActivationBreakRequest is not null || message.TerminationSignal)
+                return revision.Definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Output).Key;
+            if (message.SourceNode is null || message.SourcePort is null) return null;
+            var edges = WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition)
+                ? revision.Definition.ExecutionConnections!.Values
+                : revision.Definition.Connections.Values;
+            return edges.SingleOrDefault(edge => edge.Source.NodeId == message.SourceNode &&
+                edge.Source.PortId == message.SourcePort)?.Target.NodeId;
+        }
 
         /// <summary>Invokes node behavior while leaving all execution-edge scheduling to the caller.</summary>
         public ValueTask<GraphMessage> HandleForStructuredSchedulerAsync(GraphMessage received,
