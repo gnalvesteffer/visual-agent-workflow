@@ -1690,7 +1690,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             {
                 if (!definition.Nodes.TryGetValue(nodeId, out var node) || node is null)
                     throw new InvalidOperationException("Pure data source is unavailable.");
-                var activationKey = (activeFrame.Value?.Id, nodeId, outputPort);
+                // A For Each's item and index belong to its own pass frame; nested frames read them from that ancestor.
+                var ownerFrame = activeFrame.Value;
+                if (node.Type == NodeTypes.ForEach)
+                    while (ownerFrame is not null && ownerFrame.LoopNodeId != nodeId) ownerFrame = ownerFrame.Parent;
+                var activationKey = ((node.Type == NodeTypes.ForEach ? ownerFrame : activeFrame.Value)?.Id, nodeId, outputPort);
                 if (runtimeValues.TryGetValue(activationKey, out var runtimeValue))
                 {
                     cache.Add(key, runtimeValue);

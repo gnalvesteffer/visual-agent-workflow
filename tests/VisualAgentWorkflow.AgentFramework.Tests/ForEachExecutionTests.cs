@@ -138,4 +138,63 @@ public sealed class ForEachExecutionTests
 
         Assert.NotNull(failure);
     }
+
+    /// <summary>Outer For Each over ["x","y"]; each pass runs an inner For Each over ["1","2"] whose body records outer+inner item.</summary>
+    private static WorkflowDefinition NestedWorkflow()
+    {
+        var nodes = new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["outer-items"] = new(NodeTypes.ArrayLiteral, "1.0.0") { ArrayLiteral = new(WorkflowDataTypes.String, "[\"x\",\"y\"]") },
+            ["inner-items"] = new(NodeTypes.ArrayLiteral, "1.0.0") { ArrayLiteral = new(WorkflowDataTypes.String, "[\"1\",\"2\"]") },
+            ["outer"] = new(NodeTypes.ForEach, "1.0.0") { ArrayElementType = WorkflowDataTypes.String },
+            ["inner"] = new(NodeTypes.ForEach, "1.0.0") { ArrayElementType = WorkflowDataTypes.String },
+            ["outer-body"] = new(NodeTypes.LoopBody, "1.0.0"),
+            ["inner-body"] = new(NodeTypes.LoopBody, "1.0.0"),
+            ["agent"] = new(NodeTypes.Agent, "1.0.0", Agent: new("fixture", null, "Process input", [])),
+            ["text"] = new(NodeTypes.TextConcat, "1.0.0"),
+            ["done-text"] = new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("done") },
+            ["output"] = new(NodeTypes.Output, "1.0.0")
+        };
+        var data = new Dictionary<string, ConnectionDefinition>
+        {
+            ["outer-array"] = new(new("outer-items", "out"), new("outer", "array"), "data"),
+            ["inner-array"] = new(new("inner-items", "out"), new("inner", "array"), "data"),
+            ["outer-item"] = new(new("outer", "item"), new("text", "left"), "data"),
+            ["inner-item"] = new(new("inner", "item"), new("text", "right"), "data"),
+            ["text-agent"] = new(new("text", "out"), new("agent", "in"), "data"),
+            ["result"] = new(new("done-text", "out"), new("output", "in"), "data")
+        };
+        return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "for-each-nested", "input",
+            nodes.ToImmutableSortedDictionary(), data.ToImmutableSortedDictionary())
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["start"] = new(new("input", "then"), new("outer", "execute"), "execution"),
+                ["outer-start"] = new(new("outer", "body"), new("outer-body", "execute"), "execution"),
+                ["enter-inner"] = new(new("outer-body", "then"), new("inner", "execute"), "execution"),
+                ["inner-start"] = new(new("inner", "body"), new("inner-body", "execute"), "execution"),
+                ["process"] = new(new("inner-body", "then"), new("agent", "execute"), "execution"),
+                ["inner-return"] = new(new("agent", "out"), new("inner", "feedback"), "execution"),
+                ["outer-return"] = new(new("inner", "completed"), new("outer", "feedback"), "execution"),
+                ["complete"] = new(new("outer", "completed"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+    }
+
+    [Fact]
+    public async Task A_for_each_nested_in_a_for_each_runs_its_full_inner_array_for_every_outer_item()
+    {
+        var agent = new RecordingAgent();
+
+        var (result, events) = await RunAsync(NestedWorkflow(), agent);
+
+        Assert.False(result.Failed);
+        Assert.Equal(["x1", "x2", "y1", "y2"], agent.Inputs);
+        lock (events)
+        {
+            Assert.Equal(6, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+            Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopStopped));
+        }
+    }
 }
