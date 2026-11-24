@@ -635,7 +635,14 @@ ownership or persistence/playback for the combined path.
   Sequence fault consistency go to the next architecture review. Four shape
   tests now run a direct-MCP-then-Agent path, a transform chain, a pinned
   WorkflowCall branch, and a JSON chain through the admission seam; WorkflowCall
-  children remain outside the observer, and Break in Sequence is untested here. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  children remain outside the observer, and Break in Sequence is untested here.
+  A three-agent settlement-rule review on 2026-11-23 returned **REVISE** on one
+  identical rule across paths: scope child ticketing first (with a quiescence
+  probe), then gate Sequence output records and terminals on descendant
+  settlement with a bounded abandon, then replace blanket recorder-fault
+  suppression with reconcile-or-suppress. It needs a user decision on an
+  always-on Sequence owner and the unreadable-store policy; no architecture is
+  selected. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   Before the failure/cancellation additions, the focused selection including
   `SequenceProductionRunnerTests`, ordinary dispatch proofs, and adjacent
   runner/loop cases passed 124/124 on 2026-11-23. The latest targeted owner and

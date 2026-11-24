@@ -5516,3 +5516,81 @@ the claim. Break in Sequence remains outside this seam. Mutable variables inside
 Fork/Sequence, the Join duplicate-arrival production race, and cross-path
 shared budgets remain open, and the shared-budget owner and any Break-in-Sequence
 ticket model still need three-role adjudication.
+
+### Settlement-rule architecture review (2026-11-23)
+
+A clean-context proponent, opponent, and adjudicator (three distinct agents;
+the first two worked independently and the adjudicator saw both) reviewed one
+candidate: apply a single settlement rule identically to the ordinary and
+Sequence production paths, made of (1) activation-scoped terminals recorded only
+after every admitted descendant settles, (2) any recorder failure marks the root
+uncertain and suppresses all later events everywhere, and (3) the root admission
+owner is threaded into nested WorkflowCall child runners. The adjudicator
+returned **REVISE: split the candidate; do not adopt one identical rule.** The
+proponent had read only part of the sources and ran nothing; the adjudicator
+verified the points below in code but not every branch.
+
+**Confirmed by the adjudicator (with code references):**
+
+- The admission owner exists only when the run is ordinary or an observer is
+  passed (`WorkflowRunner.cs:355-358`), so Sequence ticketing is observer-only
+  and "the owner already counts tickets" does not hold for production Sequence
+  runs. `EnsureQuiescent` throws (`WorkflowRunner.cs:461`), so making the owner
+  always-on would turn latent settlement bugs into failures on existing
+  published revisions.
+- The nested child runner passes no owner or observer (`WorkflowRunner.cs:3269`);
+  children get their own separate owner when they are non-Sequence.
+- Production ordinary runs do not mark the recorder uncertain; only the Sequence
+  and structured-proof paths do (`WorkflowRunner.cs:2143` is proof-only). The
+  suppression mechanism exists (`AcceptEventAsync`).
+- The stores arbitrate by expected-sequence compare-and-swap
+  (`RunStoreRecords.cs:34-41`): a follow-up after a rejected append reuses the
+  number and is accepted (an honest `failed` tail), and after a committed append
+  with a lost acknowledgement it collides and is rejected (history stays
+  `running`). Neither writes a false settlement, so blanket suppression would
+  turn recoverable failed runs into orphaned running runs, and reconciliation is
+  out of scope.
+- Sequence playback appears not to depend on node-level `NodeCancelled` order;
+  it only rejects events after a terminal. Draining first would therefore not
+  invalidate old histories. This is likely but not proven for every branch.
+
+**Not verified:** that the Sequence records a held sibling's output as
+cancelled before its executor settles (taken from the unit-test observation, not
+traced in the coordinator); the shared-budget interaction with child
+ticketing.
+
+**Direction to follow, in this order:**
+
+1. **Child ticketing, scoped.** First add an internal ticket-quiescence probe
+   (no test can observe ticket state today). Then thread the owner into nested
+   runners as a child-scope participant with root-only or per-scope
+   quiescence, qualify coverage per child (legacy or non-production child
+   schemas are not ticketed), and cover child failure and cancellation.
+2. **Drain before activation terminal, narrowed.** The drain must gate the
+   Sequence's output-cancelled/failed records as well as its terminal, since an
+   output recorded cancelled while its executor can still complete is the real
+   fabricated settlement. It needs a bounded cancel grace that ends in the
+   existing outcome-unknown vocabulary, never a fabricated cancel and never a
+   hang that blocks later iterator items. Break must drain before
+   `SequenceBreakCompleted` with output-skipped records still ahead of the
+   terminal.
+3. **Recorder faults: reconcile, not suppress.** Drop "suppress everywhere" and
+   "no sequence-number reuse". On any recorder failure mark the root uncertain,
+   then read the store tail: a known prefix allows a CAS-protected terminal at
+   tail+1, an unreadable tail suppresses. If the runner cannot gain a clean
+   store read, keep today's ordinary behavior and pin it with tests.
+
+**Prove first (unit tests only):** the ticket-quiescence probe on the Sequence
+and child paths; a sibling-race test asserting the terminal and output records
+follow sibling settlement or an explicit abandon record on a hung executor; a
+hung non-cancellable executor test that bounds the drain; a parameterized
+rejected-versus-lost-acknowledgement test over both paths pinning current
+behavior before any change; a held-child quiescence test; and replay of old
+sibling-race fixtures through playback.
+
+**Needs a user decision before implementation:** (a) whether the Sequence
+owner becomes always-on for production runs, with abandon on drain timeout,
+which changes terminal timing; (b) the ordinary-path policy when the store tail
+is unreadable: orphaned `running` or a failed-with-reconcile outcome. Neither
+conflicts with the no-schema, no-capability-gate rule, and public For Each and
+Break stay gated. This review selects no runtime architecture.
