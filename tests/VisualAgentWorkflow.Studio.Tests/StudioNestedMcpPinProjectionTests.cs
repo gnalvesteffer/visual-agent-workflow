@@ -19,7 +19,7 @@ public sealed class StudioNestedMcpPinProjectionTests
         var method = typeof(WorkflowEditor).GetMethod("McpInputPorts", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
         var pins = Assert.IsType<ImmutableArray<McpInputPortDefinition>>(
-            method.Invoke(null, [binding, true]));
+            method.Invoke(null, [binding, true, new VisualAgentWorkflow.Mcp.McpInputPortFactory()]));
         var node = new NodeDefinition(NodeTypes.McpTool, "1.0.0",
             new ToolBindingRequest(binding.BindingId, binding.ContractHash)) { McpInputPorts = pins };
 

@@ -136,3 +136,14 @@ Approval-wrapped direct MCP calls remain excluded until Decision
 0075 defines the protected exact-action payload lifecycle. This bounded
 increment does not establish array-item pins, unrestricted JSON Schema support,
 end-to-end secrecy, or full Blueprint parity.
+
+## Layering repair (2026-11-24)
+
+Integrating nested pins made the embeddable Blazor editor reference the MCP adapter
+project directly, which broke the architecture rule that embeddable components depend
+only on Core (`ArchitectureBoundaryTests`, two failures). The editor now consumes a
+Core capability, `IMcpInputPortFactory`, resolved optionally from the host's service
+provider; `McpInputPortFactory` in the MCP project implements it and Studio registers
+it. A host that registers none gets only top-level MCP argument pins. The Blazor
+project no longer references the MCP project. Behavior in Studio is unchanged; the
+Hosting suite passes 286/286 and the Studio nested-pin projection test passes.

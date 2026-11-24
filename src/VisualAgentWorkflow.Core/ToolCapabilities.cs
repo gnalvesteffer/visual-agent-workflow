@@ -20,6 +20,16 @@ public sealed record ToolBindingDescriptor(string BindingId, string DisplayName,
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? DescriptionHash { get; init; }
 }
 
+/// <summary>
+/// Optional authoring capability that derives bounded nested-argument input pins from an MCP input schema. The
+/// embeddable editor consumes it through this Core contract; the MCP adapter project implements it, so the editor
+/// never references MCP infrastructure. A host that registers none simply gets no nested pins.
+/// </summary>
+public interface IMcpInputPortFactory
+{
+    System.Collections.Immutable.ImmutableArray<McpInputPortDefinition> CreateNestedInputPorts(System.Text.Json.JsonElement schema);
+}
+
 public interface IToolBindingCatalog
 {
     Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default);

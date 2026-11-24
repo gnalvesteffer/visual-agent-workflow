@@ -997,6 +997,9 @@
     [Parameter] public WorkflowLayout? Layout { get; set; }
     [Parameter] public EventCallback<WorkflowLayout> LayoutChanged { get; set; }
     [Inject] private IJSRuntime JavaScript { get; set; } = default!;
+    [Inject] private IServiceProvider EditorServices { get; set; } = default!;
+    // Optional host capability: without it the editor offers only top-level MCP argument pins.
+    private IMcpInputPortFactory? NestedInputPortFactory => EditorServices.GetService(typeof(IMcpInputPortFactory)) as IMcpInputPortFactory;
     [Parameter] public bool LayoutReadOnly { get; set; }
     [Parameter] public bool HideNodeLibrary { get; set; }
     private bool showNodeLibrary;
@@ -1410,7 +1413,7 @@
     };
     private static string ToolInputSummary(ToolBindingDescriptor binding) => binding.InputSummary;
     private static System.Collections.Immutable.ImmutableArray<McpInputPortDefinition> McpInputPorts(
-        ToolBindingDescriptor binding, bool supportsUnifiedFeatures)
+        ToolBindingDescriptor binding, bool supportsUnifiedFeatures, IMcpInputPortFactory? nestedFactory)
     {
         try
         {
@@ -1422,8 +1425,8 @@
                 : new HashSet<string>(StringComparer.Ordinal);
             var topLevel = properties.EnumerateObject().Select(property => new McpInputPortDefinition(
                 $"arg.{property.Name}", property.Name, McpPortDataType(property.Value, supportsUnifiedFeatures), required.Contains(property.Name))).ToArray();
-            var nested = supportsUnifiedFeatures
-                ? VisualAgentWorkflow.Mcp.McpToolInputSchemas.CreateNestedInputPorts(document.RootElement)
+            var nested = supportsUnifiedFeatures && nestedFactory is not null
+                ? nestedFactory.CreateNestedInputPorts(document.RootElement)
                 : [];
             if (nested.IsDefaultOrEmpty) return [.. topLevel];
 
@@ -1490,7 +1493,7 @@
         if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && node.Type == NodeTypes.McpTool && SchemaDrivenMcpPins)
         {
             var ports = node.McpInputPorts ?? (Bindings.FirstOrDefault(binding => node.Tool is not null && BindingMatches(node.Tool, binding)) is { } binding
-                ? McpInputPorts(binding, Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                ? McpInputPorts(binding, Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph, NestedInputPortFactory)
                 : []);
             var descriptions = Bindings.FirstOrDefault(binding => node.Tool is not null && BindingMatches(node.Tool, binding)) is { } matchingBinding
                 ? McpInputDescriptions(matchingBinding)
@@ -1599,7 +1602,7 @@
         { DescriptionHash = binding.DescriptionHash })
         {
             McpInputPorts = SchemaDrivenMcpPins
-                ? McpInputPorts(binding, Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                ? McpInputPorts(binding, Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph, NestedInputPortFactory)
                 : null
         };
     }
