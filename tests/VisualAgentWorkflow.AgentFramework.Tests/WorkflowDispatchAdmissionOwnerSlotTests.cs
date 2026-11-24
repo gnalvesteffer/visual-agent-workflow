@@ -122,6 +122,37 @@ public sealed class WorkflowDispatchAdmissionOwnerSlotTests
     }
 
     [Fact]
+    public void Outstanding_reports_every_unsettled_slot_with_its_state_until_quiescent()
+    {
+        var owner = new WorkflowDispatchAdmissionOwner();
+        Assert.Empty(owner.Outstanding());
+
+        var id = owner.Admit(["a", "b"]);
+        Assert.Equal(["a:Admitted", "b:Admitted"], owner.Outstanding());
+
+        owner.Begin(id, "a");
+        Assert.Equal(["a:Started", "b:Admitted"], owner.Outstanding());
+
+        owner.Begin(id, "b");
+        owner.Settle(id, "a");
+        owner.Settle(id, "b");
+        Assert.Empty(owner.Outstanding());
+    }
+
+    [Fact]
+    public void The_probe_receives_the_owner_and_the_observer_is_exposed_for_child_runs()
+    {
+        WorkflowDispatchAdmissionOwner? probed = null;
+        Action<WorkflowDispatchAdmissionOwner.Ticket> observer = _ => { };
+
+        var owner = new WorkflowDispatchAdmissionOwner(observer, created => probed = created);
+
+        Assert.Same(owner, probed);
+        Assert.Same(observer, owner.Observer);
+        Assert.NotNull(owner.Probe);
+    }
+
+    [Fact]
     public void A_throwing_observer_leaves_no_slots_behind()
     {
         var owner = new WorkflowDispatchAdmissionOwner(ticket =>

@@ -5715,3 +5715,51 @@ and the full Agent Framework suite passes 1229/1229 with the always-on owner
 and the table-driven builder. Root quiescence is still asserted only on the
 success path, child workflow executors still run outside the owner, and
 drain-before-terminal and reconcile-or-suppress remain open.
+
+### Child-workflow admission and the quiescence probe (2026-11-24)
+
+The settlement review ordered child-workflow ticketing first, with a probe
+because no test could read ticket state. Reading the code corrected the premise:
+with the owner always-on, a pinned child run already creates its **own**
+run-local owner, so child executors were being ticketed and each child owner
+checked its own quiescence. What was missing was visibility, and any check on
+runs that do not succeed (`EnsureQuiescent` runs only on success). The review's
+alternative of one shared owner would have needed per-scope quiescence, because
+a child's return would otherwise see the parent's still-open call ticket; it was
+not built. Each owner stays scoped to its run, which is per-scope quiescence by
+construction.
+
+Implemented (internal, no schema or capability gate):
+
+- `WorkflowDispatchAdmissionOwner.Outstanding()` lists every unsettled receiver
+  slot as `node:State`, empty when quiescent.
+- The owner takes an optional probe that receives each owner as it is created,
+  and exposes its observer and probe. A child run is started with the parent's
+  observer and probe, so the internal admission seam sees every child
+  admission and every owner (root plus one per child).
+- `ExecuteWithProductionDispatchAdmissionProofAsync` accepts an `ownerProbe`.
+
+Evidence (unit tests):
+
+- A Sequence with two pinned children produces three owners; child `input`
+  nodes are admitted before they start, and all three owners end with no
+  outstanding slot. The earlier test that pinned "the child is unobserved" was
+  rewritten to assert this.
+- After a **failing** pinned child (denied tool), the run fails, every started
+  executor was admitted first, the child's tool node was admitted, and all three
+  owners are empty. This is the first direct proof that a failed run settles its
+  tickets, since `EnsureQuiescent` does not run on failure.
+- While a child's tool is held, the child's `child-tool` slot and the parent's
+  `call` slot both stay `Started`, the run stays open with no root completion,
+  and everything settles once the tool is released.
+- Owner-only tests cover `Outstanding()` and the probe.
+
+The Sequence, admission, collaboration, and Fork/Join selection passes 372/372
+over five repeated runs and the full Agent Framework suite passes 1233/1233.
+
+Limits: the held-child test uses a short bounded wait before asserting the run
+is still open. The seam is observer-and-probe visibility, not a shared owner, so
+a single owner counting parent and child work together is not provided.
+Child workflows on legacy or non-production schemas are not ticketed (the
+owner is created only for the production root dispatcher). Drain-before-terminal,
+abandon-on-timeout, and reconcile-or-suppress remain open.

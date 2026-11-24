@@ -648,8 +648,10 @@ ownership or persistence/playback for the combined path.
   collaboration, and Fork/Join unit tests pass 362/362; 13 loop tests that
   already failed on a clean HEAD were repaired (two bugs, see Decision 0070) and
   the full Agent Framework suite now passes 1221/1221. A shared builder/resolver edge table with parity tests is now in place
-  (full Agent Framework suite 1229/1229). Child-workflow ticketing,
-  drain-before-terminal, and reconcile-or-suppress remain open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  (full Agent Framework suite 1233/1233). Pinned child runs keep their own
+  run-local owner, now visible to the seam through a shared observer and an
+  outstanding-slot probe, with failed-run and held-child proofs. Drain-before-
+  terminal, abandon-on-timeout, and reconcile-or-suppress remain open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   Before the failure/cancellation additions, the focused selection including
   `SequenceProductionRunnerTests`, ordinary dispatch proofs, and adjacent
   runner/loop cases passed 124/124 on 2026-11-23. The latest targeted owner and

@@ -1640,34 +1640,7 @@ public sealed class SequenceProductionRunnerTests
             }.ToImmutableSortedDictionary()), "public-denied-child");
         var okChild = WorkflowRevision.Create(
             WorkflowEditing.InsertAfter(LinearBaseline("public-ok-child"), "input", NodeTypes.Uppercase), "test");
-        NodeDefinition Call(WorkflowRevision child) => new(NodeTypes.WorkflowCall, "1.0.0")
-        {
-            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
-        };
-        var parent = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
-            "public-failing-child-parent", "input",
-            new Dictionary<string, NodeDefinition>
-            {
-                ["input"] = new(NodeTypes.Input, "1.0.0"),
-                ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
-                {
-                    Sequence = new([new("call", "Denied child"), new("sibling", "Healthy child")])
-                },
-                ["call"] = Call(deniedChild),
-                ["sibling"] = Call(okChild),
-                ["output"] = new(NodeTypes.Output, "1.0.0")
-            }.ToImmutableSortedDictionary(),
-            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
-        {
-            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
-            {
-                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
-                ["sequence-call"] = new(new("sequence", "then.call"), new("call", "execute"), "execution"),
-                ["call-output"] = new(new("call", "out"), new("output", "execute"), "execution"),
-                ["sequence-sibling"] = new(new("sequence", "then.sibling"), new("sibling", "execute"), "execution"),
-                ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
-            }.ToImmutableSortedDictionary()
-        };
+        var parent = PinnedChildParent("public-failing-child-parent", deniedChild, okChild);
         var events = new ConcurrentQueue<ExecutionEvent>();
 
         var result = await new WorkflowRunner(new DeniedOutcomeBroker()).ExecuteWithOutcomeAsync(Guid.NewGuid(),
@@ -1687,11 +1660,127 @@ public sealed class SequenceProductionRunnerTests
             StringComparison.OrdinalIgnoreCase) == true);
     }
 
+    private static WorkflowDefinition PinnedChildParent(string workflowId, WorkflowRevision firstChild,
+        WorkflowRevision secondChild)
+    {
+        NodeDefinition Call(WorkflowRevision child) => new(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+        };
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
+                {
+                    Sequence = new([new("call", "First child"), new("sibling", "Second child")])
+                },
+                ["call"] = Call(firstChild),
+                ["sibling"] = Call(secondChild),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-call"] = new(new("sequence", "then.call"), new("call", "execute"), "execution"),
+                ["call-output"] = new(new("call", "out"), new("output", "execute"), "execution"),
+                ["sequence-sibling"] = new(new("sequence", "then.sibling"), new("sibling", "execute"), "execution"),
+                ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+    }
+
+    private static WorkflowRevision ToolChild(string workflowId, string bindingId, string contractHash) =>
+        WorkflowRevision.Create(new WorkflowDefinition("1.1", workflowId, "child-input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["child-input"] = new(NodeTypes.Input, "1.0.0"),
+                ["child-tool"] = new(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest(bindingId, contractHash))
+                {
+                    McpArgumentsJson = "{}"
+                },
+                ["child-output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-tool"] = new(new("child-input", "out"), new("child-tool", "in"), "data"),
+                ["tool-output"] = new(new("child-tool", "out"), new("child-output", "in"), "data")
+            }.ToImmutableSortedDictionary()), workflowId);
+
+    [Fact]
+    public async Task Unified_production_sequence_failing_child_leaves_no_unsettled_tickets_in_any_owner()
+    {
+        var owners = new List<WorkflowDispatchAdmissionOwner>();
+        var timeline = new ConcurrentQueue<(string Kind, string NodeId)>();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var parent = PinnedChildParent("admission-failing-child-parent",
+            ToolChild("admission-denied-child", "sequence-proof-denied", new string('d', 64)),
+            WorkflowRevision.Create(WorkflowEditing.InsertAfter(LinearBaseline("admission-ok-child"), "input",
+                NodeTypes.Uppercase), "test"));
+
+        var result = await new WorkflowRunner(new DeniedOutcomeBroker())
+            .ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(),
+                WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(parent)), "test"), "hello",
+                ticket => timeline.Enqueue(("admitted", ticket.TargetNodeId)), evt =>
+                {
+                    events.Enqueue(evt);
+                    if (evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is { } nodeId)
+                        timeline.Enqueue(("started", nodeId));
+                    return ValueTask.CompletedTask;
+                }, ownerProbe: owner => { lock (owners) owners.Add(owner); })
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(result.Failed);
+        AssertEveryStartedExecutorWasAdmitted(new ConcurrentQueue<(string Kind, string NodeId)>(timeline));
+        Assert.Contains(timeline, item => item == ("admitted", "child-tool"));
+        Assert.Equal(3, owners.Count);
+        // EnsureQuiescent runs only when a run succeeds, so the probe is what proves a failed run settled.
+        Assert.All(owners, owner => Assert.Empty(owner.Outstanding()));
+    }
+
+    [Fact]
+    public async Task Unified_production_sequence_held_child_executor_keeps_the_parent_call_and_run_open()
+    {
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var broker = new SequencePathBroker((_, cancellation) => release.Task.WaitAsync(cancellation));
+        var owners = new List<WorkflowDispatchAdmissionOwner>();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var parent = PinnedChildParent("admission-held-child-parent",
+            ToolChild("admission-held-child", "demo.held", new string('a', 64)),
+            WorkflowRevision.Create(WorkflowEditing.InsertAfter(LinearBaseline("admission-held-ok-child"), "input",
+                NodeTypes.Uppercase), "test"));
+
+        var execution = new WorkflowRunner(broker).ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(parent)), "test"), "hello",
+            _ => { }, evt => { events.Enqueue(evt); return ValueTask.CompletedTask; },
+            ownerProbe: owner => { lock (owners) owners.Add(owner); });
+
+        await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(100);
+        Assert.False(execution.IsCompleted);
+        Assert.DoesNotContain(events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Completed);
+        // The held child tool is still an open slot in the child's owner, and the parent's call slot stays open
+        // because the call executor awaits its child; neither can be mistaken for quiescence.
+        string[] outstanding;
+        lock (owners) outstanding = owners.SelectMany(owner => owner.Outstanding()).ToArray();
+        Assert.Contains("child-tool:Started", outstanding);
+        Assert.Contains("call:Started", outstanding);
+
+        release.TrySetResult("{}");
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(result.Failed);
+        lock (owners) Assert.All(owners, owner => Assert.Empty(owner.Outstanding()));
+    }
+
     private sealed record AdmittedRun(WorkflowExecutionResult Result, ExecutionEvent[] Events,
         (string Kind, string NodeId)[] Timeline);
 
     private static async Task<AdmittedRun> RunAdmittedAsync(WorkflowRunner runner, WorkflowDefinition definition,
-        string input, string revisionLabel, Func<ExecutionEvent, bool>? isObservedStart = null)
+        string input, string revisionLabel, Func<ExecutionEvent, bool>? isObservedStart = null,
+        Action<WorkflowDispatchAdmissionOwner>? ownerProbe = null)
     {
         var revision = WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(definition)),
             revisionLabel);
@@ -1705,7 +1794,7 @@ public sealed class SequenceProductionRunnerTests
                         (isObservedStart?.Invoke(evt) ?? true))
                         timeline.Enqueue(("started", nodeId));
                     return ValueTask.CompletedTask;
-                })
+                }, ownerProbe: ownerProbe)
             .WaitAsync(TimeSpan.FromSeconds(10));
         Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
         AssertEveryStartedExecutorWasAdmitted(new ConcurrentQueue<(string Kind, string NodeId)>(timeline));
@@ -1765,7 +1854,7 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
-    public async Task Unified_production_sequence_workflow_call_branch_tickets_parent_and_leaves_child_unobserved()
+    public async Task Unified_production_sequence_workflow_call_branch_tickets_parent_and_child_executors()
     {
         var child = WorkflowRevision.Create(
             WorkflowEditing.InsertAfter(LinearBaseline("admission-sequence-child"), "input", NodeTypes.Uppercase),
@@ -1799,18 +1888,21 @@ public sealed class SequenceProductionRunnerTests
             }.ToImmutableSortedDictionary()
         };
 
-        // Child node events carry the call's scope; only parent-scope starts are checked against the observer.
+        var owners = new List<WorkflowDispatchAdmissionOwner>();
         var run = await RunAdmittedAsync(new WorkflowRunner(), parent, "hello", "sequence-admission-call",
-            evt => evt.ScopeId is null);
+            ownerProbe: owner => { lock (owners) owners.Add(owner); });
 
         Assert.Equal("HELLO", run.Result.Output);
         AssertHopOrder(run, "call", "output");
         AssertHopOrder(run, "sibling", "output");
-        // The child workflow runs through a nested runner without the observer. The child's entry node is also
-        // named "input" and the parent's entry is not ticketed in a Sequence graph, so no "input" admission
-        // proves the child's executors never reach this seam; each call node is admitted once.
-        Assert.DoesNotContain(run.Timeline, item => item == ("admitted", "input"));
+        // Each pinned child runs through its own run-local owner that reports to the same observer. The parent
+        // entry is not ticketed in a Sequence graph, so the two "input" admissions are the two children's
+        // entry nodes, and every child executor start was admitted first (checked by RunAdmittedAsync).
+        Assert.Equal(2, run.Timeline.Count(item => item == ("admitted", "input")));
         Assert.Equal(1, run.Timeline.Count(item => item == ("admitted", "call")));
+        // One owner for the root run plus one per child, and none retains an unsettled slot.
+        Assert.Equal(3, owners.Count);
+        Assert.All(owners, owner => Assert.Empty(owner.Outstanding()));
         Assert.Contains(run.Events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.ScopeId == "call");
         Assert.Contains(run.Events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.ScopeId == "sibling");
     }

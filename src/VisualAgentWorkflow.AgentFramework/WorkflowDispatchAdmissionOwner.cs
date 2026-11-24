@@ -15,7 +15,27 @@ internal sealed class WorkflowDispatchAdmissionOwner
     private readonly Dictionary<Guid, Dictionary<string, TicketState>> tickets = [];
     private readonly Action<Ticket>? onAdmitted;
 
-    public WorkflowDispatchAdmissionOwner(Action<Ticket>? onAdmitted = null) => this.onAdmitted = onAdmitted;
+    private readonly Action<WorkflowDispatchAdmissionOwner>? probe;
+
+    /// <summary>Optional test seam; child workflow runs report their own admissions to the same observer.</summary>
+    public WorkflowDispatchAdmissionOwner(Action<Ticket>? onAdmitted = null,
+        Action<WorkflowDispatchAdmissionOwner>? probe = null)
+    {
+        this.onAdmitted = onAdmitted;
+        this.probe = probe;
+        probe?.Invoke(this);
+    }
+
+    internal Action<Ticket>? Observer => onAdmitted;
+    internal Action<WorkflowDispatchAdmissionOwner>? Probe => probe;
+
+    /// <summary>Every receiver slot not yet settled, as "node:State"; empty when the owner is quiescent.</summary>
+    public IReadOnlyList<string> Outstanding()
+    {
+        lock (sync)
+            return tickets.Values.SelectMany(slots => slots.Where(slot => slot.Value != TicketState.Settled)
+                .Select(slot => $"{slot.Key}:{slot.Value}")).Order(StringComparer.Ordinal).ToArray();
+    }
 
     public Guid Admit(string targetNodeId)
     {

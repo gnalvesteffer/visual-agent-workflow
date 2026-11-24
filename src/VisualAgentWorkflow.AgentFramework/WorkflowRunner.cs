@@ -98,12 +98,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
     internal Task<WorkflowExecutionResult> ExecuteWithProductionDispatchAdmissionProofAsync(Guid runId,
         WorkflowRevision revision, string input, Action<WorkflowDispatchAdmissionOwner.Ticket> onAdmitted,
-        Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default)
+        Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default,
+        Action<WorkflowDispatchAdmissionOwner>? ownerProbe = null)
     {
         ArgumentNullException.ThrowIfNull(onAdmitted);
         ArgumentNullException.ThrowIfNull(record);
         return ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken,
-            workflowDispatchAdmissionObserver: onAdmitted);
+            workflowDispatchAdmissionObserver: onAdmitted, workflowDispatchAdmissionProbe: ownerProbe);
     }
 
     internal Task<WorkflowExecutionResult> ExecuteWithLoopBudgetsProofAsync(Guid runId,
@@ -316,7 +317,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             Func<string, string?, Guid?, string?, string?, string?, ValueTask>, Action, CancellationToken,
             Task<WorkflowExecutionResult>>? rootCoordinatorProof = null,
         ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null,
-        Action<WorkflowDispatchAdmissionOwner.Ticket>? workflowDispatchAdmissionObserver = null)
+        Action<WorkflowDispatchAdmissionOwner.Ticket>? workflowDispatchAdmissionObserver = null,
+        Action<WorkflowDispatchAdmissionOwner>? workflowDispatchAdmissionProbe = null)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -357,7 +359,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         // Decision 0070: the run-local admission owner is always on for the production root dispatcher,
         // Sequence graphs included; the observer is only an optional test seam.
         var dispatchAdmissionOwner = usesProductionRootDispatcher
-            ? new WorkflowDispatchAdmissionOwner(workflowDispatchAdmissionObserver)
+            ? new WorkflowDispatchAdmissionOwner(workflowDispatchAdmissionObserver, workflowDispatchAdmissionProbe)
             : null;
         using var activationFrameOwner = new StructuredActivationFrameOwner(
             activationGraphPlan, activationFrame, revision.Definition,
@@ -3297,12 +3299,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown,
                         workflowLoopPassBudget: activationFrameOwner?.LoopPassBudget,
                         workflowLoopEvidenceBudget: activationFrameOwner?.LoopExecutionBudget,
-                        loopEvidenceScopePrefix: childBudgetScopePrefix)
+                        loopEvidenceScopePrefix: childBudgetScopePrefix,
+                        workflowDispatchAdmissionObserver: dispatchAdmissionOwner?.Observer,
+                        workflowDispatchAdmissionProbe: dispatchAdmissionOwner?.Probe)
                     : await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, gate, childCancellationToken,
                         rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown,
                         workflowLoopPassBudget: activationFrameOwner?.LoopPassBudget,
                         workflowLoopEvidenceBudget: activationFrameOwner?.LoopExecutionBudget,
-                        loopEvidenceScopePrefix: childBudgetScopePrefix);
+                        loopEvidenceScopePrefix: childBudgetScopePrefix,
+                        workflowDispatchAdmissionObserver: dispatchAdmissionOwner?.Observer,
+                        workflowDispatchAdmissionProbe: dispatchAdmissionOwner?.Probe);
             }
             catch (OperationCanceledException)
             {
