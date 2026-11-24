@@ -5651,3 +5651,32 @@ reported. Child workflow executors still run through a nested runner outside
 the owner. The drain-before-terminal rule, abandon-on-timeout, and
 reconcile-or-suppress recorder faults from the earlier review remain
 unimplemented. The ordinary-path store-fault policy question is still open.
+
+### Repair of 13 failing loop tests (2026-11-24)
+
+Thirteen Agent Framework tests (nested loops, bounded Agent loops, and the
+array-iteration candidate proofs) were failing on a clean HEAD. They had two
+independent causes, both bugs in recent code rather than outdated tests:
+
+1. **Root Agent-prefix rule (commit `ddda361c`).** `loop.feedback.root.prefix`
+   rejected any Agent whose output reaches a Loop initial-entry pin unless it
+   matched the exact `Input → Agent → Loop` prefix. In the inferred pin shape one
+   `execute` pin is both the initial entry and the body return, so an Agent
+   inside the loop's own body returning to it was misread as a root entry after
+   an Agent. The check now skips an edge whose source lies in the target loop's
+   own body (reachable from its body anchor). The exact prefix rules and the
+   existing prefix rejection cases are unchanged. Regression:
+   `Agent_inside_a_loop_body_returning_to_the_inferred_execute_pin_is_not_a_root_agent_prefix`.
+2. **Nested-loop first entry.** An inner unified-schema Loop has no frame of its
+   own on first entry, and fell back to `received.LoopIteration`, which then held
+   the enclosing loop's pass. It emitted a `LoopIterationCompleted` for an
+   iteration that never started (which the activation ledger correctly
+   rejected) and started its own iteration count at the outer pass. The
+   fallback is now 0 for unified graphs. Non-unified schemas keep the old
+   fallback. The three nested-loop tests are the regression coverage.
+
+The ledger's rejection message now names the loop, scope, and iteration it was
+settling and the iterations active for that loop. After both fixes the full
+Agent Framework suite passes 1221/1221 and Core passes 744/744. The earlier
+roadmap statements of full-suite passes were therefore stale at HEAD between
+`ddda361c` and this repair.

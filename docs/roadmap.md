@@ -645,8 +645,9 @@ ownership or persistence/playback for the combined path.
   selected. The user chose an always-on owner; it is now implemented with
   multi-receiver tickets (one slot per receiver) after a second three-agent
   review rejected removing the call-to-collector edge. Sequence, admission,
-  collaboration, and Fork/Join unit tests pass 362/362; 13 unrelated loop tests
-  already fail on a clean HEAD. Child-workflow ticketing, a shared builder/
+  collaboration, and Fork/Join unit tests pass 362/362; 13 loop tests that
+  already failed on a clean HEAD were repaired (two bugs, see Decision 0070) and
+  the full Agent Framework suite now passes 1221/1221. Child-workflow ticketing, a shared builder/
   resolver edge list, drain-before-terminal, and reconcile-or-suppress remain
   open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md). See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   Before the failure/cancellation additions, the focused selection including

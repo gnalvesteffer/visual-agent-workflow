@@ -352,7 +352,7 @@ internal static class LoopFeedbackTopologyProofAnalyzer
         var rootEdges = initialLoopEdges.Where(item => rootOutputs.Contains((item.Edge.Source.NodeId, item.Edge.Source.PortId)) ||
             IsOnceOnlyAgentPrefixEdge(item)).ToArray();
         foreach (var edge in initialLoopEdges.Where(item => pinDescriptors.GetValueOrDefault(item.Edge.Source.NodeId)?.NodeType == NodeTypes.Agent &&
-                     !rootEdges.Contains(item)))
+                     !rootEdges.Contains(item) && !IsBodyReturnEdge(item)))
             Issue("loop.feedback.root.prefix", $"executionConnections.{edge.Id}",
                 "A root Loop may follow an Agent only through the exact Input → Agent → Loop prefix, with caller input connected and no Agent data output consumers.");
 
@@ -361,6 +361,24 @@ internal static class LoopFeedbackTopologyProofAnalyzer
             Issue("loop.feedback.root", "executionConnections", "The graph must enter exactly one root loop for this comparison.");
         else
             AnalyzeRegion(rootLoops[0], null);
+
+        // In the inferred pin shape one `execute` pin is both the initial entry and the body return, so an Agent
+        // inside the loop's own body that returns to it is a body return, not a root entry after an Agent.
+        bool IsBodyReturnEdge((string Id, ConnectionDefinition Edge) candidate)
+        {
+            if (!loopAnchors.TryGetValue(candidate.Edge.Target.NodeId, out var anchorId)) return false;
+            var loopId = candidate.Edge.Target.NodeId;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var queue = new Queue<string>([anchorId]);
+            while (queue.TryDequeue(out var nodeId))
+            {
+                if (nodeId == loopId || !seen.Add(nodeId)) continue;
+                if (nodeId == candidate.Edge.Source.NodeId) return true;
+                foreach (var next in outgoing.GetValueOrDefault(nodeId) ?? [])
+                    queue.Enqueue(next.Edge.Target.NodeId);
+            }
+            return false;
+        }
 
         bool IsOnceOnlyAgentPrefixEdge((string Id, ConnectionDefinition Edge) candidate)
         {

@@ -33,7 +33,13 @@ internal sealed class ExecutionActivationLedger
                         throw new InvalidOperationException("A Loop iteration was started more than once before settlement.");
                 }
                 else if (!activeLoopIterations.TryGetValue(loopKey, out var activeLoopWork) || activeLoopWork != loopWork)
-                    throw new InvalidOperationException("Loop iteration settlement does not match an accepted active iteration.");
+                    throw new InvalidOperationException(
+                        "Loop iteration settlement does not match an accepted active iteration. " +
+                        $"Settling {loopWork.LoopNodeId} scope '{loopWork.ScopeId ?? "root"}' iteration {loopWork.Iteration?.ToString() ?? "none"}; " +
+                        "active for that loop: " + (string.Join(", ", activeLoopIterations.Values
+                            .Where(item => item.LoopNodeId == loopWork.LoopNodeId)
+                            .Select(item => $"scope '{item.ScopeId ?? "root"}' iteration {item.Iteration?.ToString() ?? "none"}")) is { Length: > 0 } active
+                            ? active : "none") + ".");
                 return;
             }
 

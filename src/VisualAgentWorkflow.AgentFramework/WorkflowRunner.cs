@@ -2978,7 +2978,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     else
                     {
                         var shouldContinue = loop.ContinueWhile.Evaluate(result);
-                        var loopIteration = received.ActivationFrame?.FindLoop(Id)?.Index ?? received.LoopIteration;
+                        // A unified-schema Loop with no frame of its own is on first entry; received.LoopIteration then
+                        // carries the enclosing loop's pass, which must not be reported as this loop's iteration.
+                        var loopIteration = received.ActivationFrame?.FindLoop(Id)?.Index ??
+                            (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph
+                                ? 0 : received.LoopIteration);
                         loopIterationForEvidence = loopIteration;
                         nextLoopIteration = loopIteration;
                         if (loopIteration > 0)

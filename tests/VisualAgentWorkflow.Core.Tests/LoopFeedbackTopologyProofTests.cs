@@ -860,6 +860,37 @@ public sealed class LoopFeedbackTopologyProofTests
         };
     }
 
+    [Fact]
+    public void Agent_inside_a_loop_body_returning_to_the_inferred_execute_pin_is_not_a_root_agent_prefix()
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "agent-body-loop", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["loop"] = new(NodeTypes.Loop, "1.0.0") { Loop = new(new("contains", "continue"), 3) },
+                ["body"] = new(NodeTypes.LoopBody, "1.0.0"),
+                ["agent"] = new(NodeTypes.Agent, "1.0.0", Agent: new("test.provider", null, "Process input", [])),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["latest-result"] = new(new("agent", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["start"] = new(new("input", "then"), new("loop", "execute"), "execution"),
+                ["body"] = new(new("loop", "body"), new("body", "execute"), "execution"),
+                ["process"] = new(new("body", "then"), new("agent", "execute"), "execution"),
+                ["return"] = new(new("agent", "out"), new("loop", "execute"), "execution"),
+                ["complete"] = new(new("loop", "done"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+
+        Assert.DoesNotContain(WorkflowValidator.Validate(definition), issue => issue.Code == "loop.feedback.root.prefix");
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
     private static WorkflowDefinition WithOnceOnlyAgentPrefix(WorkflowDefinition definition)
     {
         var nodes = definition.Nodes.Add("prefix-agent", new(NodeTypes.Agent, "1.0.0",
