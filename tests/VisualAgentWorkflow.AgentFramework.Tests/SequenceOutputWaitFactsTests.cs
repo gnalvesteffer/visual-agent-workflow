@@ -407,7 +407,7 @@ public sealed class SequenceOutputWaitFactsTests : IDisposable
         host.Control.RequestPause();
         await host.Store.WhenAsync(host.RunId, run => run.Events.Any(evt => evt.Kind == ExecutionEventKinds.Paused));
 
-        // Characterization of a defect for this placement: the sibling tool is still held, yet run.paused was recorded.
+        // Characterization of a defect that exists only because of the Wait (see the passing no-Wait control above): the sibling tool is still held, yet run.paused was recorded.
         // The runner's boundary calls keep the host's in-flight count at one for the whole Sequence, so the wait's request
         // drops it to zero. Fixing it needs per-output in-flight accounting (WaitForBranchStartAsync is not called for outputs).
         Assert.True(broker.Started.Contains("demo.second") && !release.Task.IsCompleted);
@@ -418,6 +418,55 @@ public sealed class SequenceOutputWaitFactsTests : IDisposable
         clock.Advance(TimeSpan.FromMinutes(1));
         await Terminal(host);
         Assert.Equal("completed", host.Store.Get(host.RunId)!.Status);
+    }
+
+    /// <summary>
+    /// Control for the pause gap: with no Wait the same two-output Sequence does not acknowledge a pause while a sibling's
+    /// tool is executing, because Agent Framework supersteps run in lockstep and the next boundary is not reached until the
+    /// held tool returns. The gap exists only because a Wait lowers the host's in-flight count.
+    /// </summary>
+    [Fact]
+    public async Task Pause_without_any_wait_is_not_acknowledged_while_a_sibling_output_tool_is_executing()
+    {
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var broker = new GateBroker((id, token) => id == "demo.second" ? release.Task.WaitAsync(token) : Task.FromResult("tool-result"));
+        using var host = StartHost(Graph(waitInFirst: false), broker);
+        await UntilAsync(() => { lock (broker.Started) return broker.Started.Contains("demo.second") && broker.Started.Contains("demo.first"); });
+        await host.Store.WhenAsync(host.RunId, run => Index(run, ExecutionEventKinds.NodeCompleted, "first-tool") >= 0);
+
+        host.Control.RequestPause();
+        await Task.Delay(500);
+        var held = host.Store.Get(host.RunId)!;
+        Assert.False(release.Task.IsCompleted);
+        Assert.DoesNotContain(held.Events, evt => evt.Kind == ExecutionEventKinds.Paused);
+
+        release.SetResult("tool-result");
+        await host.Store.WhenAsync(host.RunId, run => run.Events.Any(evt => evt.Kind == ExecutionEventKinds.Paused));
+        host.Control.Resume();
+        await Terminal(host);
+        Assert.Equal("completed", host.Store.Get(host.RunId)!.Status);
+    }
+
+    [Fact(Skip = "DESIRED BEHAVIOR, not implemented: a pause must not be acknowledged while a sibling output's node is executing. " +
+        "ControlledRun keeps one in-flight count for the whole Sequence, so a Wait in one output (still rejected by the validator) " +
+        "drops it to zero. Fixing it needs per-node in-flight tracking across concurrent outputs; see Decision 0081, " +
+        "'Sequence output pause acknowledgement design note'.")]
+    public async Task A_pause_is_not_acknowledged_at_a_wait_while_a_sibling_output_tool_is_executing()
+    {
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var broker = new GateBroker((id, token) => id == "demo.second" ? release.Task.WaitAsync(token) : Task.FromResult("tool-result"));
+        using var host = StartHost(Graph(), broker);
+        await WaitRequested(host);
+        await UntilAsync(() => { lock (broker.Started) return broker.Started.Contains("demo.second"); });
+
+        host.Control.RequestPause();
+        await Task.Delay(500);
+        Assert.DoesNotContain(host.Store.Get(host.RunId)!.Events, evt => evt.Kind == ExecutionEventKinds.Paused);
+
+        release.SetResult("tool-result");
+        host.Control.Resume();
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await Terminal(host);
     }
 
     [Fact]

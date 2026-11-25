@@ -205,18 +205,6 @@ public sealed class SequenceForEachNestingEvidenceTests
         Assert.Equal(0, run.RootFrameOwner!.RunBudget.Reservation.DispatchTicketsOutstanding);
     }
 
-    /// <summary>
-    /// After a failed run only the Output barrier ticket of an output that had already arrived may remain
-    /// (see <see cref="Defect_a_failed_sequence_run_leaves_the_admitted_output_barrier_ticket_outstanding"/>); no
-    /// child-scope executor ticket may.
-    /// </summary>
-    private static void AssertOnlyTheKnownBarrierTicketRemains(Observed run)
-    {
-        var outstanding = run.Owners.SelectMany(owner => owner.Outstanding()).ToArray();
-        Assert.All(outstanding, ticket => Assert.Equal("output:Admitted", ticket));
-        Assert.Equal(outstanding.Length, run.RootFrameOwner!.RunBudget.Reservation.DispatchTicketsOutstanding);
-    }
-
     // ---------------------------------------------------------------------------------------------------------
     // (1) The WorkflowCall workaround.
     // ---------------------------------------------------------------------------------------------------------
@@ -336,7 +324,7 @@ public sealed class SequenceForEachNestingEvidenceTests
             Assert.Single(run.Events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Failed);
             Assert.DoesNotContain(run.Events, evt => evt.NodeId is null && evt.Kind == ExecutionEventKinds.Completed);
             Assert.Equal(2, run.RootFrameOwner!.RunBudget.Reservation.BodyPassesUsed);
-            AssertOnlyTheKnownBarrierTicketRemains(run);
+            AssertQuiescent(run);
         }
         // The child's own ordered evidence is identical across runs (the sibling output races, so it is excluded).
         static string[] ChildKinds(Observed run) => run.Events.Where(evt => InChildScope(evt, "call"))
@@ -400,11 +388,12 @@ public sealed class SequenceForEachNestingEvidenceTests
         AssertQuiescent(run);
     }
 
-    [Fact(Skip = "DEFECT FOUND, not fixed (task forbids production changes): when one Sequence output fails with an agent " +
-        "exception while the other output already completed, the root admission owner keeps the sibling's admitted " +
-        "'output' barrier ticket outstanding (observed 5 of 5 runs, with no For Each involved). The run itself fails " +
-        "correctly. Un-skip once failed-run settlement revokes unstarted barrier tickets.")]
-    public async Task Defect_a_failed_sequence_run_leaves_the_admitted_output_barrier_ticket_outstanding()
+    /// <summary>
+    /// Regression: a failing output left the sibling's admitted Output barrier ticket outstanding, because the failed
+    /// superstep never delivered it and the failure path did not revoke unstarted tickets.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_sequence_run_revokes_the_admitted_output_barrier_ticket_and_is_quiescent()
     {
         // The failing child waits so the plain sibling has already arrived at the Output barrier.
         var agent = new ItemAgent(async (input, _) =>
@@ -419,24 +408,6 @@ public sealed class SequenceForEachNestingEvidenceTests
 
         Assert.NotNull(run.Failure);
         AssertQuiescent(run);
-    }
-
-    [Fact]
-    public async Task Control_a_failing_child_without_a_for_each_also_leaves_the_barrier_ticket_so_it_predates_for_each()
-    {
-        // The failing child waits so the plain sibling has already arrived at the Output barrier.
-        var agent = new ItemAgent(async (input, _) =>
-        {
-            if (input != "start") return input;
-            await Task.Delay(300);
-            throw new InvalidOperationException("boom");
-        });
-
-        var run = await RunAsync(new WorkflowRunner(agents: agent), Parent("sequence-failing-control-pinned",
-            Revision(AgentChild("control-child-pinned")), Revision(PlainChild("control-plain-pinned"))));
-
-        Assert.NotNull(run.Failure);
-        Assert.Equal(["output:Admitted"], run.Owners.SelectMany(owner => owner.Outstanding()).ToArray());
     }
 
     // ---------------------------------------------------------------------------------------------------------

@@ -607,6 +607,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
             // The framework has stopped, so no live executor can still settle; close any output that never reported.
             if (abandonUnsettledSequenceOutputs is not null) await abandonUnsettledSequenceOutputs();
+            dispatchAdmissionOwner?.RevokeUnstarted();
             if (collaborationRuntime?.IsTimedOut == true && !callerCancellationToken.IsCancellationRequested)
             {
                 if (collaborationRuntime is not null) await collaborationRuntime.AbortAsync("The collaboration region timed out.");
@@ -622,6 +623,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (activationFrameOwner.HasUncertainRootEventRecorder) throw;
             // The framework has stopped, so no live executor can still settle; close any output that never reported.
             if (abandonUnsettledSequenceOutputs is not null) await abandonUnsettledSequenceOutputs();
+            dispatchAdmissionOwner?.RevokeUnstarted();
             if (allowOutcomeUnknown && IsOutcomeUnknownException(exception))
             {
                 if (emitRunLifecycle)

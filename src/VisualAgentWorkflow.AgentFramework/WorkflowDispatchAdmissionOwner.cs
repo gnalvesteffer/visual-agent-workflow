@@ -236,6 +236,31 @@ internal sealed class WorkflowDispatchAdmissionOwner
         Release(ready);
     }
 
+    /// <summary>
+    /// Withdraws every ticket that was admitted but never started, for a run that has ended abnormally (a failed or
+    /// cancelled superstep never delivers the messages queued for the next one). Tickets with a started or settled
+    /// slot are left to their receivers, so a hung executor still shows as outstanding. Call only after the framework
+    /// has stopped, so no live sender can admit another ticket.
+    /// </summary>
+    public int RevokeUnstarted()
+    {
+        List<ScopeWaiter>? ready;
+        int revoked = 0;
+        lock (sync)
+        {
+            foreach (var id in tickets.Where(pair => pair.Value.Slots.Values.All(state => state == TicketState.Admitted))
+                .Select(pair => pair.Key).ToArray())
+            {
+                tickets.Remove(id);
+                reservation?.Release(null, OneTicket);
+                revoked++;
+            }
+            ready = TakeSatisfiedWaiters();
+        }
+        Release(ready);
+        return revoked;
+    }
+
     public void EnsureQuiescent()
     {
         lock (sync)
