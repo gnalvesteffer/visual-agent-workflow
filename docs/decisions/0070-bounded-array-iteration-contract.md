@@ -6167,3 +6167,29 @@ A read-only design memo found both unsupported for good reasons, and recommends 
 - **Node stepping is independent:** the execution gate names one next node, but a For Each boundary has several candidates, so the gate would need a frame and iteration boundary, a defined meaning for step into versus over, and per-frame breakpoint keys.
 
 Current behavior is unchanged: the checkpoint allowlist and `SupportsNodeStepping` reject For Each, with tests.
+
+## Sequence and For Each nesting review outcome (2026-11-25)
+
+Question: allow a typed For Each (a) inside a Sequence output route, and (b) with a Sequence inside its body. Both are rejected today. Proponent argued for (b) first without Break; opponent argued to defer both. An adjudicator ruled after reading the code. Ruling: **defer both**.
+
+**Claims checked against code**
+
+- Sequence graphs bypass loop validation: true. `WorkflowValidator.cs` ~883-890 sends any graph containing a Sequence to `ValidateUnifiedSequenceGraph` (or `ValidateSequenceGraph`) and returns before the Loop/For Each validator.
+- Sequence routes reject For Each: true. `SequenceBranchTopology.cs` ~198 and ~262 report `sequence.branch.nested` and `.control` for `NodeTypes.ForEach`.
+- Break cannot follow a Sequence: true. `LoopFeedbackTopologyProof.cs` ~136-140 (`foreach.break.nonlinear`). Pinned by `A_for_each_inside_a_sequence_path_is_rejected_in_the_first_slice` (`ForEachNodeTests.cs` ~174), which asserts only that some issue exists.
+- Two runtimes: true. `WorkflowRunner.cs` ~365-369 builds the loop plan only when `sequencePlan is null`; ~451-453 builds `BuildSequenceProductionWorkflow` otherwise. `WorkflowRunner.Sequence.cs` has no For Each executor. Loosening the validator alone would accept graphs the runner cannot run.
+- `forEachItems` is keyed `(parentFrame?.Id, nodeId)` (`WorkflowRunner.cs` ~2460). The Sequence dispatcher stamps one shared `sequenceDispatchSession.ActivationFrame` on every output (`WorkflowRunner.Sequence.cs` ~782, ~832), so concurrent same-node activations under it have no verified distinct key. Not proven wrong, not proven right.
+- Shared item, ticket and evidence budget: open. The ADR's own audit says nothing counts item activations atomically across the ordinary and Sequence paths, and order-of-work items (1)-(3) above are not done.
+- The "naive reentrant Sequence dispatcher failed 40/55 production tests" figure is recorded in this ADR, not re-run here. The proponent's own unverified item (a second ticket owner inside a pass frame) is exactly the open point.
+- The two private proofs show per-item Sequence works in a proof harness only, not on the production builder.
+
+**Why defer.** The gap is not a validator change. It needs a For Each executor in the Sequence runtime, an atomic shared reservation, and abandon and Break semantics across the Sequence boundary. Starting (b) before order-of-work items (1)-(3) would duplicate the ownership problem those items exist to solve. The ordinary path for For Each is still new and has open limits (no checkpoint recovery, no node stepping).
+
+**Prerequisites, in order**
+
+1. Order-of-work items (1), (2), (3) above: admission owner held by the frame owner, one atomic run-level reservation for item activations, passes and evidence (inherited by child runs and Sequence), and item N+1 gated on `Outstanding()` empty and the abandonable-stop.
+2. Prove on the production Sequence builder (not a proof harness) that the dispatcher can run inside a pass frame with a single ticket owner, and that `forEachItems` has a per-activation key under the shared Sequence `ActivationFrame`.
+3. Tests before any guard loosens: concurrent sibling For Each; shared-budget exhaustion across frames; cancel and abandon with a hung item (including `EnsureFrameSettled` on pass N+1 after abandon); File and SQLite evidence playback with nested scope ids (`SequenceEvidence` pins one `ScopeId`, so playback rules are needed); an older-reader fixture that fails closed.
+4. Then slice (b) without Break: add Sequence to `supportedBodyNodes` when exactly one loop exists, add a "Sequence inside loop body" arm to `ValidateUnifiedSequenceGraph`, and keep `foreach.break.nonlinear` for Break after a Sequence. Slice (a) follows only after (b), and needs its own For Each executor in the Sequence builder.
+
+**Workaround today.** A parent with a Sequence whose route calls a WorkflowCall to a child workflow that contains the For Each is the intended composition path, but it is **unverified**: no test combines a WorkflowCall and a For Each outside the private `ArrayIterationVawBodyProofTests` and an unrelated Wait test, and the child contract check (`WorkflowValidator.cs` ~3100-3107) restricts only the child's entry, single Output and string/json pin types, so whether a child For Each is accepted and runs through the Sequence runtime's call path was not checked. Do not describe it as supported. Add a small test: parent (Sequence with one route to a WorkflowCall) and child (Input, For Each over a constant array, one body node, Output). Assert validation passes, the run completes with the expected output, and the child's iteration evidence is recorded under the call's scope. If it fails, record the failing guard here as the actual current limit.
