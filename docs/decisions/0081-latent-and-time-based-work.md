@@ -500,3 +500,16 @@ Row 4 and the playback state machine need no change. Not verified: Studio author
 **Intended semantics.** A pause is acknowledged only when no node is executing; nodes already running may finish; a pending Wait or approval does not count as executing.
 
 **Why no production change.** Satisfying that needs the host to know how many nodes the Sequence's concurrent outputs are executing, i.e. per-node (or per-output) in-flight tracking with the runner reporting each node start and end. Today the count is one number driven by serial boundaries, and Wait and approval registration assume they are the only running node. That is a redesign of the gate, so production is unchanged and the behavior stays pinned: `Known_gap_pause_is_acknowledged_at_the_wait_...` characterizes today, and the skipped `A_pause_is_not_acknowledged_at_a_wait_while_a_sibling_output_tool_is_executing` states the desired result. This remains blocker 3 above.
+
+## Per-activation in-flight tracking: attempted and held back (2026-11-25)
+
+A hybrid design for `ControlledRun` was implemented in an isolated copy and reviewed adversarially; it is **not merged**. It kept the baton count, added a set of executing (node id, invocation id) activations fed from node lifecycle events, and switched a run permanently to set-based quiescence when a Wait or approval registered while a sibling was executing. The skipped test `A_pause_is_not_acknowledged_at_a_wait_while_a_sibling_output_tool_is_executing` stays skipped.
+
+The review found two blocking problems:
+
+1. **The switch is order-dependent.** It happens only if the sibling has already emitted `node.started` when the Wait or approval registers. Sequence outputs run concurrently, so if the waiting lane registers first the run falls back to the old baton logic and the early pause acknowledgement returns. The new tests did not control which lane registered first.
+2. **The shared execution slot stays held across an unbounded approval** in tracked mode when a sibling settles and no pause is pending, because nothing re-checks quiescence on removal. That starves other runs for as long as a human takes to decide.
+
+Non-blocking findings: the changed `Step` handling applied to untracked sequential runs too, so a leaked set entry for the stepped node id would stop `pauseAfterSteppedNode` from ever firing; the approval reacquire path re-adds no key; `TracksActivation` tracked unknown node ids against its own description; a 4096-entry cap silently stops tracking; and a leaked entry in the permanent tracked mode would hang pause forever, which the baton design could not do.
+
+**Direction chosen.** Do not ship a sticky mode switch. The only reachable trigger today is an Approval in a Sequence output, because a Wait is rejected by validation there. The simpler design to evaluate first is to reject an approval or Wait beside concurrently running Sequence outputs at validation, which removes the set and its leak surface. If concurrent waits are later required, a replacement must enter tracked mode from the boundary path rather than at registration, release the slot when the set empties while a suspension is pending, and prove every started node ends with a terminal event.

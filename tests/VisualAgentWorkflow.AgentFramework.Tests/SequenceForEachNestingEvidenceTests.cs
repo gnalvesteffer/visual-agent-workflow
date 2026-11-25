@@ -507,6 +507,12 @@ public sealed class SequenceForEachNestingEvidenceTests
         });
     }
 
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(20);
+    }
+
     private static SequenceLifecycleEvidence ReadEvidence(ExecutionEvent executionEvent)
     {
         Assert.True(SequenceEvidence.TryRead(executionEvent, out var evidence));
@@ -545,9 +551,10 @@ public sealed class SequenceForEachNestingEvidenceTests
         Assert.DoesNotContain(eventsAtReturn, evt => evt.ScopeId == "call/each/3");
         Assert.Equal(["a", "boom", "hang"], hung.Agent.Inputs.Order());
         // Both executors that were mid-flight stay open in their owners: the child's agent and the parent's call slot.
-        var outstanding = run.Owners.SelectMany(owner => owner.Outstanding()).ToArray();
-        Assert.Contains("agent:Started", outstanding);
-        Assert.Contains("call:Started", outstanding);
+        // Exactly those two are outstanding: the hung item's slots. No admitted-but-unstarted ticket exists in any owner
+        // while the executor is hung, because the child's re-entry ticket is only admitted once the item returns.
+        var outstanding = run.Owners.SelectMany(owner => owner.Outstanding()).Order().ToArray();
+        Assert.Equal(["agent:Started", "call:Started"], outstanding);
         Assert.True(run.RootFrameOwner!.AbandonRequested);
         // Only the root run's frame owner is observable here (the probe is not passed to child runs), so whether the
         // child's own owner was marked is not asserted: see the ADR table.
@@ -557,7 +564,12 @@ public sealed class SequenceForEachNestingEvidenceTests
         await Task.Delay(700);
         Assert.Equal(eventsAtReturn.Length, run.Live.Count);
         Assert.Equal(["a", "boom", "hang"], hung.Agent.Inputs.Order());
-        Assert.All(run.Owners.SelectMany(owner => owner.Outstanding()), ticket => Assert.Equal("each:Admitted", ticket));
+        // Decision 0070 (abandon limits): the orphaned child quiesces itself once its item returns. Its own cancelled
+        // failure path revokes the re-entry ticket the item admitted on the way out, and the hung slots settle, so
+        // every owner ends empty (an earlier assertion here was vacuous over an empty list).
+        await WaitUntilAsync(() => run.Owners.All(owner => owner.Outstanding().Count == 0));
+        Assert.All(run.Owners, owner => Assert.Empty(owner.Outstanding()));
+        Assert.Equal(eventsAtReturn.Length, run.Live.Count);
     }
 
     [Fact]
@@ -589,11 +601,10 @@ public sealed class SequenceForEachNestingEvidenceTests
     }
 
     [Fact]
-    public async Task Host_cancel_with_only_a_hung_item_keeps_the_run_open_until_the_item_returns_even_with_a_grace()
+    public async Task Host_cancel_with_only_a_hung_item_is_abandoned_after_the_grace_and_ends_outcome_unknown()
     {
-        // Characterization of a limit that predates For Each: the grace starts only once the Sequence coordinator sees
-        // an output settle after the stop. With a sole token-ignoring item nothing settles, so no abandon happens.
-        // The same is true of a hung agent placed directly in a Sequence output (see the ADR table).
+        // Decision 0070 (abandon limits): a host cancel starts the grace itself, because a sole token-ignoring item
+        // never reports the stop. The plain sibling already completed, so only the call output is abandoned.
         var hung = new HungItem();
         var parent = Parent("sequence-cancel-sole-hung", Revision(ForEachChild("cancel-sole-child", ["a", "hang", "c"])),
             Revision(PlainChild("cancel-sole-plain")));
@@ -603,15 +614,50 @@ public sealed class SequenceForEachNestingEvidenceTests
             { SequenceAbandonGrace = TimeSpan.FromMilliseconds(300) }, parent, cancellation.Token, TimeSpan.FromSeconds(60));
         await hung.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
         cancellation.Cancel();
+        var run = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+        var eventsAtReturn = run.Events;
+
+        Assert.Null(run.Failure);
+        Assert.True(run.Result!.OutcomeUnknown);
+        Assert.Equal(ExecutionEventKinds.OutcomeUnknown, Assert.Single(RootTerminals(eventsAtReturn)).Kind);
+        Assert.Equal("call", ReadEvidence(Assert.Single(eventsAtReturn, evt => evt.Kind == ExecutionEventKinds.SequenceOutputAbandoned)).OutputId);
+        Assert.Single(eventsAtReturn, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.DoesNotContain(eventsAtReturn, evt => evt.Kind is ExecutionEventKinds.SequenceCancelled or
+            ExecutionEventKinds.SequenceCompleted or ExecutionEventKinds.Cancelled);
+        Assert.DoesNotContain(eventsAtReturn, evt => evt.ScopeId == "call/each/3");
+        Assert.Contains("agent:Started", run.Owners.SelectMany(owner => owner.Outstanding()));
+
+        hung.Release.TrySetResult();
+        await Task.Delay(700);
+        Assert.Equal(eventsAtReturn.Length, run.Live.Count);
+        Assert.Equal(["a", "hang"], hung.Agent.Inputs.Order());
+        // Every started slot settles once the orphan returns. The only thing that can remain is the root's admitted
+        // Output barrier ticket for the sibling that had already arrived: the stopped framework never delivered it, no
+        // receiver ever started it, and the abandon path deliberately does not revoke it (see the ADR).
+        await WaitUntilAsync(() => run.Owners.SelectMany(owner => owner.Outstanding()).All(ticket => ticket.EndsWith(":Admitted")));
+        Assert.All(run.Owners.SelectMany(owner => owner.Outstanding()), ticket => Assert.Equal("output:Admitted", ticket));
+    }
+
+    [Fact]
+    public async Task Host_cancel_with_only_a_hung_item_keeps_the_run_open_until_the_item_returns_without_a_grace()
+    {
+        // Unchanged behavior: with no SequenceAbandonGrace nothing bounds the wait for a token-ignoring item.
+        var hung = new HungItem();
+        var parent = Parent("sequence-cancel-sole-hung-open", Revision(ForEachChild("cancel-open-child", ["a", "hang", "c"])),
+            Revision(PlainChild("cancel-open-plain")));
+        using var cancellation = new CancellationTokenSource();
+
+        var execution = RunAsync(new WorkflowRunner(agents: hung.Agent), parent, cancellation.Token, TimeSpan.FromSeconds(60));
+        await hung.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        cancellation.Cancel();
         await Task.Delay(2000);
 
         Assert.False(execution.IsCompleted);
         hung.Release.TrySetResult();
         var run = await execution.WaitAsync(TimeSpan.FromSeconds(30));
-        // Once released the run ends as an ordinary cancellation (an OperationCanceledException), not outcome-unknown.
         Assert.IsAssignableFrom<OperationCanceledException>(run.Failure);
-        Assert.DoesNotContain(run.Events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown);
-        Assert.DoesNotContain(run.Events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputAbandoned);
+        Assert.DoesNotContain(run.Events, evt => evt.Kind is ExecutionEventKinds.OutcomeUnknown or
+            ExecutionEventKinds.SequenceOutputAbandoned);
         Assert.Equal(["a", "hang"], hung.Agent.Inputs.Order());
         Assert.DoesNotContain(run.Events, evt => evt.ScopeId == "call/each/3");
     }

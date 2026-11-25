@@ -1938,6 +1938,163 @@ public sealed class SequenceProductionRunnerTests
         Assert.Equal(recorded.Length, events.Count);
     }
 
+    private sealed class TokenIgnoringAgentExecutor : IAgentNodeExecutor
+    {
+        public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("sequence-proof", "Proof", "proof", false)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            Started.TrySetResult(true);
+            await Release.Task;
+            return input;
+        }
+    }
+
+    private static ExecutionEvent[] RootTerminalEvents(IEnumerable<ExecutionEvent> events) => events.Where(evt =>
+        evt.NodeId is null && evt.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
+            ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated or ExecutionEventKinds.OutcomeUnknown).ToArray();
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Unified_production_sequence_host_cancel_with_only_hung_executors_is_abandoned_after_the_grace(
+        bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-abandon-grace-host-cancel-only-hung");
+        using var runStore = new ReopenableRunStore(revision, "sequence input", sqlite);
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Neither the tool nor the agent observes its token, so nothing settles when the host cancels.
+        var broker = new SequencePathBroker((_, _) => release.Task);
+        var agent = new TokenIgnoringAgentExecutor();
+        var recorded = new ConcurrentQueue<ExecutionEvent>();
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            recorded.Enqueue(evt);
+            return ValueTask.CompletedTask;
+        }
+        using var cancellation = new CancellationTokenSource();
+
+        var execution = new WorkflowRunner(broker, agent) { SequenceAbandonGrace = TimeSpan.FromMilliseconds(300) }
+            .ExecuteWithProductionDispatchAdmissionProofAsync(runStore.RunId, revision, "sequence input", _ => { },
+                Record, cancellation.Token);
+        await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+
+        WorkflowExecutionResult result;
+        try { result = await execution.WaitAsync(TimeSpan.FromSeconds(10)); }
+        catch (TimeoutException)
+        {
+            throw new Xunit.Sdk.XunitException("The run stayed open after a host cancel with a grace configured. Recorded: " +
+                string.Join(" | ", recorded.Select(evt => $"{evt.Kind}:{evt.NodeId}")));
+        }
+
+        Assert.True(result.Failed);
+        Assert.True(result.OutcomeUnknown);
+        var atReturn = recorded.ToArray();
+        var rootTerminal = Assert.Single(RootTerminalEvents(atReturn));
+        Assert.Equal(ExecutionEventKinds.OutcomeUnknown, rootTerminal.Kind);
+        // Both dispatched outputs never reported: each is abandoned, none is claimed cancelled or failed.
+        Assert.Equal(["architecture", "inventory"],
+            atReturn.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputAbandoned)
+                .Select(evt => ReadEvidence(evt).OutputId!).Order().ToArray());
+        Assert.DoesNotContain(atReturn, evt => evt.Kind is ExecutionEventKinds.SequenceOutputCancelled or
+            ExecutionEventKinds.SequenceOutputFailed or ExecutionEventKinds.SequenceOutputCompleted or
+            ExecutionEventKinds.SequenceCompleted or ExecutionEventKinds.SequenceCancelled);
+        var sequenceTerminal = Assert.Single(atReturn, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.True(atReturn.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputAbandoned)
+            .All(evt => evt.Sequence < sequenceTerminal.Sequence) && sequenceTerminal.Sequence < rootTerminal.Sequence);
+        Assert.Equal(rootTerminal.Sequence, atReturn.Max(evt => evt.Sequence));
+
+        // Releasing the orphans adds nothing to the stored history.
+        release.TrySetResult("{}");
+        agent.Release.TrySetResult(true);
+        await Task.Delay(300);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(atReturn, reopened.Events);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("failed", playback!.Status);
+        Assert.Equal(["abandoned", "abandoned"], playback.Outputs.Select(output => output.State));
+
+        // Reconciliation sees an unknown outcome and never a resumable or plain terminal run.
+        var reconciliation = WorkflowRunReconciliation.Assess(reopened, null);
+        Assert.Equal(RunRecoveryDisposition.UnresolvedWork, reconciliation.Disposition);
+        Assert.False(reconciliation.CanResume);
+        Assert.Contains(reconciliation.UnresolvedWork, work => work.State == UnresolvedWorkState.OutcomeUnknown);
+    }
+
+    [Fact]
+    public async Task Unified_production_sequence_host_cancel_with_only_hung_executors_stays_open_without_a_grace()
+    {
+        // Unchanged behavior: SequenceAbandonGrace is null, so the host cancel waits for the executors to return.
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-host-cancel-only-hung-no-grace");
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var broker = new SequencePathBroker((_, _) => release.Task);
+        var agent = new TokenIgnoringAgentExecutor();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        using var cancellation = new CancellationTokenSource();
+
+        var execution = new WorkflowRunner(broker, agent)
+            .ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(), revision, "sequence input", _ => { },
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }, cancellation.Token);
+        await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Task.Delay(1500);
+
+        Assert.False(execution.IsCompleted);
+        Assert.Empty(RootTerminalEvents(events));
+        release.TrySetResult("{}");
+        agent.Release.TrySetResult(true);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(ExecutionEventKinds.Cancelled, Assert.Single(RootTerminalEvents(events)).Kind);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.SequenceOutputAbandoned or
+            ExecutionEventKinds.OutcomeUnknown);
+    }
+
+    [Fact]
+    public async Task Unified_production_sequence_host_cancel_that_settles_within_the_grace_is_an_ordinary_cancellation()
+    {
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-host-cancel-honored-within-grace");
+        // Both executors honor their token, so the cancel settles long before the grace.
+        var broker = new SequencePathBroker(async (_, token) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            return "{}";
+        });
+        var agent = new SequenceProofAgentExecutor(blockUntilCancellation: true);
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        using var cancellation = new CancellationTokenSource();
+
+        var execution = new WorkflowRunner(broker, agent) { SequenceAbandonGrace = TimeSpan.FromSeconds(30) }
+            .ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(), revision, "sequence input", _ => { },
+                evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }, cancellation.Token);
+        await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution.WaitAsync(TimeSpan.FromSeconds(10)));
+        var recorded = events.ToArray();
+        Assert.Equal(ExecutionEventKinds.Cancelled, Assert.Single(RootTerminalEvents(recorded)).Kind);
+        Assert.DoesNotContain(recorded, evt => evt.Kind is ExecutionEventKinds.SequenceOutputAbandoned or
+            ExecutionEventKinds.OutcomeUnknown);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

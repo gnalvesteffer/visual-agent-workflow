@@ -6282,3 +6282,29 @@ Evidence for the nesting review's prerequisites, gathered with no guard change: 
 **Tests.** `A_failed_sequence_run_revokes_the_admitted_output_barrier_ticket_and_is_quiescent` (was the skipped defect test) fails before the fix and passes after; the control test that pinned the bug is deleted and every failure test in `SequenceForEachNestingEvidenceTests` now asserts full quiescence.
 
 **Remains.** After an abandon-by-grace the orphaned child's re-entry ticket (`each:Admitted`) is still outstanding in the child's owner; that path is intentionally untouched. The host-cancel limit with a sole hung item and the other open rows above are unchanged.
+
+### Abandon limits resolved (2026-11-25)
+
+Implementing-agent record, not a three-role review. Two limits left by the bounded abandon and the nesting evidence were examined against the code and the earlier decisions.
+
+**Limit 1: the orphaned child's `each:Admitted` ticket.**
+
+*Found.* The documented leftover was not real for the child. A child's owner has no unstarted ticket while its item hangs (the re-entry ticket is admitted only when the item returns), and once the orphan returns, the child's own cancelled path runs `RevokeUnstarted` itself, because the child's disposal merely waits on the executor and then reaches its catch block. The old assertion (`Assert.All` over the outstanding tickets) passed vacuously on an empty list. Tightened tests now assert: while the item is hung, the outstanding tickets are exactly `agent:Started` and `call:Started`; after release every owner is empty.
+
+*What does remain.* A root that was abandoned with a Sequence output that had already arrived at the Output barrier keeps that `output:Admitted` ticket for good. The stopped framework never delivers it and no receiver ever starts it, so it is inert, and `Outstanding()` shows it as `:Admitted`, distinct from the `:Started` slots that mark executors that may still be running (`Host_cancel_with_only_a_hung_item_is_abandoned_...` pins this).
+
+*Rule chosen: do not revoke at abandon.* `RevokeUnstarted` requires that no live sender can still admit a ticket, and that is exactly what is unknown after an abandon. A live orphan between `Admit` and `SendMessageAsync` holds an Admitted ticket that a sweep would remove, and its `catch { Revoke(id) }` would then throw over the original exception; a receiver that starts after the sweep would throw "missing, stale". Both land in detached code, but they change orphan behavior for a cosmetic gain: the owner is run-local, nothing persists it, and reconciliation reads events, not tickets. `EnsureQuiescent` is unchanged and is not asserted on this path. Rule: started slots are reported by `Outstanding()` and mean "may still run"; `:Admitted` leftovers after an abandon mean "never started".
+
+**Limit 2: host cancel when the only running work is a hung item.**
+
+*Found.* The grace started only from the coordinator's `AbandonableStop` signal, raised when an output reports a failure or cancellation. A token-ignoring executor reports nothing, so a host cancel never started the grace and the run stayed open until the executor returned (a hung agent directly in a Sequence output behaved the same, so this predates For Each). The hosting guide promised the bound "after a failure or cancellation", and the option is documented as the host's bound on a hung executor, so this was a gap, not a design choice.
+
+*Rule chosen.* When `SequenceAbandonGrace` is set and the run is a production Sequence, the caller's cancellation token also starts the grace. Only the caller's token counts: a collaboration timeout keeps its own failure path. The grace timer is started at most once whichever signal comes first, and it is now cancelled when the run ends, so a run that settles within the grace leaves no timer behind. With no grace configured nothing changed (`Host_cancel_..._stays_open_..._without_a_grace` and the For Each equivalent pin it).
+
+*Event stream.* After the cancel and the grace: one `sequence.output.abandoned` per dispatched output that never reported, then `sequence.failed`, then the root `run.outcome-unknown` as the last event; no `cancelled`, no `sequence.output.cancelled` and no `sequence.cancelled`. Playback reads the outputs as `abandoned` and the Sequence as `failed`, File and SQLite reopen are identical after the orphans are released, and `WorkflowRunReconciliation` reports `UnresolvedWork`, not resumable, with an unknown-outcome item. A cancel whose executors honor the token within the grace is an ordinary `run.cancelled`. A host cancel that arrives while a sibling already completed abandons only the output that did not report (the For Each case: `call` abandoned, the plain sibling completed).
+
+*Cost.* A host cancel now ends `run.outcome-unknown` instead of `run.cancelled` whenever an executor outlasts the grace after the cancel, even if it would have honored the token a moment later. That is the stated purpose of a finite grace and the choice of the host; the hosting guide says so.
+
+**Evidence.** `Unified_production_sequence_host_cancel_with_only_hung_executors_is_abandoned_after_the_grace` (File and SQLite; failed before the change, timing out after 10 s), `..._stays_open_without_a_grace`, `..._that_settles_within_the_grace_is_an_ordinary_cancellation`, and the nesting tests for a sole hung For Each item with and without a grace.
+
+**Remains.** Child runs still do not inherit the grace, so a host cancel with a hung item inside a child's own Sequence is bounded only through the root Sequence output that calls it. The checkpoint host and service sample ignore the option. Non-Sequence workflows with a hung agent are not bounded.

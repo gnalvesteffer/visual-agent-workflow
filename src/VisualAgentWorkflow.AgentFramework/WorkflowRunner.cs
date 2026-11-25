@@ -443,11 +443,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         using var graceCts = new CancellationTokenSource();
         var abandonedByGrace = 0;
         DetachableRun? detachableRun = null;
+        var graceStarted = 0;
         void StartAbandonGrace()
         {
             // Decision 0070: once a Sequence reports an abandonable stop, no successor pass or item may be admitted.
             activationFrameOwner.MarkAbandonRequested();
             if (SequenceAbandonGrace is not { } grace || grace <= TimeSpan.Zero) return;
+            // The coordinator signal and a host cancel can both start the grace; one timer is enough.
+            if (Interlocked.Exchange(ref graceStarted, 1) != 0) return;
             _ = AbandonAfterGraceAsync(grace);
         }
 
@@ -532,6 +535,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             activationFrameOwner.AbandonRun = runLifetime.Detach;
             using var cancellationRegistration = cancellationToken.Register(
                 static state => _ = CancelStreamingRunAsync((StreamingRun)state!), run);
+            // Decision 0070 (abandon limits): a host cancel is an abandonable stop even when no executor ever reports it,
+            // because a token-ignoring executor settles nothing. Only the caller's token counts (a collaboration timeout
+            // keeps its own failure), only a production Sequence has outputs to abandon, and only a configured grace
+            // changes behavior.
+            using var hostCancelGraceRegistration = sequencePlan is not null && SequenceAbandonGrace is not null
+                ? callerCancellationToken.Register(StartAbandonGrace)
+                : default;
             GraphMessage? output = null;
             GraphMessage? activationBreakOutput = null;
             await foreach (var evt in run.WatchStreamAsync(observationCts.Token))
@@ -636,6 +646,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 await Emit(ExecutionEventKinds.Failed, data: FindWorkflowLoopBudgetFailure(exception)?.Message ??
                     "Workflow execution failed.");
             throw;
+        }
+        finally
+        {
+            // A run that ended before the grace elapsed must not leave its abandon timer running.
+            graceCts.Cancel();
         }
     }
 

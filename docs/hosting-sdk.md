@@ -40,7 +40,7 @@ builder.Services.AddLocalWorkflowRuntime(".local/my-service-runs");
 
 The grace must be positive, finite, and at most 24 hours; `null` (the default) waits indefinitely, and invalid values throw at construction. It is one host-wide value: workflow authors and run input cannot set or override it, so it applies to every workflow the host runs, including ones with side-effecting tools. Choose it deliberately; a finite value does not know whether a slow tool call is healthy.
 
-When the grace elapses after a failure or cancellation, each output that never reported is recorded `abandoned`, the Sequence ends failed, and the run ends `run.outcome-unknown`, even if the host also cancelled it. This changes what run control reports for a cancelled run in that case. Be aware that an abandoned executor is **not stopped**:
+When the grace elapses after a failure or a host cancellation (the grace starts at the host cancel itself, so a run whose only running work ignores its token is still bounded), each output that never reported is recorded `abandoned`, the Sequence ends failed, and the run ends `run.outcome-unknown`, even if the host also cancelled it. This changes what run control reports for a cancelled run in that case. Be aware that an abandoned executor is **not stopped**:
 
 - it keeps running in-process and its external effects may still land;
 - its admission slot stays open, and quiescence is not asserted on this path;
