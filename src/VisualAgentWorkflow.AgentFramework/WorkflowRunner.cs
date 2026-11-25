@@ -121,6 +121,22 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             frameOwnerProbe: frameOwnerProbe);
     }
 
+    /// <summary>
+    /// Characterization-only: runs a definition through the ordinary production dispatcher while ignoring the
+    /// <c>wait.placement</c> and <c>sequence.path.*</c> validation issues, so tests can observe a Wait that the validator still rejects (Decision 0081,
+    /// "Sequence output Wait facts"). Not reachable from persisted content or any host.
+    /// </summary>
+    internal Task<WorkflowExecutionResult> ExecuteIgnoringWaitPlacementProofAsync(Guid runId,
+        WorkflowRevision revision, string input, Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate gate,
+        CancellationToken cancellationToken = default,
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(gate);
+        return ExecuteCoreAsync(runId, revision, input, null, record, gate, cancellationToken,
+            afterNodeStarted: afterNodeStarted, ignoreWaitPlacementForProof: true);
+    }
+
     internal Task<WorkflowExecutionResult> ExecuteWithLoopBudgetsProofAsync(Guid runId,
         WorkflowRevision revision, string input, int maximumLoopPasses, int maximumLoopEvidenceEvents,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default)
@@ -340,7 +356,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null,
         Action<WorkflowDispatchAdmissionOwner.Ticket>? workflowDispatchAdmissionObserver = null,
         Action<WorkflowDispatchAdmissionOwner>? workflowDispatchAdmissionProbe = null,
-        Action<StructuredActivationFrameOwner>? frameOwnerProbe = null)
+        Action<StructuredActivationFrameOwner>? frameOwnerProbe = null,
+        bool ignoreWaitPlacementForProof = false)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -349,7 +366,19 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
         if (!sequenceWorkflowCallProof && !skipValidationForInternalProof)
-            WorkflowValidator.ThrowIfInvalid(revision.Definition);
+        {
+            if (ignoreWaitPlacementForProof)
+            {
+                // Test-only characterization seam (Decision 0081): every other validation issue still throws. A Wait is also
+                // outside the Sequence path allowlist, so the path cascade it causes (sequence.path.*) is ignored too. The
+                // production dispatcher and admission owner stay on, unlike skipValidationForInternalProof.
+                var remaining = WorkflowValidator.Validate(revision.Definition)
+                    .Where(issue => issue.Code != "wait.placement" && !issue.Code.StartsWith("sequence.path.", StringComparison.Ordinal)).ToArray();
+                if (remaining.Length > 0)
+                    throw new ArgumentException(string.Join("; ", remaining.Select(i => $"{i.Code} at {i.Path}: {i.Message}")), nameof(revision));
+            }
+            else WorkflowValidator.ThrowIfInvalid(revision.Definition);
+        }
         // Decision 0081: a Wait needs a host timer. Refuse before any event or side effect rather than failing mid-run.
         if (gate is not IWorkflowWaitGate && WorkflowWaitOptions.ContainsWait(revision.Definition))
             throw new InvalidOperationException(WaitUnsupportedMessage);
