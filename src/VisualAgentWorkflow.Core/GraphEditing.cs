@@ -1170,7 +1170,7 @@ public static class GraphEditing
         if (existing.Type == node.Type && existing.Type == NodeTypes.Output &&
             existing with { OutputDataType = node.OutputDataType } == node)
             return WorkflowDraftEditing.ValidateEdit(definition with { Nodes = definition.Nodes.SetItem(id, node) });
-        if (existing.Type == node.Type && existing.Type is NodeTypes.Wait or NodeTypes.Condition or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.ArrayLiteral)
+        if (existing.Type == node.Type && existing.Type is NodeTypes.Wait or NodeTypes.ObjectGet or NodeTypes.Condition or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.ArrayLiteral)
             return WorkflowDraftEditing.ValidateEdit(definition with { Nodes = definition.Nodes.SetItem(id, node) });
         RequireProcessing(existing.Type);
         RequireProcessing(node.Type);
@@ -1286,6 +1286,121 @@ public static class GraphEditing
         return ReplaceNode(definition, id, node.Type == NodeTypes.Input
             ? node with { InputDataType = stored, InputShape = stored == WorkflowDataTypes.Json ? node.InputShape : null }
             : node with { OutputDataType = stored });
+    }
+
+    /// <summary>
+    /// Appends one field to the shape of a json Input (creating the shape with its first field). The field ID is generated, never
+    /// typed: it is the stable wiring identity, while the display name stays free to change (Decision 0082).
+    /// </summary>
+    public static WorkflowDefinition AddInputShapeField(WorkflowDefinition definition, string inputId)
+    {
+        var (input, fields) = ShapeFields(definition, inputId);
+        if (fields.Length >= JsonObjectShapeLimits.MaximumFields)
+            throw new ArgumentException($"A JSON object shape can declare at most {JsonObjectShapeLimits.MaximumFields} fields.", nameof(inputId));
+        string fieldId;
+        do fieldId = "field-" + Guid.NewGuid().ToString("N")[..8];
+        while (fields.Any(field => field.Id == fieldId));
+        return WithShape(definition, inputId, input, fields.Add(new(fieldId, $"Field {fields.Length + 1}", WorkflowDataTypes.String, true)));
+    }
+
+    /// <summary>Removes one shape field; removing the last field removes the shape. Rejected while an object get node reads the field.</summary>
+    public static WorkflowDefinition RemoveInputShapeField(WorkflowDefinition definition, string inputId, string fieldId)
+    {
+        var (input, fields) = ShapeFields(definition, inputId);
+        var index = FieldIndex(fields, fieldId);
+        RequireNoFieldReaders(definition, inputId, fieldId, "removed");
+        return WithShape(definition, inputId, input, fields.RemoveAt(index));
+    }
+
+    /// <summary>Moves one shape field up (-1) or down (+1). Order is display-only: wiring and values address fields by ID.</summary>
+    public static WorkflowDefinition MoveInputShapeField(WorkflowDefinition definition, string inputId, string fieldId, int direction)
+    {
+        if (direction is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(direction));
+        var (input, fields) = ShapeFields(definition, inputId);
+        var index = FieldIndex(fields, fieldId);
+        var destination = index + direction;
+        if (destination < 0 || destination >= fields.Length) throw new ArgumentException("The field cannot move past the start or end of the shape.", nameof(direction));
+        var moved = fields.RemoveAt(index).Insert(destination, fields[index]);
+        return WithShape(definition, inputId, input, moved);
+    }
+
+    /// <summary>Changes only the display name; the field ID, wiring and accepted values are untouched.</summary>
+    public static WorkflowDefinition RenameInputShapeField(WorkflowDefinition definition, string inputId, string fieldId, string name)
+    {
+        var (input, fields) = ShapeFields(definition, inputId);
+        var index = FieldIndex(fields, fieldId);
+        return WithShape(definition, inputId, input, fields.SetItem(index, fields[index] with { Name = name?.Trim() ?? string.Empty }));
+    }
+
+    /// <summary>Changes the scalar type of a field. Rejected while an object get node reads it, since its pin type would diverge.</summary>
+    public static WorkflowDefinition SetInputShapeFieldType(WorkflowDefinition definition, string inputId, string fieldId, string type)
+    {
+        var (input, fields) = ShapeFields(definition, inputId);
+        var index = FieldIndex(fields, fieldId);
+        if (!JsonObjectShapes.IsFieldType(type)) throw new ArgumentException("Choose string, integer, number or boolean.", nameof(type));
+        if (fields[index].Type != type) RequireNoFieldReaders(definition, inputId, fieldId, "retyped");
+        return WithShape(definition, inputId, input, fields.SetItem(index, fields[index] with { Type = type }));
+    }
+
+    public static WorkflowDefinition SetInputShapeFieldRequired(WorkflowDefinition definition, string inputId, string fieldId, bool required)
+    {
+        var (input, fields) = ShapeFields(definition, inputId);
+        var index = FieldIndex(fields, fieldId);
+        return WithShape(definition, inputId, input, fields.SetItem(index, fields[index] with { Required = required }));
+    }
+
+    /// <summary>The fields an object get node can read: those of the shaped Input connected directly to its <c>in</c> pin.</summary>
+    public static ImmutableArray<JsonObjectFieldShape> ObjectGetFieldChoices(WorkflowDefinition definition, string nodeId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        var source = definition.Connections.Values.FirstOrDefault(edge => edge.Target.NodeId == nodeId && edge.Target.PortId == "in");
+        return source is not null && definition.Nodes.TryGetValue(source.Source.NodeId, out var node) &&
+               node is { Type: NodeTypes.Input, InputShape: { Fields.IsDefault: false } shape }
+            ? shape.Fields
+            : [];
+    }
+
+    /// <summary>Selects the field an object get node reads; the output type is derived from the connected shape, never typed.</summary>
+    public static WorkflowDefinition SetObjectGetField(WorkflowDefinition definition, string nodeId, string fieldId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (!definition.Nodes.TryGetValue(nodeId, out var node) || node.Type != NodeTypes.ObjectGet)
+            throw new ArgumentException("Choose an object get node.", nameof(nodeId));
+        var field = ObjectGetFieldChoices(definition, nodeId).FirstOrDefault(choice => choice.Id == fieldId)
+            ?? throw new ArgumentException("Connect the node to an Input that declares this field first.", nameof(fieldId));
+        return ReplaceNode(definition, nodeId, node with { ObjectGet = new(field.Id, field.Type) });
+    }
+
+    private static (NodeDefinition Input, ImmutableArray<JsonObjectFieldShape> Fields) ShapeFields(WorkflowDefinition definition, string inputId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph ||
+            !definition.Nodes.TryGetValue(inputId, out var input) || input is not { Type: NodeTypes.Input, InputDataType: WorkflowDataTypes.Json })
+            throw new ArgumentException("A JSON object shape belongs to a json Input node in a schema 2.0 workflow.", nameof(inputId));
+        return (input, input.InputShape is { Fields.IsDefault: false } shape ? shape.Fields : []);
+    }
+
+    private static int FieldIndex(ImmutableArray<JsonObjectFieldShape> fields, string fieldId)
+    {
+        var index = fields.Select((field, position) => (field, position)).FirstOrDefault(pair => pair.field.Id == fieldId, (null!, -1)).position;
+        return index >= 0 ? index : throw new ArgumentException($"The shape declares no field '{fieldId}'.", nameof(fieldId));
+    }
+
+    private static WorkflowDefinition WithShape(WorkflowDefinition definition, string inputId, NodeDefinition input, ImmutableArray<JsonObjectFieldShape> fields)
+    {
+        JsonObjectShape? shape = fields.IsEmpty ? null : new(fields);
+        if (shape is not null && JsonObjectShapes.Validate(shape) is { } problem) throw new ArgumentException(problem, nameof(fields));
+        return ReplaceNode(definition, inputId, input with { InputShape = shape });
+    }
+
+    private static void RequireNoFieldReaders(WorkflowDefinition definition, string inputId, string fieldId, string action)
+    {
+        var readers = definition.Connections.Values
+            .Where(edge => edge.Source.NodeId == inputId && edge.Target.PortId == "in" &&
+                           definition.Nodes.TryGetValue(edge.Target.NodeId, out var reader) && reader.ObjectGet?.FieldId == fieldId)
+            .Select(edge => edge.Target.NodeId).ToArray();
+        if (readers.Length > 0)
+            throw new ArgumentException($"Field '{fieldId}' cannot be {action} while {string.Join(", ", readers)} reads it; retarget or remove the reader first.", nameof(fieldId));
     }
 
     public static WorkflowDefinition RemoveJsonSelector(WorkflowDefinition definition, string id)

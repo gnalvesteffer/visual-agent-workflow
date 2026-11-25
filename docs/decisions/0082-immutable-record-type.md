@@ -405,8 +405,7 @@ Design choices and why:
 ### What remains
 
 1. Review: the fresh proponent, opponent and adjudicator review that P5 requires has not been run.
-2. Studio: no palette entry, shape editor or inspector. A shape can only be authored in JSON. `WorkflowGraphCanvas`,
-   `WorkflowEditor` and the Function editors have no label or icon for `core.object.get`.
+2. Studio: done for workflow editing (see the Studio authoring slice below). The Function editors still have no `core.object.get` label or shape editor.
 3. Other carriers: Output, workflow parameters, variables, function ports, workflow-call interface fields, MCP projection.
 4. Checking a JSON projection's output against a shape, and shape-to-shape compatibility (this is what would make an object
    passable between nodes and workflows).
@@ -426,3 +425,11 @@ Design choices and why:
   input, which is the loop item, so the item text is validated against the shape and the pass fails. Read a shaped Input only
   outside loop bodies. Pinned by `A_shaped_input_read_inside_a_for_each_body_validates_the_loop_item_not_the_run_input`.
 
+### Studio authoring slice (2026-11-25)
+
+Status: **implemented**; the adversarial three-role review was not run for it (additive, reversible UI over existing Core contracts).
+
+- Core: pure `GraphEditing` helpers add, remove, move, rename, retype and toggle fields of a json Input's shape, and `SetObjectGetField` selects the field. Field IDs are generated (`field-` plus eight hex digits) and never typed; the display name is trimmed and may not be blank; the 32-field limit and the shape rules are enforced through `ValidateEdit`. Removing the last field removes the shape. Removing or retyping a field that an `objectGet` reads is rejected, not cascaded, so no reader silently changes type. Tests: `ShapedJsonAuthoringTests` (Core) and `ShapedJsonEditorRenderingTests` (Hosting).
+- Studio: shape editor in the json Input inspector, a **Get object field** palette entry, canvas label, icon and summary, and a field picker on the node.
+- Found while driving it in a browser, fixed here: focus fell to the page after Move or Remove (now restored); a rejected inspector edit left the select or input showing the rejected value while the definition kept the old one (the inspector controls are now recreated and focus restored); "Insert For each region" vanished without explanation on a wire that cannot take it (now disabled with the reason); at phone width the editor's inspector resizer took a grid row and squeezed the inspector to about 60 pixels (now hidden, as in the viewer).
+- Not verified in a browser: wait labels in the run viewer (no run was started); narrow layout with the node library open; Studio with a screen reader.

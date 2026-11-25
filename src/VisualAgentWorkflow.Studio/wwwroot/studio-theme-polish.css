@@ -661,7 +661,9 @@
     .vaw-workflow-document-tabs { inline-size: 100%; }
     .vaw-document-actions { margin-inline-start: auto; }
     .vaw-document-breadcrumb { flex-basis: 1.8rem; }
-    .vaw-studio-in-ide .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(12rem, 1fr) minmax(0, 10rem); }
+    /* The editor's (not only the viewer's) inspector resizer must leave the grid, or it takes the second row and squeezes the inspector to a sliver. */
+    .vaw-studio-in-ide .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(9rem, 1fr) minmax(11rem, 1.3fr); }
+    .vaw-studio-in-ide .vaw-canvas-workspace.vaw-with-properties > [data-pane-resizer="inspector"] { display: none; }
     .vaw-studio-in-ide .vaw-bottom-tray { flex-basis: 9rem; }
     .vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(12rem, 1fr) minmax(0, 10rem); }
     .vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace.vaw-with-properties > [data-pane-resizer="inspector"] { display: none; }

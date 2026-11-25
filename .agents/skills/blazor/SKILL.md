@@ -216,3 +216,9 @@ public void ComponentRendersCorrectly()
 - Lazy load components with `@if`
 - Minimize JavaScript interop calls
 - Use streaming rendering in .NET 8+
+
+## Repository pitfalls (observed in Studio, 2026-11-25)
+
+- A `value="@x"` select or input with `@onchange` keeps the user's choice on screen when the handler rejects the edit and `x` is unchanged, because the render diff sees no change. `WorkflowEditor` recreates the inspector controls after a rejected edit (an `@key` on a `display: contents` wrapper bumped by `rejectedEdits`) and restores focus by `aria-label`; follow that when adding inspector editors.
+- Reordering or removing `@key`-ed rows moves or recreates their buttons and drops keyboard focus to the page. Mark controls with `data-shape-control`-style attributes and refocus in `OnAfterRenderAsync` through `tabInteractions.js`.
+- A browser pane can run a copy of Studio on its own port with `--WorkflowStudio:Port=<port>` (it is not `--urls`). Verify keyboard behavior with real key presses, not only DOM state; stop the server by the PID listening on that port.

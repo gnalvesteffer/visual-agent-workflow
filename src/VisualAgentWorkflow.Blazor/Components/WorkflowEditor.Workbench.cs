@@ -285,16 +285,27 @@ public partial class WorkflowEditor
         catch (ArgumentException exception) { error = $"The graph edit is invalid: {exception.Message}"; }
     }
 
-    private bool CanInsertForEachRegion(GraphContextRequest context)
+    private bool CanInsertForEachRegion(GraphContextRequest context) => ForEachRegionProblem(context) is null;
+
+    /// <summary>Why a For each region cannot be inserted on the clicked execution wire, or null when it can. Null also for non-execution targets.</summary>
+    private string? ForEachRegionProblem(GraphContextRequest context)
     {
-        if (!IsUnifiedGraph || !TryGetExecutionConnectionId(context.ConnectionId, out var connectionId)) return false;
+        if (!IsUnifiedGraph || !TryGetExecutionConnectionId(context.ConnectionId, out var connectionId)) return "This is not an execution wire in a schema 2.0 workflow.";
         try
         {
             _ = GraphEditing.InsertForEachAtExecutionConnection(Definition, connectionId);
-            return true;
+            return null;
         }
-        catch (ArgumentException) { return false; }
+        catch (ArgumentException exception) { return ForEachProblemText(exception.Message); }
     }
+
+    // The loop validator names its rule by code; say what the author can do instead. Other messages are shown, bounded.
+    private static string ForEachProblemText(string message) =>
+        message.Contains("loop.feedback.root", StringComparison.Ordinal)
+            ? "a For each can currently start only on the wire leaving Input (or the Input to Agent prefix), not after other nodes, and a workflow may enter one root loop."
+            : message.Length <= 240 ? message : message[..240] + "…";
+
+    private bool ShowsForEachRegionAction(GraphContextRequest context) => IsUnifiedGraph && TryGetExecutionConnectionId(context.ConnectionId, out _);
 
     private async Task InsertForEachRegion(GraphContextRequest context)
     {
@@ -396,6 +407,7 @@ public partial class WorkflowEditor
             ContractEntry(NodeTypes.JsonSelectString, canAdd),
             ContractEntry(NodeTypes.JsonProject, canAdd),
             ContractEntry(NodeTypes.JsonMerge, canAdd),
+            ContractEntry(NodeTypes.ObjectGet, canAdd, "Read one field of a shaped JSON Input by its stable field ID. Wire it to the Input, then pick the field in the inspector."),
             ContractEntry(NodeTypes.Approval, canAdd),
             ContractEntry(NodeTypes.WorkflowInterfaceCall, canAdd, "Call one typed operation from a pinned workflow interface implementation."),
             ContractEntry(NodeTypes.Condition, canAdd),

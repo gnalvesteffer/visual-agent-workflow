@@ -727,3 +727,12 @@
     .vaw-node-library .vaw-library-entry, :where(.vaw-studio, .vaw-designer, .vaw-viewer) .vaw-primary { background-image: none; }
     .vaw-studio, .vaw-library-panel, .vaw-properties, .vaw-canvas-toolbar, .vaw-graph-editor .vaw-node-drag { background-image: none; box-shadow: none; }
 }
+
+/* Shaped JSON Input editor and object get (Decision 0082). */
+.vaw-properties .vaw-object-shape { display: grid; gap: var(--vaw-space-3); }
+.vaw-properties .vaw-shape-field { display: grid; gap: var(--vaw-space-2); padding: var(--vaw-space-3); border: 1px solid var(--vaw-border); border-radius: var(--vaw-panel-radius); background: color-mix(in srgb, var(--vaw-surface) 72%, var(--vaw-canvas)); }
+.vaw-properties .vaw-shape-field legend { font-weight: 650; overflow-wrap: anywhere; }
+.vaw-properties .vaw-shape-field code { font-size: .75rem; overflow-wrap: anywhere; }
+.vaw-shape-field-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--vaw-space-3); align-items: end; }
+.vaw-shape-field-row .vaw-check { display: flex; align-items: center; gap: var(--vaw-space-2); white-space: nowrap; min-block-size: 2rem; }
+.vaw-inspector-fields { display: contents; }

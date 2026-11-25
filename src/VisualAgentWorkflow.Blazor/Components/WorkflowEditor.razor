@@ -74,12 +74,16 @@
                 <button type="button" @onclick="() => InsertParallelRegion(context)">Insert parallel region</button>
             </section>
         }
-        @if (CanInsertForEachRegion(context))
+        @if (ShowsForEachRegionAction(context))
         {
+            var forEachProblem = ForEachRegionProblem(context);
             <section class="vaw-context-recovery" aria-label="For each region">
                 <strong>For each region</strong>
-                <p class="vaw-help">Insert a For each with its loop body, return wire, completed wire and a sample string array on this execution path. Edit the array and body afterwards.</p>
-                <button type="button" @onclick="() => InsertForEachRegion(context)">Insert For each region</button>
+                @if (forEachProblem is null)
+                { <p class="vaw-help">Insert a For each with its loop body, return wire, completed wire and a sample string array on this execution path. Edit the array and body afterwards.</p> }
+                else
+                { <p class="vaw-help" id="for-each-unavailable-@context.Id">Not available on this wire yet: @forEachProblem</p> }
+                <button type="button" aria-describedby="@(forEachProblem is null ? null : $"for-each-unavailable-{context.Id}")" disabled="@(forEachProblem is not null)" @onclick="() => InsertForEachRegion(context)">Insert For each region</button>
             </section>
         }
         <WorkflowNodeLibrary @key="context.Id" Title="Add node" SearchLabel="Search node actions" Entries="LibraryEntries(context)"
@@ -109,13 +113,14 @@
           <button type="button" @onclick="() => Disconnect(context.ConnectionId!, context)">Disconnect wire</button> }
     </ContextMenu>
         <NodeContent Context="id">
-            @if (Definition.Nodes.TryGetValue(id, out var summaryNode)) { <p class="vaw-node-summary">@Summary(summaryNode)</p> }
+            @if (Definition.Nodes.TryGetValue(id, out var summaryNode)) { <p class="vaw-node-summary">@(summaryNode.Type == NodeTypes.ObjectGet ? ObjectGetSummary(id, summaryNode) : Summary(summaryNode))</p> }
         </NodeContent>
         <NodeInspector Context="id">
             @if (Definition.Nodes.TryGetValue(id, out var node))
             {
             var index = Order.IndexOf(id);
             var terminal = node.Type is NodeTypes.Input or NodeTypes.Output;
+            <div class="vaw-inspector-fields" @key="rejectedEdits">
                     @if (node.Type == NodeTypes.Input && WorkflowSchemaVersions.UsesExplicitGraph(Definition))
                     {
                         <p>The <strong>then</strong> pin activates the workflow path. The <strong>out</strong> pin is a value dependency and does not activate nodes.</p>
@@ -128,6 +133,55 @@
                             </select></label>
                             @if (WorkflowDataTypes.IsPrimitiveArrayType(node.InputDataType))
                             { <p class="vaw-help">Run input is JSON text for a homogeneous, non-null @ArrayElementTypeLabel(node.InputDataType) array. Limit: 64 items and 16 KiB.</p> }
+                        }
+                        @if (IsUnifiedGraph && node.InputDataType == WorkflowDataTypes.Json)
+                        {
+                            var shapeFields = node.InputShape is { Fields.IsDefault: false } declaredShape ? declaredShape.Fields : [];
+                            <fieldset class="vaw-object-shape" disabled="@Disabled">
+                                <legend>Object shape (@shapeFields.Length of @JsonObjectShapeLimits.MaximumFields fields)</legend>
+                                @if (shapeFields.IsEmpty)
+                                { <p class="vaw-help">No shape: any valid JSON is accepted. Declare fields to accept only a closed object and read its fields with Get object field.</p> }
+                                else
+                                { <p class="vaw-help">Run input must be one JSON object with exactly these fields. Fields are wired by their generated ID, so renaming never breaks a connection.</p> }
+                                @for (var fieldIndex = 0; fieldIndex < shapeFields.Length; fieldIndex++)
+                                {
+                                    var shapeField = shapeFields[fieldIndex];
+                                    var position = fieldIndex;
+                                    <fieldset class="vaw-shape-field" @key="shapeField.Id" disabled="@Disabled">
+                                        <legend>Field @(position + 1) · <code>@shapeField.Id</code></legend>
+                                        <label>Display name
+                                            <input aria-label="Display name for field @shapeField.Id" value="@shapeField.Name" maxlength="@JsonObjectShapeLimits.MaximumNameCharacters"
+                                                   @onchange="args => Edit(() => GraphEditing.RenameInputShapeField(Definition, id, shapeField.Id, args.Value?.ToString() ?? string.Empty))" disabled="@(Disabled || ReadOnly)" />
+                                        </label>
+                                        <div class="vaw-shape-field-row">
+                                            <label>Type
+                                                <select aria-label="Type for field @shapeField.Id" value="@shapeField.Type"
+                                                        @onchange="args => Edit(() => GraphEditing.SetInputShapeFieldType(Definition, id, shapeField.Id, args.Value?.ToString() ?? string.Empty))" disabled="@(Disabled || ReadOnly)">
+                                                    <option value="string">Text</option><option value="integer">Integer</option><option value="number">Number</option><option value="boolean">Boolean</option>
+                                                </select>
+                                            </label>
+                                            <label class="vaw-check"><input type="checkbox" aria-label="Field @shapeField.Id is required" checked="@shapeField.Required"
+                                                   @onchange="args => Edit(() => GraphEditing.SetInputShapeFieldRequired(Definition, id, shapeField.Id, args.Value is true))" disabled="@(Disabled || ReadOnly)" /> Required</label>
+                                        </div>
+                                        @if (!ReadOnly)
+                                        {
+                                            <div class="vaw-controls">
+                                                <button type="button" aria-label="Move field @shapeField.Id up" disabled="@(Disabled || position == 0)" data-shape-control="@ShapeUp(shapeField.Id)"
+                                                        @onclick="() => ShapeEdit(() => GraphEditing.MoveInputShapeField(Definition, id, shapeField.Id, -1), position - 1 == 0 ? ShapeDown(shapeField.Id) : ShapeUp(shapeField.Id))">Move up</button>
+                                                <button type="button" aria-label="Move field @shapeField.Id down" disabled="@(Disabled || position == shapeFields.Length - 1)" data-shape-control="@ShapeDown(shapeField.Id)"
+                                                        @onclick="() => ShapeEdit(() => GraphEditing.MoveInputShapeField(Definition, id, shapeField.Id, 1), position + 1 == shapeFields.Length - 1 ? ShapeUp(shapeField.Id) : ShapeDown(shapeField.Id))">Move down</button>
+                                                <button type="button" aria-label="Remove field @shapeField.Id" disabled="@Disabled" data-shape-control="@ShapeRemove(shapeField.Id)"
+                                                        @onclick="() => ShapeEdit(() => GraphEditing.RemoveInputShapeField(Definition, id, shapeField.Id), position + 1 < shapeFields.Length ? ShapeRemove(shapeFields[position + 1].Id) : position > 0 ? ShapeRemove(shapeFields[position - 1].Id) : ShapeAdd)">Remove</button>
+                                            </div>
+                                        }
+                                    </fieldset>
+                                }
+                                @if (!ReadOnly)
+                                {
+                                    <button type="button" disabled="@(Disabled || shapeFields.Length >= JsonObjectShapeLimits.MaximumFields)" data-shape-control="@ShapeAdd"
+                                            @onclick="() => ShapeEdit(() => GraphEditing.AddInputShapeField(Definition, id), ShapeAdd)">@(shapeFields.IsEmpty ? "Declare object shape" : "Add field")</button>
+                                }
+                            </fieldset>
                         }
                     }
                     else if (node.Type == NodeTypes.Input && !ReadOnly)
@@ -147,6 +201,23 @@
                         </select></label>
                         @if (WorkflowDataTypes.IsPrimitiveArrayType(node.OutputDataType))
                         { <p class="vaw-help">Returns a JSON array value with exact @ArrayElementTypeLabel(node.OutputDataType) element typing; limited to 64 items and 16 KiB.</p> }
+                    }
+                    else if (node.Type == NodeTypes.ObjectGet)
+                    {
+                        var choices = GraphEditing.ObjectGetFieldChoices(Definition, id);
+                        var selectedField = node.ObjectGet is { } getConfiguration ? choices.FirstOrDefault(choice => choice.Id == getConfiguration.FieldId) : null;
+                        @if (choices.IsEmpty)
+                        { <p class="vaw-help">Wire the <strong>in</strong> pin directly from a JSON Input that declares an object shape, then pick the field to read.</p> }
+                        else if (!ReadOnly)
+                        {
+                            <label>Field
+                                <select aria-label="Field to read for @id" value="@(selectedField?.Id ?? "")" @onchange="args => Edit(() => GraphEditing.SetObjectGetField(Definition, id, args.Value?.ToString() ?? string.Empty))" disabled="@Disabled">
+                                    @if (selectedField is null) { <option value="">Choose a field…</option> }
+                                    @foreach (var choice in choices) { <option value="@choice.Id">@choice.Name (@choice.Type)</option> }
+                                </select>
+                            </label>
+                        }
+                        <p>@(selectedField is null ? "No field is selected, so the output type is not yet derived from a shape." : $"Outputs {selectedField.Type}{(selectedField.Required ? "" : "; this field is optional, so the node fails when the caller omits it")}. The type follows the shape; it is not edited here.")</p>
                     }
                     else if (node.Type == NodeTypes.JsonSelectString)
                     {
@@ -984,6 +1055,7 @@
                             }
                         </ul>
                     }
+            </div>
             }
         </NodeInspector>
     </WorkflowGraphCanvas>
@@ -1073,6 +1145,59 @@
         if (id.Length == 0) return Task.CompletedTask;
         if (selectedNode != id) selectedPort = CanvasPorts(Definition.Nodes[id])
             .FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output)?.Id ?? "out"; selectedNode = id; LoadRendezvousEditorState(id); return Task.CompletedTask; }
+    // Two focus losses are repaired here. Reordering or removing a keyed shape field moves or recreates its buttons, and a
+    // rejected edit must recreate the inspector controls so a select or input shows the value the definition still holds
+    // (Blazor sees no change to the bound value and would otherwise leave the user's rejected choice on screen).
+    private string? pendingShapeFocus;
+    private string? pendingLabelFocus;
+    private int rejectedEdits;
+    private const string ShapeAdd = "add";
+    private static string ShapeUp(string fieldId) => "up:" + fieldId;
+    private static string ShapeDown(string fieldId) => "down:" + fieldId;
+    private static string ShapeRemove(string fieldId) => "remove:" + fieldId;
+
+    private Task ShapeEdit(Func<WorkflowDefinition> change, string focusKey)
+    {
+        pendingShapeFocus = focusKey;
+        return Edit(change);
+    }
+
+    private async Task RefreshInspectorAfterRejection()
+    {
+        pendingLabelFocus = await InteractionModuleCall<string?>("activeAriaLabel");
+        rejectedEdits++;
+    }
+
+    private async Task<T?> InteractionModuleCall<T>(string function, params object?[] arguments)
+    {
+        try
+        {
+            var assetVersion = typeof(WorkflowEditor).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+            await using var module = await JavaScript.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/tabInteractions.js?v={assetVersion}");
+            return module is null ? default : await module.InvokeAsync<T>(function, arguments);
+        }
+        catch (Exception exception) when (exception is JSException or InvalidOperationException or JSDisconnectedException) { return default; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (pendingShapeFocus is { } shapeKey)
+        {
+            pendingShapeFocus = null;
+            await InteractionModuleCall<bool>("focusShapeControl", shapeKey);
+        }
+        if (pendingLabelFocus is { } label)
+        {
+            pendingLabelFocus = null;
+            await InteractionModuleCall<bool>("focusByAriaLabel", label);
+        }
+    }
+
+    private string ObjectGetSummary(string id, NodeDefinition node)
+    {
+        var field = GraphEditing.ObjectGetFieldChoices(Definition, id).FirstOrDefault(choice => choice.Id == node.ObjectGet?.FieldId);
+        return field is null ? "Get object field · choose a field" : $"Get {field.Name} · {field.Type}";
+    }
     private string Summary(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => "Workflow input",
@@ -1083,6 +1208,7 @@
         NodeTypes.Reverse => "Reverse text",
         NodeTypes.JsonSelectString => $"JSON pointer · {node.JsonPropertySelection?.Pointer}",
         NodeTypes.JsonProject => $"JSON object · {string.Join(", ", node.JsonProjection?.Fields.Select(field => $"{field.Name}: {field.ValueSchema?.Type ?? field.ValueType ?? "any"}") ?? [])}",
+        NodeTypes.ObjectGet => "Get object field",
         NodeTypes.JsonToArray => "JSON array · array<json>",
         NodeTypes.ArrayLiteral => $"Array literal · array<{node.ArrayLiteral?.ElementType ?? WorkflowDataTypes.String}>",
         NodeTypes.ArrayLength => $"Count array<{node.ArrayElementType ?? WorkflowDataTypes.Json}>",
@@ -1580,6 +1706,7 @@
         if (value is NodeTypes.ForEach or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains)
             return new(value, "1.0.0") { ArrayElementType = existing?.ArrayElementType ?? WorkflowDataTypes.String };
         if (value == NodeTypes.JsonToArray) return new(value, "1.0.0");
+        if (value == NodeTypes.ObjectGet) return new(value, "1.0.0") { ObjectGet = existing?.ObjectGet ?? new("field", WorkflowDataTypes.String) };
         if (value == NodeTypes.TextTemplate)
             return new(NodeTypes.TextTemplate, "1.0.0") { TextTemplate = existing?.TextTemplate ?? new([new("input", "")]) };
         if (value == NodeTypes.WorkflowValue)
@@ -1994,7 +2121,11 @@
             }
             await CommitEdit(next, nextLayout, nextSelection);
         }
-        catch (ArgumentException exception) { error = $"The graph edit is invalid: {exception.Message}"; }
+        catch (ArgumentException exception)
+        {
+            error = $"The graph edit is invalid: {exception.Message}";
+            await RefreshInspectorAfterRejection();
+        }
     }
 
     private async Task CommitEdit(WorkflowDefinition next, WorkflowLayout nextLayout, string? selection = null)
