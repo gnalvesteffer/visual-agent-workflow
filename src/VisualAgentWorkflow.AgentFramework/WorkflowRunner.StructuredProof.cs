@@ -257,8 +257,7 @@ public sealed partial class WorkflowRunner
                     body = await ExecuteCoreAsync(runId, revision, frame.Item, frame.Parameters,
                         RecordBodyEvent, gate, runToken, emitRunLifecycle: false, activationFrame: frame,
                         sequenceDispatchSession: dispatchSession, afterNodeStarted: afterNodeStarted,
-                        workflowLoopPassBudget: frameOwner.LoopPassBudget,
-                        workflowLoopEvidenceBudget: frameOwner.LoopExecutionBudget,
+                        runBudget: frameOwner.RunBudget,
                         loopEvidenceScopePrefix: frameOwner.LoopEvidenceScopePrefix);
                 }
                 catch (OperationCanceledException) when (runToken.IsCancellationRequested)
@@ -382,8 +381,7 @@ public sealed partial class WorkflowRunner
                     evt => EmitCoordinatorEvent(evt.Kind, evt.NodeId, evt.InvocationId, evt.ConnectionId,
                         evt.Data, evt.ScopeId ?? frame.ScopeId), runToken, activationFrame: frame,
                     proofBreakNodeIds: proofBreakNodeIds,
-                    workflowLoopPassBudget: frameOwner.LoopPassBudget,
-                    workflowLoopEvidenceBudget: frameOwner.LoopExecutionBudget,
+                    runBudget: frameOwner.RunBudget,
                     loopEvidenceScopePrefix: frameOwner.LoopEvidenceScopePrefix);
 
                 if (body.Disposition == WorkflowBodyProofDisposition.EvidenceWriteFailed)
@@ -537,8 +535,7 @@ public sealed partial class WorkflowRunner
                         evt => EmitCoordinatorEvent(evt.Kind, evt.NodeId, evt.InvocationId, evt.ConnectionId,
                             evt.Data, evt.ScopeId ?? innerFrame.ScopeId), runToken, activationFrame: innerFrame,
                         proofBreakNodeIds: proofBreakNodeIds,
-                        workflowLoopPassBudget: frameOwner.LoopPassBudget,
-                        workflowLoopEvidenceBudget: frameOwner.LoopExecutionBudget,
+                        runBudget: frameOwner.RunBudget,
                         loopEvidenceScopePrefix: frameOwner.LoopEvidenceScopePrefix);
 
                     if (body.Disposition == WorkflowBodyProofDisposition.BreakRequested &&

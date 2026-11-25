@@ -432,6 +432,79 @@ public sealed class BoundedLoopExecutionTests
     }
 
     [Fact]
+    public void Owners_sharing_one_run_budget_exhaust_its_pass_pool_together_and_never_double_count_failures()
+    {
+        var definition = WorkflowSchemaNormalization.NormalizeForEditing(Graph());
+        Assert.True(StructuredActivationGraphPlan.TryCreate(definition, out var plan, out var issues),
+            string.Join(Environment.NewLine, issues));
+        var loopId = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Loop).Key;
+        var parameters = ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+        var budget = new WorkflowRunBudget(maximumBodyPasses: 4);
+        // Two owners stand for an iterator run and a child/Sequence run that inherited the root budget.
+        var iterator = new WorkflowRunner.StructuredActivationFrameOwner(plan, null, definition, runBudget: budget);
+        var inherited = new WorkflowRunner.StructuredActivationFrameOwner(plan, null, definition, runBudget: budget);
+        Assert.Same(budget, iterator.RunBudget);
+        Assert.Same(budget, inherited.RunBudget);
+
+        iterator.CreateBodyPass(loopId, 1, 3, "a", parameters, null);
+        iterator.CreateBodyPass(loopId, 1, 3, "b", parameters, null);
+        inherited.CreateBodyPass(loopId, 1, 3, "c", parameters, null);
+        inherited.CreateBodyPass(loopId, 1, 3, "d", parameters, null);
+
+        Assert.Contains("body-pass limit", Assert.ThrowsAny<InvalidOperationException>(() =>
+            iterator.CreateBodyPass(loopId, 1, 3, "e", parameters, null)).Message);
+        Assert.Contains("body-pass limit", Assert.ThrowsAny<InvalidOperationException>(() =>
+            inherited.CreateBodyPass(loopId, 1, 3, "f", parameters, null)).Message);
+        // A refused draw returns its activation too: the owners' own counters are exactly what succeeded.
+        Assert.Equal(2, iterator.LoopActivations);
+        Assert.Equal(2, inherited.LoopActivations);
+        Assert.Equal(4, budget.Reservation.BodyPassesUsed);
+    }
+
+    [Fact]
+    public async Task A_sequence_run_counts_its_dispatch_tickets_in_the_shared_run_budget_and_fails_when_it_is_exhausted()
+    {
+        var unlimited = new WorkflowRunBudget();
+        var first = await new WorkflowRunner().ExecuteSequenceWorkflowCallProductionProofAsync(Guid.NewGuid(), "hello",
+            _ => ValueTask.CompletedTask, runBudget: unlimited);
+        Assert.False(first.Failed);
+        var peak = unlimited.Reservation.DispatchTicketsPeak;
+        Assert.True(peak > 0, "The Sequence run must draw its dispatch tickets from the inherited reservation.");
+        Assert.Equal(0, unlimited.Reservation.DispatchTicketsOutstanding);
+
+        // The iterator side of the same run holds the pool's only ticket, so the Sequence side cannot admit anything.
+        // (The peak itself depends on scheduling, so the cap is fixed rather than derived from it.)
+        var shared = new WorkflowRunBudget(maximumDispatchTickets: 1);
+        Assert.True(shared.Reservation.TryReserve(null, new WorkflowReservationRequest(DispatchTickets: 1)));
+        var constrained = await Assert.ThrowsAnyAsync<Exception>(() =>
+            new WorkflowRunner().ExecuteSequenceWorkflowCallProductionProofAsync(Guid.NewGuid(), "hello",
+                _ => ValueTask.CompletedTask, runBudget: shared));
+        for (Exception? inner = constrained; ; inner = inner.InnerException)
+        {
+            if (inner is null) Assert.Fail("The failure must name the exhausted dispatch-ticket reservation.");
+            if (inner.Message.Contains("dispatch-ticket reservation is exhausted")) break;
+        }
+        Assert.Equal(1, shared.Reservation.DispatchTicketsPeak);
+    }
+
+    [Fact]
+    public void A_requested_abandonable_stop_refuses_the_next_body_pass_without_drawing_budget()
+    {
+        var definition = WorkflowSchemaNormalization.NormalizeForEditing(Graph());
+        Assert.True(StructuredActivationGraphPlan.TryCreate(definition, out var plan, out _));
+        var loopId = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Loop).Key;
+        var parameters = ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+        var owner = new WorkflowRunner.StructuredActivationFrameOwner(plan, null, definition);
+
+        owner.CreateBodyPass(loopId, 1, 3, "before", parameters, null);
+        owner.MarkAbandonRequested();
+
+        Assert.Throws<OperationCanceledException>(() => owner.CreateBodyPass(loopId, 2, 3, "after", parameters, null));
+        Assert.Equal(1, owner.LoopActivations);
+        Assert.Equal(1, owner.RunBudget.Reservation.BodyPassesUsed);
+    }
+
+    [Fact]
     public async Task ActivationOwnerAdvancesEventSequenceOnlyAfterRecorderAcceptsEvent()
     {
         var definition = WorkflowSchemaNormalization.NormalizeForEditing(Graph());

@@ -148,8 +148,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         SequenceProductionPlan? sequencePlan = null,
         SequenceProductionDispatchSession? sequenceDispatchSession = null,
         bool allowNestedForksProof = false,
-        WorkflowLoopPassBudget? workflowLoopPassBudget = null,
-        WorkflowLoopExecutionBudget? workflowLoopEvidenceBudget = null,
+        WorkflowRunBudget? runBudget = null,
         string loopEvidenceScopePrefix = "")
     {
         ArgumentNullException.ThrowIfNull(record);
@@ -225,8 +224,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 afterNodeStarted: afterNodeStarted,
                 activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds,
                 sequenceDispatchSession: sequenceDispatchSession,
-                workflowLoopPassBudget: workflowLoopPassBudget,
-                workflowLoopEvidenceBudget: workflowLoopEvidenceBudget,
+                runBudget: runBudget,
                 loopEvidenceScopePrefix: loopEvidenceScopePrefix,
                 captureActivationBreak: request =>
                 {
@@ -332,8 +330,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Action<StructuredActivationBreakRequest>? captureActivationBreak = null,
         SequenceProductionDispatchSession? sequenceDispatchSession = null,
         long? proofMaximumLoopActivations = null,
-        WorkflowLoopPassBudget? workflowLoopPassBudget = null,
-        WorkflowLoopExecutionBudget? workflowLoopEvidenceBudget = null,
+        WorkflowRunBudget? runBudget = null,
         string loopEvidenceScopePrefix = "",
         int? proofMaximumLoopPasses = null,
         int? proofMaximumLoopEvidenceEvents = null,
@@ -358,11 +355,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             throw new InvalidOperationException(WaitUnsupportedMessage);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(proofMaximumLoopPasses ?? 1);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(proofMaximumLoopEvidenceEvents ?? 1);
-        var ownsLoopEvidenceBudget = workflowLoopEvidenceBudget is null;
-        var sharedLoopPassBudget = workflowLoopPassBudget ??
-            new WorkflowLoopPassBudget(proofMaximumLoopPasses);
-        var sharedLoopEvidenceBudget = workflowLoopEvidenceBudget ??
-            new WorkflowLoopExecutionBudget(proofMaximumLoopEvidenceEvents);
+        // One run-level budget: the root creates it, child runs and the Sequence runtime inherit the same instance.
+        var ownsLoopEvidenceBudget = runBudget is null;
+        var sharedRunBudget = runBudget ?? new WorkflowRunBudget(proofMaximumLoopPasses, proofMaximumLoopEvidenceEvents);
         StructuredActivationGraphPlan? activationGraphPlan = null;
         if (!skipValidationForInternalProof && !sequenceWorkflowCallProof && activationFrame is null &&
             revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
@@ -392,12 +387,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         using var activationFrameOwner = new StructuredActivationFrameOwner(
             activationGraphPlan, activationFrame, revision.Definition,
             proofMaximumLoopActivations: proofMaximumLoopActivations,
-            loopExecutionBudget: sharedLoopEvidenceBudget,
-            loopPassBudget: sharedLoopPassBudget,
+            runBudget: sharedRunBudget,
             countLoopEvidenceEvents: ownsLoopEvidenceBudget,
             loopEvidenceScopePrefix: loopEvidenceScopePrefix);
         activationFrameOwner.BindRootEventRecorder(runId, revision.RevisionId, record, activationLedger, clock);
         activationFrameOwner.BindAdmissionOwner(dispatchAdmissionOwner);
+        dispatchAdmissionOwner?.BindReservation(sharedRunBudget.Reservation);
         frameOwnerProbe?.Invoke(activationFrameOwner);
         var variableStore = activationFrameOwner.CreateVariableStore(revision.Definition);
         ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null,
@@ -421,6 +416,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         DetachableRun? detachableRun = null;
         void StartAbandonGrace()
         {
+            // Decision 0070: once a Sequence reports an abandonable stop, no successor pass or item may be admitted.
+            activationFrameOwner.MarkAbandonRequested();
             if (SequenceAbandonGrace is not { } grace || grace <= TimeSpan.Zero) return;
             _ = AbandonAfterGraceAsync(grace);
         }
@@ -454,7 +451,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 activationFrameOwner.MarkRootEventRecorderUncertain, gate, rootRevision, workflowPath,
                 callScopeCancellation, afterNodeStarted, sequenceDispatchSession, dispatchAdmissionOwner,
                 abandon => abandonUnsettledSequenceOutputs = abandon, StartAbandonGrace,
-                abandonAfter => abandonSequenceOutputsAfterGrace = abandonAfter);
+                abandonAfter => abandonSequenceOutputsAfterGrace = abandonAfter, sharedRunBudget);
 
         if (emitRunLifecycle) await Emit(ExecutionEventKinds.Started);
         try
@@ -978,14 +975,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private readonly StructuredActivationFrame? graphEntryFrame;
         private readonly ImmutableDictionary<string, int> loopIterationLimits;
         private readonly long maximumLoopActivations;
-        private readonly WorkflowLoopExecutionBudget loopExecutionBudget;
-        private readonly WorkflowLoopPassBudget loopPassBudget;
+        private readonly WorkflowRunBudget runBudget;
+        private readonly WorkflowRunReservation.Account reservationAccount;
         private readonly bool countLoopEvidenceEvents;
         private readonly string loopEvidenceScopePrefix;
         private SequencedExecutionEventWriter? eventWriter;
         private Func<ExecutionEvent, ValueTask>? rootEventRecorder;
         private ExecutionActivationLedger? activationLedger;
-        private long loopActivations;
         private bool rootStarted;
         private bool rootTerminalRecorded;
         private int rootEventRecorderUncertain;
@@ -994,8 +990,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             StructuredActivationFrame? graphEntryFrame, WorkflowDefinition definition,
             WorkflowArrayEvidenceBudget? evidenceBudget = null, long graphActivationMultiplicity = 1,
             long? proofMaximumLoopActivations = null,
-            WorkflowLoopExecutionBudget? loopExecutionBudget = null,
-            WorkflowLoopPassBudget? loopPassBudget = null,
+            WorkflowRunBudget? runBudget = null,
             bool countLoopEvidenceEvents = true,
             string loopEvidenceScopePrefix = "")
         {
@@ -1004,11 +999,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 ArgumentOutOfRangeException.ThrowIfNegative(proofMaximum);
             this.plan = plan;
             this.graphEntryFrame = graphEntryFrame;
-            this.loopExecutionBudget = loopExecutionBudget ?? new WorkflowLoopExecutionBudget();
-            this.loopPassBudget = loopPassBudget ?? new WorkflowLoopPassBudget();
+            this.runBudget = runBudget ?? new WorkflowRunBudget();
             this.countLoopEvidenceEvents = countLoopEvidenceEvents;
             this.loopEvidenceScopePrefix = loopEvidenceScopePrefix;
-            EvidenceBudget = evidenceBudget ?? new WorkflowArrayEvidenceBudget();
             loopIterationLimits = definition.Nodes
                 .Where(entry => entry.Value?.Type == NodeTypes.ForEach ||
                     entry.Value?.Type == NodeTypes.Loop && entry.Value.Loop is not null)
@@ -1022,16 +1015,29 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 throw new ArgumentOutOfRangeException(nameof(proofMaximumLoopActivations),
                     "A proof allowance may reduce, but cannot exceed, the graph-derived Loop activation bound.");
             maximumLoopActivations = proofMaximumLoopActivations ?? derivedMaximum;
+            // The activation cap and the array-evidence byte cap are this owner's account on the run reservation, so
+            // they are counted under the same lock as the run-wide pass, evidence-event and ticket pools.
+            reservationAccount = this.runBudget.Reservation.CreateAccount(maximumLoopActivations,
+                WorkflowArrayEvidenceBudget.MaximumAggregateBytes);
+            EvidenceBudget = evidenceBudget ?? new WorkflowArrayEvidenceBudget(this.runBudget.Reservation, reservationAccount);
         }
 
         public StructuredActivationGraphPlan? Plan => plan;
         public WorkflowArrayEvidenceBudget EvidenceBudget { get; }
-        public WorkflowLoopExecutionBudget LoopExecutionBudget => loopExecutionBudget;
-        public WorkflowLoopPassBudget LoopPassBudget => loopPassBudget;
+        /// <summary>The run-level budget this owner draws from; child runs and the Sequence runtime inherit it.</summary>
+        public WorkflowRunBudget RunBudget => runBudget;
         public string LoopEvidenceScopePrefix => loopEvidenceScopePrefix;
         public long MaximumLoopActivations => maximumLoopActivations;
-        public long LoopActivations => Interlocked.Read(ref loopActivations);
+        public long LoopActivations => runBudget.Reservation.ActivationsUsed(reservationAccount);
         public bool HasUncertainRootEventRecorder => Volatile.Read(ref rootEventRecorderUncertain) != 0;
+
+        private int abandonRequested;
+
+        /// <summary>True after an abandonable Sequence stop; a successor body pass is then refused.</summary>
+        public bool AbandonRequested => Volatile.Read(ref abandonRequested) != 0;
+
+        /// <summary>Records the abandonable-stop signal (Decision 0070 order item 3). Idempotent.</summary>
+        public void MarkAbandonRequested() => Interlocked.Exchange(ref abandonRequested, 1);
 
         public void MarkRootEventRecorderUncertain() => Interlocked.Exchange(ref rootEventRecorderUncertain, 1);
 
@@ -1128,8 +1134,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 throw new InvalidOperationException("The root workflow lifecycle has already recorded a terminal event.");
             if (isRootStart && rootStarted)
                 throw new InvalidOperationException("The root workflow lifecycle has already recorded its start event.");
-            if (countLoopEvidenceEvents && !loopExecutionBudget.TryReserveEvidenceEvent(executionEvent.ScopeId))
-                throw new LoopEvidenceBudgetExceededException(loopExecutionBudget.MaximumEvidenceEvents);
+            if (countLoopEvidenceEvents && !runBudget.EvidenceBudget.TryReserveEvidenceEvent(executionEvent.ScopeId))
+                throw new LoopEvidenceBudgetExceededException(runBudget.EvidenceBudget.MaximumEvidenceEvents);
 
             await rootEventRecorder!(executionEvent);
             if (isRootStart) rootStarted = true;
@@ -1316,17 +1322,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (plan is not null && !plan.RegionsByLoopNodeId.ContainsKey(loopNodeId))
                 throw new InvalidOperationException($"Loop '{loopNodeId}' has no compiled activation region.");
 
-            var used = Interlocked.Increment(ref loopActivations);
-            if (used > maximumLoopActivations)
-            {
-                Interlocked.Decrement(ref loopActivations);
-                throw new StructuredActivationBudgetExceededException();
-            }
-            if (!loopPassBudget.TryReserveBodyPass())
-            {
-                Interlocked.Decrement(ref loopActivations);
-                throw new LoopBodyPassBudgetExceededException();
-            }
+            if (AbandonRequested)
+                throw new OperationCanceledException(
+                    $"Loop '{loopNodeId}' will not admit pass {iteration} because the run requested an abandonable stop.");
+            // One atomic draw: the activation and the body pass are taken together or not at all.
+            if (!runBudget.Reservation.TryReserve(reservationAccount,
+                    new WorkflowReservationRequest(Activations: 1, BodyPasses: 1), out var outcome))
+                throw outcome == WorkflowReservationOutcome.ActivationsExhausted
+                    ? new StructuredActivationBudgetExceededException()
+                    : new LoopBodyPassBudgetExceededException();
             var frame = new StructuredActivationFrame(Guid.NewGuid(), parentFrame, loopNodeId, iteration, item, parameters)
             {
                 ItemDataType = itemDataType
@@ -1334,7 +1338,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var evidenceScope = string.IsNullOrEmpty(loopEvidenceScopePrefix)
                 ? frame.ScopeId
                 : $"{loopEvidenceScopePrefix}/{frame.ScopeId}";
-            loopExecutionBudget.RegisterLoopScope(evidenceScope);
+            runBudget.EvidenceBudget.RegisterLoopScope(evidenceScope);
             return frame;
         }
 
@@ -1344,13 +1348,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         /// </summary>
         public void RegisterRestoredPass(StructuredActivationFrame frame)
         {
-            Interlocked.Increment(ref loopActivations);
-            if (!loopPassBudget.TryReserveBodyPass())
-            {
-                Interlocked.Decrement(ref loopActivations);
+            if (!runBudget.Reservation.TryReserve(reservationAccount,
+                    new WorkflowReservationRequest(Activations: 1, BodyPasses: 1, ActivationsExemptFromAccountCap: true)))
                 throw new LoopBodyPassBudgetExceededException();
-            }
-            loopExecutionBudget.RegisterLoopScope(string.IsNullOrEmpty(loopEvidenceScopePrefix)
+            runBudget.EvidenceBudget.RegisterLoopScope(string.IsNullOrEmpty(loopEvidenceScopePrefix)
                 ? frame.ScopeId : $"{loopEvidenceScopePrefix}/{frame.ScopeId}");
         }
 
@@ -1443,6 +1444,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     }
 
     private sealed record ExplicitGraphValue(string DataType, object Value);
+    /// <summary>Boundary check of a shaped json Input (Decision 0082, P5): missing, extra or mistyped fields reject the run input.</summary>
+    private static string RequireShape(string nodeId, NodeDefinition node, string input)
+    {
+        if (node.InputShape is { } shape && JsonObjectShapes.ValidateValue(shape, input) is { } problem)
+            throw new GraphDataEvaluationException(nodeId, $"JSON input does not match its declared object shape: {problem}",
+                new InvalidOperationException(problem));
+        return input;
+    }
+
     private sealed class GraphDataEvaluationException(string nodeId, string message, Exception innerException)
         : InvalidOperationException(message, innerException)
     {
@@ -1945,7 +1955,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         WorkflowDataTypes.TryGetArrayElementType(node.InputDataType, out var inputElementType) && inputElementType != WorkflowDataTypes.Json =>
                         new ExplicitGraphValue(WorkflowDataTypes.ArrayOf(inputElementType), ParseTypedArrayInput(nodeId, inputElementType, CurrentInput)),
                     NodeTypes.Input when outputPort == "out" && definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && node.InputDataType == WorkflowDataTypes.Json =>
-                        new ExplicitGraphValue(WorkflowDataTypes.Json, ParseJson(CurrentInput)),
+                        new ExplicitGraphValue(WorkflowDataTypes.Json, ParseJson(RequireShape(nodeId, node, CurrentInput))),
                     NodeTypes.Input when outputPort == "out" => new ExplicitGraphValue("string", CurrentInput),
                     NodeTypes.TextTemplate when outputPort == "out" && definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph =>
                         new ExplicitGraphValue("string", PromptRendering.Render(node.TextTemplate!,
@@ -1980,6 +1990,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                             ResolveJsonInput(nodeId, "left", evaluated, cache, active),
                             ResolveJsonInput(nodeId, "right", evaluated, cache, active))),
                     NodeTypes.JsonToArray when outputPort == "out" => ConvertJsonToArray(nodeId, evaluated, cache, active),
+                    NodeTypes.ObjectGet when outputPort == "out" => GetObjectField(nodeId, node, evaluated, cache, active),
                     NodeTypes.ArrayLiteral when outputPort == "out" => CreateArrayLiteral(nodeId),
                     NodeTypes.ArrayLength when outputPort == "out" => new ExplicitGraphValue(WorkflowDataTypes.Integer,
                         (long)ResolveArrayInput(nodeId, "in", node.ArrayElementType ?? WorkflowDataTypes.Json, evaluated, cache, active).GetArrayLength()),
@@ -2201,6 +2212,23 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (value.DataType != WorkflowDataTypes.Json || value.Value is not JsonElement json)
                 throw new InvalidOperationException("The pure data input requires a JSON value.");
             return json.GetRawText();
+        }
+
+        private ExplicitGraphValue GetObjectField(string nodeId, NodeDefinition node,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var configuration = node.ObjectGet ?? throw new InvalidOperationException("The object get node is not configured.");
+            var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == "in");
+            var shape = definition.Nodes[edge.Value.Source.NodeId]?.InputShape
+                ?? throw new GraphDataEvaluationException(nodeId, "Object get requires a shaped JSON Input source.",
+                    new InvalidOperationException("The source declares no object shape."));
+            var json = ResolveJsonInput(nodeId, "in", evaluated, cache, active);
+            if (!JsonObjectShapes.TryReadField(shape, json, configuration.FieldId, out var value, out var error))
+                throw new GraphDataEvaluationException(nodeId, $"Object get could not read field '{configuration.FieldId}': {error}",
+                    new InvalidOperationException(error));
+            return new ExplicitGraphValue(configuration.DataType, value!);
         }
 
         private ExplicitGraphValue ConvertJsonToArray(string nodeId,
@@ -2479,7 +2507,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null,
         WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null,
         Func<string, GraphMessage, IReadOnlyCollection<string>>? dispatchTargetResolver = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        WorkflowRunBudget? inheritedRunBudget = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -3196,7 +3225,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     resultAvailable = childOutcome?.HasOutput == true;
                 var result = node.Type switch
                 {
-                    NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(Id, message),
+                    NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(Id, RequireShape(Id, node, message)),
                     NodeTypes.BooleanBranch => string.Empty,
                     NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.Break or NodeTypes.LoopBody or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Wait => message,
                     NodeTypes.Terminate => string.Empty,
@@ -3851,15 +3880,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 return gate is null
                     ? await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, null, childCancellationToken,
                         rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown,
-                        workflowLoopPassBudget: activationFrameOwner?.LoopPassBudget,
-                        workflowLoopEvidenceBudget: activationFrameOwner?.LoopExecutionBudget,
+                        runBudget: activationFrameOwner?.RunBudget ?? inheritedRunBudget,
                         loopEvidenceScopePrefix: childBudgetScopePrefix,
                         workflowDispatchAdmissionObserver: dispatchAdmissionOwner?.Observer,
                         workflowDispatchAdmissionProbe: dispatchAdmissionOwner?.Probe)
                     : await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, gate, childCancellationToken,
                         rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown,
-                        workflowLoopPassBudget: activationFrameOwner?.LoopPassBudget,
-                        workflowLoopEvidenceBudget: activationFrameOwner?.LoopExecutionBudget,
+                        runBudget: activationFrameOwner?.RunBudget ?? inheritedRunBudget,
                         loopEvidenceScopePrefix: childBudgetScopePrefix,
                         workflowDispatchAdmissionObserver: dispatchAdmissionOwner?.Observer,
                         workflowDispatchAdmissionProbe: dispatchAdmissionOwner?.Probe);

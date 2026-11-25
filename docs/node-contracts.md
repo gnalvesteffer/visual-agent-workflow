@@ -74,6 +74,7 @@ change the exact typed pin set for dynamic families.
 | Concatenate text, Compare strings, Compare integers | Text / Values | Data only | Data evaluation / stateless | Propagates / data evaluation | Pure | Fixed typed inputs |
 | Boolean NOT | Values | Data only | Data evaluation / stateless | Propagates / data evaluation | Pure | Fixed Boolean input |
 | Select JSON text, Project JSON fields, Text template | JSON / Text | Data only | Data evaluation / stateless | Propagates / data evaluation | Pure | Bounded JSON/template configuration |
+| Get object field | JSON | Data only | Data evaluation / stateless | Propagates / data evaluation | Pure; schema 2.0 only | Reads one scalar field by stable field ID from a directly connected shaped JSON Input; `ObjectFieldType` dynamic output pin (string, integer, number or boolean) |
 | Workflow parameter | Values | Data only | Data evaluation / stateless | Propagates / data evaluation | Reads immutable workflow-owned input | Configurable parameter reference |
 | String condition | Flow | Data + execution | Execution / run-scoped | Routes / route decision | No host authority | Configurable predicate |
 | Boolean branch | Flow | Data + execution | Execution / run-scoped | Routes / route decision | No host authority | Two fixed execution outcomes |

@@ -260,7 +260,8 @@ public sealed partial class WorkflowRunner
     internal Task<WorkflowExecutionResult> ExecuteSequenceWorkflowCallProductionProofAsync(Guid runId, string input,
         Func<ExecutionEvent, ValueTask> record, SequenceWorkflowCallProofOutcome outcome = SequenceWorkflowCallProofOutcome.Success,
         IWorkflowExecutionGate? gate = null, CancellationToken cancellationToken = default,
-        Func<string, CancellationTokenSource?>? callScopeCancellation = null)
+        Func<string, CancellationTokenSource?>? callScopeCancellation = null,
+        WorkflowRunBudget? runBudget = null)
     {
         var firstChild = SequenceWorkflowCallProofChild(outcome, "sequence-call-proof-first");
         var secondChild = SequenceWorkflowCallProofChild(SequenceWorkflowCallProofOutcome.Success, "sequence-call-proof-second");
@@ -282,7 +283,7 @@ public sealed partial class WorkflowRunner
         ], null, SequenceTerminalState.Completed);
         return ExecuteCoreAsync(runId, parent, input, null, record, gate, cancellationToken,
             rootRevision: parent, sequencePlan: plan, sequenceWorkflowCallProof: true,
-            callScopeCancellation: callScopeCancellation);
+            callScopeCancellation: callScopeCancellation, runBudget: runBudget);
     }
 
     private static WorkflowRevision SequenceWorkflowCallProofChild(SequenceWorkflowCallProofOutcome outcome, string workflowId)
@@ -385,7 +386,8 @@ public sealed partial class WorkflowRunner
         WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null,
         Action<Func<ValueTask>>? registerAbandonUnsettledOutputs = null,
         Action? onAbandonableSequenceStop = null,
-        Action<Func<ValueTask>>? registerAbandonOutputsAfterGrace = null)
+        Action<Func<ValueTask>>? registerAbandonOutputsAfterGrace = null,
+        WorkflowRunBudget? runBudget = null)
     {
         var sequenceInvocationId = Guid.NewGuid();
         var connectionIds = plan.Outputs.ToDictionary(output => output.OutputId, output => output.ConnectionId,
@@ -523,7 +525,10 @@ public sealed partial class WorkflowRunner
                     sequenceDispatchSession.RequestBreak(lineage, request);
                     await FlushSequenceEvents();
                 }, dispatchAdmissionOwner: dispatchAdmissionOwner,
-                dispatchTargetResolver: dispatchAdmissionOwner is null ? null : ResolveSequenceDispatchTargets), StringComparer.Ordinal);
+                dispatchTargetResolver: dispatchAdmissionOwner is null ? null : ResolveSequenceDispatchTargets,
+                // Decision 0070: output branches inherit the root run budget, so a WorkflowCall child that loops
+                // draws from the same reservation as the Sequence's own run.
+                inheritedRunBudget: runBudget), StringComparer.Ordinal);
         var source = new SequenceProductionSource(plan.SequenceNodeId, plan, coordinator, FlushSequenceEvents, emit,
             gate, sequenceDispatchSession, dispatchAdmissionOwner);
         var collector = new SequenceProductionCollector("sequence-collector", plan, coordinator,

@@ -1165,7 +1165,7 @@ public static class GraphEditing
         if (!WorkflowDraftEditing.HasOnlyDraftableIssues(definition)) WorkflowValidator.ThrowIfInvalid(definition);
         if (!definition.Nodes.TryGetValue(id, out var existing)) throw new ArgumentException("Unknown node.");
         if (existing.Type == node.Type && existing.Type == NodeTypes.Input &&
-            existing with { InputDataType = node.InputDataType } == node)
+            existing with { InputDataType = node.InputDataType, InputShape = node.InputShape } == node)
             return WorkflowDraftEditing.ValidateEdit(definition with { Nodes = definition.Nodes.SetItem(id, node) });
         if (existing.Type == node.Type && existing.Type == NodeTypes.Output &&
             existing with { OutputDataType = node.OutputDataType } == node)
@@ -1278,6 +1278,16 @@ public static class GraphEditing
         });
     }
 
+    /// <summary>Sets an Input or Output boundary type (null or "string" means text). A shape never outlives a json Input type.</summary>
+    public static WorkflowDefinition SetBoundaryType(WorkflowDefinition definition, string id, string? type)
+    {
+        var node = definition.Nodes[id];
+        var stored = type == WorkflowDataTypes.String ? null : type;
+        return ReplaceNode(definition, id, node.Type == NodeTypes.Input
+            ? node with { InputDataType = stored, InputShape = stored == WorkflowDataTypes.Json ? node.InputShape : null }
+            : node with { OutputDataType = stored });
+    }
+
     public static WorkflowDefinition RemoveJsonSelector(WorkflowDefinition definition, string id)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -1293,7 +1303,7 @@ public static class GraphEditing
         if (source.Type == NodeTypes.Input && target.Type != NodeTypes.Output && sourceType == "json" &&
             WorkflowPorts.Inputs(target).Single(port => port.Id == outgoing.Value.Target.PortId).DataType == "string")
         {
-            source = source with { InputDataType = null };
+            source = source with { InputDataType = null, InputShape = null };
             nodes = nodes.SetItem(sourceId, source);
             sourceType = "string";
         }

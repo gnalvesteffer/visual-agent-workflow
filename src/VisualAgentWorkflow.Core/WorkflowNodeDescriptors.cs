@@ -777,6 +777,7 @@ public static class WorkflowNodeDescriptorResolver
         NodeTypes.VariableGet => "variable-get",
         NodeTypes.VariableSet => "variable-set",
         NodeTypes.ForEach or NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains => "array",
+        NodeTypes.ObjectGet => "object-get",
         NodeTypes.FunctionCall => "graph-function-call",
         NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous => "parallel",
         NodeTypes.Sequence => "sequence",

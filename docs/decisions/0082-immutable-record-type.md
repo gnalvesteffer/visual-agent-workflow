@@ -326,3 +326,103 @@ recommendation of this proposal set is: evaluate shaped `json` first (it needs P
 P1, P4 or the ~21-site audit); revisit records only if exact-identity types across workflow boundaries, a typed
 `make` node, or migration prove necessary. Neither alternative is accepted, and both should go through a fresh
 three-role review before any code.
+
+## Shaped json first slice (2026-11-25)
+
+Status: **implemented** (Core, runner, tests, docs). This is the smallest slice of the P5 alternative. Records remain
+deferred and unimplemented. The three-role review that P5 asks for before accepting either alternative was not run for this
+slice; the slice was scoped by the delegating brief to the narrowest carrier and treated as a reversible, additive change.
+
+### Old-reader measurement (P3, measured first)
+
+`UnknownNodeAnnotationTests` characterizes the current Core reader, in the style of `UnknownEventKindTests`. The measurement was
+taken before any shape code existed, using the real future names (`inputShape` on a node and `core.object.get`), then the names
+were swapped for ones that stay unknown:
+
+- `WorkflowJson` reads definitions with `UnmappedMemberHandling = Disallow`. An unknown optional property on a node, or on a
+  nested annotation object, throws `JsonException` in both `Deserialize` and `DeserializeDraft`. **Nothing is silently dropped,
+  so the forward-compatibility hazard that P5 feared does not exist for definitions.** This is the only place a
+  `WorkflowDefinition` is deserialized (the other `Disallow` readers cover layouts, graph functions, interfaces, templates, the
+  clipboard, dependency closures and draft promotion).
+- An unknown node type fails validation (`Deserialize` and `DeserializeDraft` throw; `NodeTypes.IsSupported` is false).
+
+**Compatibility decision: no schema or capability gate.** An older 2.0 reader rejects a definition that uses the annotation or
+the node, with a parse or validation error, rather than running it without the constraint. Gating would add a version for no
+extra safety. The cost is that the failure message is the generic unmapped-member or unsupported-node error, not one that names
+the feature; a named diagnostic is not built. A later test (`ShapedJsonPersistenceTests`) sends a shaped definition through
+draft read/write, strict read/write, package export and import, the file run journal and the SQLite run store: both
+`inputShape` and `objectGet` survive and the content hash is identical on every path. Not measured: a current reader
+against an unknown annotation inside the stores and package import (they share the `WorkflowJson` readers, which reject it in
+the unit tests); the design catalog (`SqliteWorkflowCatalog`) publication path; and playback of a run whose stored
+definition an old reader cannot parse (historical runs are unaffected, since no existing definition uses the feature).
+
+### What shipped
+
+| Piece | Where | Behavior |
+|---|---|---|
+| `JsonObjectShape` / `JsonObjectFieldShape` | `WorkflowJsonObjectShape.cs` | `fields: [{ id, name, type, required }]`, all four JSON properties required on read; flat; types `string`, `integer`, `number`, `boolean` only. |
+| `NodeDefinition.InputShape` | `WorkflowDefinition.cs` | Optional, omitted when null, so every existing definition hash is unchanged. Valid only on a schema 2.0 `core.input` with `inputDataType: "json"`. |
+| `core.object.get` | contracts, port catalog, validator, runner | Pure, data-evaluation node. Input `in` (json), output `out` typed by `objectGet.dataType`. Dynamic pin identity kind `ObjectFieldType`. Schema 2.0 only. |
+| Boundary validation | `JsonObjectShapes.ValidateValue`, runner `RequireShape` | Rejects non-object, duplicate key, undeclared key, missing required key, wrong type (null, `3.5` for integer, string for boolean), non-finite number, over 16,384 characters, depth over 32. Runs when the shaped Input executes and when its pure value is first resolved. |
+| Validator | `WorkflowValidator.cs` | Shape well-formedness (1 to 32 fields, unique valid IDs, supported types, name 1 to 128 characters); an `objectGet` must name a field of the directly connected shaped Input with the same type. Incomplete connections are draftable and never publishable. |
+
+Design choices and why:
+
+- **Carrier: the schema 2.0 `json` Input node.** It is the one place where a caller-supplied value enters a graph, it already
+  has a json-typed boundary and a `typeVersion`, and the property is omitted when absent. The other carriers named by P5
+  (Output, workflow parameters, variables, function ports, workflow-call fields) each need their own admission and
+  compatibility story and are left out.
+- **Fields are addressed by `id`, which is also the JSON key.** `name` is display-only: renaming it changes the definition hash
+  but not any node, edge or accepted value (`Renaming_a_field_display_name_does_not_change_wiring_or_validity`).
+- **`core.object.get` stores the field type, and the validator proves it equals the shape.** Pin types therefore derive from the
+  node alone, like `ArrayElementType`, with no graph-context lookup in the port catalog. The cost is that changing a field's
+  type in a shape fails validation of every reader node until each is updated.
+- **The source must be the shaped Input directly.** Shape-to-shape compatibility through other nodes is the weakness the table
+  below lists; this slice does not try to solve it.
+- **Optional fields exist but are weak.** `required: false` permits omission at the boundary; reading an omitted field fails
+  the node with `Field 'x' is absent from the object.` There is no default or presence test yet.
+- **Fail closed for a shape the reader does not understand.** A missing or extra shape-field property, an unknown field type
+  such as `record<x@1>`, `object` or `array<string>`, or an unknown node property is rejected on read; there is no downgrade
+  to plain `json`.
+- A missing `required` property on a shape field is a read error (`[JsonRequired]`), not an implicit `false`.
+
+### Decision table update (against P5)
+
+| Criterion | Shaped `json` as built | Change from P5 |
+|---|---|---|
+| New type-ID family, catalog change, ~21 `IsArrayType` sites | none touched | as predicted |
+| Declaration resolution (P1) | inline on the Input; nothing to resolve | as predicted |
+| Rename-safe typed field access | yes, by `id` | as predicted |
+| Closed object, unknown fields rejected | yes, at the shaped Input only | as predicted |
+| Exact-identity compatibility | none; `object.get` binds to the Input directly | weaker than predicted: no shape equality check exists |
+| Typed `make` node | none; build with JSON projection, whose output is not checked against any shape | as predicted |
+| Migration / revision | none; changing a field type breaks readers at validation | as predicted |
+| Old reader without feature | **rejected on read, not ignored** | **better than P5 predicted; no gate needed** |
+| Canonical bytes | no new encoding; the value is plain JSON text, key order is the caller's | P5 suggested field-ID-sorted keys; not done, so equal objects can hash differently |
+| Evidence and redaction (P2) | values are recorded as ordinary typed data evidence; no class | unchanged; do not feed protected data through a shaped Input |
+| Implementation size | one Core file, one validator block, one runner case, no new schema version | low |
+
+### What remains
+
+1. Review: the fresh proponent, opponent and adjudicator review that P5 requires has not been run.
+2. Studio: no palette entry, shape editor or inspector. A shape can only be authored in JSON. `WorkflowGraphCanvas`,
+   `WorkflowEditor` and the Function editors have no label or icon for `core.object.get`.
+3. Other carriers: Output, workflow parameters, variables, function ports, workflow-call interface fields, MCP projection.
+4. Checking a JSON projection's output against a shape, and shape-to-shape compatibility (this is what would make an object
+   passable between nodes and workflows).
+5. Canonical key order and hashing of values; nesting; arrays and `json` fields; defaults and presence tests for optional fields.
+6. A named "unsupported feature" diagnostic for older readers, if the generic rejection proves too opaque.
+7. Revisit records only if exact-identity types across workflow boundaries, a typed `make` node, or migration prove necessary.
+
+### Review follow-up (2026-11-25)
+
+- **Editing.** Changing a shaped Input away from json (editor type picker, or removing a JSON selector that collapses the Input
+  to text) now clears `InputShape` (`GraphEditing.SetBoundaryType`, shared by the editor). Before, the leftover shape raised the
+  non-draftable `object.shape.unexpected` and the edit threw. Covered by `ShapedJsonEditingTests`. The Blazor picker itself was
+  not driven in a browser.
+- **Untrusted text.** Caller key names in boundary errors are cut to 64 characters plus an ellipsis, and an unpaired surrogate
+  escape in a key or string value is reported as a boundary error instead of an unhandled `InvalidOperationException`.
+- **Loop frames (pinned limitation).** Inside a For Each body, a shaped Input's pure value is resolved from the frame's current
+  input, which is the loop item, so the item text is validated against the shape and the pass fails. Read a shaped Input only
+  outside loop bodies. Pinned by `A_shaped_input_read_inside_a_for_each_body_validates_the_loop_item_not_the_run_input`.
+

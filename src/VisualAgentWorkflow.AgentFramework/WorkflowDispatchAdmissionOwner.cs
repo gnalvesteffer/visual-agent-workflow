@@ -32,6 +32,17 @@ internal sealed class WorkflowDispatchAdmissionOwner
         probe?.Invoke(this);
     }
 
+    private VisualAgentWorkflow.Core.WorkflowRunReservation? reservation;
+
+    /// <summary>
+    /// Counts this owner's outstanding tickets in the run reservation (Decision 0070), so a nested iterator that shares
+    /// the reservation sees one dispatch-ticket pool. The pool is unbounded unless the reservation sets a cap.
+    /// </summary>
+    public void BindReservation(VisualAgentWorkflow.Core.WorkflowRunReservation? runReservation) =>
+        reservation = runReservation;
+
+    private static readonly VisualAgentWorkflow.Core.WorkflowReservationRequest OneTicket = new(DispatchTickets: 1);
+
     internal Action<Ticket>? Observer => onAdmitted;
     internal Action<WorkflowDispatchAdmissionOwner>? Probe => probe;
 
@@ -158,6 +169,8 @@ internal sealed class WorkflowDispatchAdmissionOwner
             throw new ArgumentException("A graph-dispatch ticket needs at least one receiver.", nameof(targetNodeIds));
         foreach (var target in targets) ArgumentException.ThrowIfNullOrWhiteSpace(target);
         var id = Guid.NewGuid();
+        if (reservation is { } ticketPool && !ticketPool.TryReserve(null, OneTicket))
+            throw new InvalidOperationException("The run's dispatch-ticket reservation is exhausted.");
         lock (sync) tickets.Add(id, new TicketEntry(scopeId, targets.ToDictionary(target => target,
             _ => TicketState.Admitted, StringComparer.Ordinal)));
         try
@@ -173,6 +186,7 @@ internal sealed class WorkflowDispatchAdmissionOwner
                 tickets.Remove(id);
                 ready = TakeSatisfiedWaiters();
             }
+            reservation?.Release(null, OneTicket);
             Release(ready);
             throw;
         }
@@ -202,6 +216,7 @@ internal sealed class WorkflowDispatchAdmissionOwner
                 throw new InvalidOperationException($"Node '{nodeId}' settled a missing or inactive graph-dispatch ticket.");
             entry.Slots[nodeId] = TicketState.Settled;
             ready = TakeSatisfiedWaiters();
+            if (entry.Slots.Values.All(slot => slot == TicketState.Settled)) reservation?.Release(null, OneTicket);
         }
         Release(ready);
     }
@@ -216,6 +231,7 @@ internal sealed class WorkflowDispatchAdmissionOwner
                 throw new InvalidOperationException("Only an unsent graph-dispatch ticket can be revoked.");
             tickets.Remove(ticketId);
             ready = TakeSatisfiedWaiters();
+            reservation?.Release(null, OneTicket);
         }
         Release(ready);
     }

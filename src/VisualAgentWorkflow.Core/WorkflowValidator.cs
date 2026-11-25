@@ -444,6 +444,37 @@ public static class WorkflowValidator
             }
             else if (node.JsonProjection is not null)
                 Error("json.projection.unexpected", $"nodes.{id}.jsonProjection", "Only JSON projection nodes may declare JSON field mappings.");
+            if (node.InputShape is not null)
+            {
+                if (node.Type != NodeTypes.Input || node.InputDataType != WorkflowDataTypes.Json || definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                    Error("object.shape.unexpected", $"nodes.{id}.inputShape", "Only a schema 2.0 Input node of type json may declare a JSON object shape.");
+                else if (JsonObjectShapes.Validate(node.InputShape) is { } shapeProblem)
+                    Error("object.shape", $"nodes.{id}.inputShape", shapeProblem);
+            }
+            if (node.Type == NodeTypes.ObjectGet)
+            {
+                if (definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                    Error("node.schema", $"nodes.{id}", "Object get nodes require schema 2.0.");
+                if (node.ObjectGet is not { } objectGet || !JsonObjectShapes.IsValidFieldId(objectGet.FieldId) || !JsonObjectShapes.IsFieldType(objectGet.DataType))
+                    Error("object.get.configuration", $"nodes.{id}.objectGet", "Select a field ID and one scalar type: string, integer, number or boolean.");
+                else
+                {
+                    var source = definition.Connections.Values.FirstOrDefault(edge => edge?.Target?.NodeId == id && edge.Target.PortId == "in");
+                    if (source is not null)
+                    {
+                        definition.Nodes.TryGetValue(source.Source.NodeId, out var sourceNode);
+                        var field = sourceNode is { Type: NodeTypes.Input } ? JsonObjectShapes.Find(sourceNode.InputShape, objectGet.FieldId) : null;
+                        if (sourceNode?.Type != NodeTypes.Input || sourceNode.InputShape is null)
+                            Error("object.get.source", $"nodes.{id}", "Object get reads a shaped JSON Input directly; connect it to an Input that declares a JSON object shape.");
+                        else if (field is null)
+                            Error("object.get.source", $"nodes.{id}.objectGet.fieldId", $"The connected Input shape declares no field '{objectGet.FieldId}'.");
+                        else if (field.Type != objectGet.DataType)
+                            Error("object.get.source", $"nodes.{id}.objectGet.dataType", $"Field '{field.Id}' is {field.Type} in the connected shape, not {objectGet.DataType}.");
+                    }
+                }
+            }
+            else if (node.ObjectGet is not null)
+                Error("object.get.unexpected", $"nodes.{id}.objectGet", "Only object get nodes may declare a field selection.");
             if (node.Type == NodeTypes.JsonMerge && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph))
                 Error("node.schema", $"nodes.{id}", "JSON merge nodes require schema 1.55 or later.");
             if (node.Type is NodeTypes.ArrayAppend or NodeTypes.ArrayInsert or NodeTypes.ArrayReplace or NodeTypes.ArrayRemove or NodeTypes.ArrayConcatenate or NodeTypes.ArrayContains && definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)

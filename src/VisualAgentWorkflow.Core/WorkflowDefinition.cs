@@ -63,6 +63,12 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     public string? ParameterId { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? InputDataType { get; init; }
+    /// <summary>Optional closed-object shape of a schema 2.0 <c>json</c> Input (Decision 0082, P5). Omitted when absent so existing hashes are unchanged.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonObjectShape? InputShape { get; init; }
+    /// <summary>Field selection of a <see cref="NodeTypes.ObjectGet"/> node.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ObjectGetConfiguration? ObjectGet { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? OutputDataType { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -150,6 +156,7 @@ public static class NodeTypes
     public const string JsonProject = "core.json.project";
     public const string JsonMerge = "core.json.merge";
     public const string JsonToArray = "core.json.to-array";
+    public const string ObjectGet = "core.object.get";
     public const string ArrayLength = "core.array.length";
     public const string ArrayGet = "core.array.get";
     public const string ArrayLiteral = "core.array.literal";

@@ -345,4 +345,28 @@ public sealed class ForEachExecutionTests
             Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "output");
         }
     }
+
+    [Fact]
+    public async Task A_shaped_input_read_inside_a_for_each_body_validates_the_loop_item_not_the_run_input()
+    {
+        // Pinned current behavior (Decision 0082, shaped json slice): inside a For Each frame the pure Input value is
+        // resolved from the frame's current input, which is the loop item, so a shaped Input read in the body is checked
+        // against the item text and the pass fails at the Input. A shaped Input should only be read outside loop bodies.
+        var plain = Workflow(WorkflowDataTypes.String, "[\"a\"]");
+        var nodes = plain.Nodes
+            .SetItem("input", new(NodeTypes.Input, "1.0.0") { InputDataType = "json", InputShape = new([new("quantity", "Units", "integer", true)]) })
+            .Add("get", new(NodeTypes.ObjectGet, "1.0.0") { ObjectGet = new("quantity", "integer") });
+        var data = plain.Connections.Remove("index-label")
+            .Add("shape-get", new(new("input", "out"), new("get", "in"), "data"))
+            .Add("get-label", new(new("get", "out"), new("label", "in"), "data"));
+        var shaped = plain with { Nodes = nodes, Connections = data };
+        WorkflowValidator.ThrowIfInvalid(shaped);
+        var events = new List<ExecutionEvent>();
+
+        var thrown = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => new WorkflowRunner(agents: new RecordingAgent())
+            .ExecuteWithOutcomeAsync(Guid.NewGuid(), WorkflowRevision.Create(shaped, "shaped-for-each"), "{\"quantity\":7}", null,
+                evt => { lock (events) events.Add(evt); return ValueTask.CompletedTask; }).WaitAsync(TimeSpan.FromSeconds(20)));
+
+        Assert.Contains("object shape", thrown.ToString(), StringComparison.Ordinal);
+    }
 }

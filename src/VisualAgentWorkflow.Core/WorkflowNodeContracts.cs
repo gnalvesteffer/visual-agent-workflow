@@ -72,7 +72,8 @@ public enum WorkflowDynamicPinIdentityKind
     SequenceOutputId,
     GraphFunctionPortId,
     InterfaceFieldId,
-    TypedArrayElementType
+    TypedArrayElementType,
+    ObjectFieldType
 }
 
 public sealed record WorkflowNodeLimit(string Id, int Maximum, string Description);
@@ -269,6 +270,7 @@ public static class WorkflowNodeContractCatalog
         Contract(NodeTypes.JsonProject, "Project JSON fields", "JSON", "Projects bounded typed JSON fields.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.JsonMerge, "Merge JSON objects", "JSON", "Combines two bounded JSON objects without implicit key precedence.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.JsonToArray, "JSON to array", "Containers", "Refines a root JSON array into a bounded immutable array value.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
+        Contract(NodeTypes.ObjectGet, "Get object field", "JSON", "Reads one scalar field of a shaped JSON object by its stable field ID; the output type comes from the shape.", false, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.ObjectFieldType, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.ArrayLength, "Array length", "Containers", "Returns the number of items in a bounded immutable array.", false, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.TypedArrayElementType, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.ArrayGet, "Array get", "Containers", "Returns a typed array value at a zero-based index.", false, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.TypedArrayElementType, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.ArrayAppend, "Append array item", "Containers", "Returns a new array with one typed item appended.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),

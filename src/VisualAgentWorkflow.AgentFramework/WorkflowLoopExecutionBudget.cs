@@ -5,18 +5,21 @@ namespace VisualAgentWorkflow.AgentFramework;
 
 internal sealed class WorkflowLoopExecutionBudget
 {
-    private readonly int maximumEvidenceEvents;
+    private readonly WorkflowRunReservation reservation;
     private readonly ConcurrentDictionary<string, byte> loopScopes = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> loopScopedEvidenceScopes = new(StringComparer.Ordinal);
-    private int evidenceEvents;
 
     public WorkflowLoopExecutionBudget(int? maximumEvidenceEvents = null)
+        : this(new WorkflowRunReservation(maximumEvidenceEvents: maximumEvidenceEvents))
     {
-        this.maximumEvidenceEvents = maximumEvidenceEvents ?? WorkflowLoopLimits.MaximumScopedEvidenceEventsPerRun;
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(this.maximumEvidenceEvents);
     }
 
-    public int MaximumEvidenceEvents => maximumEvidenceEvents;
+    /// <summary>A view over the run reservation's evidence-event pool; the pool is shared with every other view.</summary>
+    internal WorkflowLoopExecutionBudget(WorkflowRunReservation reservation) =>
+        this.reservation = reservation ?? throw new ArgumentNullException(nameof(reservation));
+
+    public WorkflowRunReservation Reservation => reservation;
+    public int MaximumEvidenceEvents => reservation.MaximumEvidenceEvents;
 
     public void RegisterLoopScope(string scopeId)
     {
@@ -27,8 +30,7 @@ internal sealed class WorkflowLoopExecutionBudget
     public bool TryReserveEvidenceEvent(string? scopeId)
     {
         if (!IsLoopScoped(scopeId)) return true;
-        return Interlocked.Increment(ref evidenceEvents) <= maximumEvidenceEvents ||
-            ReleaseExceeded(ref evidenceEvents);
+        return reservation.TryReserve(null, new WorkflowReservationRequest(EvidenceEvents: 1));
     }
 
     private bool IsLoopScoped(string? scopeId)
@@ -46,25 +48,47 @@ internal sealed class WorkflowLoopExecutionBudget
         }
         return false;
     }
-
-    private static bool ReleaseExceeded(ref int value)
-    {
-        Interlocked.Decrement(ref value);
-        return false;
-    }
 }
 
-internal sealed class WorkflowLoopPassBudget(int? maximumBodyPasses = null)
+internal sealed class WorkflowLoopPassBudget
 {
-    private readonly int maximumBodyPasses = maximumBodyPasses ?? WorkflowLoopLimits.MaximumTotalBodyPassesPerRun;
-    private int bodyPasses;
+    private readonly WorkflowRunReservation reservation;
 
-    public bool TryReserveBodyPass() => Interlocked.Increment(ref bodyPasses) <= maximumBodyPasses ||
-        ReleaseExceeded(ref bodyPasses);
-
-    private static bool ReleaseExceeded(ref int value)
+    public WorkflowLoopPassBudget(int? maximumBodyPasses = null)
+        : this(new WorkflowRunReservation(maximumBodyPasses))
     {
-        Interlocked.Decrement(ref value);
-        return false;
     }
+
+    /// <summary>A view over the run reservation's body-pass pool; the pool is shared with every other view.</summary>
+    internal WorkflowLoopPassBudget(WorkflowRunReservation reservation) =>
+        this.reservation = reservation ?? throw new ArgumentNullException(nameof(reservation));
+
+    public WorkflowRunReservation Reservation => reservation;
+
+    public bool TryReserveBodyPass() => reservation.TryReserve(null, new WorkflowReservationRequest(BodyPasses: 1));
+}
+
+/// <summary>
+/// The one run-level budget object (Decision 0070, atomic shared reservation). The root run creates it; child workflow
+/// runs, the Sequence runtime and any future nested iterator inherit the same instance, so passes, loop-scoped evidence
+/// events, dispatch tickets and per-owner accounts are drawn from one atomic <see cref="WorkflowRunReservation"/>.
+/// </summary>
+internal sealed class WorkflowRunBudget
+{
+    public WorkflowRunBudget(int? maximumBodyPasses = null, int? maximumEvidenceEvents = null,
+        int? maximumDispatchTickets = null)
+        : this(new WorkflowRunReservation(maximumBodyPasses, maximumEvidenceEvents, maximumDispatchTickets))
+    {
+    }
+
+    public WorkflowRunBudget(WorkflowRunReservation reservation)
+    {
+        Reservation = reservation ?? throw new ArgumentNullException(nameof(reservation));
+        PassBudget = new WorkflowLoopPassBudget(reservation);
+        EvidenceBudget = new WorkflowLoopExecutionBudget(reservation);
+    }
+
+    public WorkflowRunReservation Reservation { get; }
+    public WorkflowLoopPassBudget PassBudget { get; }
+    public WorkflowLoopExecutionBudget EvidenceBudget { get; }
 }

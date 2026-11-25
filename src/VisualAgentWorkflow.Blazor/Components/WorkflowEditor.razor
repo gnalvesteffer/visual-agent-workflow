@@ -1370,10 +1370,7 @@
         var type = args.Value?.ToString();
         if (type is not ("string" or "json") && !WorkflowDataTypes.IsPrimitiveArrayType(type))
             throw new ArgumentException("Choose Text, JSON, or a supported primitive array type.");
-        var node = Definition.Nodes[id];
-        return GraphEditing.ReplaceNode(Definition, id, node.Type == NodeTypes.Input
-            ? node with { InputDataType = type == "string" ? null : type }
-            : node with { OutputDataType = type == "string" ? null : type });
+        return GraphEditing.SetBoundaryType(Definition, id, type);
     });
 
     private Task JsonPointer(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
