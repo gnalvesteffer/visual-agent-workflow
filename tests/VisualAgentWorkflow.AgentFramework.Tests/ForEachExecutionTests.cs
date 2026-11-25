@@ -101,6 +101,55 @@ public sealed class ForEachExecutionTests
         }
     }
 
+    private sealed class PlainGate : IWorkflowExecutionGate
+    {
+        public List<string?> Nodes { get; } = [];
+        public ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken)
+        {
+            lock (Nodes) Nodes.Add(nextNodeId);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FrameGate : IWorkflowFrameExecutionGate
+    {
+        public List<(string? Node, string? Scope)> Boundaries { get; } = [];
+        public ValueTask WaitForBoundaryAsync(WorkflowBoundary boundary, CancellationToken cancellationToken)
+        {
+            lock (Boundaries) Boundaries.Add((boundary.NextNodeId, boundary.ScopeId));
+            return ValueTask.CompletedTask;
+        }
+        public ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("The frame-aware overload must be preferred.");
+    }
+
+    private static Task<string> RunGatedAsync(WorkflowDefinition definition, IWorkflowExecutionGate gate) =>
+        new WorkflowRunner(agents: new RecordingAgent()).ExecuteControlledAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "for-each"), "start", _ => ValueTask.CompletedTask, gate)
+            .WaitAsync(TimeSpan.FromSeconds(20));
+
+    [Fact]
+    public async Task A_frame_aware_gate_receives_each_boundary_with_its_iteration_scope()
+    {
+        var gate = new FrameGate();
+
+        await RunGatedAsync(Workflow(WorkflowDataTypes.String, "[\"a\",\"b\",\"c\"]"), gate);
+
+        Assert.Equal([("input", null), ("each", null), ("body", "each/1"), ("agent", "each/1"), ("each", "each/1"),
+            ("body", "each/2"), ("agent", "each/2"), ("each", "each/2"), ("body", "each/3"), ("agent", "each/3"),
+            ("each", "each/3"), ("output", "each/3"), (null, null)], gate.Boundaries);
+    }
+
+    [Fact]
+    public async Task A_gate_that_only_implements_the_original_boundary_method_still_works()
+    {
+        var gate = new PlainGate();
+
+        await RunGatedAsync(Workflow(WorkflowDataTypes.String, "[\"a\",\"b\"]"), gate);
+
+        Assert.Equal(["input", "each", "body", "agent", "each", "body", "agent", "each", "output", null], gate.Nodes);
+    }
+
     [Fact]
     public async Task An_empty_array_skips_the_body_and_continues_on_completed()
     {

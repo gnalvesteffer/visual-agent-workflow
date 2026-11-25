@@ -21,7 +21,7 @@ public sealed class RunControlStatusTests
         {
             NodeTypes.Condition, NodeTypes.BooleanBranch, NodeTypes.Merge,
             NodeTypes.ParallelFork, NodeTypes.ParallelBranch, NodeTypes.ParallelJoin,
-            NodeTypes.ParallelRendezvous, NodeTypes.Loop, NodeTypes.LoopBody,
+            NodeTypes.ParallelRendezvous, NodeTypes.Loop,
             NodeTypes.Sequence, NodeTypes.WorkflowCall, NodeTypes.WorkflowInterfaceCall
         })
         {

@@ -189,9 +189,22 @@ public sealed class ForEachNodeTests
     }
 
     [Fact]
-    public void Node_stepping_is_not_offered_for_a_workflow_containing_a_for_each()
+    public void Node_stepping_is_offered_for_a_sequential_for_each()
     {
-        Assert.False(WorkflowDebugging.SupportsNodeStepping(Workflow()));
+        Assert.True(WorkflowDebugging.SupportsNodeStepping(Workflow()));
+    }
+
+    [Theory]
+    [InlineData(NodeTypes.Wait)]
+    [InlineData(NodeTypes.Sequence)]
+    [InlineData(NodeTypes.ParallelFork)]
+    [InlineData(NodeTypes.Loop)]
+    [InlineData(NodeTypes.Merge)]
+    [InlineData(NodeTypes.WorkflowCall)]
+    public void Node_stepping_stays_unsupported_for_a_for_each_workflow_with_a_still_unsupported_node(string type)
+    {
+        var definition = Workflow(nodes: builder => { builder["extra"] = new(type, "1.0.0"); return builder; });
+        Assert.False(WorkflowDebugging.SupportsNodeStepping(definition));
     }
 
     [Fact]
@@ -411,9 +424,9 @@ public sealed class ForEachNodeTests
     }
 
     [Fact]
-    public void Node_stepping_is_not_supported_for_a_for_each_body_with_a_break()
+    public void Node_stepping_is_supported_for_a_for_each_body_with_a_break()
     {
-        Assert.False(WorkflowDebugging.SupportsNodeStepping(BreakWorkflow()));
+        Assert.True(WorkflowDebugging.SupportsNodeStepping(BreakWorkflow()));
     }
 
     private static void PortOf(WorkflowNodeDescriptor descriptor, string id, WorkflowPortDirection direction,

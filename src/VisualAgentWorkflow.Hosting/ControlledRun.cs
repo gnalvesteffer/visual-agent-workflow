@@ -6,7 +6,7 @@ namespace VisualAgentWorkflow.Hosting;
 /// <summary>One process-owned continuation and sequenced journal writer. The framework still executes the graph.</summary>
 internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header, SemaphoreSlim executionSlot,
     TimeProvider? timeProvider = null, WorkflowWaitOptions? waitOptions = null)
-    : IWorkflowExecutionGate, IWorkflowApprovalGate, IWorkflowWaitGate, IDisposable
+    : IWorkflowFrameExecutionGate, IWorkflowApprovalGate, IWorkflowWaitGate, IDisposable
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private readonly WorkflowWaitOptions waits = waitOptions ?? WorkflowWaitOptions.Default;
@@ -25,7 +25,8 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
     private bool disposed;
     private bool cancellationRequested;
     private readonly HashSet<string> breakpoints = new(StringComparer.Ordinal);
-    private string? skipBreakpointOnce;
+    private (string NodeId, string? ScopeId)? skipBreakpointOnce;
+    private string? waitingForScope;
     private bool stepNextNode;
     private bool pauseAfterSteppedNode;
     private long sequence;
@@ -75,7 +76,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             RequireOwnedExecution();
             if (!pauseRequested) return;
             RecordControl(ExecutionEventKinds.Resumed);
-            skipBreakpointOnce = waitingForNode;
+            skipBreakpointOnce = waitingForNode is null ? null : (waitingForNode, waitingForScope);
             pauseRequested = false; paused = false;
             signal = resumed;
             resumed = NewSignal();
@@ -111,7 +112,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             if (!WorkflowDebugging.SupportsNodeStepping(header.Definition))
                 throw new InvalidOperationException("Node stepping is currently supported for sequential workflows without branching, loops, parallel regions, or nested workflow calls.");
             RecordControl(ExecutionEventKinds.Resumed, waitingForNode);
-            skipBreakpointOnce = waitingForNode;
+            skipBreakpointOnce = waitingForNode is null ? null : (waitingForNode, waitingForScope);
             pauseRequested = false;
             paused = false;
             stepNextNode = true;
@@ -133,13 +134,16 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
     }
 
     public ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken) =>
-        WaitForBoundaryCoreAsync(nextNodeId, evaluateBreakpoints: true, cancellationToken);
+        WaitForBoundaryCoreAsync(nextNodeId, null, evaluateBreakpoints: true, cancellationToken);
+
+    public ValueTask WaitForBoundaryAsync(WorkflowBoundary boundary, CancellationToken cancellationToken) =>
+        WaitForBoundaryCoreAsync(boundary.NextNodeId, boundary.ScopeId, evaluateBreakpoints: true, cancellationToken);
 
     /// <summary>
     /// Boundary wait. A caller that already passed this node's breakpoint boundary (a Wait reacquiring its slot after it
     /// settles) skips breakpoint evaluation so the node does not hit its own breakpoint twice.
     /// </summary>
-    private async ValueTask WaitForBoundaryCoreAsync(string? nextNodeId, bool evaluateBreakpoints, CancellationToken cancellationToken)
+    private async ValueTask WaitForBoundaryCoreAsync(string? nextNodeId, string? scopeId, bool evaluateBreakpoints, CancellationToken cancellationToken)
     {
         var boundaryEvaluated = !evaluateBreakpoints;
         while (true)
@@ -151,20 +155,23 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
                 RequireOwnedExecution();
                 inFlight = false;
                 waitingForNode = nextNodeId;
+                waitingForScope = scopeId;
                 if (pauseAfterSteppedNode)
                 {
                     pauseAfterSteppedNode = false;
                     pauseRequested = true;
                 }
-                if (!boundaryEvaluated && nextNodeId is not null && breakpoints.Contains(nextNodeId) && skipBreakpointOnce != nextNodeId)
+                if (!boundaryEvaluated && nextNodeId is not null && breakpoints.Contains(nextNodeId) &&
+                    skipBreakpointOnce != (nextNodeId, scopeId))
                 {
                     Append(new(header.RunId, header.RevisionId, 0, clock.GetUtcNow(),
                         ExecutionEventKinds.BreakpointHit, nextNodeId,
-                        Data: JsonSerializer.Serialize(new { nodeId = nextNodeId })));
+                        Data: scopeId is null ? JsonSerializer.Serialize(new { nodeId = nextNodeId })
+                            : JsonSerializer.Serialize(new { nodeId = nextNodeId, scopeId })));
                     RecordControl(ExecutionEventKinds.PauseRequested, nextNodeId);
                     pauseRequested = true;
                 }
-                if (!boundaryEvaluated && skipBreakpointOnce == nextNodeId) skipBreakpointOnce = null;
+                if (!boundaryEvaluated && nextNodeId is not null && skipBreakpointOnce == (nextNodeId, scopeId)) skipBreakpointOnce = null;
                 boundaryEvaluated = true;
                 if (pauseRequested)
                 {
@@ -344,8 +351,8 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             }
         }
         // Reacquire execution ownership before the node completes. Pause and stop are honoured here.
-        await WaitForBoundaryCoreAsync(request.NodeId, evaluateBreakpoints: false, cancellationToken);
-        lock (gate) { if (skipBreakpointOnce == request.NodeId) skipBreakpointOnce = null; }
+        await WaitForBoundaryCoreAsync(request.NodeId, waitingForScope, evaluateBreakpoints: false, cancellationToken);
+        lock (gate) { if (skipBreakpointOnce is { } skipped && skipped.NodeId == request.NodeId) skipBreakpointOnce = null; }
     }
 
     private void RecordWait<T>(string kind, T data, WorkflowWaitRequest request) => Append(new(header.RunId, header.RevisionId, 0,

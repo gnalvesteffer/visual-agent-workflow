@@ -531,7 +531,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             output = activationBreakOutput ?? output;
             if (output is null) throw new InvalidOperationException("The workflow produced no output.");
             dispatchAdmissionOwner?.EnsureQuiescent();
-            if (gate is not null) await gate.WaitForBoundaryAsync(null, cancellationToken);
+            if (gate is not null) await gate.WaitForBoundaryAsync(null, null, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             if (output.ActivationBreakRequest is { } activationBreak)
             {
@@ -2734,7 +2734,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 return received with { SourcePort = "break" };
             }
             var internalTerminationHandoff = node.Type == NodeTypes.Output && received.TerminationSignal;
-            if (gate is not null && !internalTerminationHandoff) await gate.WaitForBoundaryAsync(Id, cancellationToken);
+            if (gate is not null && !internalTerminationHandoff) await gate.WaitForBoundaryAsync(Id, received.ActivationFrame?.ScopeId, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             var message = received.Text;
             var joinActivation = node.Type == NodeTypes.ParallelJoin

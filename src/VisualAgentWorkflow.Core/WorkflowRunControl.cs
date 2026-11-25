@@ -27,7 +27,7 @@ public static class WorkflowDebugging
     {
         NodeTypes.Condition, NodeTypes.BooleanBranch, NodeTypes.Merge,
         NodeTypes.ParallelFork, NodeTypes.ParallelBranch, NodeTypes.ParallelJoin, NodeTypes.ParallelRendezvous,
-        NodeTypes.Sequence, NodeTypes.Loop, NodeTypes.ForEach, NodeTypes.LoopBody,
+        NodeTypes.Sequence, NodeTypes.Loop,
         NodeTypes.WorkflowCall, NodeTypes.WorkflowInterfaceCall, NodeTypes.Wait
     };
 
@@ -35,9 +35,20 @@ public static class WorkflowDebugging
         definition.Nodes.TryGetValue(nodeId, out var node) &&
         (nodeId == definition.EntryNodeId || WorkflowPorts.ExplicitExecutionInputs(node).Length > 0);
 
-    public static bool SupportsNodeStepping(WorkflowDefinition definition) =>
-        !definition.Nodes.Values.Any(node => UnsupportedNodeTypes.Contains(node.Type) ||
+    /// <summary>Condition and Boolean Branch route to one node in a sequential graph. They are accepted only inside a
+    /// workflow with a For Each, where a Break needs them (Decision 0070, For Each node stepping).</summary>
+    private static readonly HashSet<string> ForEachOnlyNodeTypes = new(StringComparer.Ordinal)
+    {
+        NodeTypes.Condition, NodeTypes.BooleanBranch
+    };
+
+    public static bool SupportsNodeStepping(WorkflowDefinition definition)
+    {
+        var hasForEach = definition.Nodes.Values.Any(node => node.Type == NodeTypes.ForEach);
+        return !definition.Nodes.Values.Any(node =>
+            UnsupportedNodeTypes.Contains(node.Type) && !(hasForEach && ForEachOnlyNodeTypes.Contains(node.Type)) ||
             node.Type == NodeTypes.Agent && node.Agent?.Routes is { IsDefaultOrEmpty: false });
+    }
 }
 
 /// <summary>Trusted host gate before a node is admitted, and before final completion (null node ID).
@@ -45,6 +56,26 @@ public static class WorkflowDebugging
 public interface IWorkflowExecutionGate
 {
     ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken);
+}
+
+/// <summary>The node about to be admitted (null at final completion) and the activation frame scope of the message
+/// being admitted (null outside a For Each pass). Scope ids look like <c>each/2</c>.</summary>
+public readonly record struct WorkflowBoundary(string? NextNodeId, string? ScopeId = null);
+
+/// <summary>Optional richer gate. The runner calls this overload when the gate implements it, otherwise the original
+/// <see cref="IWorkflowExecutionGate.WaitForBoundaryAsync(string?, CancellationToken)"/>.</summary>
+public interface IWorkflowFrameExecutionGate : IWorkflowExecutionGate
+{
+    ValueTask WaitForBoundaryAsync(WorkflowBoundary boundary, CancellationToken cancellationToken);
+}
+
+public static class WorkflowExecutionGateExtensions
+{
+    public static ValueTask WaitForBoundaryAsync(this IWorkflowExecutionGate gate, string? nextNodeId, string? scopeId,
+        CancellationToken cancellationToken) =>
+        gate is IWorkflowFrameExecutionGate framed
+            ? framed.WaitForBoundaryAsync(new WorkflowBoundary(nextNodeId, scopeId), cancellationToken)
+            : gate.WaitForBoundaryAsync(nextNodeId, cancellationToken);
 }
 
 public sealed class WorkflowRunControlException()
