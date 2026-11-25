@@ -69,18 +69,22 @@ public sealed record WorkflowWaitOptions
     {
         ArgumentNullException.ThrowIfNull(definition);
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
-        var bounds = WorkflowWaitPlacement.ExecutionBounds(definition);
         long total = 0;
-        foreach (var (id, node) in definition.Nodes)
+        var closure = WorkflowWaitClosure.Analyze(definition);
+        // Defensive only: the validator rejects child Waits, so an uninspectable child is reported solely for a workflow that
+        // has a Wait of its own. A workflow without a top-level Wait is admitted exactly as before.
+        if (definition.Nodes?.Values.Any(node => node?.Type == NodeTypes.Wait) == true)
+            foreach (var child in closure.Unverified)
+                issues.Add(new("wait.unverifiable", child.Path, child.Reason));
+        foreach (var wait in closure.Waits)
         {
-            if (node?.Type != NodeTypes.Wait || node.Wait is null) continue;
-            var milliseconds = node.Wait.DurationMilliseconds;
+            if (wait.DurationMilliseconds is not { } milliseconds) continue;
             if (milliseconds > MaximumWait.TotalMilliseconds)
-                issues.Add(new("wait.bound", $"nodes.{id}.wait.durationMilliseconds",
+                issues.Add(new("wait.bound", $"{wait.Path}.wait.durationMilliseconds",
                     $"A wait of {milliseconds} ms exceeds the host per-wait maximum of {(long)MaximumWait.TotalMilliseconds} ms."));
-            if (bounds.GetValueOrDefault(id) is not { } executions)
+            if (wait.Executions is not { } executions)
             {
-                issues.Add(new("wait.budget", $"nodes.{id}",
+                issues.Add(new("wait.budget", wait.Path,
                     "The number of times this wait can run cannot be proven from its enclosing loops, so it is rejected."));
                 continue;
             }
@@ -92,9 +96,116 @@ public sealed record WorkflowWaitOptions
         return issues.ToImmutable();
     }
 
-    /// <summary>True when the definition would hold a wait slot at the host's waiting-run cap.</summary>
+    /// <summary>
+    /// True when the definition, or any pinned child definition it calls (workflow calls and interface implementations,
+    /// recursively), would hold a wait slot at the host's waiting-run cap. The validator still rejects a child Wait
+    /// (<c>wait.placement</c>), so today this only differs from a top-level scan for definitions that are not admitted.
+    /// </summary>
     public static bool ContainsWait(WorkflowDefinition definition) =>
-        definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Wait);
+        WorkflowWaitClosure.Analyze(definition) is { } closure && (closure.Waits.Count > 0 || closure.Unverified.Count > 0);
+}
+
+/// <summary>One Wait node found by <see cref="WorkflowWaitClosure"/>.</summary>
+/// <param name="Path">Validation-style path from the root definition, for example <c>nodes.call.workflowCall.definition.nodes.pause</c>.</param>
+/// <param name="DurationMilliseconds">The configured duration.</param>
+/// <param name="Executions">Provable upper bound of executions in one run (call bound times the child's own bound), or null when unprovable.</param>
+public sealed record WorkflowWaitOccurrence(string Path, string NodeId, long? DurationMilliseconds, long? Executions, int Depth);
+
+/// <summary>A call node whose child definition could not be inspected, so it must be treated as possibly containing a Wait.</summary>
+public sealed record WorkflowWaitUnverifiedChild(string Path, string Reason);
+
+/// <summary>Result of <see cref="WorkflowWaitClosure.Analyze"/>.</summary>
+public sealed record WorkflowWaitClosureResult(IReadOnlyList<WorkflowWaitOccurrence> Waits, IReadOnlyList<WorkflowWaitUnverifiedChild> Unverified);
+
+/// <summary>
+/// Recursive view of the Wait nodes of a definition and of its pinned child definitions (core.workflow-call and
+/// core.workflow-interface-call). Child definitions are pinned inside the calling node, so no external lookup is needed.
+/// Nesting is bounded by <see cref="WorkflowCallLimits.MaximumDepth"/>. The walk fails closed: a child that cannot be
+/// inspected (a cycle by workflow id, an unresolvable interface call, a missing child id or definition, or nesting past
+/// the limit) is reported in <see cref="WorkflowWaitClosureResult.Unverified"/> and counts as possibly containing a Wait.
+/// A definition without call nodes does no child walk.
+/// </summary>
+public static class WorkflowWaitClosure
+{
+    private static long callWalks;
+
+    /// <summary>Number of times a call-node bound computation ran. A test seam proving a no-call definition skips the child walk.</summary>
+    internal static long CallWalks => Interlocked.Read(ref callWalks);
+
+    public static IReadOnlyList<WorkflowWaitOccurrence> Enumerate(WorkflowDefinition definition) => Analyze(definition).Waits;
+
+    public static WorkflowWaitClosureResult Analyze(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        var found = new List<WorkflowWaitOccurrence>();
+        var unverified = new List<WorkflowWaitUnverifiedChild>();
+        Walk(definition, "", 1, 1, [definition.WorkflowId], found, unverified);
+        return new(found, unverified);
+    }
+
+    private static bool IsCall(NodeDefinition? node) => node is { } && (node.WorkflowCall is not null || node.WorkflowInterfaceCall is not null);
+
+    private static void Walk(WorkflowDefinition definition, string path, int depth, long? multiplier,
+        HashSet<string> ancestry, List<WorkflowWaitOccurrence> found, List<WorkflowWaitUnverifiedChild> unverified)
+    {
+        if (definition.Nodes is null) return;
+        var bounds = WorkflowWaitPlacement.ExecutionBounds(definition, node => node.Type == NodeTypes.Wait);
+        foreach (var (id, node) in definition.Nodes.OrderBy(entry => entry.Key, StringComparer.Ordinal))
+            if (node?.Type == NodeTypes.Wait)
+                found.Add(new($"{path}nodes.{id}", id, node.Wait?.DurationMilliseconds,
+                    Multiply(multiplier, bounds.GetValueOrDefault(id)), depth));
+        // Cheap early exit: no call nodes means nothing to recurse into.
+        if (!definition.Nodes.Values.Any(IsCall)) return;
+        Interlocked.Increment(ref callWalks);
+        var callBounds = WorkflowWaitPlacement.ExecutionBounds(definition, node => node.WorkflowCall is not null || node.WorkflowInterfaceCall is not null);
+        foreach (var (id, node) in definition.Nodes.OrderBy(entry => entry.Key, StringComparer.Ordinal))
+        {
+            if (!IsCall(node)) continue;
+            WorkflowDefinition? child;
+            string? childWorkflowId;
+            var callPath = $"{path}nodes.{id}.workflowCall";
+            if (node!.WorkflowInterfaceCall is { } interfaceCall)
+            {
+                callPath = $"{path}nodes.{id}.workflowInterfaceCall";
+                try
+                {
+                    var resolved = WorkflowInterfaceResolver.ResolveOperation(interfaceCall.Implementation, interfaceCall.OperationId);
+                    child = resolved.Workflow.Definition;
+                    childWorkflowId = resolved.Workflow.WorkflowId;
+                }
+                catch (Exception error) when (error is not OutOfMemoryException)
+                {
+                    unverified.Add(new(callPath, "The interface call cannot be resolved, so its implementation may contain a wait."));
+                    continue;
+                }
+            }
+            else
+            {
+                child = node.WorkflowCall!.Definition;
+                childWorkflowId = node.WorkflowCall.WorkflowId;
+            }
+            if (child?.Nodes is null || childWorkflowId is null)
+            {
+                unverified.Add(new(callPath, "The call has no pinned child workflow id or definition, so it may contain a wait."));
+                continue;
+            }
+            if (depth >= WorkflowCallLimits.MaximumDepth)
+            {
+                unverified.Add(new(callPath, $"Nested workflow calls deeper than {WorkflowCallLimits.MaximumDepth - 1} levels are not inspected and may contain a wait."));
+                continue;
+            }
+            if (!ancestry.Add(childWorkflowId))
+            {
+                unverified.Add(new(callPath, "The call repeats a workflow already on the call path, so it is not inspected and may contain a wait."));
+                continue;
+            }
+            Walk(child, callPath + ".definition.", depth + 1, Multiply(multiplier, callBounds.GetValueOrDefault(id)), ancestry, found, unverified);
+            ancestry.Remove(childWorkflowId);
+        }
+    }
+
+    private static long? Multiply(long? left, long? right) =>
+        left is null || right is null ? null : Math.Min(checked(left.Value * right.Value), long.MaxValue / 2);
 }
 
 /// <summary>Placement analysis for Wait nodes. Legal on top-level execution paths and in sequential Loop or For Each bodies.</summary>
@@ -195,12 +306,16 @@ public static class WorkflowWaitPlacement
     /// <see cref="WorkflowLoopLimits.MaximumTotalBodyPassesPerRun"/>. A value of null means no bound can be proven
     /// (missing or out-of-range loop limit, or loops present without an execution edge table).
     /// </summary>
-    public static IReadOnlyDictionary<string, long?> ExecutionBounds(WorkflowDefinition definition)
+    public static IReadOnlyDictionary<string, long?> ExecutionBounds(WorkflowDefinition definition) =>
+        ExecutionBounds(definition, node => node.Type == NodeTypes.Wait);
+
+    /// <summary>The same bound for any node selected by <paramref name="select"/> (used for Wait nodes and for call nodes).</summary>
+    internal static IReadOnlyDictionary<string, long?> ExecutionBounds(WorkflowDefinition definition, Func<NodeDefinition, bool> select)
     {
         ArgumentNullException.ThrowIfNull(definition);
         var result = new Dictionary<string, long?>(StringComparer.Ordinal);
         if (definition.Nodes is null) return result;
-        var waits = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.Wait).Select(entry => entry.Key).ToArray();
+        var waits = definition.Nodes.Where(entry => entry.Value is { } node && select(node)).Select(entry => entry.Key).ToArray();
         var loops = definition.Nodes.Where(entry => entry.Value?.Type is NodeTypes.Loop or NodeTypes.ForEach).ToArray();
         if (definition.ExecutionConnections is not { } edges)
         {

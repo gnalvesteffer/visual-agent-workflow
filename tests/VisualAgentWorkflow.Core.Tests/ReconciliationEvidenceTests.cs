@@ -111,4 +111,40 @@ public sealed class ReconciliationEvidenceTests
         Assert.Equal(256, report.UnresolvedWork.Length);
         Assert.False(report.HasIncompleteCorrelation);
     }
+
+    private static string WaitPayload(Guid id) => JsonSerializer.Serialize(new { waitId = id, nodeId = "input", durationMilliseconds = 1000 });
+
+    [Fact]
+    public void SeveralUnsettledWaitsOfOneNodeAndInvocationStayDistinctByWaitId()
+    {
+        var ids = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+        var run = Snapshot(ids.Select(id => (ExecutionEventKinds.WaitRequested, (string?)WaitPayload(id))).ToArray());
+
+        var report = WorkflowWorkEvidence.Read(run);
+
+        Assert.Equal(3, report.TotalUnresolvedWork);
+        Assert.Equal(ids.Order(), report.UnresolvedWork.Select(work => work.CallId!.Value).Order());
+        Assert.False(report.HasIncompleteCorrelation);
+    }
+
+    [Fact]
+    public void AMixOfSettledAndUnsettledWaitsReportsOnlyTheUnsettledOnes()
+    {
+        var elapsed = Guid.NewGuid();
+        var cancelled = Guid.NewGuid();
+        var open1 = Guid.NewGuid();
+        var open2 = Guid.NewGuid();
+        var run = Snapshot(
+            (ExecutionEventKinds.WaitRequested, WaitPayload(elapsed)), (ExecutionEventKinds.WaitRequested, WaitPayload(open1)),
+            (ExecutionEventKinds.WaitRequested, WaitPayload(cancelled)), (ExecutionEventKinds.WaitElapsed, WaitPayload(elapsed)),
+            (ExecutionEventKinds.WaitRequested, WaitPayload(open2)), (ExecutionEventKinds.WaitCancelled, WaitPayload(cancelled)));
+
+        var report = WorkflowWorkEvidence.Read(run);
+
+        Assert.Equal(new[] { open1, open2 }.Order(), report.UnresolvedWork.Select(work => work.CallId!.Value).Order());
+        Assert.False(report.HasIncompleteCorrelation);
+        // A settlement of one wait never resolves another wait of the same node and invocation.
+        var settledOne = run with { Events = run.Events.Add(run.Events[0] with { Sequence = 7, Kind = ExecutionEventKinds.WaitInterrupted, Data = WaitPayload(open1) }) };
+        Assert.Equal(open2, Assert.Single(WorkflowWorkEvidence.Read(settledOne).UnresolvedWork).CallId);
+    }
 }

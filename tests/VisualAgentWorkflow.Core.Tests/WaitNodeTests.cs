@@ -692,4 +692,182 @@ public sealed class WaitNodeTests
     {
         Assert.Equal(new[] { "Node", "Model", "Tool", "Approval" }, Enum.GetNames<UnresolvedWorkKind>());
     }
+
+    private static WorkflowDefinition ParentCalling(WorkflowDefinition childDefinition)
+    {
+        var child = WorkflowRevision.Create(childDefinition, "test");
+        var nodes = ImmutableSortedDictionary.CreateBuilder<string, NodeDefinition>(StringComparer.Ordinal);
+        nodes["input"] = new(NodeTypes.Input, "1.0.0");
+        nodes["call"] = new(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+        };
+        nodes["output"] = new(NodeTypes.Output, "1.0.0");
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "parent", "input", nodes.ToImmutable(),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("in", new(new("input", "out"), new("call", "in"), "data"))
+                .Add("out", new(new("call", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("a", Execution("input", "then", "call", "execute"))
+                .Add("b", Execution("call", "out", "output", "execute"))
+        };
+    }
+
+    [Fact]
+    public void The_closure_helper_finds_a_wait_in_a_pinned_child_definition_and_the_cap_would_count_it()
+    {
+        var parent = ParentCalling(TopLevel(2_000) with { WorkflowId = "child-wait" });
+
+        var found = Assert.Single(WorkflowWaitClosure.Enumerate(parent));
+
+        Assert.Equal("nodes.call.workflowCall.definition.nodes.wait1", found.Path);
+        Assert.Equal(2_000, found.DurationMilliseconds);
+        Assert.Equal(1, found.Executions);
+        Assert.Equal(2, found.Depth);
+        // The waiting-run cap accounting uses ContainsWait, which now sees the child Wait.
+        Assert.True(WorkflowWaitOptions.ContainsWait(parent));
+        Assert.False(WorkflowWaitOptions.ContainsWait(TopLevel(waits: 0)));
+    }
+
+    [Fact]
+    public void The_static_budget_closure_charges_a_child_wait_and_the_validator_still_rejects_it()
+    {
+        var parent = ParentCalling(TopLevel(60_000, waits: 2) with { WorkflowId = "child-wait" });
+        var options = new WorkflowWaitOptions(TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1), 2);
+
+        Assert.Contains(options.Check(parent), issue => issue.Code == "wait.budget");
+        Assert.Contains(WorkflowValidator.Validate(parent), issue => issue.Code == "wait.placement");
+        var generous = new WorkflowWaitOptions(TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(2), 2);
+        Assert.Empty(generous.Check(parent));
+        var tooLong = new WorkflowWaitOptions(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5), 2);
+        Assert.Contains(tooLong.Check(parent), issue => issue.Code == "wait.bound" && issue.Path.StartsWith("nodes.call.workflowCall.definition.nodes.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_workflow_without_any_wait_still_has_no_closure_occurrence()
+    {
+        var plain = TopLevel(waits: 0);
+
+        Assert.Empty(WorkflowWaitClosure.Enumerate(ParentCalling(plain with { WorkflowId = "child-plain" })));
+        Assert.False(WorkflowWaitOptions.ContainsWait(ParentCalling(plain with { WorkflowId = "child-plain" })));
+    }
+
+    /// <summary>A parent with one call node whose child is attached as-is, without revision validation (so invalid shapes can be built).</summary>
+    private static WorkflowDefinition RawParent(string parentId, NodeDefinition call, string callId = "call")
+    {
+        var nodes = ImmutableSortedDictionary.CreateBuilder<string, NodeDefinition>(StringComparer.Ordinal);
+        nodes["input"] = new(NodeTypes.Input, "1.0.0");
+        nodes[callId] = call;
+        nodes["output"] = new(NodeTypes.Output, "1.0.0");
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, parentId, "input", nodes.ToImmutable(),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("in", new(new("input", "out"), new(callId, "in"), "data"))
+                .Add("out", new(new(callId, "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("a", Execution("input", "then", callId, "execute"))
+                .Add("b", Execution(callId, "out", "output", "execute"))
+        };
+    }
+
+    private static NodeDefinition RawCall(WorkflowDefinition child) => new(NodeTypes.WorkflowCall, "1.0.0")
+    {
+        WorkflowCall = new(child.WorkflowId, Guid.NewGuid(), 1, "hash", child)
+    };
+
+    /// <summary>
+    /// The walk is defensive: the validator already rejects child Waits, so an uninspectable child never rejects a workflow
+    /// that has no Wait of its own. It is still counted conservatively by ContainsWait (waiting-run cap accounting).
+    /// With a top-level Wait present, admission fails closed with wait.unverifiable.
+    /// </summary>
+    private static void AssertFailsClosed(WorkflowDefinition definition)
+    {
+        Assert.True(WorkflowWaitOptions.ContainsWait(definition));
+        Assert.NotEmpty(WorkflowWaitClosure.Analyze(definition).Unverified);
+        Assert.DoesNotContain(WorkflowWaitOptions.Default.Check(definition), issue => issue.Code == "wait.unverifiable");
+        Assert.Empty(WorkflowWaitOptions.Default.Check(definition));
+
+        var withTopLevelWait = definition with { Nodes = definition.Nodes.Add("top-wait", Wait(1_000)) };
+        Assert.Contains(WorkflowWaitOptions.Default.Check(withTopLevelWait), issue => issue.Code == "wait.unverifiable");
+    }
+
+    [Fact]
+    public void A_call_cycle_by_workflow_id_fails_closed_instead_of_counting_no_wait()
+    {
+        var child = TopLevel(waits: 0) with { WorkflowId = "parent" };
+
+        AssertFailsClosed(RawParent("parent", RawCall(child)));
+    }
+
+    [Fact]
+    public void An_unresolvable_interface_call_fails_closed()
+    {
+        var call = new NodeDefinition(NodeTypes.WorkflowInterfaceCall, "1.0.0")
+        {
+            WorkflowInterfaceCall = new(null!, "missing")
+        };
+
+        AssertFailsClosed(RawParent("parent", call));
+    }
+
+    [Fact]
+    public void A_call_without_a_pinned_child_id_or_definition_fails_closed()
+    {
+        var noId = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(null!, Guid.NewGuid(), 1, "hash", TopLevel(waits: 0))
+        };
+        var noDefinition = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new("child", Guid.NewGuid(), 1, "hash", null!)
+        };
+
+        AssertFailsClosed(RawParent("parent", noId));
+        AssertFailsClosed(RawParent("parent", noDefinition));
+    }
+
+    [Fact]
+    public void Nesting_deeper_than_the_call_limit_fails_closed_even_when_the_deep_child_has_no_visible_wait()
+    {
+        var definition = TopLevel(waits: 0) with { WorkflowId = "leaf" };
+        for (var level = 0; level < WorkflowCallLimits.MaximumDepth + 1; level++)
+            definition = RawParent($"level-{level}", RawCall(definition));
+
+        AssertFailsClosed(definition);
+    }
+
+    [Fact]
+    public void A_call_chain_within_the_limit_is_fully_verified()
+    {
+        var definition = TopLevel(waits: 1) with { WorkflowId = "leaf" };
+        for (var level = 0; level < WorkflowCallLimits.MaximumDepth - 1; level++)
+            definition = RawParent($"level-{level}", RawCall(definition));
+
+        var analysis = WorkflowWaitClosure.Analyze(definition);
+
+        Assert.Empty(analysis.Unverified);
+        Assert.Single(analysis.Waits);
+        Assert.Empty(WorkflowWaitOptions.Default.Check(definition).Where(issue => issue.Code == "wait.unverifiable"));
+    }
+
+    [Fact]
+    public void A_definition_without_call_nodes_does_no_child_walk_and_is_unchanged()
+    {
+        var before = WorkflowWaitClosure.CallWalks;
+        var definition = TopLevel(2_000, waits: 2);
+
+        var analysis = WorkflowWaitClosure.Analyze(definition);
+
+        Assert.Equal(before, WorkflowWaitClosure.CallWalks);
+        Assert.Empty(analysis.Unverified);
+        Assert.Equal(["nodes.wait1", "nodes.wait2"], analysis.Waits.Select(wait => wait.Path));
+        Assert.All(analysis.Waits, wait => Assert.Equal(1, wait.Depth));
+        Assert.Empty(WorkflowWaitOptions.Default.Check(definition));
+        Assert.True(WorkflowWaitOptions.ContainsWait(definition));
+        Assert.False(WorkflowWaitOptions.ContainsWait(TopLevel(waits: 0)));
+        // A definition with a call node does walk.
+        WorkflowWaitClosure.Analyze(ParentCalling(TopLevel(waits: 0) with { WorkflowId = "c" }));
+        Assert.True(WorkflowWaitClosure.CallWalks > before);
+    }
 }

@@ -12,14 +12,23 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
     private readonly WorkflowWaitOptions waits = waitOptions ?? WorkflowWaitOptions.Default;
     /// <summary>True while this run counts toward the host's waiting-run cap (its definition contains a Wait node).</summary>
     public bool HoldsWaitCapacity { get; } = WorkflowWaitOptions.ContainsWait(header.Definition);
-    private Guid? activeWaitId;
-    private Action<string, string>? settleActiveWait;
+    /// <summary>
+    /// Pending waits keyed by waitId, each with its own settle action. Guarded by <see cref="gate"/>. A settle action removes
+    /// its own entry and records exactly one settlement, so settlement is exactly-once per wait.
+    /// </summary>
+    private readonly Dictionary<Guid, Action<string, string>> pendingWaits = [];
+    /// <summary>
+    /// Internal limit on concurrently pending waits. The default of 1 keeps today's behavior (a second wait throws
+    /// "A wait is already pending."). No placement that can produce concurrent waits is enabled; a future slice raises this.
+    /// </summary>
+    internal int ConcurrentWaitLimit { get; init; } = 1;
     private long cumulativeWaitMilliseconds;
     private readonly object gate = new();
     private TaskCompletionSource resumed = NewSignal();
     private bool pauseRequested;
     private bool paused;
-    private bool inFlight;
+    /// <summary>Nodes currently executing (not at a boundary, not waiting on an approval or a wait). Pause is acknowledged at zero.</summary>
+    private int inFlightNodes;
     private bool holdsExecutionSlot;
     private bool terminal;
     private bool disposed;
@@ -64,7 +73,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             if (pauseRequested) return;
             RecordControl(ExecutionEventKinds.PauseRequested);
             pauseRequested = true;
-            if (!inFlight) AcknowledgePause(waitingForNode);
+            if (inFlightNodes == 0) AcknowledgePause(waitingForNode);
         }
     }
 
@@ -134,18 +143,30 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
     }
 
     public ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken) =>
-        WaitForBoundaryCoreAsync(nextNodeId, null, evaluateBreakpoints: true, cancellationToken);
+        WaitForBoundaryCoreAsync(nextNodeId, null, evaluateBreakpoints: true, releasesInFlight: true, cancellationToken);
 
     public ValueTask WaitForBoundaryAsync(WorkflowBoundary boundary, CancellationToken cancellationToken) =>
-        WaitForBoundaryCoreAsync(boundary.NextNodeId, boundary.ScopeId, evaluateBreakpoints: true, cancellationToken);
+        WaitForBoundaryCoreAsync(boundary.NextNodeId, boundary.ScopeId, evaluateBreakpoints: true, releasesInFlight: true, cancellationToken);
+
+    /// <summary>
+    /// Starts an additional concurrently executing node (a sibling branch) at a boundary without ending another node.
+    /// An ordinary boundary ends the caller's previous node and starts the next, which keeps the in-flight count constant;
+    /// a new sibling must add one. No current placement calls this: it is the seam a future Fork/Join slice uses, and
+    /// the pause tests drive it directly.
+    /// </summary>
+    internal ValueTask WaitForBranchStartAsync(string? nextNodeId, string? scopeId, CancellationToken cancellationToken) =>
+        WaitForBoundaryCoreAsync(nextNodeId, scopeId, evaluateBreakpoints: true, releasesInFlight: false, cancellationToken);
 
     /// <summary>
     /// Boundary wait. A caller that already passed this node's breakpoint boundary (a Wait reacquiring its slot after it
-    /// settles) skips breakpoint evaluation so the node does not hit its own breakpoint twice.
+    /// settles) skips breakpoint evaluation so the node does not hit its own breakpoint twice. Such a caller already left
+    /// the in-flight count when it registered its wait or approval, so it passes <paramref name="releasesInFlight"/> false;
+    /// otherwise it would take another node's count.
     /// </summary>
-    private async ValueTask WaitForBoundaryCoreAsync(string? nextNodeId, string? scopeId, bool evaluateBreakpoints, CancellationToken cancellationToken)
+    private async ValueTask WaitForBoundaryCoreAsync(string? nextNodeId, string? scopeId, bool evaluateBreakpoints, bool releasesInFlight, CancellationToken cancellationToken)
     {
         var boundaryEvaluated = !evaluateBreakpoints;
+        var leftInFlight = !releasesInFlight;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -153,7 +174,11 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             lock (gate)
             {
                 RequireOwnedExecution();
-                inFlight = false;
+                if (!leftInFlight)
+                {
+                    leftInFlight = true;
+                    if (inFlightNodes > 0) inFlightNodes--;
+                }
                 waitingForNode = nextNodeId;
                 waitingForScope = scopeId;
                 if (pauseAfterSteppedNode)
@@ -175,7 +200,9 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
                 boundaryEvaluated = true;
                 if (pauseRequested)
                 {
-                    AcknowledgePause(nextNodeId);
+                    // Every sibling must be quiescent before the pause is acknowledged: the last node to reach a
+                    // boundary acknowledges. Earlier ones only hold.
+                    if (inFlightNodes == 0) AcknowledgePause(nextNodeId);
                     resumeSignal = resumed.Task;
                 }
                 else if (holdsExecutionSlot)
@@ -185,7 +212,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
                         stepNextNode = false;
                         pauseAfterSteppedNode = true;
                     }
-                    inFlight = true;
+                    inFlightNodes++;
                     return;
                 }
             }
@@ -217,10 +244,13 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             approvalSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
             approvalDecision = null;
             decision = approvalSignal.Task;
-            inFlight = false;
+            if (inFlightNodes > 0) inFlightNodes--;
             waitingForNode = action.ApprovalNodeId;
-            ReleaseExecutionSlot();
-            if (pauseRequested) AcknowledgePause(action.ApprovalNodeId);
+            if (inFlightNodes == 0)
+            {
+                ReleaseExecutionSlot();
+                if (pauseRequested) AcknowledgePause(action.ApprovalNodeId);
+            }
         }
         bool approved;
         try { approved = await decision.WaitAsync(cancellationToken); }
@@ -244,7 +274,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
         }
         if (!approved) throw new WorkflowApprovalRejectedException();
         // Approval and pause are independent. Reacquire execution ownership before completing the node.
-        await WaitForBoundaryAsync(action.TargetNodeId, cancellationToken);
+        await WaitForBoundaryCoreAsync(action.TargetNodeId, null, evaluateBreakpoints: true, releasesInFlight: false, cancellationToken);
         return new(request.RequestId, request.ActionHash, action.TargetInvocationId);
     }
 
@@ -264,6 +294,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
         var waitId = Guid.NewGuid();
         Task timer;
         long startTimestamp;
+        string? scopeAtRequest;
         var milliseconds = (long)request.Duration.TotalMilliseconds;
         using var timerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         lock (gate)
@@ -275,7 +306,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
                 node.Wait is not { } configured || configured.DurationMilliseconds != milliseconds ||
                 request.Duration != TimeSpan.FromMilliseconds(configured.DurationMilliseconds))
                 throw new InvalidOperationException("The wait request does not match the captured workflow.");
-            if (activeWaitId is not null) throw new InvalidOperationException("A wait is already pending.");
+            if (pendingWaits.Count >= ConcurrentWaitLimit) throw new InvalidOperationException("A wait is already pending.");
             if (milliseconds < WorkflowWaitLimits.MinimumDurationMilliseconds || request.Duration > waits.MaximumWait)
                 throw new InvalidOperationException("The wait exceeds the host per-wait maximum.");
             if (cumulativeWaitMilliseconds + milliseconds > waits.CumulativeBudget.TotalMilliseconds)
@@ -310,15 +341,16 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
                 timerCancellation.Cancel();
                 throw;
             }
+            // The reservation is made in the same critical section as the budget check and the registration. A wait that
+            // elapses, is cancelled or is interrupted keeps its reservation spent (the run is stopping or the time was
+            // used); only a request that could not be journaled never reserves, because the catch above runs first.
             cumulativeWaitMilliseconds += milliseconds;
-            activeWaitId = waitId;
+            scopeAtRequest = waitingForScope;
             // Settles this wait once (kind, reason). Callers hold the gate lock. Never throws: a journal that cannot be
             // written leaves the request unsettled, which reconciliation then reports, and must not mask the caller.
-            settleActiveWait = (kind, reason) =>
+            pendingWaits[waitId] = (kind, reason) =>
             {
-                if (activeWaitId != waitId) return;
-                activeWaitId = null;
-                settleActiveWait = null;
+                if (!pendingWaits.Remove(waitId)) return;
                 if (terminal) return;
                 try
                 {
@@ -337,10 +369,14 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
                 }
                 catch (Exception error) when (error is not OutOfMemoryException) { }
             };
-            inFlight = false;
+            if (inFlightNodes > 0) inFlightNodes--;
             waitingForNode = request.NodeId;
-            ReleaseExecutionSlot();
-            if (pauseRequested) AcknowledgePause(request.NodeId);
+            // The slot is shared by the whole run: release it (and acknowledge a pause) only when no sibling is executing.
+            if (inFlightNodes == 0)
+            {
+                ReleaseExecutionSlot();
+                if (pauseRequested) AcknowledgePause(request.NodeId);
+            }
         }
 
         var elapsed = false;
@@ -354,13 +390,16 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
         {
             lock (gate)
             {
-                if (elapsed) settleActiveWait?.Invoke(ExecutionEventKinds.WaitElapsed, "The requested duration elapsed.");
-                else if (cancellationRequested) settleActiveWait?.Invoke(ExecutionEventKinds.WaitCancelled, "The run was stopped or cancelled.");
-                else settleActiveWait?.Invoke(ExecutionEventKinds.WaitInterrupted, "The host stopped while the wait was pending.");
+                if (pendingWaits.TryGetValue(waitId, out var settle))
+                {
+                    if (elapsed) settle(ExecutionEventKinds.WaitElapsed, "The requested duration elapsed.");
+                    else if (cancellationRequested) settle(ExecutionEventKinds.WaitCancelled, "The run was stopped or cancelled.");
+                    else settle(ExecutionEventKinds.WaitInterrupted, "The host stopped while the wait was pending.");
+                }
             }
         }
         // Reacquire execution ownership before the node completes. Pause and stop are honoured here.
-        await WaitForBoundaryCoreAsync(request.NodeId, waitingForScope, evaluateBreakpoints: false, cancellationToken);
+        await WaitForBoundaryCoreAsync(request.NodeId, scopeAtRequest, evaluateBreakpoints: false, releasesInFlight: false, cancellationToken);
         lock (gate) { if (skipBreakpointOnce is { } skipped && skipped.NodeId == request.NodeId) skipBreakpointOnce = null; }
     }
 
@@ -431,7 +470,8 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             if (disposed) return;
             disposed = true;
             // A wait still pending when the owner goes away is settled now, so a live journal never keeps an unsettled request.
-            settleActiveWait?.Invoke(ExecutionEventKinds.WaitInterrupted, "The run's owner stopped while the wait was pending.");
+            foreach (var settle in pendingWaits.Values.ToArray())
+                settle(ExecutionEventKinds.WaitInterrupted, "The run's owner stopped while the wait was pending.");
             ReleaseExecutionSlot();
             Cancellation.Dispose();
         }
