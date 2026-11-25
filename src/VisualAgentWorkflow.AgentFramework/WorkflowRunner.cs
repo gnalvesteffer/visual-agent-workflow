@@ -763,7 +763,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         StructuredActivationGraphPlan? activationGraphPlan = null,
         StructuredActivationFrameOwner? activationFrameOwner = null,
         ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null,
-        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null)
+        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null,
+        ForEachCheckpointState? restoredForEach = null)
     {
         var definition = revision.Definition;
         var executionEdges = WorkflowSchemaVersions.UsesExplicitGraph(definition)
@@ -791,6 +792,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     n.Value.Type == NodeTypes.ParallelJoin
                     ? executionEdges.Single(edge => edge.Source.NodeId == n.Key && edge.Source.PortId == "then").Target.NodeId
                     : null));
+        if (restoredForEach is not null)
+        {
+            // Rehydrate what a native For Each checkpoint cannot carry: the executor-instance items and the
+            // pass frame's item/index runtime outputs, keyed by the frame id inside the native in-flight message.
+            if (!executors.TryGetValue(restoredForEach.ForEachNodeId, out var restoredExecutor) ||
+                restoredExecutor is not StringExecutor restoredForEachExecutor)
+                throw new InvalidOperationException("The For Each checkpoint state names a node that is not a For each.");
+            restoredForEachExecutor.RestoreForEach(restoredForEach);
+        }
         if (collaborationRuntime is not null)
         {
             var region = collaborationRuntime.Region;
@@ -1326,6 +1336,22 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 : $"{loopEvidenceScopePrefix}/{frame.ScopeId}";
             loopExecutionBudget.RegisterLoopScope(evidenceScope);
             return frame;
+        }
+
+        /// <summary>
+        /// Accounts for a body pass restored from a checkpoint the way <see cref="CreateBodyPass"/> accounts for a new one,
+        /// so scope evidence budgets and pass limits behave the same after a resume.
+        /// </summary>
+        public void RegisterRestoredPass(StructuredActivationFrame frame)
+        {
+            Interlocked.Increment(ref loopActivations);
+            if (!loopPassBudget.TryReserveBodyPass())
+            {
+                Interlocked.Decrement(ref loopActivations);
+                throw new LoopBodyPassBudgetExceededException();
+            }
+            loopExecutionBudget.RegisterLoopScope(string.IsNullOrEmpty(loopEvidenceScopePrefix)
+                ? frame.ScopeId : $"{loopEvidenceScopePrefix}/{frame.ScopeId}");
         }
 
         public StructuredActivationBreakSignal ConsumeBreak(StructuredActivationFrame activeFrame,
@@ -2459,6 +2485,38 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     {
         private readonly ConcurrentDictionary<(Guid? ParentFrameId, string NodeId), JsonElement> forEachItems = new();
 
+        private static object TypedForEachItem(string elementType, JsonElement element) => elementType switch
+        {
+            WorkflowDataTypes.String => element.GetString()!,
+            WorkflowDataTypes.Boolean => element.GetBoolean(),
+            WorkflowDataTypes.Integer => element.GetInt64(),
+            WorkflowDataTypes.Number => element.GetDouble(),
+            _ => element.Clone()
+        };
+
+        /// <summary>Restores a top-level For each pass from a checkpoint (decision 0070, first recovery slice).</summary>
+        internal void RestoreForEach(ForEachCheckpointState state)
+        {
+            if (node.Type != NodeTypes.ForEach || state.ForEachNodeId != Id)
+                throw new InvalidOperationException("The For Each checkpoint state does not belong to this node.");
+            using var document = JsonDocument.Parse(state.ItemsJson, new JsonDocumentOptions { MaxDepth = WorkflowJsonArrayLimits.MaximumDepth });
+            if (document.RootElement.ValueKind != JsonValueKind.Array ||
+                state.PassIndex < 1 || state.PassIndex > document.RootElement.GetArrayLength() ||
+                document.RootElement.GetArrayLength() > WorkflowJsonArrayLimits.MaximumItems)
+                throw new InvalidDataException("The For Each checkpoint items or pass index are invalid.");
+            var items = document.RootElement.Clone();
+            forEachItems[(null, Id)] = items;
+            var element = items[state.PassIndex - 1];
+            var elementType = node.ArrayElementType ?? WorkflowDataTypes.Json;
+            var frame = new StructuredActivationFrame(state.PassFrameId, null, Id, state.PassIndex,
+                element.ValueKind == JsonValueKind.String ? element.GetString()! : element.GetRawText(),
+                parameters?.ToImmutableSortedDictionary(StringComparer.Ordinal)
+                    ?? ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal));
+            activationFrameOwner?.RegisterRestoredPass(frame);
+            dataEvaluator?.SetRuntimeOutput(Id, "item", elementType, TypedForEachItem(elementType, element), frame);
+            dataEvaluator?.SetRuntimeOutput(Id, "index", WorkflowDataTypes.Integer, (long)(state.PassIndex - 1), frame);
+        }
+
         private async ValueTask Emit(string kind, string? node = null, Guid? invocation = null,
             string? connection = null, string? data = null, string? eventScope = null,
             bool useStorageScope = false)
@@ -3375,25 +3433,21 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         var bodyFrame = frameOwner.CreateBodyPass(Id, nextLoopIteration, WorkflowJsonArrayLimits.MaximumItems,
                             element.ValueKind == JsonValueKind.String ? element.GetString()! : element.GetRawText(),
                             frameParameters, forEachParent);
-                        object typedItem = elementType switch
-                        {
-                            WorkflowDataTypes.String => element.GetString()!,
-                            WorkflowDataTypes.Boolean => element.GetBoolean(),
-                            WorkflowDataTypes.Integer => element.GetInt64(),
-                            WorkflowDataTypes.Number => element.GetDouble(),
-                            _ => element.Clone()
-                        };
+                        var typedItem = TypedForEachItem(elementType, element);
                         dataEvaluator?.SetRuntimeOutput(Id, "item", elementType, typedItem, bodyFrame);
                         dataEvaluator?.SetRuntimeOutput(Id, "index", WorkflowDataTypes.Integer, (long)completedIteration, bodyFrame);
                         nextActivationFrame = bodyFrame;
                         await Emit(ExecutionEventKinds.LoopIterationStarted, Id, invocation, null,
                             JsonSerializer.Serialize(new { iteration = nextLoopIteration, maximumIterations = items.GetArrayLength() }),
                             bodyFrame.ScopeId);
+                        boundaryTracker?.SetForEach(new ForEachCheckpointState(Id, JsonSerializer.Serialize(items),
+                            bodyFrame.Id, nextLoopIteration));
                     }
                     else
                     {
                         port = "completed";
                         forEachItems.TryRemove(itemsKey, out _);
+                        boundaryTracker?.SetForEach(null);
                         dataEvaluator?.PromoteRuntimeOutputs(received.ActivationFrame, forEachParent);
                         nextActivationFrame = forEachParent ?? received.ActivationFrame;
                         nextLoopIteration = forEachParent?.Index ?? 0;

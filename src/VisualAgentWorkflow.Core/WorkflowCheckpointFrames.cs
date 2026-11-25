@@ -18,6 +18,31 @@ public sealed record LoopCheckpointCursor(
     long LastLoopEvidenceSequence);
 
 /// <summary>
+/// Integrity metadata for the opt-in For Each iteration-boundary checkpoint (decision 0070, first slice).
+/// <paramref name="Index"/> is the 1-based pass whose <c>LoopIterationStarted</c> evidence was last recorded;
+/// the body of that pass has not run yet.
+/// </summary>
+public sealed record ForEachCheckpointCursor(
+    string ForEachNodeId,
+    int Index,
+    string ItemsHash,
+    string ItemsJson,
+    long LastEvidenceSequence)
+{
+    /// <summary>Compact, order-preserving form of an items array so equal arrays hash and compare equally.</summary>
+    public static string CanonicalItems(string itemsJson)
+    {
+        using var document = JsonDocument.Parse(itemsJson, new JsonDocumentOptions { MaxDepth = WorkflowJsonArrayLimits.MaximumDepth });
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("The For Each checkpoint items must be a JSON array.");
+        return JsonSerializer.Serialize(document.RootElement);
+    }
+
+    public static string HashItems(string canonicalItemsJson) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonicalItemsJson)));
+}
+
+/// <summary>
 /// A definition-bound composite checkpoint frame. It binds native state,
 /// loop position, mutable state, and the exact recorded evidence prefix without
 /// making the frame a portable workflow or an alternate scheduler.
@@ -187,8 +212,12 @@ public static class WorkflowCheckpointShape
 {
     public static bool UsesLoopState(WorkflowDefinition definition) =>
         definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph ||
-        definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+        definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && !UsesForEachState(definition) &&
         definition.Nodes.Values.Any(node => node.Type is NodeTypes.Loop or NodeTypes.LoopBody);
+
+    /// <summary>A graph containing a For Each. Its recovery shape is separate from Loop recovery (decision 0070).</summary>
+    public static bool UsesForEachState(WorkflowDefinition definition) =>
+        definition.Nodes.Values.Any(node => node?.Type == NodeTypes.ForEach);
 
     public static bool UsesVariableState(WorkflowDefinition definition) =>
         definition.SchemaVersion is WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph ||

@@ -4,8 +4,9 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Hosting;
 
-/// <summary>Host-owned checkpoint capabilities. Loop recovery is explicitly opt-in and disabled by default.</summary>
-public sealed record CheckpointWorkflowHostOptions(bool EnableLoopCheckpointRecovery = false);
+/// <summary>Host-owned checkpoint capabilities. Loop and For Each recovery are explicitly opt-in and disabled by default.</summary>
+public sealed record CheckpointWorkflowHostOptions(bool EnableLoopCheckpointRecovery = false,
+    bool AllowForEachCheckpointRecovery = false);
 
 /// <summary>Opt-in explicit deterministic checkpoint execution. Not the Studio queue, automatic failover or external-call recovery.</summary>
 public sealed class CheckpointWorkflowHost : IAsyncDisposable
@@ -76,10 +77,12 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
             {
                 ArgumentNullException.ThrowIfNull(revision);
                 ArgumentNullException.ThrowIfNull(input);
-                WorkflowRunner.ValidateCheckpointGraph(revision.Definition, options.EnableLoopCheckpointRecovery);
+                WorkflowRunner.ValidateCheckpointGraph(revision.Definition, options.EnableLoopCheckpointRecovery,
+                    options.AllowForEachCheckpointRecovery);
                 snapshot = store.Create(revision, input);
             }
-            var sink = new Sink(store, snapshot, revision!, restored?.Native, suspendAfterCompletedNodes, options.EnableLoopCheckpointRecovery, clock);
+            var sink = new Sink(store, snapshot, revision!, restored?.Native, suspendAfterCompletedNodes, options.EnableLoopCheckpointRecovery, clock,
+                options.AllowForEachCheckpointRecovery);
             await new WorkflowRunner() { Clock = clock }.ExecuteCheckpointedAsync(snapshot.Header.RunId, revision!, input!, sink.RecordAsync, sink, linked.Token);
             return store.Get(snapshot.Header.RunId)!;
         }
@@ -101,12 +104,14 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
     }
 
     private sealed class Sink(IWorkflowCheckpointHostStore store, RunSnapshot initial, WorkflowRevision revision,
-        NativeWorkflowCheckpoint? restored, int? suspendAfter, bool allowLoopCheckpointRecovery, TimeProvider clock) : IWorkflowCheckpointSink, IWorkflowCheckpointBoundarySink
+        NativeWorkflowCheckpoint? restored, int? suspendAfter, bool allowLoopCheckpointRecovery, TimeProvider clock,
+        bool allowForEachCheckpointRecovery) : IWorkflowCheckpointSink, IWorkflowCheckpointBoundarySink
     {
         private RunSnapshot snapshot = initial;
         private (NativeWorkflowCheckpoint Checkpoint, CheckpointBoundaryObservation Observation)? boundary;
         public NativeWorkflowCheckpoint? RestoredCheckpoint => restored;
         public bool AllowLoopCheckpointRecovery => allowLoopCheckpointRecovery;
+        public bool AllowForEachCheckpointRecovery => allowForEachCheckpointRecovery;
 
         public void ObserveBoundary(NativeWorkflowCheckpoint checkpoint, CheckpointBoundaryObservation observation) =>
             boundary = (checkpoint, observation);
@@ -120,6 +125,20 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
         public ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint native)
         {
             var completed = snapshot.Events.Where(e => e.Kind == ExecutionEventKinds.NodeCompleted).ToArray();
+            var forEachGraph = WorkflowCheckpointShape.UsesForEachState(revision.Definition);
+            if (forEachGraph)
+            {
+                // Only an iteration boundary (a For Each that just started a pass) can be saved, and only when
+                // suspending; every other capture is passed over without evidence so the run stays unchanged.
+                var forEachId = revision.Definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.ForEach).Key;
+                var atBoundary = boundary is { } seen && seen.Observation.CurrentNodeId == forEachId &&
+                    seen.Observation.SourcePortId == "body" && seen.Observation.ForEach is not null;
+                if (!atBoundary || suspendAfter is not { } threshold || completed.Length < threshold)
+                {
+                    boundary = null;
+                    return ValueTask.FromResult(false);
+                }
+            }
             var suspended = suspendAfter is { } count && completed.Length >= count &&
                 !completed.Any(e => snapshot.Header.Definition.Nodes[e.NodeId!].Type == NodeTypes.Output);
             if (WorkflowCheckpointShape.UsesLoopState(revision.Definition) &&
@@ -150,7 +169,27 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
             {
                 VariableStateHash = native.VariableState?.ComputeHash()
             };
-            if (WorkflowCheckpointShape.UsesLoopState(revision.Definition))
+            if (forEachGraph)
+            {
+                var observed = boundary ?? throw new InvalidOperationException("The For Each checkpoint boundary was not captured by the host.");
+                var state = observed.Observation.ForEach!;
+                if (!string.Equals(observed.Checkpoint.CheckpointId, native.CheckpointId, StringComparison.Ordinal) ||
+                    !string.Equals(observed.Checkpoint.Payload, native.Payload, StringComparison.Ordinal) ||
+                    native.ForEach != state)
+                    throw new InvalidOperationException("The For Each checkpoint boundary does not match the native checkpoint being committed.");
+                var anchor = snapshot.Events.LastOrDefault(evt => evt.NodeId == state.ForEachNodeId &&
+                    evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped)
+                    ?? throw new InvalidOperationException("The For Each checkpoint boundary has no recorded iteration evidence.");
+                var items = ForEachCheckpointCursor.CanonicalItems(state.ItemsJson);
+                var forEachCursor = new ForEachCheckpointCursor(state.ForEachNodeId, state.PassIndex,
+                    ForEachCheckpointCursor.HashItems(items), items, anchor.Sequence);
+                checkpoint = checkpoint with
+                {
+                    ForEachFrame = WorkflowForEachCheckpointFrame.Create(revision, snapshot.Header.RunId, native.Payload,
+                        forEachCursor, snapshot.Events.Concat(events).ToArray())
+                };
+            }
+            else if (WorkflowCheckpointShape.UsesLoopState(revision.Definition))
             {
                 var observed = boundary ?? throw new InvalidOperationException("The loop checkpoint boundary was not captured by the host.");
                 if (!string.Equals(observed.Checkpoint.CheckpointId, native.CheckpointId, StringComparison.Ordinal) ||

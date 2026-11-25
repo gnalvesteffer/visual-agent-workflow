@@ -2,7 +2,7 @@
 
 `CheckpointWorkflowHost` is an opt-in consumer API for saving and explicitly resuming deterministic workflows through **native Microsoft Agent Framework JSON checkpoints**. It uses the same run identity, pinned revision and audit history after host replacement. It does not rerun completed nodes or reconstruct execution from UI events. This path is separate from Studio's process-owned `LocalWorkflowRuntime` queue.
 
-Supported graphs contain only input/output, uppercase/reverse, ordinal conditions and exclusive merges. The host rejects the entire graph before admission if it includes a Wait node (an in-process, non-resumable timer), an agent, MCP tool or approval, including an unchosen branch. External outcomes, model sessions and approval holds need a separate recovery policy. No checkpoint API is exposed in Studio, the development workflow HTTP API or the read-only observation API.
+Supported graphs contain only input/output, uppercase/reverse, ordinal conditions and exclusive merges (plus the opt-in loop and For Each shapes below). The host rejects the entire graph before admission if it includes a Wait node (an in-process, non-resumable timer), an agent, MCP tool or approval, including an unchosen branch. External outcomes, model sessions and approval holds need a separate recovery policy. No checkpoint API is exposed in Studio, the development workflow HTTP API or the read-only observation API.
 
 Schema 1.45 loop-variable workflows are supported only when the host is
 constructed with `EnableLoopCheckpointRecovery = true`; the default remains
@@ -29,6 +29,22 @@ also covers cancellation immediately after durable publication; the saved
   advances the run evidence and conservatively invalidates the older checkpoint
   without replaying loop writes. See [decision
   0031](decisions/0031-loop-checkpoint-proof-frame.md).
+
+A single top-level For Each is recoverable only when the host is constructed with
+`AllowForEachCheckpointRecovery = true` (default off, separate from the loop opt-in), its `array` input comes
+directly from one constant Array literal, and the whole graph is pure: the existing deterministic allowlist plus
+Array literal, For Each and Loop body, with no variables, agents, MCP, approvals, Wait, Break, Sequence, Fork or nesting.
+A checkpoint is saved only at an iteration boundary, just after the For Each recorded `LoopIterationStarted` for a pass
+and before that pass's body has run. The separate `WorkflowForEachCheckpointFrame` binds the native state, a
+`ForEachCheckpointCursor` (node, 1-based pass, items JSON with hash, last iteration evidence sequence) and the evidence
+prefix hash. The items live in an executor-instance dictionary and the pass frame's `item`/`index` are runtime outputs,
+so the native checkpoint also carries `ForEachCheckpointState` (items, pass index, pass frame id). Recovery verifies the
+cursor against the evidence, the native state against the cursor, and the stored items against a fresh evaluation of the
+constant literal; then it rehydrates the items and the pass frame's outputs before native resume. Resumed runs
+continue at that pass with the same node and iteration evidence as an uninterrupted run (plus the usual `Suspended` and
+`Recovered` markers) and do not repeat completed passes. Every other For Each shape, and every host without the opt-in,
+stays rejected before admission. This slice is not exposed by Studio and does not cover node stepping. See
+[decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 Schema 2.0 typed-array graphs remain outside checkpoint recovery. Array-only
 dataflow does not match the deterministic checkpoint graph shapes, and Core

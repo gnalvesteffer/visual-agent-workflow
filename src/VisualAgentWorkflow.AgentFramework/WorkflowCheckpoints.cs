@@ -8,7 +8,19 @@ namespace VisualAgentWorkflow.AgentFramework;
 
 /// <summary>Trusted adapter state, not an importable workflow or a portable cross-version format.</summary>
 public sealed record NativeWorkflowCheckpoint(string SessionId, string CheckpointId, string? ParentCheckpointId, string Payload,
-    WorkflowVariableSnapshot? VariableState = null);
+    WorkflowVariableSnapshot? VariableState = null)
+{
+    /// <summary>Runtime state a For Each iteration-boundary checkpoint needs and the native payload does not carry.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ForEachCheckpointState? ForEach { get; init; }
+}
+
+/// <summary>
+/// The executor-instance items and frame-scoped item/index identity of one For Each pass (decision 0070). The items
+/// live in a runner dictionary and the pass frame's runtime outputs in the data evaluator, so neither is in the
+/// native JSON; the pass frame itself travels inside the native in-flight message.
+/// </summary>
+public sealed record ForEachCheckpointState(string ForEachNodeId, string ItemsJson, Guid PassFrameId, int PassIndex);
 
 /// <summary>Host owns atomic evidence/checkpoint storage and recovery admission. Return true to suspend at the saved boundary.</summary>
 public interface IWorkflowCheckpointSink
@@ -16,6 +28,8 @@ public interface IWorkflowCheckpointSink
     NativeWorkflowCheckpoint? RestoredCheckpoint { get; }
     /// <summary>Host-owned opt-in loop checkpoint capability. Defaults to false and must not be inferred from workflow content.</summary>
     bool AllowLoopCheckpointRecovery => false;
+    /// <summary>Host-owned opt-in For Each checkpoint capability. Defaults to false and must not be inferred from workflow content.</summary>
+    bool AllowForEachCheckpointRecovery => false;
     ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint checkpoint);
 }
 
@@ -28,7 +42,8 @@ public sealed record CheckpointBoundaryObservation(
     string? SourcePortId,
     string? NextNodeId,
     string? NextInputPortId,
-    int LoopIteration);
+    int LoopIteration,
+    ForEachCheckpointState? ForEach = null);
 
 /// <summary>Receives the paired quiescent boundary observed immediately before a native checkpoint capture.</summary>
 public interface IWorkflowCheckpointBoundarySink
@@ -52,6 +67,7 @@ internal sealed class CheckpointBoundaryTracker
     private string? nextNodeId;
     private string? nextInputPortId;
     private int loopIteration;
+    private ForEachCheckpointState? forEachState;
     private long? preparedGeneration;
     private int checkpointCallbacks;
     private bool restorationObserved;
@@ -85,6 +101,12 @@ internal sealed class CheckpointBoundaryTracker
             generation++;
             activeHandlers = Math.Max(0, activeHandlers - 1);
         }
+    }
+
+    /// <summary>Records the pass a For Each just started, or null once it stopped. Published with the next transition.</summary>
+    public void SetForEach(ForEachCheckpointState? state)
+    {
+        lock (sync) forEachState = state;
     }
 
     public void AbortHandler()
@@ -129,7 +151,8 @@ internal sealed class CheckpointBoundaryTracker
                 sourcePortId,
                 nextNodeId,
                 nextInputPortId,
-                loopIteration);
+                loopIteration,
+                forEachState);
             var valid = preparedGeneration == generation && checkpointCallbacks > 0 && activeHandlers == 0 &&
                 (!requiresRestoration || restorationObserved) && !invalid;
             preparedGeneration = null;
@@ -164,7 +187,8 @@ public sealed partial class WorkflowRunner
         bool enforceAdmission)
     {
         if (enforceAdmission)
-            ValidateCheckpointGraph(revision.Definition, checkpoints.AllowLoopCheckpointRecovery);
+            ValidateCheckpointGraph(revision.Definition, checkpoints.AllowLoopCheckpointRecovery,
+                checkpoints.AllowForEachCheckpointRecovery);
         ArgumentNullException.ThrowIfNull(checkpoints);
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(input);
@@ -174,7 +198,8 @@ public sealed partial class WorkflowRunner
                 ? WorkflowVariableStore.FromSnapshot(revision.Definition, restoredState)
                 : new WorkflowVariableStore(revision.Definition)
             : null;
-        var boundaryTracker = WorkflowCheckpointShape.UsesLoopState(revision.Definition)
+        var boundaryTracker = WorkflowCheckpointShape.UsesLoopState(revision.Definition) ||
+            WorkflowCheckpointShape.UsesForEachState(revision.Definition)
             ? new CheckpointBoundaryTracker(checkpoints.RestoredCheckpoint is not null) : null;
         var bridge = new NativeCheckpointBridge(checkpoints, variableStore, boundaryTracker);
         var manager = CheckpointManager.CreateJson(bridge, new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() });
@@ -184,7 +209,7 @@ public sealed partial class WorkflowRunner
         var workflow = BuildWorkflow(runId, revision, input, null,
             (kind, node, invocation, connection, data, _) => Emit(kind, node, invocation, connection, data), null, revision, [],
             variableStore: variableStore,
-            boundaryTracker: boundaryTracker);
+            boundaryTracker: boundaryTracker, restoredForEach: checkpoints.RestoredCheckpoint?.ForEach);
         await Emit(checkpoints.RestoredCheckpoint is null ? ExecutionEventKinds.Started : ExecutionEventKinds.Recovered);
         try
         {
@@ -221,12 +246,18 @@ public sealed partial class WorkflowRunner
         }
     }
 
-    public static void ValidateCheckpointGraph(WorkflowDefinition definition, bool allowLoopCheckpointRecovery = false)
+    public static void ValidateCheckpointGraph(WorkflowDefinition definition, bool allowLoopCheckpointRecovery = false,
+        bool allowForEachCheckpointRecovery = false)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
         // Decision 0081: a wait is in-process and non-resumable, so a checkpoint can never promise to recover it.
         if (definition.Nodes.Values.Any(node => node.Type == NodeTypes.Wait))
             throw new InvalidOperationException("Checkpoint recovery rejects Wait nodes: a wait is in-process, bounded, and never resumed after a restart.");
+        if (WorkflowCheckpointShape.UsesForEachState(definition))
+        {
+            ValidateForEachCheckpointGraph(definition, allowForEachCheckpointRecovery);
+            return;
+        }
         if (WorkflowCheckpointShape.UsesLoopState(definition) && !allowLoopCheckpointRecovery)
             throw new InvalidOperationException(
                 $"Checkpoint recovery for schema {definition.SchemaVersion} loop graphs requires explicit host opt-in. " +
@@ -250,6 +281,32 @@ public sealed partial class WorkflowRunner
             throw new InvalidOperationException("Checkpoint recovery currently permits deterministic graph nodes only; agents, MCP and approvals require a separate recovery policy.");
     }
 
+    /// <summary>
+    /// The first For Each recovery slice (decision 0070): one top-level For Each over a constant array literal whose
+    /// body holds only the pure deterministic checkpoint allowlist. Everything else stays rejected.
+    /// </summary>
+    private static void ValidateForEachCheckpointGraph(WorkflowDefinition definition, bool allowForEachCheckpointRecovery)
+    {
+        if (!allowForEachCheckpointRecovery)
+            throw new InvalidOperationException(
+                "Checkpoint recovery for For Each graphs requires explicit host opt-in (AllowForEachCheckpointRecovery).");
+        if (definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph ||
+            definition.Variables is { Count: > 0 } ||
+            definition.Nodes.Values.Count(node => node.Type == NodeTypes.ForEach) != 1 ||
+            definition.Nodes.Values.Count(node => node.Type == NodeTypes.ArrayLiteral) != 1)
+            throw new InvalidOperationException(
+                "For Each checkpoint recovery supports one For Each over one constant array literal and no variables.");
+        if (definition.Nodes.Values.Any(node => node.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or
+                NodeTypes.Reverse or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.JsonSelectString or NodeTypes.TextTemplate or
+                NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or
+                NodeTypes.ArrayLiteral or NodeTypes.ForEach or NodeTypes.LoopBody)))
+            throw new InvalidOperationException(
+                "For Each checkpoint recovery permits pure deterministic nodes only; agents, MCP, approvals, Break, Sequence, Fork and nesting are rejected.");
+        var forEachId = definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.ForEach).Key;
+        try { _ = WorkflowForEachCheckpointFrame.EvaluateConstantItems(definition, forEachId); }
+        catch (InvalidDataException error) { throw new InvalidOperationException(error.Message, error); }
+    }
+
     private sealed class SavedBoundarySignal : Exception;
 
     private sealed class NativeCheckpointBridge(IWorkflowCheckpointSink sink, WorkflowVariableStore? variableStore,
@@ -268,6 +325,7 @@ public sealed partial class WorkflowRunner
             {
                 if (!boundaryTracker.TryCapture(out var observation))
                     throw new InvalidOperationException("The loop checkpoint boundary was not quiescent and cannot be recovered safely.");
+                if (observation.ForEach is { } forEachState) checkpoint = checkpoint with { ForEach = forEachState };
                 if (sink is not IWorkflowCheckpointBoundarySink probe)
                     throw new InvalidOperationException("Loop checkpoint capture requires a host boundary sink that records the paired native checkpoint identity.");
                 probe.ObserveBoundary(checkpoint, observation);
