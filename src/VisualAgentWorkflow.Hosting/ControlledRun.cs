@@ -5,10 +5,16 @@ namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>One process-owned continuation and sequenced journal writer. The framework still executes the graph.</summary>
 internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header, SemaphoreSlim executionSlot,
-    TimeProvider? timeProvider = null)
-    : IWorkflowExecutionGate, IWorkflowApprovalGate, IDisposable
+    TimeProvider? timeProvider = null, WorkflowWaitOptions? waitOptions = null)
+    : IWorkflowExecutionGate, IWorkflowApprovalGate, IWorkflowWaitGate, IDisposable
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
+    private readonly WorkflowWaitOptions waits = waitOptions ?? WorkflowWaitOptions.Default;
+    /// <summary>True while this run counts toward the host's waiting-run cap (its definition contains a Wait node).</summary>
+    public bool HoldsWaitCapacity { get; } = WorkflowWaitOptions.ContainsWait(header.Definition);
+    private Guid? activeWaitId;
+    private Action<string, string>? settleActiveWait;
+    private long cumulativeWaitMilliseconds;
     private readonly object gate = new();
     private TaskCompletionSource resumed = NewSignal();
     private bool pauseRequested;
@@ -126,9 +132,16 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
         catch (ObjectDisposedException) { /* Terminal cleanup won the race. */ }
     }
 
-    public async ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken)
+    public ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken) =>
+        WaitForBoundaryCoreAsync(nextNodeId, evaluateBreakpoints: true, cancellationToken);
+
+    /// <summary>
+    /// Boundary wait. A caller that already passed this node's breakpoint boundary (a Wait reacquiring its slot after it
+    /// settles) skips breakpoint evaluation so the node does not hit its own breakpoint twice.
+    /// </summary>
+    private async ValueTask WaitForBoundaryCoreAsync(string? nextNodeId, bool evaluateBreakpoints, CancellationToken cancellationToken)
     {
-        var boundaryEvaluated = false;
+        var boundaryEvaluated = !evaluateBreakpoints;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -228,6 +241,116 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
         return new(request.RequestId, request.ActionHash, action.TargetInvocationId);
     }
 
+
+    /// <summary>
+    /// Decision 0081 Wait: hold this run for a bounded duration on the monotonic clock. The execution slot is released
+    /// while waiting and reacquired before the node completes. Exactly one of wait.elapsed, wait.cancelled or
+    /// wait.interrupted is recorded under the gate lock. The timer task decides the winner: a timer that completed
+    /// before cancellation was observed settles as elapsed (a later cancellation then ends the run at the next
+    /// boundary); otherwise stop/cancel settles as cancelled and a host shutdown settles as interrupted. Pause is
+    /// acknowledged immediately and never stops the clock. Process loss leaves wait.requested unsettled, which
+    /// reconciliation reports as unresolved, non-resumable work.
+    /// </summary>
+    public async ValueTask WaitAsync(WorkflowWaitRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var waitId = Guid.NewGuid();
+        Task timer;
+        long startTimestamp;
+        var milliseconds = (long)request.Duration.TotalMilliseconds;
+        using var timerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lock (gate)
+        {
+            RequireOwnedExecution();
+            cancellationToken.ThrowIfCancellationRequested();
+            // The host re-derives the duration from the captured definition; the runner's value is only a cross-check.
+            if (!header.Definition.Nodes.TryGetValue(request.NodeId, out var node) || node?.Type != NodeTypes.Wait ||
+                node.Wait is not { } configured || configured.DurationMilliseconds != milliseconds ||
+                request.Duration != TimeSpan.FromMilliseconds(configured.DurationMilliseconds))
+                throw new InvalidOperationException("The wait request does not match the captured workflow.");
+            if (activeWaitId is not null) throw new InvalidOperationException("A wait is already pending.");
+            if (milliseconds < WorkflowWaitLimits.MinimumDurationMilliseconds || request.Duration > waits.MaximumWait)
+                throw new InvalidOperationException("The wait exceeds the host per-wait maximum.");
+            if (cumulativeWaitMilliseconds + milliseconds > waits.CumulativeBudget.TotalMilliseconds)
+                throw new InvalidOperationException("The wait exceeds the host per-run wait budget.");
+            // Create the timer before the request is recorded, so a recorded request always has a live timer.
+            startTimestamp = clock.GetTimestamp();
+            timer = Task.Delay(request.Duration, clock, timerCancellation.Token);
+            try
+            {
+                RecordWait(ExecutionEventKinds.WaitRequested, new
+                {
+                    waitId,
+                    nodeId = request.NodeId,
+                    durationMilliseconds = milliseconds,
+                    // Display only. The wait is measured on the monotonic clock, never against this wall-clock value.
+                    deadlineUtc = clock.GetUtcNow() + request.Duration,
+                    bound = new
+                    {
+                        perWaitMaximumMilliseconds = (long)waits.MaximumWait.TotalMilliseconds,
+                        cumulativeBudgetMilliseconds = (long)waits.CumulativeBudget.TotalMilliseconds,
+                        cumulativeRequestedMilliseconds = cumulativeWaitMilliseconds + milliseconds
+                    }
+                }, request);
+            }
+            catch
+            {
+                timerCancellation.Cancel();
+                throw;
+            }
+            cumulativeWaitMilliseconds += milliseconds;
+            activeWaitId = waitId;
+            // Settles this wait once (kind, reason). Callers hold the gate lock. Never throws: a journal that cannot be
+            // written leaves the request unsettled, which reconciliation then reports, and must not mask the caller.
+            settleActiveWait = (kind, reason) =>
+            {
+                if (activeWaitId != waitId) return;
+                activeWaitId = null;
+                settleActiveWait = null;
+                if (terminal) return;
+                try
+                {
+                    RecordWait(kind, new
+                    {
+                        waitId,
+                        nodeId = request.NodeId,
+                        durationMilliseconds = milliseconds,
+                        elapsedMilliseconds = (long)clock.GetElapsedTime(startTimestamp).TotalMilliseconds,
+                        reason
+                    }, request);
+                }
+                catch (Exception error) when (error is not OutOfMemoryException) { }
+            };
+            inFlight = false;
+            waitingForNode = request.NodeId;
+            ReleaseExecutionSlot();
+            if (pauseRequested) AcknowledgePause(request.NodeId);
+        }
+
+        var elapsed = false;
+        try
+        {
+            await timer;
+            elapsed = true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        finally
+        {
+            lock (gate)
+            {
+                if (elapsed) settleActiveWait?.Invoke(ExecutionEventKinds.WaitElapsed, "The requested duration elapsed.");
+                else if (cancellationRequested) settleActiveWait?.Invoke(ExecutionEventKinds.WaitCancelled, "The run was stopped or cancelled.");
+                else settleActiveWait?.Invoke(ExecutionEventKinds.WaitInterrupted, "The host stopped while the wait was pending.");
+            }
+        }
+        // Reacquire execution ownership before the node completes. Pause and stop are honoured here.
+        await WaitForBoundaryCoreAsync(request.NodeId, evaluateBreakpoints: false, cancellationToken);
+        lock (gate) { if (skipBreakpointOnce == request.NodeId) skipBreakpointOnce = null; }
+    }
+
+    private void RecordWait<T>(string kind, T data, WorkflowWaitRequest request) => Append(new(header.RunId, header.RevisionId, 0,
+        clock.GetUtcNow(), kind, request.NodeId, request.InvocationId, Data: JsonSerializer.Serialize(data, JsonSerializerOptions.Web)));
+
     public void DecideApproval(Guid requestId, string actionHash, bool approve, string actor)
     {
         TaskCompletionSource<bool> signal;
@@ -290,6 +413,8 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
         {
             if (disposed) return;
             disposed = true;
+            // A wait still pending when the owner goes away is settled now, so a live journal never keeps an unsettled request.
+            settleActiveWait?.Invoke(ExecutionEventKinds.WaitInterrupted, "The run's owner stopped while the wait was pending.");
             ReleaseExecutionSlot();
             Cancellation.Dispose();
         }

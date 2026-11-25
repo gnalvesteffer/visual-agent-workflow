@@ -31,6 +31,11 @@ public static class ExecutionEventKinds
     public const string ApprovalApproved = "approval.approved";
     public const string ApprovalRejected = "approval.rejected";
     public const string ApprovalCancelled = "approval.cancelled";
+    /// <summary>Wait node evidence (Decision 0081). Exactly one settlement follows a request: elapsed, cancelled, or interrupted.</summary>
+    public const string WaitRequested = "wait.requested";
+    public const string WaitElapsed = "wait.elapsed";
+    public const string WaitCancelled = "wait.cancelled";
+    public const string WaitInterrupted = "wait.interrupted";
     public const string BranchSelected = "branch.selected";
     public const string LoopIterationStarted = "loop.iteration.started";
     public const string LoopIterationCompleted = "loop.iteration.completed";

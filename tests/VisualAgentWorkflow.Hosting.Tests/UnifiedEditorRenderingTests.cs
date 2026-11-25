@@ -35,7 +35,7 @@ public sealed class UnifiedEditorRenderingTests
             NodeTypes.WorkflowValue, NodeTypes.JsonSelectString, NodeTypes.JsonProject, NodeTypes.JsonMerge,
             NodeTypes.JsonToArray, NodeTypes.ArrayLength, NodeTypes.Loop, NodeTypes.LoopBody,
             NodeTypes.Sequence, NodeTypes.ParallelFork, NodeTypes.ParallelRendezvous, NodeTypes.Approval,
-            NodeTypes.VariableGet, NodeTypes.VariableSet })
+            NodeTypes.VariableGet, NodeTypes.VariableSet, NodeTypes.Wait })
             Assert.Contains($"data-node-key=\"{type}\"", html);
         Assert.DoesNotContain("graph preview", html, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Promote", html);
@@ -50,6 +50,7 @@ public sealed class UnifiedEditorRenderingTests
     [InlineData(NodeTypes.JsonSelectString)]
     [InlineData(NodeTypes.JsonMerge)]
     [InlineData(NodeTypes.Approval)]
+    [InlineData(NodeTypes.Wait)]
     public async Task CreatingNodeThroughRenderedEditorPreservesCurrentSchema(string type)
     {
         var definition = WorkflowTemplates.Create("uppercase") with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
@@ -189,6 +190,62 @@ public sealed class UnifiedEditorRenderingTests
         Assert.Contains("Publish before rendezvous", html);
         Assert.DoesNotContain(">Phase 1</option>", html);
         Assert.Contains("Second rendezvous", html);
+    }
+
+    [Theory]
+    [InlineData("2500", 2_500L)]
+    [InlineData("90000000", null)]
+    public async Task WaitDurationInspectorStoresTheTypedValueOrRejectsItWithoutClamping(string typed, long? expected)
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "wait-editor", "input",
+            System.Collections.Immutable.ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("pause", new(NodeTypes.Wait, "1.0.0") { Wait = new(1_000) })
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            System.Collections.Immutable.ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("value", new(new("input", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = System.Collections.Immutable.ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("a", new(new("input", "then"), new("pause", "execute"), "execution"))
+                .Add("b", new(new("pause", "then"), new("output", "execute"), "execution"))
+        };
+        using var services = Services();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        WorkflowEditor? editor = null;
+        WorkflowGraphEdit? edit = null;
+        var root = await renderer.Dispatcher.InvokeAsync(() => renderer.BeginRenderingComponent<ComponentLifecycleTests.CaptureHost<WorkflowEditor>>(
+            ParameterView.FromDictionary(new Dictionary<string, object?>
+            {
+                ["ChildParameters"] = new Dictionary<string, object?>
+                {
+                    [nameof(WorkflowEditor.Definition)] = definition,
+                    [nameof(WorkflowEditor.GraphEdited)] = EventCallback.Factory.Create<WorkflowGraphEdit>(this, change => edit = change)
+                },
+                ["Capture"] = (Action<WorkflowEditor>)(component => editor = component)
+            })));
+        await root.QuiescenceTask;
+
+        await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            await (Task)typeof(WorkflowEditor).GetMethod("SelectNode", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(editor, ["pause"])!;
+            await (Task)typeof(WorkflowEditor).GetMethod("WaitDuration", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(editor, ["pause", new ChangeEventArgs { Value = typed }])!;
+        });
+
+        await renderer.Dispatcher.InvokeAsync(() => typeof(ComponentBase).GetMethod("StateHasChanged", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(editor, null));
+        if (expected is null)
+        {
+            // Over the 24-hour ceiling: the edit is refused and the stored definition keeps its old value, never a clamped one.
+            Assert.Null(edit);
+            Assert.Equal(1_000, definition.Nodes["pause"].Wait!.DurationMilliseconds);
+        }
+        else
+        {
+            Assert.NotNull(edit);
+            Assert.Equal(expected, edit.Definition.Nodes["pause"].Wait!.DurationMilliseconds);
+        }
+        var html = await renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
+        Assert.Contains("Wait duration in milliseconds for pause", html);
     }
 
     private static ServiceProvider Services() => new ServiceCollection().AddLogging()

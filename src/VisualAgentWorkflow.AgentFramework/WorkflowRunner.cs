@@ -308,6 +308,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     private sealed class WorkflowBodyEvidenceWriteException(Exception innerException)
         : InvalidOperationException("The activation proof could not persist body evidence.", innerException);
 
+    private const string WaitUnsupportedMessage =
+        "This workflow contains a Wait node, but the host did not provide a wait coordinator (IWorkflowWaitGate). Waits fail closed: run it through a host that supports waiting, such as LocalWorkflowRuntime.";
+
     private static async Task<string> MapOutput(Task<WorkflowExecutionResult> execution)
     {
         var result = await execution;
@@ -350,6 +353,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
         if (!sequenceWorkflowCallProof && !skipValidationForInternalProof)
             WorkflowValidator.ThrowIfInvalid(revision.Definition);
+        // Decision 0081: a Wait needs a host timer. Refuse before any event or side effect rather than failing mid-run.
+        if (gate is not IWorkflowWaitGate && WorkflowWaitOptions.ContainsWait(revision.Definition))
+            throw new InvalidOperationException(WaitUnsupportedMessage);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(proofMaximumLoopPasses ?? 1);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(proofMaximumLoopEvidenceEvents ?? 1);
         var ownsLoopEvidenceBudget = workflowLoopEvidenceBudget is null;
@@ -3117,6 +3123,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         loopIteration = received.LoopIteration
                     }), useStorageScope: !variableEvidenceUsesActivationScope);
                 }
+                if (node.Type == NodeTypes.Wait)
+                {
+                    if (gate is not IWorkflowWaitGate waits) throw new InvalidOperationException(WaitUnsupportedMessage);
+                    await waits.WaitAsync(new WorkflowWaitRequest(Id, invocation,
+                        TimeSpan.FromMilliseconds(node.Wait?.DurationMilliseconds ?? throw new InvalidOperationException("A Wait node requires a configured duration."))),
+                        cancellationToken);
+                }
                 var resultAvailable = received.HasValue;
                 if (node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall)
                     resultAvailable = childOutcome?.HasOutput == true;
@@ -3124,7 +3137,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(Id, message),
                     NodeTypes.BooleanBranch => string.Empty,
-                    NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.Break or NodeTypes.LoopBody or NodeTypes.VariableGet or NodeTypes.VariableSet => message,
+                    NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.Break or NodeTypes.LoopBody or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Wait => message,
                     NodeTypes.Terminate => string.Empty,
                     NodeTypes.JsonSelectString => SelectJsonText(message, node.JsonPropertySelection!.Pointer),
                     NodeTypes.JsonProject => ProjectJson(message, node.JsonProjection!),
@@ -3251,7 +3264,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.McpTool) port = "then";
                 if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && node.Type == NodeTypes.WorkflowInterfaceCall) port = "then";
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) port = "then";
-                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.LoopBody) port = "then";
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.LoopBody or NodeTypes.Wait) port = "then";
                 if (UsesConfigurableParallelGraph && node.Type == NodeTypes.ParallelBranch) port = "then";
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) &&
                     node.Type is (NodeTypes.Merge or NodeTypes.Approval)) port = "then";

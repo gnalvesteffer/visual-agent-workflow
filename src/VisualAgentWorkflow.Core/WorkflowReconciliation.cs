@@ -82,6 +82,15 @@ public static class WorkflowWorkEvidence
                         work.Add(new(UnresolvedWorkKind.Node, evt.NodeId, evt.InvocationId, activationId, evt.Sequence)
                         { State = UnresolvedWorkState.OutcomeUnknown });
                     break;
+                // Wait evidence reuses the Node kind, correlated by wait ID, so no UnresolvedWorkKind value is added
+                // (HttpWorkflowRunObserver rejects undefined enum values from a newer server).
+                case ExecutionEventKinds.WaitRequested:
+                    if (Correlation("waitId") is { } requestedWait) Start(UnresolvedWorkKind.Node, requestedWait); else incomplete = true;
+                    break;
+                case ExecutionEventKinds.WaitElapsed or ExecutionEventKinds.WaitCancelled or ExecutionEventKinds.WaitInterrupted:
+                    // A settlement without its wait ID must never resolve the node's own started entry.
+                    if (Correlation("waitId") is { } settledWait) Finish(UnresolvedWorkKind.Node, settledWait); else incomplete = true;
+                    break;
                 case ExecutionEventKinds.ApprovalRequested: Start(UnresolvedWorkKind.Approval, Correlation("requestId")); break;
                 case ExecutionEventKinds.ApprovalApproved or ExecutionEventKinds.ApprovalRejected or ExecutionEventKinds.ApprovalCancelled:
                     Finish(UnresolvedWorkKind.Approval, Correlation("requestId")); break;

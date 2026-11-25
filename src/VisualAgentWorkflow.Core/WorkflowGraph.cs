@@ -112,7 +112,7 @@ internal static class WorkflowPortShapeCatalog
     public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Loop or NodeTypes.ForEach => ["execute", "feedback"],
-        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.Output or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Break => ["execute"],
+        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.Output or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Break or NodeTypes.Wait => ["execute"],
         NodeTypes.ParallelJoin when node.ParallelJoin is { BranchIds.IsDefault: false } join => [.. join.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         _ => []
@@ -132,7 +132,7 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelJoin => ["then"],
         NodeTypes.Sequence when node.Sequence is { Outputs.IsDefault: false } sequence => [.. sequence.Outputs.Where(output => output is not null).Select(output => SequenceOutputLimits.PinId(output.Id))],
-        NodeTypes.VariableGet or NodeTypes.VariableSet => ["then"],
+        NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Wait => ["then"],
         _ => []
     };
 

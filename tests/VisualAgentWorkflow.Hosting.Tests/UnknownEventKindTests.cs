@@ -17,7 +17,9 @@ namespace VisualAgentWorkflow.Hosting.Tests;
 public sealed class UnknownEventKindTests : IDisposable
 {
     private const string Future = "future.unknown-kind";
-    private const string Wait = "wait.requested";
+    /// <summary>A still-unrecognized additive "requested" kind. wait.* kinds are recognized since the Wait first slice
+    /// (see WaitExecutionTests and WaitViewerTests); this stands in for the next additive kind.</summary>
+    private const string Wait = "future.requested";
 
     private readonly string directory = Path.Combine(Path.GetTempPath(), "vaw-unknown-kind-" + Guid.NewGuid());
     private string Database => Path.Combine(directory, "runs.sqlite3");
@@ -135,7 +137,7 @@ public sealed class UnknownEventKindTests : IDisposable
                 new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }));
             return component.ToHtmlString();
         });
-        Assert.Contains("<td>wait.requested</td>", html);
+        Assert.Contains("<td>future.requested</td>", html);
         Assert.Contains("<td>future.unknown-kind</td>", html);
         Assert.Contains("Recorded events", html);
         Assert.DoesNotContain("<b>raw</b>", html);

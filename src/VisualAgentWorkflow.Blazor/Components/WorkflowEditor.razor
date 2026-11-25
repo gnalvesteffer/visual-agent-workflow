@@ -349,6 +349,17 @@
                             <button type="button" @onclick="() => Edit(() => GraphEditing.RemoveApproval(Definition, id))" disabled="@Disabled" aria-label="Remove approval @id">Remove approval step</button>
                         }
                     }
+                    else if (node.Type == NodeTypes.Wait)
+                    {
+                        <p>Holds the run for a fixed duration measured by the host on a monotonic clock, then continues. The run releases its execution slot while waiting. A restart or stop ends the wait and is never resumed. Legal only on top-level paths (not in a Sequence, loop body, Fork branch, or sub-workflow). The host rejects, and never shortens, a duration above its maximum.</p>
+                        @if (!ReadOnly)
+                        {
+                            <label>Duration (milliseconds, 1 to @WorkflowWaitLimits.MaximumDurationMilliseconds)
+                                <input type="number" inputmode="numeric" step="1" min="@WorkflowWaitLimits.MinimumDurationMilliseconds" max="@WorkflowWaitLimits.MaximumDurationMilliseconds" aria-label="Wait duration in milliseconds for @id" value="@(node.Wait?.DurationMilliseconds)" @onchange="args => WaitDuration(id, args)" disabled="@Disabled" />
+                            </label>
+                        }
+                        else { <p>Duration: @(node.Wait?.DurationMilliseconds) ms</p> }
+                    }
                     else if (node.Type == NodeTypes.ParallelFork)
                     {
                         <p>Starts every configured branch concurrently with the same input. Each branch output must reach its matching join input. A branch failure fails the workflow; side effects already performed by another branch are not rolled back.</p>
@@ -1112,6 +1123,7 @@
         NodeTypes.ParallelJoin => "Wait for both branch results",
         NodeTypes.ParallelRendezvous => "Synchronize branch messages",
         NodeTypes.Approval => "Review before the next tool call",
+        NodeTypes.Wait => node.Wait is { } wait ? $"Wait {wait.DurationMilliseconds} ms" : "Wait (duration not set)",
         NodeTypes.Agent => Providers.FirstOrDefault(p => p.ProviderId == node.Agent!.ProviderId)?.DisplayName ?? "Host-configured agent",
         _ => Bindings.FirstOrDefault(b => b.BindingId == node.Tool?.BindingId)?.DisplayName ?? "Host-approved tool"
     };
@@ -1238,6 +1250,16 @@
     }
 
     private bool GuardedTool(string id) => Definition.Connections.Values.Any(e => e.Target.NodeId == id && Definition.Nodes[e.Source.NodeId].Type == NodeTypes.Approval);
+    private Task WaitDuration(string id, ChangeEventArgs args)
+    {
+        // Passed through unclamped: an out-of-range value stays visible as a wait.duration validation issue.
+        if (!long.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var milliseconds))
+        {
+            error = "Enter a whole number of milliseconds.";
+            return Task.CompletedTask;
+        }
+        return Edit(() => GraphEditing.ReplaceNode(Definition, id, Definition.Nodes[id] with { Wait = new(milliseconds) }));
+    }
     private Task ApprovalPrompt(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
         Definition.Nodes[id] with { Approval = new(args.Value?.ToString() ?? "") }));
     private static string WorkflowCallInputType(WorkflowDefinition child) =>
@@ -1525,6 +1547,8 @@
     {
         if (value == NodeTypes.WorkflowInterfaceCall)
             return new(NodeTypes.WorkflowInterfaceCall, "1.0.0");
+        if (value == NodeTypes.Wait)
+            return new(NodeTypes.Wait, "1.0.0") { Wait = existing?.Wait ?? new(1_000) };
         if (value == NodeTypes.Loop)
             return new(value, "1.0.0") { Loop = existing?.Loop ?? new(new("contains", "yes"), 3) };
         if (value == NodeTypes.Condition)

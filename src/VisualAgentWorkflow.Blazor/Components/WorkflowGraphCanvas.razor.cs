@@ -155,7 +155,7 @@ public partial class WorkflowGraphCanvas
     {
         NodeTypes.Input => "Input", NodeTypes.Output => "Output", NodeTypes.Uppercase => "Uppercase", NodeTypes.Reverse => "Reverse", NodeTypes.TextTemplate => "Text template",
         NodeTypes.JsonProject => "JSON projection", NodeTypes.JsonSelectString => "JSON selector", NodeTypes.JsonMerge => "JSON merge", NodeTypes.JsonToArray => "JSON to array", NodeTypes.ArrayLiteral => "Array literal", NodeTypes.ArrayLength => "Array length", NodeTypes.ArrayGet => "Array get", NodeTypes.ArrayAppend => "Array append", NodeTypes.ArrayInsert => "Array insert", NodeTypes.ArrayReplace => "Array replace", NodeTypes.ArrayRemove => "Array remove", NodeTypes.ArrayConcatenate => "Array concatenate", NodeTypes.ArrayContains => "Array contains",
-        NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval",
+        NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval", NodeTypes.Wait => "Wait",
         NodeTypes.ParallelFork => "Parallel fork", NodeTypes.ParallelBranch => "Parallel branch", NodeTypes.ParallelJoin => "Parallel join", NodeTypes.ParallelRendezvous => "Parallel rendezvous",
         NodeTypes.Sequence => "Sequence",
         NodeTypes.Loop => "Bounded loop", NodeTypes.ForEach => "For each", NodeTypes.Break => "Break", NodeTypes.LoopBody => "Loop body", NodeTypes.Terminate => "Terminate workflow",
@@ -189,7 +189,7 @@ public partial class WorkflowGraphCanvas
         await SelectedNodeIdChanged.InvokeAsync(id);
     }
     private static string Kind(NodeDefinition node) => node.Type == NodeTypes.Input ? "Input" : node.Type == NodeTypes.Output ? "Output" :
-        node.Type == NodeTypes.Approval ? "Approval" : node.Type == NodeTypes.Condition ? "Condition" : node.Type == NodeTypes.Merge ? "Exclusive merge" :
+        node.Type == NodeTypes.Approval ? "Approval" : node.Type == NodeTypes.Wait ? "Timed wait" : node.Type == NodeTypes.Condition ? "Condition" : node.Type == NodeTypes.Merge ? "Exclusive merge" :
         node.Type == NodeTypes.ParallelFork ? "Fork" : node.Type == NodeTypes.ParallelBranch ? "Branch" : node.Type == NodeTypes.ParallelJoin ? "Barrier join" : node.Type == NodeTypes.Sequence ? "Sequence" :
         node.Type == NodeTypes.Loop ? "Bounded loop" : node.Type == NodeTypes.ForEach ? "For each" : node.Type == NodeTypes.LoopBody ? "Loop body" : node.Type == NodeTypes.Terminate ? "Successful exit · no result" :
         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall ? "Pinned workflow call" : node.Type == NodeTypes.FunctionCall ? "Pure function" :
@@ -210,6 +210,7 @@ public partial class WorkflowGraphCanvas
             NodeTypes.McpTool => "<path d=\"M10 2v5m-3-3h6M7 7v4a3 3 0 0 0 6 0V7m-3 7v4m-3 0h6\"/>",
             NodeTypes.Condition or NodeTypes.BooleanBranch or NodeTypes.Merge => "<path d=\"m10 2 8 8-8 8-8-8z\"/><path d=\"M10 6v5m0 3h.01\"/>",
             NodeTypes.Approval => "<path d=\"M3 10 8 15 17 5\"/><circle cx=\"10\" cy=\"10\" r=\"8\"/>",
+            NodeTypes.Wait => "<circle cx=\"10\" cy=\"10\" r=\"8\"/><path d=\"M10 5v5l3 2\"/>",
             NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous => "<circle cx=\"4\" cy=\"10\" r=\"1.5\"/><circle cx=\"16\" cy=\"4\" r=\"1.5\"/><circle cx=\"16\" cy=\"16\" r=\"1.5\"/><path d=\"M5.5 10h3a3 3 0 0 0 3-3V4m-3 6h3a3 3 0 0 1 3 3v1.5\"/>",
             NodeTypes.Sequence => "<path d=\"M3 5h4m-4 5h8m-8 5h12\"/><path d=\"m7 3 2 2-2 2m4 3 2 2-2 2m4 3 2 2-2 2\"/>",
             NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.LoopBody => "<path d=\"M16 7h3V4m-1 3a8 8 0 0 0-14 2m0 6H1v3m1-3a8 8 0 0 0 14-2\"/>",

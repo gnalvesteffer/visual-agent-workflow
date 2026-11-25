@@ -39,7 +39,8 @@ public enum WorkflowNodeEvidenceKind
     ParallelProgress,
     SequenceProgress,
     ChildWorkflow,
-    VariableState
+    VariableState,
+    Wait
 }
 
 [Flags]
@@ -194,6 +195,13 @@ public static class WorkflowNodeContractConformance
                 Expect("metadata.approval-failure", contract.Failure, WorkflowNodeFailureKind.WaitsForHost, "host-wait failure disposition");
                 Expect("metadata.approval-evidence", contract.Evidence, WorkflowNodeEvidenceKind.Approval, "approval evidence");
                 break;
+            case NodeTypes.Wait:
+                Expect("metadata.wait-state", contract.State, WorkflowNodeStateKind.HostOwned, "host-owned state");
+                Expect("metadata.wait-failure", contract.Failure, WorkflowNodeFailureKind.WaitsForHost, "host-wait failure disposition");
+                Expect("metadata.wait-evidence", contract.Evidence, WorkflowNodeEvidenceKind.Wait, "wait evidence");
+                if (!contract.Effects.HasFlag(WorkflowNodeEffectFlags.HostInteraction) || !contract.RequiresHostCapability)
+                    issue("metadata.wait-host", contract, "Wait nodes require a host timer: declare a host-interaction effect and the host capability.");
+                break;
             case NodeTypes.ParallelFork:
             case NodeTypes.Sequence:
                 Expect("metadata.fanout-activation", contract.Activation, WorkflowNodeActivationKind.SchedulerFanOut, "scheduler-fan-out activation");
@@ -284,6 +292,7 @@ public static class WorkflowNodeContractCatalog
         Contract(NodeTypes.Loop, "Bounded loop", "Flow", "Repeats a body up to its per-loop limit and the shared per-invocation work and evidence bounds.", true, true, effects: WorkflowNodeEffectFlags.RunScopedState, state: WorkflowNodeStateKind.RunScoped, limits: [new("iteration-count", WorkflowLoopLimits.MaximumIterations, "Maximum body iterations."), new("run-body-passes", WorkflowLoopLimits.MaximumTotalBodyPassesPerRun, "Aggregate Loop body-pass activations per workflow invocation."), new("run-evidence-events", WorkflowLoopLimits.MaximumScopedEvidenceEventsPerRun, "Loop-scoped evidence events per workflow invocation.")], failure: WorkflowNodeFailureKind.Routes, evidence: WorkflowNodeEvidenceKind.RouteDecision),
         Contract(NodeTypes.ForEach, "For each", "Flow", "Runs a body once per item of a bounded typed array, in ascending order, within the shared per-invocation work and evidence bounds.", true, true, effects: WorkflowNodeEffectFlags.RunScopedState, state: WorkflowNodeStateKind.RunScoped, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.TypedArrayElementType, limits: [new("item-count", WorkflowJsonArrayLimits.MaximumItems, "Maximum array items iterated."), new("run-body-passes", WorkflowLoopLimits.MaximumTotalBodyPassesPerRun, "Aggregate body-pass activations per workflow invocation, shared with Loops."), new("run-evidence-events", WorkflowLoopLimits.MaximumScopedEvidenceEventsPerRun, "Iteration-scoped evidence events per workflow invocation.")], failure: WorkflowNodeFailureKind.Routes, evidence: WorkflowNodeEvidenceKind.RouteDecision),
         Contract(NodeTypes.Break, "Break", "Flow", "Ends the enclosing For each early, continuing on its completed path. Legal only on a linear body path.", true, false, effects: WorkflowNodeEffectFlags.RunScopedState, state: WorkflowNodeStateKind.RunScoped, failure: WorkflowNodeFailureKind.Routes, evidence: WorkflowNodeEvidenceKind.RouteDecision),
+        Contract(NodeTypes.Wait, "Wait", "Flow", "Holds the run for a bounded duration measured by the host on a monotonic clock. In-process only: a restart interrupts the run, and the wait is never resumed.", true, false, effects: WorkflowNodeEffectFlags.RunScopedState | WorkflowNodeEffectFlags.HostInteraction, requiresHostCapability: true, state: WorkflowNodeStateKind.HostOwned, failure: WorkflowNodeFailureKind.WaitsForHost, evidence: WorkflowNodeEvidenceKind.Wait, limits: [new("duration-ms", (int)WorkflowWaitLimits.MaximumDurationMilliseconds, "Maximum milliseconds for one wait (24 hours). The host may set a lower per-wait maximum.")], authoring: WorkflowNodeAuthoringFlags.Configurable | WorkflowNodeAuthoringFlags.ContextInsertable),
         Contract(NodeTypes.LoopBody, "Loop body", "Flow", "Marks the body entry of a bounded loop.", true, true, effects: WorkflowNodeEffectFlags.RunScopedState, state: WorkflowNodeStateKind.RunScoped, evidence: WorkflowNodeEvidenceKind.ExecutionLifecycle),
         Contract(NodeTypes.Agent, "Agent", "Capabilities", "Invokes a host-authorized model agent.", true, true, effects: WorkflowNodeEffectFlags.RunScopedState | WorkflowNodeEffectFlags.ExternalCapability, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.AgentRouteId, requiresHostCapability: true, limits: [new("route-count", AgentExecutionRouteLimits.MaximumRoutes, "Maximum authored execution routes."), new("output-tokens", AgentOutputTokenLimits.Maximum, "Maximum configured response tokens."), new("total-tokens", AgentTotalTokenLimits.Maximum, "Maximum provider-reported total tokens."), new("function-tools", AgentGraphFunctionToolLimits.MaximumAssignedFunctions, "Maximum assigned pure graph-function tools.")], state: WorkflowNodeStateKind.HostOwned, evidence: WorkflowNodeEvidenceKind.CapabilityInvocation),
         Contract(NodeTypes.McpTool, "MCP tool", "Capabilities", "Invokes one host-authorized MCP tool.", true, true, effects: WorkflowNodeEffectFlags.RunScopedState | WorkflowNodeEffectFlags.ExternalCapability, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.McpArgumentId, requiresHostCapability: true, limits: [new("arguments-json-characters", 65_536, "Maximum static argument JSON characters.")], state: WorkflowNodeStateKind.HostOwned, evidence: WorkflowNodeEvidenceKind.CapabilityInvocation),

@@ -13,7 +13,9 @@ namespace VisualAgentWorkflow.Core.Tests;
 public sealed class UnknownEventKindTests
 {
     private const string Future = "future.unknown-kind";
-    private const string Wait = "wait.requested";
+    /// <summary>A still-unrecognized additive "requested" kind. wait.* kinds are recognized since the Wait first slice
+    /// (see WaitNodeTests); this stands in for the next additive kind and keeps the ignore-by-default hazard pinned.</summary>
+    private const string Wait = "future.requested";
 
     private static readonly Guid RunId = Guid.NewGuid();
     private static readonly Guid RevisionId = Guid.NewGuid();
@@ -78,7 +80,7 @@ public sealed class UnknownEventKindTests
     }
 
     [Fact]
-    public void Unsettled_wait_requested_is_not_reported_as_unresolved_work_by_older_readers()
+    public void Unsettled_unrecognized_requested_kind_is_not_reported_as_unresolved_work_until_a_reader_names_it()
     {
         // Documents a forward-compatibility gap: an unrecognized "requested" kind can never surface as unresolved work.
         var report = WorkflowWorkEvidence.ReadAll(Snapshot(Evt(1, Wait, "input", Guid.NewGuid(),

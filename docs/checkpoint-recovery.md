@@ -2,7 +2,7 @@
 
 `CheckpointWorkflowHost` is an opt-in consumer API for saving and explicitly resuming deterministic workflows through **native Microsoft Agent Framework JSON checkpoints**. It uses the same run identity, pinned revision and audit history after host replacement. It does not rerun completed nodes or reconstruct execution from UI events. This path is separate from Studio's process-owned `LocalWorkflowRuntime` queue.
 
-Supported graphs contain only input/output, uppercase/reverse, ordinal conditions and exclusive merges. The host rejects the entire graph before admission if it includes an agent, MCP tool or approval, including an unchosen branch. External outcomes, model sessions and approval holds need a separate recovery policy. No checkpoint API is exposed in Studio, the development workflow HTTP API or the read-only observation API.
+Supported graphs contain only input/output, uppercase/reverse, ordinal conditions and exclusive merges. The host rejects the entire graph before admission if it includes a Wait node (an in-process, non-resumable timer), an agent, MCP tool or approval, including an unchosen branch. External outcomes, model sessions and approval holds need a separate recovery policy. No checkpoint API is exposed in Studio, the development workflow HTTP API or the read-only observation API.
 
 Schema 1.45 loop-variable workflows are supported only when the host is
 constructed with `EnableLoopCheckpointRecovery = true`; the default remains

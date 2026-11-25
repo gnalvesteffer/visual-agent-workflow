@@ -66,6 +66,10 @@ public static class WorkflowValidator
             ancestry.Add(childWorkflowId);
             var childPath = callPath + ".definition.";
             issues.AddRange(ValidateDefinition(child).Select(issue => issue with { Path = childPath + issue.Path }));
+            foreach (var (childNodeId, childNode) in childNodes)
+                if (childNode?.Type == NodeTypes.Wait)
+                    issues.Add(new("wait.placement", $"{childPath}nodes.{childNodeId}",
+                        "A wait is not allowed inside a sub-workflow; place it on a top-level path of the calling workflow."));
             ValidateNested(child, depth + 1, childPath, ancestry, ref expandedNodes, issues);
             ancestry.Remove(childWorkflowId);
         }
@@ -524,6 +528,16 @@ public static class WorkflowValidator
             }
             else if (node.Approval is not null)
                 Error("approval.unexpected", $"nodes.{id}.approval", "Only approval nodes may declare an approval prompt.");
+            if (node.Type == NodeTypes.Wait)
+            {
+                if (definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                    Error("wait.schema", $"nodes.{id}", "Wait nodes require schema 2.0.");
+                if (node.Wait is not { } wait || wait.DurationMilliseconds is < WorkflowWaitLimits.MinimumDurationMilliseconds or > WorkflowWaitLimits.MaximumDurationMilliseconds)
+                    Error("wait.duration", $"nodes.{id}.wait.durationMilliseconds",
+                        $"A wait requires a duration of {WorkflowWaitLimits.MinimumDurationMilliseconds} to {WorkflowWaitLimits.MaximumDurationMilliseconds} milliseconds (24 hours). It is rejected, never clamped.");
+            }
+            else if (node.Wait is not null)
+                Error("wait.unexpected", $"nodes.{id}.wait", "Only wait nodes may declare a wait duration.");
             if (node.Type == NodeTypes.Condition)
             {
                 if (node.Condition is not { } condition || condition.Operator is not ("equals" or "contains" or "starts-with" or "is-empty") ||
@@ -707,6 +721,10 @@ public static class WorkflowValidator
         if (string.IsNullOrWhiteSpace(definition.EntryNodeId) ||
             !definition.Nodes.TryGetValue(definition.EntryNodeId, out var entry) || entry?.Type != NodeTypes.Input)
             Error("entry.invalid", "entryNodeId", "The entry must reference an input node.");
+
+        foreach (var waitId in WorkflowWaitPlacement.NodesInsideRegions(definition))
+            Error("wait.placement", $"nodes.{waitId}",
+                "A wait is legal only on a top-level execution path: not inside a Sequence output, Loop or For Each body, or Fork/Join branch.");
 
         if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
         {

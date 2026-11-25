@@ -22,6 +22,21 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
 
     private readonly SequenceDrainOptions? sequenceDrainOptions;
     private TimeProvider clock = TimeProvider.System;
+    private WorkflowWaitOptions waitOptions = WorkflowWaitOptions.Default;
+
+    /// <summary>
+    /// Adds host-owned Wait bounds (Decision 0081): the per-wait maximum, the per-run cumulative budget, and the number of
+    /// concurrently admitted Wait-capable runs. The options type is required so existing calls never bind here.
+    /// </summary>
+    public LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools,
+        IAgentNodeExecutor? agents, ParallelCollaborationRuntimeOptions? collaborationOptions,
+        IWorkflowAdmissionSnapshotProvider? admissionProvider, WorkflowWaitOptions waitOptions, TimeProvider? timeProvider = null)
+        : this(journal, logger, tools, agents, collaborationOptions, admissionProvider)
+    {
+        ArgumentNullException.ThrowIfNull(waitOptions);
+        this.waitOptions = waitOptions;
+        clock = timeProvider ?? TimeProvider.System;
+    }
 
     /// <summary>Adds a host clock for event timestamps and deadlines; the parameter is required so existing calls never bind here.</summary>
     public LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools,
@@ -114,6 +129,9 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
         ArgumentNullException.ThrowIfNull(input);
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
         var resolved = WorkflowParameters.Resolve(revision.Definition, parameters);
+        // An over-bound wait is rejected at admission, never clamped (Decision 0081).
+        if (waitOptions.Check(revision.Definition) is { IsEmpty: false } waitIssues)
+            throw new WorkflowWaitAdmissionException(waitIssues);
         if (resolved is not null && journal is not IParameterizedWorkflowRunStore)
             throw new NotSupportedException("The configured run store cannot persist workflow parameter evidence.");
         await AdmitAsync(revision);
@@ -150,9 +168,12 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
             var snapshot = parameters is null
                 ? journal.Create(revision, input)
                 : ((IParameterizedWorkflowRunStore)journal).Create(revision, input, parameters);
-            if (accepting && ownedRuns.Count < MaximumOwnedRuns)
+            var holdsWait = WorkflowWaitOptions.ContainsWait(revision.Definition);
+            // Wait-capable runs are capped well below the admission limit so waiting cannot starve other work.
+            var waitCapacityFull = holdsWait && ownedRuns.Values.Count(run => run.HoldsWaitCapacity) >= waitOptions.MaximumWaitingRuns;
+            if (accepting && ownedRuns.Count < MaximumOwnedRuns && !waitCapacityFull)
             {
-                var control = new ControlledRun(journal, snapshot.Header, executionSlot, clock);
+                var control = new ControlledRun(journal, snapshot.Header, executionSlot, clock, waitOptions);
                 if (startPaused) control.RequestPause();
                 ownedRuns[snapshot.Header.RunId] = control;
                 if (queue.Writer.TryWrite(new(snapshot.Header.RunId, revision, input, parameters, control)))
@@ -162,7 +183,9 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
             }
             var latest = journal.Get(snapshot.Header.RunId)!;
             journal.Append(new(snapshot.Header.RunId, revision.RevisionId, latest.Events.Length + 1, clock.GetUtcNow(),
-                ExecutionEventKinds.Failed, Data: "The local execution queue is full or stopping."));
+                ExecutionEventKinds.Failed, Data: waitCapacityFull && accepting
+                    ? $"The host admits at most {waitOptions.MaximumWaitingRuns} concurrent runs that contain a Wait node."
+                    : "The local execution queue is full or stopping."));
             return journal.Get(snapshot.Header.RunId)!;
         }
     }

@@ -66,6 +66,7 @@
                     var label = pendingNode == nodeId
                         ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval"
                         : PausedBefore(nodeId) && state is null ? "Paused before execution"
+                        : state?.Kind == ExecutionEventKinds.NodeStarted && WaitPlayback(nodeId) is { Pending: true } ? "Waiting"
                         : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully"
                         : evaluation is not null ? "Evaluated"
                         : parallelActivation is not null && (state is null ||
@@ -376,6 +377,7 @@
         var state = State(id);
         var isParallelJoin = Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type == NodeTypes.ParallelJoin;
         if (state?.Kind != ExecutionEventKinds.NodeStarted && !isParallelJoin) return null;
+        if (WaitPlayback(id) is { } wait) return wait.Text;
         if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall)
         {
             var child = VisibleEvents.LastOrDefault(evt => evt.ScopeId == id || evt.ScopeId?.StartsWith(id + "/", StringComparison.Ordinal) == true);
@@ -1072,6 +1074,39 @@
         catch (ObjectDisposedException) { }
     }
     private void Previous() { cursor = Math.Max(0, Position - 1); follow = false; }
+    private sealed record WaitView(bool Pending, string Text);
+
+    /// <summary>
+    /// Decision 0081: a recorded wait renders from its own evidence only. The deadline is the recorded UTC value
+    /// (display only); no elapsed time is ever computed from the current clock, so playback is deterministic.
+    /// </summary>
+    private WaitView? WaitPlayback(string id)
+    {
+        if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type != NodeTypes.Wait) return null;
+        var recorded = RootEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind is ExecutionEventKinds.WaitRequested or
+            ExecutionEventKinds.WaitElapsed or ExecutionEventKinds.WaitCancelled or ExecutionEventKinds.WaitInterrupted);
+        if (recorded is null) return null;
+        if (recorded.Kind != ExecutionEventKinds.WaitRequested)
+            return new(false, recorded.Kind switch
+            {
+                ExecutionEventKinds.WaitElapsed => "Wait elapsed",
+                ExecutionEventKinds.WaitCancelled => "Wait cancelled",
+                _ => "Wait interrupted by host shutdown"
+            });
+        var text = "Waiting";
+        try
+        {
+            using var document = JsonDocument.Parse(recorded.Data ?? "{}");
+            var root = document.RootElement;
+            if (root.TryGetProperty("durationMilliseconds", out var duration) && duration.TryGetInt64(out var milliseconds))
+                text += $" {TimeSpan.FromMilliseconds(milliseconds):c}";
+            if (root.TryGetProperty("deadlineUtc", out var deadline) && deadline.TryGetDateTimeOffset(out var utc))
+                text += $" · recorded deadline {utc.UtcDateTime:yyyy-MM-dd HH:mm:ss} UTC (display only)";
+        }
+        catch (JsonException) { }
+        return new(true, text);
+    }
+
     private static string StateLabel(ExecutionEvent? state) => state?.Kind switch
     {
         null => "Not executed at this position",

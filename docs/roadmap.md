@@ -37,6 +37,8 @@ The project already has a substantial Blueprint-inspired foundation: separate ex
 
 The remaining alignment work is primarily contract and authoring work. The current reference identifies broader type/container systems, mutable graph variables, richer control flow, event dispatchers, latent/scheduled work, generalized reuse/templates, and Blueprint-style debugging as future capabilities requiring separate runtime and evidence contracts. This phase must not turn those design targets into supported behavior merely by adding palette entries or card shapes. Schemas 1.46 through 1.49 are bounded increments, not complete Blueprint parity.
 
+**Implemented 2026-11-24: Wait first slice.** A duration-only, bounded, in-process `core.wait` node (schema 2.0, top-level paths only, host per-wait and per-run bounds, waiting-run cap, `wait.*` evidence, unresolved-work reconciliation, viewer label, palette and duration field) is shipped as the first slice of [Decision 0081](decisions/0081-latent-and-time-based-work.md#wait-first-slice-implementation-2026-11-24). It is not resumable after a restart. Absolute deadlines, durable timers, waits in loops/branches/sub-workflows, host-bound settings in Studio, and fail-closed old-reader behavior remain deferred; the browser behavior of the inspector field is unverified.
+
 ## Active phase: Consolidate current workflow authoring schema
 
 **Status: Active (2026-10-29).** The reviewed schema-consolidation decision is

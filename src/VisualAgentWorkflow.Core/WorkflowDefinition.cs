@@ -113,6 +113,9 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     /// <summary>Stable variable declaration ID used by VariableGet and VariableSet nodes.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? VariableId { get; init; }
+    /// <summary>Bounded, duration-only configuration of a Wait node (Decision 0081). Never an absolute deadline.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WaitConfiguration? Wait { get; init; }
 }
 
 /// <summary>Portable, normalized metadata for one direct MCP argument pin.</summary>
@@ -166,6 +169,7 @@ public static class NodeTypes
     public const string LoopBody = "core.loop.body";
     public const string ForEach = "core.for-each";
     public const string Break = "core.break";
+    public const string Wait = "core.wait";
     public const string Terminate = "core.terminate";
     public const string WorkflowCall = "core.workflow-call";
     public const string WorkflowInterfaceCall = "core.workflow-interface-call";

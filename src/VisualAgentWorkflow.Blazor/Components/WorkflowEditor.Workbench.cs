@@ -401,6 +401,7 @@ public partial class WorkflowEditor
             ContractEntry(NodeTypes.Condition, canAdd),
             ContractEntry(NodeTypes.Merge, canAdd),
             ContractEntry(NodeTypes.Loop, canAdd),
+            ContractEntry(NodeTypes.Wait, canAdd, "Hold the run for a bounded duration (milliseconds). Top-level paths only; in-process, so a restart interrupts the run."),
             ContractEntry(NodeTypes.Break, canAdd, "End the enclosing For each early. One per For each; rejected after a Sequence or nested loop; inside a Fork branch only as a Boolean Branch outcome."),
             ContractEntry(NodeTypes.ForEach, canAdd, "Run the body once per item of a typed array, in order."),
             ContractEntry(NodeTypes.LoopBody, canAdd),

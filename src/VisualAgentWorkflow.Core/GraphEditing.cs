@@ -1170,7 +1170,7 @@ public static class GraphEditing
         if (existing.Type == node.Type && existing.Type == NodeTypes.Output &&
             existing with { OutputDataType = node.OutputDataType } == node)
             return WorkflowDraftEditing.ValidateEdit(definition with { Nodes = definition.Nodes.SetItem(id, node) });
-        if (existing.Type == node.Type && existing.Type is NodeTypes.Condition or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.ArrayLiteral)
+        if (existing.Type == node.Type && existing.Type is NodeTypes.Wait or NodeTypes.Condition or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.ForEach or NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.ArrayLiteral)
             return WorkflowDraftEditing.ValidateEdit(definition with { Nodes = definition.Nodes.SetItem(id, node) });
         RequireProcessing(existing.Type);
         RequireProcessing(node.Type);

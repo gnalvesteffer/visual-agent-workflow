@@ -1,6 +1,6 @@
 # Decision 0081: Bounded Wait/Delay (latent) node
 
-**Status:** PROPOSED, reviewed 2026-11-24: option 2 deferred behind prerequisites (see Review outcome); not implemented
+**Status:** PROPOSED, reviewed 2026-11-24. The review's prerequisites are met and its narrowed first slice (duration-only, bounded, non-resumable Wait) is implemented; see [Wait first slice implementation](#wait-first-slice-implementation-2026-11-24). Absolute deadlines, durable timers, and resumable waits remain unimplemented.
 
 **Date:** 2026-11-24
 
@@ -203,8 +203,10 @@ work proposal-only.
 
 ## Unknown event kind behavior (2026-11-24)
 
-Characterization tests feed `future.unknown-kind` and the realistic additive
-kind `wait.requested` to each reader. **No reader rejects or crashes on an
+Characterization tests feed `future.unknown-kind` and a realistic additive
+"requested" kind to each reader. **Update 2026-11-24:** `wait.*` is now a recognized kind (see the implementation section),
+so those tests use `future.requested` for the still-unrecognized case; the table describes behavior for any kind a
+reader does not name. **No reader rejects or crashes on an
 unknown kind; all ignore it.** The earlier claim that older readers "fail
 closed on unknown kinds" is disproved. No code was changed: nothing crashes
 or misclassifies run status or terminal state.
@@ -212,7 +214,7 @@ or misclassifies run status or terminal state.
 | Reader | Behavior | Tests |
 | --- | --- | --- |
 | `RunSnapshot.Status` / `IsTerminal` | Ignore. An unknown kind alone gives `running`; it never changes completed, failed, paused, suspended or waiting-approval. | Core `UnknownEventKindTests`: `Unknown_event_kind_leaves_run_status_running_and_non_terminal`, `..._does_not_change_terminal_pause_suspension_or_approval_status`, `..._as_the_only_event_is_running_not_queued` |
-| `WorkflowWorkEvidence` (reconciliation work) | Ignore. An unsettled `wait.requested` is never reported as unresolved work. | `Unknown_event_kind_is_ignored_by_work_evidence`, `Unsettled_wait_requested_is_not_reported_as_unresolved_work_by_older_readers` |
+| `WorkflowWorkEvidence` (reconciliation work) | Ignore. An unsettled `wait.requested` is never reported as unresolved work. | `Unknown_event_kind_is_ignored_by_work_evidence`, `Unsettled_unrecognized_requested_kind_is_not_reported_as_unresolved_work_until_a_reader_names_it` |
 | `WorkflowApprovalEvidence` | Ignore. | `Unknown_event_kind_is_ignored_by_pending_approval_projection` |
 | `SequenceEvidence`, `VariableEvidence`, `WorkflowCallEvidence` playback | Ignore (kind filters or fall-through); an unknown-only history yields no playback. | `..._ignored_by_sequence_playback`, `..._ignored_by_variable_playback`, `..._ignored_by_workflow_call_playback` |
 | Loop checkpoint frame (`WorkflowCheckpointFrame.Validate`) | Not interpreted, but hashed into the evidence prefix, so a frame cannot validate against a prefix lacking it. | `Unknown_event_kind_is_covered_by_loop_checkpoint_evidence_hash_but_not_interpreted` |
@@ -271,3 +273,74 @@ Tests use a deterministic manual `TimeProvider` (no new package): timestamps
 equal the fake clock and move only when it is advanced, and the collaboration
 timeout fires only on `Advance` with no sleeping. The Wait node must still use
 `GetTimestamp` for monotonic duration; the seam does not add that yet.
+
+## Wait first slice implementation (2026-11-24)
+
+The slice the review ruled for is implemented as `core.wait`, schema 2.0 only. This section lists every sub-decision
+made while implementing it, why, and what was deferred. It does not change the review ruling. Items marked
+**limit** are deliberate restrictions, not bugs.
+
+### What shipped
+
+- **Node.** `core.wait` (`NodeTypes.Wait`, type version `1.0.0`): one execution input `execute`, one execution output
+  `then`, no data pins. Configuration is `wait.durationMilliseconds`, an integer from 1 to 86,400,000 (24 hours). The
+  activation passes through: the node's result is the text it received, and downstream data comes from data edges as
+  for any execution node.
+- **Evidence.** `wait.requested` then exactly one of `wait.elapsed`, `wait.cancelled`, `wait.interrupted`, all on the
+  Wait node's invocation. `ExecutionEventKinds` names them.
+- **Host gate.** `IWorkflowWaitGate` (Core) is implemented by the Hosting `ControlledRun`. `LocalWorkflowRuntime` takes
+  a new `WorkflowWaitOptions` overload.
+- **Authoring.** Studio palette entry "Wait" and an inspector duration field. No other Studio authoring.
+
+### Sub-decisions
+
+| # | Decision | Why |
+| --- | --- | --- |
+| 1 | **Schema 2.0 only**; `wait.schema` rejects it elsewhere. No `WorkflowSchemaVersions` constant. | 2.0 derives its node families from the contract catalog. Historical schemas are frozen. The descriptor's `MinimumSchemaVersion` is 2.0 as well. |
+| 2 | **Duration in milliseconds, an `integer`, not a data pin.** It is node configuration, not a value from run input. | Run input is caller data and must never extend a bound. A graph-authored constant is reviewable and hashed with the revision. |
+| 3 | **Fixed ceiling 24 h in Core; the host may only tighten it.** `wait.duration` rejects 0, negatives, and values over 24 h in `WorkflowValidator`. | Validation is host-independent. The ceiling is a constant, not a setting. |
+| 4 | **Host options `WorkflowWaitOptions`:** per-wait maximum default 1 h (ceiling 24 h), cumulative per-run budget default 2 h (at least the per-wait maximum, ceiling 24 h), waiting-run cap default 4 (1 to 16). Invalid options throw at construction. | Safe small defaults, fail-closed construction, headroom below the 32-run admission limit. |
+| 5 | **Over-bound is rejected at admission, never clamped.** `LocalWorkflowRuntime` checks `WorkflowWaitOptions.Check` before it creates a run and throws `WorkflowWaitAdmissionException` (an `ArgumentException`, so Studio's existing 400 mappings apply and no run record exists). `ControlledRun` repeats the checks as defense in depth. | Review ruling. Defense in depth covers a gate used outside the runtime. |
+| 6 | **The cumulative budget is a static sum of the definition's Wait durations.** | A Wait cannot sit in a loop, branch, or Sequence output, so each runs at most once. The sum is a sound upper bound, so admission can decide it. `ControlledRun` still tracks the running total. |
+| 7 | **The waiting-run cap is applied at admission, not at the wait.** A run whose definition contains any Wait counts against the cap from admission until its context is released. An over-cap start records a `run.failed` ("at most N concurrent runs that contain a Wait node") and queues nothing. Runs without a Wait are unaffected. | Failing mid-run after side effects, or blocking while holding a context, would be worse. A static count is deterministic. **Limit:** a Wait-capable run counts even before it reaches its Wait or on a branch that never waits. |
+| 8 | **Placement rule: top-level execution paths only.** The validator rejects a Wait that is execution-reachable from a Sequence output, a Loop or For Each `body` pin, or a Fork branch pin. Reaching a Loop or For Each through `feedback` ends the walk. A Join continues the walk only when its Fork is itself inside a region, so a Wait after a top-level Fork/Join is legal and a Wait after a Join nested in a loop body is not. A Wait in a child workflow definition is rejected by the calling workflow (`wait.placement` at the child path). | Implements the review's placement ruling by reachability, not by node-type allowlist. Fork and loop bodies hold concurrent or repeated work, so a single wait budget and one-at-a-time slot release do not hold there. |
+| 9 | **Tool authorization window: satisfied by construction, no extra rule.** The window between `tool.authorized` and its outcome is inside one MCP tool node's execution. A top-level path runs one node at a time, and everything concurrent (Fork branches, Sequence outputs, loop bodies) is excluded by the placement rule. An Approval must immediately precede its tool (`approval.target`), so a Wait cannot sit between them. Test: `A_wait_cannot_sit_between_an_approval_and_its_tool_so_it_never_overlaps_an_authorization_window`. | Review open question 6, answered without a new adjacency check. **Limit:** the argument rests on the single-token top level. If concurrent top-level activation is ever added, this must be re-reviewed. |
+| 10 | **Topology profiles may reject other combinations.** Core adds Wait to the unified plain-graph profile only through the contract catalog. The Sequence, Loop, and Fork profiles validate with their own node allowlists, so a top-level Wait in a workflow that also contains those regions can still be rejected by that profile. | Not widened, to keep this slice from reopening those proofs. **Verified (validation only):** a Wait after a For Each validates; a Wait before one is rejected by the loop profile (`loop.feedback.root`), not by a `wait.*` rule. **Not verified:** the Sequence and Fork profiles with a Wait, and any mixed graph at runtime; only the plain top-level graph is executed in tests. |
+| 11 | **Clock.** The duration is measured by `Task.Delay(duration, TimeProvider, token)`, a `TimeProvider` timer, and the settlement records `elapsedMilliseconds` from `GetTimestamp`/`GetElapsedTime` (monotonic). `deadlineUtc` is `GetUtcNow() + duration` at request time, for display only, and nothing reads it back. Playback shows the recorded deadline and never a current-clock countdown. | Review ruling. A wall-clock jump cannot lengthen or shorten a wait. |
+| 12 | **The wait capability is an optional interface, `IWorkflowWaitGate`,** next to the execution gate, not a member of `IWorkflowExecutionGate`. | Existing gate implementers stay source and binary compatible. `IWorkflowApprovalGate` already sets the pattern. |
+| 13 | **Fail closed in the runner, before any event.** `WorkflowRunner` throws `InvalidOperationException` ("...did not provide a wait coordinator (IWorkflowWaitGate)...") from its preflight, after validation and before the run starts, when the definition contains a Wait and the gate is missing or not a wait gate. The node-level check repeats it. | A host that cannot wait must refuse before side effects, not fail halfway through. |
+| 14 | **The host re-derives the duration.** `ControlledRun.WaitAsync` reads the node's configuration from the captured header definition and rejects a request that names another node or duration. | The runner is not trusted to extend a wait. |
+| 15 | **Request recording order.** Under the gate lock: create the timer, record `wait.requested`, register the wait, release the execution slot, then acknowledge any pending pause. Data: `waitId`, `nodeId`, `durationMilliseconds`, `deadlineUtc`, `bound` (`perWaitMaximumMilliseconds`, `cumulativeBudgetMilliseconds`, `cumulativeRequestedMilliseconds`). | The timer exists before the request is visible, so a recorded request always has a live timer. Tests need no real delay. If recording fails, the timer is cancelled. |
+| 16 | **Only one wait at a time per run** (`A wait is already pending`). | Top-level execution is serial, so a second concurrent wait is a bug. |
+| 17 | **Settlement winner.** One waiter records the settlement under the gate lock, guarded so only one is ever written. The timer task decides which: if it completed successfully before cancellation was observed, `wait.elapsed` wins (and a later cancel ends the run at the next boundary); otherwise stop, cancel, or `Cancel()` gives `wait.cancelled`, and a token cancelled with no cancel request (host shutdown) gives `wait.interrupted`. | Deterministic with a fake clock: `Advance` then `Cancel` is elapsed, `Cancel` then `Advance` is cancelled. The task state decides, never thread timing. A cancel arriving after elapse can complete the node normally or throw at the reacquire boundary, depending on scheduling. Both leave `wait.elapsed` as the only settlement. |
+| 18 | **Reacquire before settle completes the node.** After settlement, the node reacquires the execution slot through the existing boundary path with breakpoint evaluation off. | Review ruling. Without the flag, a breakpoint on the Wait would hit again after the wait. |
+| 19 | **Pause during a wait.** The pause is acknowledged at once (`run.pause-requested`, `run.paused` with the Wait node as boundary), exactly as for an approval wait. **The clock does not pause.** When the timer elapses, `wait.elapsed` is recorded, and the node then holds at the reacquire boundary until `Resume`. Cancel while paused settles `wait.cancelled`. | The wait is host time, not the run's. A paused run must not shorten or stretch recorded wait semantics. The held-after-elapse state is shown by the paused run status. |
+| 20 | **Stepping.** `WorkflowDebugging.SupportsNodeStepping` is false for any workflow containing a Wait. Breakpoints before the Wait stay supported. | A step admits one node and pauses at the next boundary; a node that releases and reacquires its slot has no single such boundary. |
+| 21 | **Restart.** Process loss leaves `wait.requested` with no settlement. On restart `MarkUnfinishedAsInterrupted` ends the run, and reconciliation reports unresolved work. `wait.interrupted` is recorded only on a clean shutdown (the host cancelled the run token). | Review resolution of question 5. |
+| 22 | **Reconciliation: no new enum value.** `WorkflowWorkEvidence` reports an unsettled `wait.requested` as `UnresolvedWorkKind.Node` correlated by `waitId` (`CallId`), state `AwaitingOutcome`, in addition to the node's own `node.started` entry, as an approval does. A request or settlement without a `waitId` marks correlation incomplete, and a settlement without an ID never closes the node's own entry. The run is `UnresolvedWork` and `CanResume` is false. | `HttpWorkflowRunObserver` rejects an undefined `UnresolvedWorkKind`, so a new value would make a newer server unreadable by an older client. A test pins the enum names. |
+| 23 | **Older readers.** A reader without this change still ignores `wait.*` (see "Unknown event kind behavior"). Its reconciliation still reports the node's own `node.started` as unresolved Node work, so an old reader does see a restarted wait as unresolved, but not the separate wait entry. No fail-closed reader check and no minimum reader version were added; both remain a deferred decision for the next additive kind. | A fail-closed reader would reject whole histories. The unknown-kind characterization tests now use `future.requested`, so the still-unnamed-kind hazard stays pinned. |
+| 24 | **Checkpoint.** `ValidateCheckpointGraph` rejects a Wait explicitly, before the shape checks. The allowlist already rejected it by default. | Review prerequisite 3, and a clearer message than a shape failure. |
+| 25 | **Playback.** `WorkflowRunViewer` shows "Waiting", the recorded duration, and the recorded deadline (`display only`) for a pending wait, and "Wait elapsed", "Wait cancelled", or "Wait interrupted by host shutdown" afterwards. The recorded-events table keeps the raw kind. | Review: a readable label, no clock-derived value. |
+| 26 | **Studio.** Palette entry "Wait" (flow category) creates a 1,000 ms Wait. The inspector's duration field passes the typed integer through unclamped. An out-of-range value is refused by the existing draft validation and the old value stays. | "Rejected, never clamped" applies in the editor as well. |
+| 27 | **Placement fails closed without an edge table.** If `ExecutionConnections` is null and the definition holds a Wait together with any Sequence, Loop, For Each, Fork, Branch, Join, Loop body or Break node, every Wait is reported as `wait.placement`. | The walk cannot prove a Wait is top-level without edges. A genuine schema 2.0 graph keeps its edges there (tested). |
+| 28 | **Settlement is attempted whenever the journal is writable.** The waiter's settlement no longer skips a disposed run, and `Dispose` itself settles a pending wait as `wait.interrupted`, so a live journal does not keep an unsettled request. Settlement errors are swallowed and never mask the cancellation. | Review finding. **Remains unsettled, by design:** a request whose journal append fails or whose journal already holds a terminal event; the request then reconciles as unresolved Node work. Process loss is the same case. |
+
+### Deferred (not built)
+
+- Absolute deadlines and any wall-clock wake condition (the review cut them).
+- Durable timers and resumption after restart, and any checkpoint admission for Wait.
+- Waits in loops, For Each, Fork/Join branches, Sequence outputs, and sub-workflows.
+- A Studio setting for the host bounds. They are constructor options on `LocalWorkflowRuntime`; `AddLocalWorkflowRuntime`
+  uses the defaults.
+- Fail-closed reader behavior for unrecognized kinds and a documented minimum reader version.
+- A Wait that carries data (a pass-through data pin). The activation text passes through; no data pin exists.
+- Exposing the host bounds or the waiting-run count to clients or operators.
+- Retry or "extend wait" controls, and any user-visible countdown.
+
+### Verification
+
+Core `WaitNodeTests`, AgentFramework `WaitExecutionTests`, and Hosting `WaitViewerTests` plus
+`UnifiedEditorRenderingTests`. None of them sleep for a wait: `ManualTimeProvider` controls the clock. They poll the
+journal in real time only to observe that a background run reached a recorded event. Not verified: Studio in a
+real browser, keyboard and screen-reader behavior of the new inspector field, restart of a real process, and the
+mixed-region graphs in sub-decision 10.

@@ -224,6 +224,9 @@ public sealed partial class WorkflowRunner
     public static void ValidateCheckpointGraph(WorkflowDefinition definition, bool allowLoopCheckpointRecovery = false)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
+        // Decision 0081: a wait is in-process and non-resumable, so a checkpoint can never promise to recover it.
+        if (definition.Nodes.Values.Any(node => node.Type == NodeTypes.Wait))
+            throw new InvalidOperationException("Checkpoint recovery rejects Wait nodes: a wait is in-process, bounded, and never resumed after a restart.");
         if (WorkflowCheckpointShape.UsesLoopState(definition) && !allowLoopCheckpointRecovery)
             throw new InvalidOperationException(
                 $"Checkpoint recovery for schema {definition.SchemaVersion} loop graphs requires explicit host opt-in. " +

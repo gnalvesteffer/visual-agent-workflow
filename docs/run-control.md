@@ -60,3 +60,37 @@ Checkpoint `suspended` state belongs to the separate [explicit recovery API](che
 ## Waiting for approval
 
 `waiting-approval` is a nonterminal status. Resume does not approve, and approval does not clear a manual pause. Approval waits release execution ownership while still consuming an admission context. Cancellation/shutdown unblocks them; restart interrupts unfinished runs rather than reviving unresolved decisions. See [exact-action approvals](approvals.md).
+
+## Waiting on a Wait node
+
+A `core.wait` node (schema 2.0) holds the run for a fixed duration. The host measures it on a monotonic clock (`TimeProvider.GetTimestamp`); the recorded UTC deadline is display-only. The wait is in-process and bounded. See [Decision 0081](decisions/0081-latent-and-time-based-work.md#wait-first-slice-implementation-2026-11-24) for every rule and what is deferred.
+
+```mermaid
+sequenceDiagram
+    participant R as Runner
+    participant G as Run gate
+    participant J as Journal
+    R->>G: WaitAsync(node, duration)
+    G->>J: wait.requested (waitId, duration, deadlineUtc, bound)
+    G-->>G: release execution slot, keep admission context
+    alt timer elapses first
+        G->>J: wait.elapsed
+        G->>G: reacquire slot (holds here while paused)
+        G-->>R: node completes, then activates
+    else cancel or stop first
+        G->>J: wait.cancelled
+        G-->>R: cancelled
+    else host shutdown first
+        G->>J: wait.interrupted
+        G-->>R: cancelled
+    end
+```
+
+Exactly one of `wait.elapsed`, `wait.cancelled` and `wait.interrupted` follows `wait.requested`. If the timer completed before cancellation was observed, elapse wins and a later cancel ends the run at its next boundary. A user stop settles `wait.cancelled`; a clean host shutdown settles `wait.interrupted`. Process loss records nothing, and reconciliation reports the unsettled request as unresolved, non-resumable work.
+
+- **Pause.** Pause is acknowledged immediately (`run.paused` at the Wait node), as for an approval wait. The clock keeps running. When the timer elapses the node records `wait.elapsed` and then holds at the reacquire boundary until **Resume**. Cancel settles `wait.cancelled`.
+- **Admission.** A waiting run releases the execution slot and keeps its admission context. Runs whose definition contains a Wait are capped (default 4, at most 16) well below the 32-run limit; an over-cap start is recorded as a failed run.
+- **Bounds.** Defaults: 1 hour per wait, 2 hours per run. A larger author duration is rejected at admission, not shortened.
+- **Stepping and breakpoints.** Node stepping is unavailable for a workflow containing a Wait. A breakpoint before the node works and is not hit again when the wait ends.
+- **Hosts.** A runner given a gate without `IWorkflowWaitGate` refuses a workflow containing a Wait before any event is recorded.
+
