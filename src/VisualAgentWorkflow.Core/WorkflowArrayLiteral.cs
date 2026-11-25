@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using System.Globalization;
 
 namespace VisualAgentWorkflow.Core;
 
@@ -111,17 +110,16 @@ public static class WorkflowArrayLiteral
                 switch (elementType)
                 {
                     case WorkflowDataTypes.String:
-                        writer.WriteStringValue(item.GetString());
+                        WorkflowCanonicalValueEncoding.WriteString(writer, item.GetString());
                         break;
                     case WorkflowDataTypes.Boolean:
-                        writer.WriteBooleanValue(item.GetBoolean());
+                        WorkflowCanonicalValueEncoding.WriteBoolean(writer, item.GetBoolean());
                         break;
                     case WorkflowDataTypes.Integer:
-                        writer.WriteNumberValue(item.GetInt64());
+                        WorkflowCanonicalValueEncoding.WriteInteger(writer, item.GetInt64());
                         break;
                     case WorkflowDataTypes.Number:
-                        var number = item.GetDouble();
-                        writer.WriteRawValue(number == 0d ? "0" : number.ToString("R", CultureInfo.InvariantCulture));
+                        WorkflowCanonicalValueEncoding.WriteNumber(writer, item.GetDouble());
                         break;
                     case WorkflowDataTypes.Json:
                         item.WriteTo(writer);

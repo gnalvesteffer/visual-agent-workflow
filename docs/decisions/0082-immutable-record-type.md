@@ -1,6 +1,6 @@
 # Decision 0082: Immutable record type (Blueprint-struct analogue)
 
-**Status:** PROPOSED, deferred after three-role review (2026-11-24); not implemented. No slice is authorized until the prerequisites in "Review outcome" are designed.
+**Status:** PROPOSED, deferred after three-role review (2026-11-24); not implemented. No slice is authorized until the prerequisites in "Review outcome" are designed. Prerequisite 2 (shared canonical encoder) is done as a no-behavior-change refactor; prerequisites 1 and 3-6 have PROPOSED designs below that are not accepted or implemented. See "Prerequisite status and proposals (2026-11-25)".
 
 **Date:** 2026-11-24
 
@@ -128,3 +128,201 @@ Three-role review (proponent, opponent, adjudicator). **Ruling: defer; do not sh
 Flat-field records only: generated field IDs, declaration plus revision, `record<id@rev>` with exact identity and no null or implicit conversion, canonical bytes and hash sorted by field ID, pure `core.record.make` and `core.record.get`, validator rules, and fail-closed handling for unknown record types or nodes. Core unit tests and a validator matrix come first. Nesting, `array<record>`, `with`, variables, function ports, MCP projection, migration and Studio UI stay deferred.
 
 The roadmap and capability matrix already describe records as a proposal only, so neither contradicts this ruling and neither was changed.
+
+## Prerequisite status and proposals (2026-11-25)
+
+Records remain deferred and unimplemented. This section records the one prerequisite that is now true in code and
+the unaccepted design proposals for the rest. Every "PROPOSED" item below is a design candidate: no declaration,
+`record<...>` type ID, node, validator rule, package field, or evidence shape described here exists.
+
+### Prerequisite checklist
+
+| # | Prerequisite | State |
+|---|---|---|
+| 1 | Declaration-resolution design | PROPOSED (P1); not accepted |
+| 2 | Shared canonical encoder with golden-byte tests | **Done (implemented 2026-11-25).** |
+| 3 | Mixed-class redaction policy | PROPOSED (P2); depends on Decision 0075, which is itself REVISE |
+| 4 | Capability gate or format-version check | PROPOSED (P3); not accepted |
+| 5 | Migration / revision-identity policy | PROPOSED (P4); not accepted |
+| 6 | Evaluate schema-validated `json` first | PROPOSED comparison (P5); not accepted |
+
+### Done: shared canonical value encoder (prerequisite 2)
+
+`WorkflowCanonicalValueEncoding` (`src/VisualAgentWorkflow.Core/WorkflowCanonicalValueEncoding.cs`) is now the one
+place that spells canonical primitives. `WorkflowArrayLiteral.TryNormalizeValue` calls it; output is byte-identical to
+the previous inline code. Pinned rules:
+
+- Numbers must be finite (`TryFormatNumber` returns false; `FormatNumber` throws for NaN or infinities). Zero,
+  including negative zero, is `0`. Every other double uses `ToString("R", InvariantCulture)`, for example `1E+21`,
+  `5E-324`, `1.7976931348623157E+308`, and `123456789012345678` becomes `1.2345678901234568E+17`.
+- Integers are signed 64-bit decimal; values outside the range are rejected by the array parser, not the encoder.
+- Booleans are `true` and `false`.
+- Strings are written by `Utf8JsonWriter` with its default encoder: the output is ASCII, with non-ASCII and
+  HTML-sensitive characters (`<`, `>`, `&`, `'`, `+`, `"`) escaped as uppercase `\uXXXX`. **No Unicode normalization is
+  applied**: precomposed and decomposed e-acute produce different bytes and are different values. A record must not
+  assume otherwise; adding normalization later would change existing array hashes and needs its own decision.
+- No insignificant whitespace. `json` array elements keep their original tokens (for example `1.0`, `-0`) apart from
+  whitespace; that is not the number rule and is not shared.
+
+Verification: `WorkflowArrayCanonicalBytesGoldenTests` was written and run against the pre-extraction code (all but one
+hand-guessed expectation passed; the guess was corrected to the observed value) and again after; the whole Core suite
+passed unchanged. `WorkflowCanonicalValueEncodingTests` pins the encoder directly. Not extracted: other `"R"` call
+sites (`WorkflowParameters`, `WorkflowVariableSnapshots`, `WorkflowRunner`, `WorkflowRunner.StructuredProof`) still
+format numbers independently, mostly as display or prompt text. Whether they must converge is open and is not needed
+for records, which would call the shared encoder directly. They use the same `"R"` format, but the shared zero
+collapse is not applied to all of them, so folding them in could change bytes and was deliberately not done here.
+
+### P1. Declaration resolution (PROPOSED)
+
+**Problem.** `WorkflowDataTypes.IsSupported` and `AreCompatible` are pure string functions with about 21 call sites in
+12 files. `record<id@rev>` is meaningful only relative to a declaration, so something must answer "does this type ID
+exist, and what are its fields" without every caller needing a new argument.
+
+**Candidates.**
+
+| Option | Where the declaration lives | Pro | Con |
+|---|---|---|---|
+| A. Workflow-scoped list | `WorkflowDefinition.Records` (new optional, omitted when empty), part of the executable JSON and its hash | Self-contained; hash and package carry it; old hashes preserved when absent; export/import and playback need nothing external; matches how graph-function snapshots are embedded (schema 1.27) | Copy per workflow; two workflows with the same logical record have unrelated declarations; a called child workflow must expose its record types through its interface |
+| B. Package or project library | Separate catalog item referenced by ID and revision | One definition shared by many workflows | Execution depends on an external lookup; the definition hash no longer pins behavior; reopen and passive playback need the catalog; breaks "published definitions are immutable and self-describing" unless the resolved declaration is also snapshotted |
+| C. Interface-level only | Declared on a workflow interface (parameters and outputs) | Smallest | Cannot type internal pins or variables; useless for `make`/`get` |
+
+**Recommendation: A, with B only as an authoring-time source that is copied into the workflow (copy-on-insert, as with
+reusable pipelines and graph functions).** The definition stays self-contained, so run admission, playback and package
+validation never consult a catalog. Cross-workflow identity (a record crossing a workflow-call boundary) is by
+canonical declaration content hash plus the declared record ID, checked at the call node.
+
+**Threading context without a global signature change.** Keep the existing string overloads for non-record types and
+make them return false for any type ID with the `record<` prefix. Add one resolution step in the validator, run
+admission, and graph-function/variable validators: an immutable `WorkflowRecordCatalog` built once from
+`definition.Records` and passed to the few places that must answer record questions. Callers that only handle
+primitives and arrays (most of the 21 sites) keep their current behavior and must treat an unresolved `record<...>`
+as unsupported, so a missed call site fails closed rather than degrading to `json`. A test enumerates the call sites
+and asserts each rejects a record type ID that has no catalog. This is a proposal: whether a missed site truly fails
+closed must be proven per site before acceptance.
+
+**Rejected here:** a process-global registry. It makes `IsSupported` context-free in name only and breaks
+determinism across hosts.
+
+### P2. Mixed-class redaction (PROPOSED)
+
+**Grounding.** Decision 0075 is REVISE: approval payload privacy has no accepted lifecycle, and ordinary run evidence
+today retains typed-array values in full, charged against the 65,536-byte evidence budget
+(`WorkflowArrayEvidenceBudget`). The only existing redaction vocabulary is `payloadState = "redacted"` with
+`inputCharacters` on direct-MCP `tool.authorized` events (`McpToolBroker`). There is no per-value or per-field
+sensitivity class in the code today, and no type carries a class. The Direction text above ("fields inherit the
+existing redaction classes of their types") therefore describes something that does not exist.
+
+**Proposal.**
+
+1. A record field has an explicit author-declared class: `public` (default) or `protected`. The class is part of the
+   declaration, so it is hash-visible and revisioned. The type of a field never implies a class.
+2. A record's effective class is the maximum over its fields. Any `protected` field makes the whole record value
+   protected for evidence purposes: the record as a unit is summarized, never partially shown.
+3. A protected record in evidence is recorded as `{ type, revision, payloadState: "redacted", canonicalBytes, hash }`
+   where `hash` is a SHA-256 over canonical bytes salted per run, so equal values in different runs are not
+   correlatable and low-entropy values (booleans, small integers) cannot be confirmed by hash alone. An unsalted hash
+   would let anyone with a candidate value confirm it, and must not be used for protected fields.
+4. A `public`-only record may retain per-field values within the existing budget. When over budget, summarize by type,
+   revision and hash; never truncate mid-value (unchanged from the Direction).
+5. `record.toJson`, MCP projection and any node that turns a record into text or JSON preserve the class: its output
+   is protected if the record was. A protected record cannot feed an Approval-wrapped MCP call until Decision 0075's
+   lifecycle is accepted.
+6. Display names are never recorded in value evidence (unchanged).
+
+**Open:** a hash does not let a reviewer see what ran; this proposal is consistent with 0075's statement that a hash
+alone is not a substitute for exact-action review, so protected records need the 0075 protected-payload path before
+they can be used in approvals. Until 0075 is resolved the first slice should reject `protected` fields instead of
+inventing a lifecycle (all fields `public`, no per-field class), which makes the mixed-class question moot for the
+first slice while keeping the declaration format room to add the class later.
+
+### P3. Capability gate and format-version approach (PROPOSED)
+
+**Grounding.** Repository policy and the version-compatibility skill treat schema 2.0 as the current additive
+authoring identity, with no schema or capability gate per feature (the Wait slice, Decision 0081, row 23, adds none and
+documents that fail-closed old-reader behavior is unbuilt). Old readers also ignore unknown event kinds. An older 2.0
+build that meets an unknown node type fails in validation, but an unknown type ID string such as `record<...>` on a
+pin must be checked, not assumed.
+
+**Proposal.**
+
+1. Add no new schema version. Records ship as additive 2.0 content: the optional `Records` list is omitted when empty,
+   so every existing hash is unchanged (precedent: omitted approval and condition properties in schemas 1.4 and 1.5).
+2. Each declaration carries `formatVersion` (integer, starting at 1). The reader rejects an unknown `formatVersion`,
+   an unknown `record<...>` type ID, and any `core.record.*` node type it does not know, in validation, run admission,
+   package import and passive playback, with a diagnostic naming the unsupported feature rather than "invalid".
+3. Prove before accepting: characterization tests that feed a definition with an unknown type ID and node ID to the
+   existing validator, run admission, SQLite and file loading, package import and playback of the current build, and
+   record what each does. The Wait work found the assumed fail-closed behavior was false for events, so this must be
+   measured first, not claimed.
+4. Evidence for records uses new event payload shapes only inside existing event kinds, or a new kind named in
+   `WorkflowWorkEvidence`, following the Decision 0081 rule. Do not add an `UnresolvedWorkKind` value.
+5. If measurement shows an old reader silently degrades a record pin, add a minimum-reader marker to the definition (a
+   required-capabilities list that older readers must reject when non-empty) as a deliberate, separately reviewed
+   compatibility change. That is a policy departure from "no gate" and is not recommended unless the measurement
+   demands it.
+
+### P4. Migration and revision identity (PROPOSED)
+
+Candidates: (a) integer revision in the type ID, as in the Direction; (b) content hash of the canonical declaration.
+
+**Recommendation.** Keep `record<id@rev>` with a monotonic integer revision for authoring, and store the canonical
+declaration content hash beside it as the identity checked wherever two workflows meet (workflow-call boundaries,
+package import). The integer is for humans and ordering; the hash prevents two unrelated workflows that both say
+`@3` from being treated as compatible. Within one workflow, ID plus revision is unique by construction.
+
+Policy:
+
+- Exact-revision-only compatibility: no implicit upgrade or conversion. Existing pins keep their revision.
+- Field-ID tombstones are never reused; a revision bump is required for any add, remove, retype or default change.
+- Migration is an explicit, validated, pure `record.migrate` node (or Studio action that rewrites pins into a new
+  draft) generated from a field-ID mapping: carry over matching field IDs with identical types, require an explicit
+  default for added fields, reject removed-or-retyped fields without an author-supplied conversion. It is not
+  automatic, not part of the first slice, and published definitions are never rewritten (restoring or upgrading
+  creates a new revision).
+- Persisted values (for example variable checkpoints or recorded evidence) at an old revision are never reinterpreted;
+  a checkpoint at a different revision is rejected, matching the Decision 0071 checkpoint rule.
+
+Because revision-in-ID makes every field edit breaking, authoring must make "new revision" cheap (Studio rewrites all
+pins in a draft atomically); without that the first slice stays unusable, which is the opponent's main objection and
+is not resolved by this proposal.
+
+### P5. Schema-validated `json` alternative (PROPOSED) and decision table
+
+**Proposal (small).** Add an optional closed-object annotation to a `json` pin, variable or workflow parameter: a
+bounded `JsonObjectShape` of field entries `{ fieldId, name, type }` where `type` is a primitive or
+`array<primitive>`, all required, no extra keys, no null, depth 1, at most 32 fields. The wire type stays `json`
+(so the 21 call sites and `AreCompatible` do not change); a shape is an additional validator constraint checked at
+construction and at annotated boundaries. Add `core.object.get` selecting by `fieldId` and returning the typed
+primitive. Values stay ordinary JSON text, canonicalized with the shared encoder (field-ID-sorted keys), so hashing
+uses the same bytes. Shapes live on the pin or parameter in the workflow definition (option A of P1: nothing to
+resolve). Renaming changes `name` only; the stored key is `fieldId`, which also gives rename-safety. No new type
+family, no catalog entry, no dynamic-pin make node (an object is built with the existing JSON projection node, whose
+output is checked against the shape).
+
+Limits of this alternative: compatibility between two shaped `json` pins is a shape comparison rather than type-ID
+equality, so exact-identity guarantees are weaker; revisions and migration do not exist (a different shape is a
+different shape); redaction still needs P2's class rules; and nothing is "closed" at runtime outside annotated
+boundaries because the value is still JSON.
+
+| Criterion | Keep `json` | Shaped `json` (P5) | Records (this decision) |
+|---|---|---|---|
+| New type-ID family and catalog change | none | none | yes |
+| Touches the ~21 `IsArrayType` sites | no | no | yes |
+| Declaration resolution (P1) | none | none (inline on pin) | required |
+| Rename-safe typed field access | no (pointer by key) | yes (by `fieldId`) | yes |
+| Closed object, unknown fields rejected | no | yes at annotated boundaries only | yes everywhere |
+| Exact-identity compatibility | n/a | shape equality, weaker | strong |
+| Dynamic-pin `make` node | n/a | not needed (projection) | needed |
+| Migration / revision story | n/a | none (shape is the contract) | required (P4) |
+| Old reader without feature | works | unknown annotation ignored: constraint silently dropped unless gated (P3) | must fail closed (P3) |
+| Canonical bytes reuse | n/a | shared encoder | shared encoder |
+| Evidence/redaction (P2) | per JSON, none | needs P2 | needs P2 |
+| Implementation risk | none | low to medium | high |
+
+**Observation, not a decision.** An old reader ignoring an unknown pin annotation is the sharpest risk of the
+alternative, since it would silently drop the closed-object guarantee while still running. The annotation therefore
+needs the same P3 unknown-field rejection as records; that makes it cheaper than records but not free. The
+recommendation of this proposal set is: evaluate shaped `json` first (it needs P3 and P2's public-only subset, but not
+P1, P4 or the ~21-site audit); revisit records only if exact-identity types across workflow boundaries, a typed
+`make` node, or migration prove necessary. Neither alternative is accepted, and both should go through a fresh
+three-role review before any code.
