@@ -344,3 +344,50 @@ Core `WaitNodeTests`, AgentFramework `WaitExecutionTests`, and Hosting `WaitView
 journal in real time only to observe that a background run reached a recorded event. Not verified: Studio in a
 real browser, keyboard and screen-reader behavior of the new inspector field, restart of a real process, and the
 mixed-region graphs in sub-decision 10.
+
+## Wait placement review outcome (2026-11-25)
+
+Adjudication of a proponent/opponent review on extending `core.wait` beyond top-level paths. Claims were checked against
+the code at commit 6c0bfeec.
+
+### Claims verified
+
+| Claim | Verdict | Evidence |
+| --- | --- | --- |
+| The cumulative budget check is racy across the unlocked tail of `WaitAsync`. | **False.** | `ControlledRun.WaitAsync` checks `activeWaitId`, the per-wait maximum, and `cumulative + ms > budget`, then increments `cumulativeWaitMilliseconds` and sets `activeWaitId`, all inside one `lock (gate)` (about lines 271-302). The budget is reserved before the timer is awaited and is never released on cancel. A second wait throws instead of racing. Atomicity only becomes a question once a second concurrent wait is allowed. |
+| The runtime budget check is already dynamic. | **True.** | It compares the running total, not the static sum. |
+| The static `Check` is a sum over Wait nodes. | **True.** | `WorkflowWaitOptions.Check` sums node durations once. Its doc comment relies on "each Wait runs at most once". Changing that meaning is a real edit, not a relaxation. |
+| A loop body is strictly sequential. | **True for a body without a Fork.** | The runner has no `Task.WhenAll` or parallel dispatch. A Fork inside the body stays a rejected region. The loop bound is `WorkflowLoopLimits.MaximumIterations` = 16, with 1,024 total body passes per run. For Each is capped at `WorkflowJsonArrayLimits.MaximumItems` = 64. |
+| Holding a wait slot for up to 24 hours is a new risk. | **Overstated.** | Run waiting is already capped by the host cumulative budget (default 2 hours, ceiling 24 hours), enforced dynamically. Multiplying by iterations does not raise that cap. It only changes where rejection happens. |
+| The wait event carries scope or iteration. | **False.** | `RecordWait` passes only `NodeId` and `InvocationId`. The payload has `waitId`, `nodeId`, and durations. The runner has `received.LoopIteration` at the call site (WorkflowRunner.cs ~3123) but `WorkflowWaitRequest` does not carry it. |
+| The sub-workflow waiting-run cap bypass is real. | **Not today, real if relaxed.** | `ContainsWait` scans only the top-level `Nodes`, but `WorkflowValidator` (line ~70) rejects any child Wait with `wait.placement`. The bypass appears only if that rejection is lifted without making `ContainsWait` recurse. |
+| Sequence outputs run concurrently. | **Not established.** | No parallel dispatch was found. Sequence output order is not documented as strictly serial, so a pure relaxation is unproven. `RecordWait` also loses scope (no scope parameter, unlike approval evidence). |
+| Fork is blocked by the single slot. | **True.** | `activeWaitId is not null` throws. `RequestPause` acknowledgement while sibling branches run is untested. |
+
+### Ruling
+
+| Placement | Decision |
+| --- | --- |
+| (2) Loop / For Each body | **Implement now, sequential only.** |
+| (4) Sub-workflow | **Defer.** |
+| (3) Sequence output | **Defer.** |
+| (1) Fork/Join branch | **Defer.** |
+
+### First slice: Wait in a Loop or For Each body
+
+1. `WorkflowWaitPlacement.NodesInsideRegions`: Loop and For Each `body` no longer opens a region. Sequence, Fork, Branch, and Join still do. A Wait reachable through a Sequence or Fork that sits inside a loop body stays rejected. The fail-closed no-edge-table branch no longer counts Loop, For Each, Loop body, or Break as region nodes.
+2. `WorkflowWaitOptions.Check`: for each Wait, compute a provable execution bound. The bound is the product of the enclosing Loop `MaximumIterations` values (at most 16 each), or 64 for an enclosing For Each, capped by the 1,024 body-pass ceiling. Add `duration x bound` to the sum. A Wait whose bound cannot be proven is rejected with `wait.budget`. `wait.bound` (per-wait maximum) is unchanged. Update the doc comment.
+3. Wait events gain `loopIteration` (from the runner, passed on `WorkflowWaitRequest`), without changing existing fields. Distinct `waitId` per iteration already holds.
+4. Tests: accept a Wait in a Loop and in a For Each body; reject a Wait in a Loop inside a Fork or Sequence; reject at admission when `duration x bound` exceeds the budget; budget exhaustion at runtime still throws at iteration N+1 if the static bound is bypassed with a smaller host budget; stop, cancel, and break mid-loop settle the pending wait exactly once; repeated waits get distinct `waitId` and the `loopIteration` value; the waiting-run cap and `HoldsWaitCapacity` are unchanged.
+5. Update decision 0081 sub-decision 10, the Deferred list, the roadmap, and the user guide in the same change.
+
+### Prerequisites for the rest, in order
+
+1. Carry a scope id (and `loopIteration`) on `WorkflowWaitRequest` and in `RecordWait`; add scope-evidence tests. Needed by (3) and (1).
+2. Make `WorkflowWaitOptions.ContainsWait` recurse into expanded child definitions. Needed by (4) before the validator rejection is lifted.
+3. Replace the single `activeWaitId` slot with per-wait state: a keyed dictionary of pending waits, each with its own settle action, and an atomic reserve-then-release budget (release on cancel, or document that cancel consumes it). Needed by (1).
+4. Prove or document Sequence output ordering, then relax placement for (3) with scope-id evidence and an authorization-to-outcome test for tool nodes.
+5. For Fork: define pause acknowledgement while sibling branches run, settlement of all pending waits on stop, and the per-run budget under concurrency.
+6. For (4): lift the child-Wait rejection only after step 2, validate `request.NodeId` against the child definition, and test the 32-run cap with a child Wait.
+
+Not verified here: no dotnet was run; findings come from reading code only.
