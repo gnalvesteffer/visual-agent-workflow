@@ -181,3 +181,30 @@ schema-gate, or Studio change is in that slice.
    Input serialization above.
 6. Dispatcher subscriptions remain out of scope; host-side fan-out is the
    bounded form.
+
+## Start operation shim first slice (2026-11-25)
+
+**Shipped (the reviewed host-side shim only).** Core `WorkflowStartRequest` and
+`WorkflowStartRequestValidator` (`WorkflowStartRequest.cs`) resolve the operation with
+`WorkflowInterfaceResolver.ResolveOperation`, validate fields against the declared
+`Inputs`, and return typed errors or a mapped entry input. Hosting adds
+`LocalWorkflowRuntime.StartOperationAsync` (`WorkflowOperationStart.cs`), which
+validates and then calls the existing `StartRevisionAsync` unchanged.
+
+- Mapping: a compact JSON object of all declared fields in declared order, at most
+  16,384 characters, valid for the JSON Input node (schema-1.1 operations always bind
+  JSON workflows, so even a one-string-field operation maps to `{"field":"text"}`,
+  byte-identical to what a caller passes to a start today; a raw text mapping would
+  not be valid JSON Input).
+- Rejections (no run started): invalid or unknown operation, unknown interface,
+  stale interface or implementation pin, tampered revision, no field contract
+  (schema 1.0), missing, unknown, duplicate or wrong-typed field, oversize or
+  too-deep JSON, invalid actor label.
+- The run store has no operation or actor metadata, so both are returned in the
+  start result only.
+
+**Still deferred.** Everything else in the ruling: Option 2 and any workflow-level
+entry-point declaration, start-context element or new event kind, run identity and
+idempotency, authorization, durable operation or actor evidence, checkpoint and
+schema-gate changes, Studio, and dispatcher subscriptions. The matrix row stays
+Partial.
