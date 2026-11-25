@@ -3127,7 +3127,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     if (gate is not IWorkflowWaitGate waits) throw new InvalidOperationException(WaitUnsupportedMessage);
                     await waits.WaitAsync(new WorkflowWaitRequest(Id, invocation,
-                        TimeSpan.FromMilliseconds(node.Wait?.DurationMilliseconds ?? throw new InvalidOperationException("A Wait node requires a configured duration."))),
+                        TimeSpan.FromMilliseconds(node.Wait?.DurationMilliseconds ?? throw new InvalidOperationException("A Wait node requires a configured duration.")),
+                        // Inside a Loop or For Each body only: the iteration and the same evidence scope the node's own events use.
+                        LoopIteration: received.ActivationFrame is null ? null : received.LoopIteration,
+                        ScopeId: received.ActivationFrame is null ? null : activeActivationFrame.Value?.ScopeId ?? scopeId),
                         cancellationToken);
                 }
                 var resultAvailable = received.HasValue;

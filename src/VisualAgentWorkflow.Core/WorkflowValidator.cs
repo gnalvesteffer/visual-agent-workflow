@@ -724,7 +724,7 @@ public static class WorkflowValidator
 
         foreach (var waitId in WorkflowWaitPlacement.NodesInsideRegions(definition))
             Error("wait.placement", $"nodes.{waitId}",
-                "A wait is legal only on a top-level execution path: not inside a Sequence output, Loop or For Each body, or Fork/Join branch.");
+                "A wait is legal only on a top-level execution path: not inside a Sequence output or Fork/Join branch (a sequential Loop or For Each body is allowed).");
 
         if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
         {
@@ -1008,7 +1008,10 @@ public static class WorkflowValidator
         {
             NodeTypes.Loop, NodeTypes.ForEach, NodeTypes.LoopBody, NodeTypes.VariableGet, NodeTypes.VariableSet,
             NodeTypes.Agent, NodeTypes.McpTool, NodeTypes.SequenceUppercase, NodeTypes.SequenceReverse,
-            NodeTypes.WorkflowCall, NodeTypes.WorkflowInterfaceCall
+            NodeTypes.WorkflowCall, NodeTypes.WorkflowInterfaceCall,
+            // Decision 0081 (2026-11-25): a Wait is a sequential body node. Placement and the static budget are owned by
+            // WorkflowWaitPlacement and WorkflowWaitOptions.Check, not by this profile.
+            NodeTypes.Wait
         };
         if (loops.Length == 1)
             supportedBodyNodes.UnionWith([NodeTypes.ParallelFork, NodeTypes.ParallelBranch, NodeTypes.ParallelJoin]);

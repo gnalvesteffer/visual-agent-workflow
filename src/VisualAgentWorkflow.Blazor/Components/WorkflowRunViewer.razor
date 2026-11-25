@@ -66,7 +66,7 @@
                     var label = pendingNode == nodeId
                         ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval"
                         : PausedBefore(nodeId) && state is null ? "Paused before execution"
-                        : state?.Kind == ExecutionEventKinds.NodeStarted && WaitPlayback(nodeId) is { Pending: true } ? "Waiting"
+                        : WaitPlayback(nodeId) is { Pending: true } ? "Waiting"
                         : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully"
                         : evaluation is not null ? "Evaluated"
                         : parallelActivation is not null && (state is null ||
@@ -376,6 +376,8 @@
     {
         var state = State(id);
         var isParallelJoin = Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type == NodeTypes.ParallelJoin;
+        // A wait inside a Loop or For Each body records scoped events, so its pending state does not need a root node.started.
+        if (WaitPlayback(id) is { Pending: true } pendingWait) return pendingWait.Text;
         if (state?.Kind != ExecutionEventKinds.NodeStarted && !isParallelJoin) return null;
         if (WaitPlayback(id) is { } wait) return wait.Text;
         if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall)
@@ -1083,7 +1085,9 @@
     private WaitView? WaitPlayback(string id)
     {
         if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type != NodeTypes.Wait) return null;
-        var recorded = RootEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind is ExecutionEventKinds.WaitRequested or
+        // Any scope: a wait in a loop body is recorded under its iteration scope. Each iteration has its own waitId,
+        // and the latest wait event of the node decides the state, so a settled earlier iteration never hides a pending one.
+        var recorded = VisibleEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind is ExecutionEventKinds.WaitRequested or
             ExecutionEventKinds.WaitElapsed or ExecutionEventKinds.WaitCancelled or ExecutionEventKinds.WaitInterrupted);
         if (recorded is null) return null;
         if (recorded.Kind != ExecutionEventKinds.WaitRequested)
@@ -1100,6 +1104,8 @@
             var root = document.RootElement;
             if (root.TryGetProperty("durationMilliseconds", out var duration) && duration.TryGetInt64(out var milliseconds))
                 text += $" {TimeSpan.FromMilliseconds(milliseconds):c}";
+            if (root.TryGetProperty("loopIteration", out var iteration) && iteration.TryGetInt32(out var iterationNumber))
+                text += $" · iteration {iterationNumber}";
             if (root.TryGetProperty("deadlineUtc", out var deadline) && deadline.TryGetDateTimeOffset(out var utc))
                 text += $" · recorded deadline {utc.UtcDateTime:yyyy-MM-dd HH:mm:ss} UTC (display only)";
         }

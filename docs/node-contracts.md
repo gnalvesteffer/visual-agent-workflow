@@ -79,7 +79,7 @@ change the exact typed pin set for dynamic families.
 | Boolean branch | Flow | Data + execution | Execution / run-scoped | Routes / route decision | No host authority | Two fixed execution outcomes |
 | Merge | Flow | Execution only | Execution / run-scoped | Propagates / execution lifecycle | No host authority | Bounded reconvergence |
 | Terminate | Flow | Data + execution | Execution / run-scoped | Terminates / execution lifecycle | Explicit workflow outcome | Success/failure outcome |
-| Wait | Flow | Execution only | Execution / host-owned | Waits for host / wait evidence | Host timer; requires host support (`IWorkflowWaitGate`); schema 2.0 only | Duration 1 ms to 24 h, host per-wait maximum and per-run budget; top-level paths only |
+| Wait | Flow | Execution only | Execution / host-owned | Waits for host / wait evidence | Host timer; requires host support (`IWorkflowWaitGate`); schema 2.0 only | Duration 1 ms to 24 h, host per-wait maximum and per-run budget (a Wait in a loop body is charged duration x iteration bound); top-level paths or a sequential Loop / For Each body |
 | Approval | Interaction | Data + execution | External approval / host-owned | Waits for host / approval | Host interaction; requires host policy | Bounded approval action |
 | Parallel fork, Parallel branch, Parallel join | Flow | Data + execution | Fan-out/barrier / run-scoped | Region abort or propagation / parallel progress | Run-scoped orchestration | Branch-count bound; `ParallelBranchId` dynamic pins |
 | Collaboration rendezvous | Collaboration | Data + execution | Barrier / run-scoped | Region abort / parallel progress | Host-authorized collaboration boundary | Branch-count bound; `ParallelBranchId` dynamic pins |

@@ -391,3 +391,38 @@ the code at commit 6c0bfeec.
 6. For (4): lift the child-Wait rejection only after step 2, validate `request.NodeId` against the child definition, and test the 32-run cap with a child Wait.
 
 Not verified here: no dotnet was run; findings come from reading code only.
+
+## Wait in loop bodies implementation (2026-11-25)
+
+Implements the first slice ruled in "Wait placement review outcome (2026-11-25)": `core.wait` may sit in a Loop body or a
+For Each body, sequential case only. Sequence output, Fork/Join branch, and sub-workflow placement stay rejected. This section
+lists the sub-decisions made while implementing it. It supersedes sub-decisions 6, 8, 10 and the "waits in loops" deferral
+above only where stated.
+
+| # | Decision | Why |
+| --- | --- | --- |
+| 1 | **Placement.** A Loop or For Each `body` pin no longer opens a rejected region in `WorkflowWaitPlacement.NodesInsideRegions`. Sequence outputs and Fork pins still do. A Wait reachable from a Fork branch or Sequence output stays rejected even when that Fork or Sequence sits inside a loop body. | Ruling item 1. |
+| 2 | **A Join of a Fork nested in a loop body still continues the rejected Fork region**, so a Wait after such a Join stays rejected (the existing test is unchanged). A Join of a top-level Fork still does not. | Keeps the previous rule that concurrency in a body is not made legal by this slice. |
+| 3 | **"Feedback path" reading.** Reaching a Loop or For Each through `feedback` ends the walk, as before. A Wait whose `then` feeds `feedback` directly is an ordinary body node and is accepted. Nothing past the feedback pin is considered part of the body, so a Wait after the loop's `done`/`completed` pin is top-level (bound 1). | The body must end at `feedback`; rejecting that case would make a Wait unable to be the last body node. |
+| 4 | **Fail-closed no-edge-table branch.** Loop, For Each, Loop body and Break are removed from the region-node set (ruling item 1). That is safe because the static budget now fails closed for them: without edges `ExecutionBounds` returns "unprovable" for every Wait when any Loop or For Each exists, so `Check` rejects with `wait.budget`. The branch is still fail-closed for Sequence, Fork, Branch and Join. | A genuine schema 2.0 graph always has edges; this only matters for malformed input. |
+| 5 | **Loop profile.** The unified loop profile's body-node allowlist (`loop.body.node`) now includes `core.wait`. Without it the validator rejected every Wait in a body regardless of placement. Nothing else in that profile changed. | The profile is a separate gate from placement (sub-decision 10 characterized this). |
+| 6 | **Static budget.** `WorkflowWaitOptions.Check` charges each Wait `duration x bound`. `WorkflowWaitPlacement.ExecutionBounds` computes the bound as the product, over every Loop or For Each whose body reaches the Wait, of `Loop.MaximumIterations` (1 to 16) or `WorkflowJsonArrayLimits.MaximumItems` (64), capped by `WorkflowLoopLimits.MaximumTotalBodyPassesPerRun` (1,024). A Wait after an inner loop is charged by the outer loop only; nested loops multiply. This replaces sub-decision 6's "each Wait runs at most once". | Ruling item 2. |
+| 7 | **Unprovable bound is rejected, not clamped.** A Loop with a missing or out-of-range `MaximumIterations`, or a definition with loops but no edge table, gives `wait.budget` at `nodes.<waitId>`. The per-wait `wait.bound` check is unchanged. | Fail closed. |
+| 8 | **For Each is charged at the 64-item ceiling**, not the actual array length. The array can come from run input, so the actual length is not provable at admission. A For Each Wait of `d` ms therefore needs a budget of at least `64 x d`. | The only sound static bound. A host that wants longer per-item waits must raise its budget (at most 24 h). |
+| 9 | **Runtime backstop unchanged.** `ControlledRun.WaitAsync` still checks the running cumulative total inside `lock (gate)` before reserving. A test bypasses admission and shows the over-budget wait fails with the budget error without a `wait.requested` event. The waiting-run cap and `HoldsWaitCapacity` are unchanged. | Ruling; defense in depth. |
+| 10 | **Evidence.** `WorkflowWaitRequest` gains optional `LoopIteration` and `ScopeId`. Inside a loop body the runner sets them from the activation frame: `LoopIteration` is the same 1-based `received.LoopIteration` used by variable evidence, and `ScopeId` is the same scope the node's own events use (for example `loop/2`, or `each/3`). The `wait.requested` and settlement payloads gain a trailing `loopIteration` property and the event carries `ScopeId`. A top-level wait omits both: its payload is byte-identical (property order tested). | Ruling item 3; `RecordWait` now takes the scope from the request. |
+| 11 | **Distinct `waitId` per iteration** (a new GUID each request). Reconciliation correlates by `(invocation, waitId)` and needed no change: a test shows two iterations where only the unsettled one is unresolved. | Existing behavior, now pinned. |
+| 12 | **Viewer.** Because in-loop wait events are scoped, `WorkflowRunViewer` no longer limits wait playback to root-scoped events. The latest wait event of the node decides its state, and a pending wait shows `· iteration N` after its duration. A settled earlier iteration never hides a pending later one. | Otherwise the loop-body wait would show no state at all. |
+| 13 | **Still rejected, now with a loop containing a Wait:** node stepping (`SupportsNodeStepping` is false) and checkpoint recovery (`ValidateCheckpointGraph` rejects Wait nodes). Asserted for a Loop and a For Each. | Review prerequisite 3 and sub-decisions 20 and 24 still hold. |
+| 14 | **Pause mid-loop.** Pause during an iteration's wait behaves as before: acknowledged at once, the clock keeps running, the node holds at the reacquire boundary after the elapse, and Resume continues with the next iteration. Cancel settles that iteration's wait as `wait.cancelled` exactly once and starts no further wait. A clean shutdown settles it as `wait.interrupted` once. A Break after a wait (For Each) ends the loop with every wait settled once. | Tested with `ManualTimeProvider`, no sleeps. |
+
+### Still deferred
+
+Waits in Sequence outputs, Fork/Join branches, and sub-workflows (prerequisites 1 to 6 of the review outcome, except that the
+scope-carrying request of prerequisite 1 now exists for the loop case); a Wait behind a Fork or Join inside a loop body;
+actual-array-length budgeting for For Each; durable timers.
+
+### Verification
+
+Core `WaitNodeTests`, AgentFramework `WaitInLoopExecutionTests`, and Hosting `WaitViewerTests`. Not verified: Studio authoring of a
+Wait inside a loop body in a real browser, and mixed graphs (Sequence or Fork profiles) with a loop-body Wait at runtime.

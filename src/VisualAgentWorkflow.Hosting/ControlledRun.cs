@@ -285,20 +285,25 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             timer = Task.Delay(request.Duration, clock, timerCancellation.Token);
             try
             {
-                RecordWait(ExecutionEventKinds.WaitRequested, new
+                // loopIteration is appended only inside a Loop or For Each body, so a top-level payload is unchanged.
+                var bound = new
                 {
-                    waitId,
-                    nodeId = request.NodeId,
-                    durationMilliseconds = milliseconds,
-                    // Display only. The wait is measured on the monotonic clock, never against this wall-clock value.
-                    deadlineUtc = clock.GetUtcNow() + request.Duration,
-                    bound = new
+                    perWaitMaximumMilliseconds = (long)waits.MaximumWait.TotalMilliseconds,
+                    cumulativeBudgetMilliseconds = (long)waits.CumulativeBudget.TotalMilliseconds,
+                    cumulativeRequestedMilliseconds = cumulativeWaitMilliseconds + milliseconds
+                };
+                // Display only. The wait is measured on the monotonic clock, never against this wall-clock value.
+                var deadlineUtc = clock.GetUtcNow() + request.Duration;
+                if (request.LoopIteration is { } iteration)
+                    RecordWait(ExecutionEventKinds.WaitRequested, new
                     {
-                        perWaitMaximumMilliseconds = (long)waits.MaximumWait.TotalMilliseconds,
-                        cumulativeBudgetMilliseconds = (long)waits.CumulativeBudget.TotalMilliseconds,
-                        cumulativeRequestedMilliseconds = cumulativeWaitMilliseconds + milliseconds
-                    }
-                }, request);
+                        waitId, nodeId = request.NodeId, durationMilliseconds = milliseconds, deadlineUtc, bound, loopIteration = iteration
+                    }, request);
+                else
+                    RecordWait(ExecutionEventKinds.WaitRequested, new
+                    {
+                        waitId, nodeId = request.NodeId, durationMilliseconds = milliseconds, deadlineUtc, bound
+                    }, request);
             }
             catch
             {
@@ -317,14 +322,18 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
                 if (terminal) return;
                 try
                 {
-                    RecordWait(kind, new
-                    {
-                        waitId,
-                        nodeId = request.NodeId,
-                        durationMilliseconds = milliseconds,
-                        elapsedMilliseconds = (long)clock.GetElapsedTime(startTimestamp).TotalMilliseconds,
-                        reason
-                    }, request);
+                    var elapsedMilliseconds = (long)clock.GetElapsedTime(startTimestamp).TotalMilliseconds;
+                    if (request.LoopIteration is { } iteration)
+                        RecordWait(kind, new
+                        {
+                            waitId, nodeId = request.NodeId, durationMilliseconds = milliseconds, elapsedMilliseconds, reason,
+                            loopIteration = iteration
+                        }, request);
+                    else
+                        RecordWait(kind, new
+                        {
+                            waitId, nodeId = request.NodeId, durationMilliseconds = milliseconds, elapsedMilliseconds, reason
+                        }, request);
                 }
                 catch (Exception error) when (error is not OutOfMemoryException) { }
             };
@@ -356,7 +365,8 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
     }
 
     private void RecordWait<T>(string kind, T data, WorkflowWaitRequest request) => Append(new(header.RunId, header.RevisionId, 0,
-        clock.GetUtcNow(), kind, request.NodeId, request.InvocationId, Data: JsonSerializer.Serialize(data, JsonSerializerOptions.Web)));
+        clock.GetUtcNow(), kind, request.NodeId, request.InvocationId, Data: JsonSerializer.Serialize(data, JsonSerializerOptions.Web))
+    { ScopeId = request.ScopeId });
 
     public void DecideApproval(Guid requestId, string actionHash, bool approve, string actor)
     {

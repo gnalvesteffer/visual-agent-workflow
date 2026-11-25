@@ -72,4 +72,31 @@ public sealed class WaitViewerTests
         Assert.Contains(label, html, StringComparison.Ordinal);
         Assert.DoesNotContain("recorded deadline", html, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task A_wait_in_a_loop_iteration_scope_shows_the_pending_iteration_and_correlates_by_wait_id()
+    {
+        var definition = Definition();
+        var revision = WorkflowRevision.Create(definition, "test");
+        var header = new RunHeader(Guid.NewGuid(), revision.RevisionId, null, "test", Recorded, revision.ContentHash, definition, "in");
+        var events = ImmutableArray.CreateBuilder<ExecutionEvent>();
+        void Add(string kind, Guid invocation, Guid? waitId, int iteration) => events.Add(new(header.RunId, header.RevisionId, events.Count + 1, Recorded, kind, "wait1", invocation,
+            Data: waitId is null ? null : kind == ExecutionEventKinds.WaitRequested
+                ? JsonSerializer.Serialize(new { waitId, durationMilliseconds = 90_000, deadlineUtc = Recorded.AddSeconds(90), loopIteration = iteration })
+                : JsonSerializer.Serialize(new { waitId, loopIteration = iteration })) { ScopeId = $"each/{iteration}" });
+        var (first, second) = (Guid.NewGuid(), Guid.NewGuid());
+        Add(ExecutionEventKinds.WaitRequested, Guid.NewGuid(), first, 1);
+        Add(ExecutionEventKinds.WaitElapsed, events[0].InvocationId!.Value, first, 1);
+        Add(ExecutionEventKinds.WaitRequested, Guid.NewGuid(), second, 2);
+        var snapshot = new RunSnapshot(header, events.ToImmutable());
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+            (await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }))).ToHtmlString());
+
+        Assert.Contains("Waiting 00:01:30 &#xB7; iteration 2", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Wait elapsed", html, StringComparison.Ordinal);
+    }
 }

@@ -210,18 +210,15 @@ public sealed class WaitNodeTests
         Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "wait.placement" && issue.Path == "nodes.wait");
     }
 
-    [Theory]
-    [InlineData(NodeTypes.Loop)]
-    [InlineData(NodeTypes.ForEach)]
-    public void A_wait_inside_a_loop_or_for_each_body_is_rejected_but_a_wait_after_the_loop_is_not(string loopType)
+    private static WorkflowDefinition LoopWithWait(string loopType, bool waitInBody, long milliseconds = 1_000, int maximumIterations = 3, bool waitOnFeedbackOnly = false)
     {
         var done = loopType == NodeTypes.Loop ? "done" : "completed";
-        WorkflowDefinition Build(bool waitInBody) => Skeleton((nodes, execution, _) =>
+        return Skeleton((nodes, execution, _) =>
         {
-            nodes["loop"] = new(loopType, "1.0.0");
+            nodes["loop"] = new(loopType, "1.0.0") { Loop = loopType == NodeTypes.Loop ? new(new("equals", "again"), maximumIterations) : null };
             nodes["body"] = new(NodeTypes.LoopBody, "1.0.0");
             nodes["step"] = new(NodeTypes.SequenceReverse, "1.0.0");
-            nodes["wait"] = Wait();
+            nodes["wait"] = Wait(milliseconds);
             Edge(execution, "input", "then", "loop", "execute");
             Edge(execution, "loop", "body", "body", "execute");
             if (waitInBody)
@@ -238,10 +235,195 @@ public sealed class WaitNodeTests
             }
             Edge(execution, "step", "then", "loop", "feedback");
         });
+    }
 
-        Assert.Equal(["wait"], WorkflowWaitPlacement.NodesInsideRegions(Build(waitInBody: true)).ToArray());
-        Assert.Empty(WorkflowWaitPlacement.NodesInsideRegions(Build(waitInBody: false)));
-        Assert.Contains(WorkflowValidator.Validate(Build(waitInBody: true)), issue => issue.Code == "wait.placement");
+    [Theory]
+    [InlineData(NodeTypes.Loop)]
+    [InlineData(NodeTypes.ForEach)]
+    public void A_wait_inside_a_loop_or_for_each_body_is_accepted_by_placement_and_a_wait_after_the_loop_is_unchanged(string loopType)
+    {
+        Assert.Empty(WorkflowWaitPlacement.NodesInsideRegions(LoopWithWait(loopType, waitInBody: true)));
+        Assert.Empty(WorkflowWaitPlacement.NodesInsideRegions(LoopWithWait(loopType, waitInBody: false)));
+        Assert.DoesNotContain(WorkflowValidator.Validate(LoopWithWait(loopType, waitInBody: true)), issue => issue.Code.StartsWith("wait.", StringComparison.Ordinal));
+        Assert.Equal<long?>(loopType == NodeTypes.Loop ? 3 : WorkflowJsonArrayLimits.MaximumItems, WorkflowWaitPlacement.ExecutionBounds(LoopWithWait(loopType, true))["wait"]);
+        Assert.Equal<long?>(1, WorkflowWaitPlacement.ExecutionBounds(LoopWithWait(loopType, false))["wait"]);
+    }
+
+    [Fact]
+    public void A_wait_inside_a_loop_body_is_rejected_when_the_loop_sits_in_a_fork_branch_or_a_sequence_output()
+    {
+        var inFork = Skeleton((nodes, execution, _) =>
+        {
+            nodes["fork"] = new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new([new("a", "A", "branch-a"), new("b", "B", "branch-b")]) };
+            nodes["branch-a"] = new(NodeTypes.ParallelBranch, "1.0.0");
+            nodes["branch-b"] = new(NodeTypes.ParallelBranch, "1.0.0");
+            nodes["join"] = new(NodeTypes.ParallelJoin, "1.0.0") { ParallelJoin = new("fork", ["a", "b"]) };
+            nodes["loop"] = new(NodeTypes.Loop, "1.0.0") { Loop = new(new("equals", "again"), 2) };
+            nodes["body"] = new(NodeTypes.LoopBody, "1.0.0");
+            nodes["wait"] = Wait();
+            Edge(execution, "input", "then", "fork", "execute");
+            Edge(execution, "fork", ParallelBranchLimits.PinId("a"), "branch-a", "execute");
+            Edge(execution, "fork", ParallelBranchLimits.PinId("b"), "branch-b", "execute");
+            Edge(execution, "branch-a", "then", "loop", "execute");
+            Edge(execution, "loop", "body", "body", "execute");
+            Edge(execution, "body", "then", "wait", "execute");
+            Edge(execution, "wait", "then", "loop", "feedback");
+            Edge(execution, "loop", "done", "join", ParallelBranchLimits.PinId("a"));
+            Edge(execution, "branch-b", "then", "join", ParallelBranchLimits.PinId("b"));
+            Edge(execution, "join", "then", "output", "execute");
+        });
+        Assert.Equal(["wait"], WorkflowWaitPlacement.NodesInsideRegions(inFork).ToArray());
+        Assert.Contains(WorkflowValidator.Validate(inFork), issue => issue.Code == "wait.placement");
+
+        var inSequence = Skeleton((nodes, execution, _) =>
+        {
+            nodes["sequence"] = new(NodeTypes.Sequence, "1.0.0") { Sequence = new([new("first", "First"), new("second", "Second")]) };
+            nodes["loop"] = new(NodeTypes.Loop, "1.0.0") { Loop = new(new("equals", "again"), 2) };
+            nodes["body"] = new(NodeTypes.LoopBody, "1.0.0");
+            nodes["wait"] = Wait();
+            Edge(execution, "input", "then", "sequence", "execute");
+            Edge(execution, "sequence", SequenceOutputLimits.PinId("first"), "loop", "execute");
+            Edge(execution, "loop", "body", "body", "execute");
+            Edge(execution, "body", "then", "wait", "execute");
+            Edge(execution, "wait", "then", "loop", "feedback");
+            Edge(execution, "loop", "done", "output", "execute");
+            Edge(execution, "sequence", SequenceOutputLimits.PinId("second"), "output", "execute");
+        });
+        Assert.Equal(["wait"], WorkflowWaitPlacement.NodesInsideRegions(inSequence).ToArray());
+        Assert.Contains(WorkflowValidator.Validate(inSequence), issue => issue.Code == "wait.placement");
+    }
+
+    [Fact]
+    public void A_wait_behind_a_fork_inside_a_loop_body_and_a_wait_after_its_join_stay_rejected()
+    {
+        var definition = Skeleton((nodes, execution, _) =>
+        {
+            nodes["loop"] = new(NodeTypes.ForEach, "1.0.0");
+            nodes["body"] = new(NodeTypes.LoopBody, "1.0.0");
+            nodes["fork"] = new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new([new("a", "A", "branch-a"), new("b", "B", "branch-b")]) };
+            nodes["branch-a"] = new(NodeTypes.ParallelBranch, "1.0.0");
+            nodes["branch-b"] = new(NodeTypes.ParallelBranch, "1.0.0");
+            nodes["join"] = new(NodeTypes.ParallelJoin, "1.0.0") { ParallelJoin = new("fork", ["a", "b"]) };
+            nodes["inbranch"] = Wait();
+            nodes["wait"] = Wait();
+            Edge(execution, "input", "then", "loop", "execute");
+            Edge(execution, "loop", "body", "body", "execute");
+            Edge(execution, "body", "then", "fork", "execute");
+            Edge(execution, "fork", ParallelBranchLimits.PinId("a"), "branch-a", "execute");
+            Edge(execution, "fork", ParallelBranchLimits.PinId("b"), "branch-b", "execute");
+            Edge(execution, "branch-a", "then", "inbranch", "execute");
+            Edge(execution, "inbranch", "then", "join", ParallelBranchLimits.PinId("a"));
+            Edge(execution, "branch-b", "then", "join", ParallelBranchLimits.PinId("b"));
+            Edge(execution, "join", "then", "wait", "execute");
+            Edge(execution, "wait", "then", "loop", "feedback");
+            Edge(execution, "loop", "completed", "output", "execute");
+        });
+
+        Assert.Equal(["inbranch", "wait"], WorkflowWaitPlacement.NodesInsideRegions(definition).ToArray());
+    }
+
+    [Fact]
+    public void A_wait_on_the_feedback_path_only_counts_as_in_the_loop_and_nothing_past_feedback_is_walked()
+    {
+        // The Wait feeds the feedback pin directly: it is in the body. A Wait after the loop's done pin is not.
+        var definition = LoopWithWait(NodeTypes.ForEach, waitInBody: true);
+        Assert.Empty(WorkflowWaitPlacement.NodesInsideRegions(definition));
+        Assert.Equal<long?>(WorkflowJsonArrayLimits.MaximumItems, WorkflowWaitPlacement.ExecutionBounds(definition)["wait"]);
+    }
+
+    [Theory]
+    [InlineData(NodeTypes.Loop, 3, 1_000, 3_000, true)]
+    [InlineData(NodeTypes.Loop, 3, 1_000, 2_999, false)]
+    [InlineData(NodeTypes.Loop, 16, 60_000, 960_000, true)]
+    [InlineData(NodeTypes.Loop, 16, 60_000, 959_999, false)]
+    [InlineData(NodeTypes.ForEach, 0, 1_000, 64_000, true)]
+    [InlineData(NodeTypes.ForEach, 0, 1_000, 63_999, false)]
+    public void Static_budget_charges_the_duration_times_a_proven_bound_and_rejects_over_budget(string loopType, int iterations, long durationMs, long budgetMs, bool accepted)
+    {
+        var options = new WorkflowWaitOptions(TimeSpan.FromHours(1), TimeSpan.FromMilliseconds(Math.Max(budgetMs, 3_600_000)), 4);
+        var tight = new WorkflowWaitOptions(TimeSpan.FromMilliseconds(Math.Min(durationMs, budgetMs)), TimeSpan.FromMilliseconds(budgetMs), 4);
+        var definition = LoopWithWait(loopType, waitInBody: true, durationMs, iterations);
+
+        var issues = tight.Check(definition);
+
+        Assert.Equal(accepted, issues.IsEmpty);
+        if (!accepted) Assert.All(issues, issue => Assert.Equal("wait.budget", issue.Code));
+        Assert.NotNull(options);
+    }
+
+    [Fact]
+    public void Nested_loops_multiply_and_a_wait_after_the_inner_loop_is_charged_by_the_outer_loop_only()
+    {
+        var definition = Skeleton((nodes, execution, _) =>
+        {
+            nodes["outer"] = new(NodeTypes.Loop, "1.0.0") { Loop = new(new("equals", "again"), 4) };
+            nodes["obody"] = new(NodeTypes.LoopBody, "1.0.0");
+            nodes["inner"] = new(NodeTypes.Loop, "1.0.0") { Loop = new(new("equals", "again"), 5) };
+            nodes["ibody"] = new(NodeTypes.LoopBody, "1.0.0");
+            nodes["innerwait"] = Wait();
+            nodes["afterwait"] = Wait();
+            Edge(execution, "input", "then", "outer", "execute");
+            Edge(execution, "outer", "body", "obody", "execute");
+            Edge(execution, "obody", "then", "inner", "execute");
+            Edge(execution, "inner", "body", "ibody", "execute");
+            Edge(execution, "ibody", "then", "innerwait", "execute");
+            Edge(execution, "innerwait", "then", "inner", "feedback");
+            Edge(execution, "inner", "done", "afterwait", "execute");
+            Edge(execution, "afterwait", "then", "outer", "feedback");
+            Edge(execution, "outer", "done", "output", "execute");
+        });
+
+        var bounds = WorkflowWaitPlacement.ExecutionBounds(definition);
+
+        Assert.Equal<long?>(20, bounds["innerwait"]);
+        Assert.Equal<long?>(4, bounds["afterwait"]);
+    }
+
+    [Fact]
+    public void A_bound_that_cannot_be_proven_is_rejected_with_wait_budget()
+    {
+        var missingLimit = LoopWithWait(NodeTypes.Loop, waitInBody: true);
+        missingLimit = missingLimit with { Nodes = missingLimit.Nodes.SetItem("loop", missingLimit.Nodes["loop"] with { Loop = null }) };
+        var outOfRange = LoopWithWait(NodeTypes.Loop, waitInBody: true);
+        outOfRange = outOfRange with { Nodes = outOfRange.Nodes.SetItem("loop", outOfRange.Nodes["loop"] with { Loop = new(new("equals", "again"), 17) }) };
+        var noEdges = LoopWithWait(NodeTypes.Loop, waitInBody: true) with { ExecutionConnections = null };
+        var generous = new WorkflowWaitOptions(TimeSpan.FromHours(1), TimeSpan.FromHours(24), 4);
+
+        foreach (var definition in new[] { missingLimit, outOfRange, noEdges })
+            Assert.Contains(generous.Check(definition), issue => issue.Code == "wait.budget");
+    }
+
+    [Fact]
+    public void The_per_wait_maximum_still_applies_inside_a_loop_and_a_top_level_wait_is_charged_once()
+    {
+        var options = new WorkflowWaitOptions(TimeSpan.FromMinutes(1), TimeSpan.FromHours(24), 4);
+
+        Assert.Contains(options.Check(LoopWithWait(NodeTypes.Loop, true, 60_001)), issue => issue.Code == "wait.bound");
+        Assert.Empty(options.Check(TopLevel(60_000)));
+        Assert.Equal<long?>(1, WorkflowWaitPlacement.ExecutionBounds(TopLevel(waits: 2))["wait1"]);
+    }
+
+    [Fact]
+    public void Repeated_wait_evidence_per_iteration_correlates_by_wait_id_and_leaves_only_the_unsettled_iteration()
+    {
+        var definition = TopLevel();
+        var header = new RunHeader(Guid.NewGuid(), Guid.NewGuid(), null, "x", DateTimeOffset.UtcNow, WorkflowJson.ComputeHash(definition), definition, "in");
+        var events = new List<ExecutionEvent>();
+        void Add(string kind, Guid invocation, Guid? waitId = null, int? iteration = null) => events.Add(new(header.RunId, header.RevisionId, events.Count + 1,
+            DateTimeOffset.UtcNow, kind, "wait1", invocation, Data: waitId is null ? null : $"{{\"waitId\":\"{waitId}\",\"loopIteration\":{iteration}}}"));
+        Guid second = Guid.NewGuid(), secondWait = Guid.NewGuid();
+        var first = Guid.NewGuid();
+        var firstWait = Guid.NewGuid();
+        Add(ExecutionEventKinds.NodeStarted, first); Add(ExecutionEventKinds.WaitRequested, first, firstWait, 0);
+        Add(ExecutionEventKinds.WaitElapsed, first, firstWait, 0); Add(ExecutionEventKinds.NodeCompleted, first);
+        Add(ExecutionEventKinds.NodeStarted, second); Add(ExecutionEventKinds.WaitRequested, second, secondWait, 1);
+
+        var evidence = WorkflowWorkEvidence.Read(new RunSnapshot(header, [.. events]));
+
+        Assert.False(evidence.HasIncompleteCorrelation);
+        Assert.Equal(2, evidence.TotalUnresolvedWork);
+        Assert.All(evidence.UnresolvedWork, work => Assert.Equal(second, work.InvocationId));
+        Assert.Contains(evidence.UnresolvedWork, work => work.CallId == secondWait);
     }
 
     [Fact]
@@ -350,11 +532,9 @@ public sealed class WaitNodeTests
 
     [Theory]
     [InlineData(NodeTypes.Sequence)]
-    [InlineData(NodeTypes.Loop)]
-    [InlineData(NodeTypes.ForEach)]
     [InlineData(NodeTypes.ParallelFork)]
     [InlineData(NodeTypes.ParallelBranch)]
-    [InlineData(NodeTypes.Break)]
+    [InlineData(NodeTypes.ParallelJoin)]
     public void Placement_fails_closed_when_edges_are_absent_and_a_region_node_coexists_with_a_wait(string regionType)
     {
         var definition = Skeleton((nodes, _, _) =>
@@ -365,6 +545,24 @@ public sealed class WaitNodeTests
 
         Assert.Equal(["wait"], WorkflowWaitPlacement.NodesInsideRegions(definition).ToArray());
         Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "wait.placement" && issue.Path == "nodes.wait");
+    }
+
+    [Theory]
+    [InlineData(NodeTypes.Loop)]
+    [InlineData(NodeTypes.ForEach)]
+    [InlineData(NodeTypes.LoopBody)]
+    [InlineData(NodeTypes.Break)]
+    public void Loop_nodes_no_longer_fail_placement_closed_without_edges_but_the_static_budget_cannot_prove_a_bound(string loopType)
+    {
+        var definition = Skeleton((nodes, _, _) =>
+        {
+            nodes["region"] = new(loopType, "1.0.0");
+            nodes["wait"] = Wait();
+        }) with { ExecutionConnections = null };
+
+        Assert.Empty(WorkflowWaitPlacement.NodesInsideRegions(definition));
+        var issues = new WorkflowWaitOptions(TimeSpan.FromHours(1), TimeSpan.FromHours(24), 4).Check(definition);
+        if (loopType is NodeTypes.Loop or NodeTypes.ForEach) Assert.Contains(issues, issue => issue.Code == "wait.budget");
     }
 
     [Fact]
