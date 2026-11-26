@@ -185,7 +185,9 @@ public sealed class ForEachNodeTests
             .Add("sequence-each", Execution("sequence", "then.first", "each", "execute"))
             .Add("sequence-output", Execution("sequence", "then.second", "output", "execute")));
 
-        Assert.NotEmpty(WorkflowValidator.Validate(definition));
+        // Decision 0070 (slice (b) unblocker 2): the rejection is explicit and names the For Each, not only a path cascade.
+        Assert.Contains(WorkflowValidator.Validate(definition), issue =>
+            issue.Code == "foreach.sequence.unsupported" && issue.Path == "nodes.each");
     }
 
     [Fact]

@@ -761,6 +761,18 @@ public static class WorkflowValidator
             Error("approval.placement", $"nodes.{approvalId}",
                 "An approval is not allowed inside a Sequence output of a Sequence with more than one output, because those outputs run concurrently. Place the approval before the Sequence or on a path that is not a Sequence output.");
 
+        // Decision 0070 (slice (b) unblocker 2): a graph with a Sequence runs on the Sequence runtime, which has no For Each
+        // or Loop runtime. Reject every iterator in such a graph explicitly instead of relying on each Sequence topology
+        // contract to leave it off its paths (the schema 1.57 control contract checks only the first output).
+        // A Loop needs the activation frame owner only on the unified schema, so older Sequence schemas keep their Loop rules.
+        if (definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Sequence))
+            foreach (var (iteratorId, iterator) in definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.ForEach ||
+                entry.Value?.Type == NodeTypes.Loop && definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph))
+                Error(iterator.Type == NodeTypes.ForEach ? "foreach.sequence.unsupported" : "loop.sequence.unsupported", $"nodes.{iteratorId}",
+                    iterator.Type == NodeTypes.ForEach
+                        ? "A For Each cannot be in a graph that contains a Sequence. To repeat Sequence work per item, call a pinned child workflow that contains the Sequence from the For Each body."
+                        : "A Loop cannot be in a graph that contains a Sequence. To repeat Sequence work, call a pinned child workflow that contains the Sequence from the Loop body.");
+
         if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
         {
             if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)

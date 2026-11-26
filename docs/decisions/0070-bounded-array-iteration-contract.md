@@ -6381,3 +6381,37 @@ Then a fresh three-role review of the first slice (b) increment.
 - every owner is quiescent at the end;
 - File and SQLite reopen give the same passive state;
 - a failure variant: a child Sequence output fails on item 2, item 3 never starts, and the run reports `SubworkflowFailed` then root `Failed`, with every owner quiescent.
+
+## Slice (b) unblockers 1 and 2 (2026-11-26)
+
+Scope: the first two unblockers from "Slice (b) reopening review outcome". Slice (b) stays deferred and no guard was loosened.
+
+**Unblocker 1, mirror workaround: done (evidence only, no production change).** `ForEachSequenceChildMirrorTests` runs a For Each over `["a","b","c"]` whose body is one pinned `WorkflowCall`. The child is Input, a Sequence with two outputs (fixture Agent, uppercase transform), and Output. Results against the adjudicator's list:
+
+- Parent and child both validate with no issues. WorkflowCall is a supported body node, and the child is an ordinary unified Sequence graph.
+- The run completes with output `c`, the last pass's child result. Loop evidence is `each/1..3`, and `LoopStopped` reports `array-exhausted`.
+- In each pass the order is `LoopIterationStarted each/N`, then child `sequence.completed`, then `subworkflow.completed`, then the next `LoopIterationStarted` (or `LoopStopped`).
+- Each pass has one child Sequence invocation. All of its lifecycle events carry the scope `each/N/call`, and its playback reconstructs as `completed` when the journal is filtered to that invocation. Unfiltered, the run journal is refused, because the reader pins one invocation and one scope.
+- The root reservation records 3 body passes and some evidence events. With a root limit of 2 passes, the third item is refused after two child Sequences complete.
+- Four admission owners (the root and one per child run) end with nothing outstanding, and no dispatch tickets remain.
+- The File journal and the SQLite store each return exactly the recorded events. Across the two stores, the event kinds, nodes and nested scopes are the same (compared without order, because the two child outputs race), and every reader gives the same result.
+- Failure variant: the child Agent fails on item `b`. The child output and Sequence fail in `each/2/call`, then `subworkflow.failed`, then the root `run.failed`. Item `c` never starts, two passes are used, and every owner is quiescent.
+
+Finding, not caused by the Sequence: after reopen, `WorkflowWorkEvidence` reports incomplete correlation (zero unresolved items), so `WorkflowRunReconciliation` reads the completed run as `UnresolvedWork`. The reader checks child-run node events against the parent definition. A control run with an Agent-only child gives the same result, so this is a limit of the reader for WorkflowCall children. The skipped test `A_completed_for_each_sequence_child_run_reconciles_as_terminal_after_reopen` pins the desired behaviour, and no production code was changed. As the review expected, the child-run boundary hides blockers 1 and 2: the parent pass sees one call ticket, so this evidence does not unblock slice (b).
+
+**Unblocker 2, explicit rejection: done.** The accidental guard was reachable by a validated workflow. The schema 1.57 JSON control contract (`SequenceWorkflowCallJsonControlTopology`, selected for a Sequence graph with a WorkflowCall and a Boolean Branch) checks only the first Sequence output, and `ValidateSequenceGraph` returns before its node-type allowlist. Three graphs passed validation with zero issues: a typed For Each on the second output (schema 2.0), an untyped For Each (stored schema 1.57), and a Loop (schema 2.0). The required `array` input was not enforced either.
+
+- On schema 2.0 the run failed before any event, but only by accident: the loop activation plan does not compile.
+- On schema 1.57 the run recorded 10 events before failing: `run.started`, the Sequence dispatch, `execution.activated each`, `node.started each`, `sequence.output.failed` and `node.failed each`. The error was "For each 'each' has no activation frame owner", and the run ended `run.failed` after cancelling the sibling call.
+
+Fix:
+
+- `WorkflowValidator` now reports `foreach.sequence.unsupported` (or `loop.sequence.unsupported`) at `nodes.<id>` for every For Each in any graph that contains a Sequence, and for every Loop in such a graph on schema 2.0. On older Sequence schemas a Loop does not need the activation frame owner, so its existing rules are kept to avoid rejecting saved workflows that may run. A For Each repeats Sequence work through a WorkflowCall child.
+- `WorkflowRunner` refuses a definition on the Sequence route that contains an iterator. The check runs after the Sequence plan is chosen and before `run.started`, so it also covers runs that skip validation. The error names the node, for example "For Each 'each' cannot run in a Sequence graph".
+
+Tests:
+
+- `SequenceForEachRejectionTests` has two tests. The first covers the three shapes: the validator gives exactly one named issue, and the public runner throws with zero events. The second sends a For Each and a Loop through the private, validation-skipping Sequence decision proof: zero events, and the error names the node. All five cases failed before the fix.
+- `A_for_each_inside_a_sequence_path_is_rejected_in_the_first_slice` now asserts the named code.
+
+Remaining order: unblockers 3 to 8, then a fresh three-role review.

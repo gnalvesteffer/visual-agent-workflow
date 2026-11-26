@@ -404,6 +404,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         var resolvedParameters = WorkflowParameters.Resolve(revision.Definition, parameters);
         rootRevision ??= revision;
         sequencePlan ??= CreateSequenceProductionPlan(revision);
+        // Decision 0070 (slice (b) unblocker 2): the Sequence builder has no For Each or Loop runtime, so an iterator it
+        // reached recorded node.started and then threw. Refuse the definition here, before the run's first event, even
+        // when validation was skipped. The validator rejects the same shape as foreach/loop.sequence.unsupported.
+        if (sequencePlan is not null && rootCoordinatorProof is null &&
+            revision.Definition.Nodes.FirstOrDefault(entry => entry.Value?.Type == NodeTypes.ForEach ||
+                entry.Value?.Type == NodeTypes.Loop && revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) is
+                { Value: not null } iterator)
+            throw new InvalidOperationException(
+                $"{(iterator.Value.Type == NodeTypes.ForEach ? "For Each" : "Loop")} '{iterator.Key}' cannot run in a Sequence graph: " +
+                "the Sequence runtime has no iterator activation owner, so the run was refused before its first event.");
         workflowPath = workflowPath.IsDefault ? [] : workflowPath;
         var activationLedger = new ExecutionActivationLedger();
         var usesProductionRootDispatcher = !skipValidationForInternalProof && activationFrame is null &&
