@@ -807,7 +807,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         StructuredActivationFrameOwner? activationFrameOwner = null,
         ArrayIterationFeedbackProof? arrayIterationFeedbackProof = null,
         WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null,
-        ForEachCheckpointState? restoredForEach = null)
+        ForEachCheckpointState? restoredForEach = null,
+        Action<IReadOnlyDictionary<string, Executor<GraphMessage, GraphMessage>>>? observeExecutors = null)
     {
         var definition = revision.Definition;
         var executionEdges = WorkflowSchemaVersions.UsesExplicitGraph(definition)
@@ -835,6 +836,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     n.Value.Type == NodeTypes.ParallelJoin
                     ? executionEdges.Single(edge => edge.Source.NodeId == n.Key && edge.Source.PortId == "then").Target.NodeId
                     : null));
+        observeExecutors?.Invoke(executors);
         if (restoredForEach is not null)
         {
             // Rehydrate what a native For Each checkpoint cannot carry: the executor-instance items and the
@@ -2559,6 +2561,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
         private readonly ConcurrentDictionary<(Guid? ParentFrameId, string NodeId), JsonElement> forEachItems = new();
+
+        /// <summary>Live per-activation array entries (proof seam; empty once every activation is exhausted).</summary>
+        internal int ActiveForEachItemCount => forEachItems.Count;
 
         private static object TypedForEachItem(string elementType, JsonElement element) => elementType switch
         {

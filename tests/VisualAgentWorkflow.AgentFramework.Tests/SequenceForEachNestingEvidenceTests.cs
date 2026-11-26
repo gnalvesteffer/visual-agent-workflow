@@ -255,6 +255,33 @@ public sealed class SequenceForEachNestingEvidenceTests
         Assert.True(WorkflowCallEvidence.TryReconstructPlayback(run.Events, out _));
     }
 
+    [Fact]
+    public async Task Sequence_playback_pins_one_scope_id_and_ignores_iterator_scoped_loop_events()
+    {
+        // Characterizes the "older reader" behavior of SequenceEvidence (decision 0070, nested-scope playback): it keeps only
+        // sequence.* lifecycle events, so loop evidence with iterator scope ids (call/each/N) is invisible to it, but every
+        // lifecycle event of one Sequence must carry the SAME ScopeId. A Sequence that ever ran inside an iterator pass
+        // would therefore be rejected unless all its lifecycle events were stamped with the one pass scope.
+        var run = await RunAsync(new WorkflowRunner(agents: new ItemAgent()), Parent("sequence-scope-pin",
+            Revision(ForEachChild("pin-child", ["a", "b"])), Revision(PlainChild("pin-plain"))));
+        Assert.Null(run.Failure);
+        Assert.Contains(run.Events, evt => evt.ScopeId == "call/each/1");
+        Assert.True(SequenceEvidence.TryReconstructPlayback(run.Events, out var baseline));
+        Assert.Equal("completed", baseline!.Status);
+        Assert.All(run.Events.Where(evt => SequenceEvidence.TryRead(evt, out _)), evt => Assert.Null(evt.ScopeId));
+
+        // One consistent nested scope on every lifecycle event is accepted (the scope id is just pinned, not parsed).
+        var restamped = run.Events.Select(evt => SequenceEvidence.TryRead(evt, out _)
+            ? evt with { ScopeId = "outer/1/inner/1" } : evt).ToArray();
+        Assert.True(SequenceEvidence.TryReconstructPlayback(restamped, out var pinned));
+        Assert.Equal(baseline.Status, pinned!.Status);
+
+        // A lifecycle event in a different scope breaks the pin and the whole Sequence playback is refused.
+        var terminal = run.Events.Single(evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+        var split = restamped.Select(evt => evt.Sequence == terminal.Sequence ? evt with { ScopeId = "outer/2/inner/1" } : evt).ToArray();
+        Assert.False(SequenceEvidence.TryReconstructPlayback(split, out _));
+    }
+
     private static async Task<(Exception? Failure, ExecutionEvent[] Events)> RunWithRootLimitsAsync(string id, int maximumPasses,
         int maximumEvidenceEvents)
     {
@@ -463,13 +490,11 @@ public sealed class SequenceForEachNestingEvidenceTests
         }
     }
 
-    [Fact(Skip = "UNTESTABLE on production today: the For Each executor's forEachItems key (parentFrameId, nodeId) cannot be " +
-        "stressed with two simultaneous activations of one executor instance. A For Each is rejected inside a Sequence " +
-        "route (sequence.branch.nested), and in the ordinary graph a For Each node is activated sequentially (loop passes, " +
-        "Fork branches are distinct nodes). The needed test: one For Each node reached twice at once under a shared " +
-        "Sequence ActivationFrame with two different array evaluations, asserting each activation iterates only its own " +
-        "items and removes only its own forEachItems entry. It requires slice (b) or a private builder; do not unskip " +
-        "without one.")]
+    [Fact(Skip = "Still UNTESTABLE on production under a Sequence frame: a For Each cannot sit in a Sequence route and no " +
+        "production path activates one executor twice at once. The per-activation forEachItems key on ONE shared executor " +
+        "instance is proven by SharedExecutorForEachIsolationTests through the internal " +
+        "ExecuteSharedExecutorConcurrentActivationsProofAsync seam (two concurrent runs on one built workflow, two parent frames). " +
+        "Do not unskip without a Sequence route that admits a For Each.")]
     public void Concurrent_activations_of_one_for_each_instance_under_a_shared_sequence_frame_do_not_share_items()
     {
     }

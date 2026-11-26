@@ -513,3 +513,12 @@ The review found two blocking problems:
 Non-blocking findings: the changed `Step` handling applied to untracked sequential runs too, so a leaked set entry for the stepped node id would stop `pauseAfterSteppedNode` from ever firing; the approval reacquire path re-adds no key; `TracksActivation` tracked unknown node ids against its own description; a 4096-entry cap silently stops tracking; and a leaked entry in the permanent tracked mode would hang pause forever, which the baton design could not do.
 
 **Direction chosen.** Do not ship a sticky mode switch. The only reachable trigger today is an Approval in a Sequence output, because a Wait is rejected by validation there. The simpler design to evaluate first is to reject an approval or Wait beside concurrently running Sequence outputs at validation, which removes the set and its leak surface. If concurrent waits are later required, a replacement must enter tracked mode from the boundary path rather than at registration, release the slot when the set empties while a suspension is pending, and prove every started node ends with a terminal event.
+
+## Approval beside concurrent Sequence outputs: attempted and rejected (2026-11-25)
+
+An approval inside a Sequence output can acknowledge a pause while a sibling output is still executing. A fix was tried in an isolated copy: the approval skipped the in-flight decrement and the slot release, marked by a non-journaled flag set from the Sequence lineage. It was **not merged**. Adversarial review found two blocking problems:
+
+1. **Host-wide, unbounded starvation.** The execution slot is one semaphore shared by every owned run, and a pending Sequence-output approval holds it until a human decides or the run is stopped. Waits are capped so they cannot starve other work, and the same cap logic would be needed here.
+2. **The invariant still leaks.** The in-flight count is pooled across outputs, so the reacquire on a decision made while the sibling still runs drops the count to zero, and a multi-node sibling's next gated node acknowledges the pause. The invariant the fix claimed does not hold.
+
+The simpler design the review recommends is to reject an approval inside a Sequence output at validation, mirroring `wait.placement`. That is a compatibility-breaking change for saved workflows of that shape and needs an explicit decision and a migration path, so it is not made here. The real fix is per-output in-flight accounting, which remains deferred. The early `run.paused` defect stays open and documented, with its skipped desired-behaviour test.

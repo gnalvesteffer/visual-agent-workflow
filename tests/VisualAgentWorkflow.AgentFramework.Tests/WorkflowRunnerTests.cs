@@ -112,6 +112,27 @@ public class WorkflowRunnerTests
     }
 
     [Fact]
+    public async Task Parallel_join_playback_ignores_scoped_events_so_iterator_scoped_joins_are_not_reconstructed()
+    {
+        // Characterizes the "older reader" behavior of ParallelJoinEvidence (decision 0070, nested-scope playback): the
+        // passive projection is root-graph only and skips every event that carries a ScopeId, so Join evidence stamped
+        // with an iterator scope (outer/1/inner/1) yields no activations and the reconstruction is refused, never wrong.
+        var revision = WorkflowRevision.Create(NestedForkDefinition(), "nested-join-scope");
+        var events = new List<ExecutionEvent>();
+        var result = await new WorkflowRunner(agents: new EchoNestedAgentExecutor())
+            .ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "research input", null,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; })
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(result.Failed);
+        Assert.True(ParallelJoinEvidence.TryReconstructPlayback(revision.Definition, events, out var unscoped));
+        Assert.Equal(4, unscoped!.Activations.Length);
+
+        var scoped = events.Select(evt => evt.Kind is ExecutionEventKinds.ParallelJoinActivated or ExecutionEventKinds.ParallelJoinArrival
+            ? evt with { ScopeId = "outer/1/inner/1" } : evt).ToArray();
+        Assert.False(ParallelJoinEvidence.TryReconstructPlayback(revision.Definition, scoped, out _));
+    }
+
+    [Fact]
     public async Task ExecutesNestedForkJoinAuthoredOnAnExplicitExecutionEdge()
     {
         var original = NestedForkDefinition();
