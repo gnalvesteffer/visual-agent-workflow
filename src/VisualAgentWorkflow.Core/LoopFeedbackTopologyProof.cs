@@ -26,7 +26,20 @@ internal sealed record LoopFeedbackRegionProof(
     string FeedbackConnectionId,
     ImmutableArray<string> BodyNodeIds,
     ImmutableArray<string> BreakNodeIds,
-    ImmutableArray<LoopFeedbackBreakRouteProof> BreakRoutes);
+    ImmutableArray<LoopFeedbackBreakRouteProof> BreakRoutes,
+    LoopFeedbackSequenceBarrierProof? SequenceBarrier = null);
+
+/// <summary>
+/// Decision 0070 slice (b) unblocker 4: a body-local Sequence barrier. Every output route of
+/// <paramref name="SequenceNodeId"/> returns to the owning For Each feedback pin, and the outputs join at the
+/// Sequence barrier before the single pass return. Produced only when the proof is asked for it explicitly.
+/// </summary>
+internal sealed record LoopFeedbackSequenceBarrierProof(
+    string LoopNodeId,
+    string SequenceNodeId,
+    ImmutableArray<string> SequenceOutputPinIds,
+    ImmutableArray<string> ReturnConnectionIds,
+    ImmutableArray<string> RouteNodeIds);
 
 internal sealed record LoopFeedbackTopologyIssue(string Code, string Path, string Message);
 
@@ -44,7 +57,8 @@ internal static class LoopFeedbackTopologyProofAnalyzer
 {
     private const int MaximumBodyNodes = 256;
 
-    public static LoopFeedbackTopologyProof Analyze(WorkflowDefinition definition, LoopFeedbackPinShape shape)
+    public static LoopFeedbackTopologyProof Analyze(WorkflowDefinition definition, LoopFeedbackPinShape shape,
+        bool allowBodyLocalSequenceBarrier = false)
     {
         ArgumentNullException.ThrowIfNull(definition);
 
@@ -142,6 +156,48 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                 Issue("foreach.break.terminal", $"nodes.{breakNodeId}", "A Break has no outputs.");
         }
 
+        // Decision 0070 slice (b) unblocker 4: several returns are accepted only as one body-local Sequence barrier.
+        // Every return must come from a distinct output route of the same Sequence, every output of that Sequence must
+        // return, the owner must be a For Each on the explicit feedback pin, and the body may hold no Break.
+        LoopFeedbackSequenceBarrierProof? ProveSequenceBarrier(string loopId,
+            List<(string Id, LoopFeedbackSequenceOutputRouteProof? Route)> returns, int proofBreakCount)
+        {
+            const string Code = "loop.feedback.sequence-barrier";
+            var issueCount = issues.Count;
+            var path = $"nodes.{loopId}";
+            if (shape != LoopFeedbackPinShape.ExplicitFeedbackInput)
+                Issue($"{Code}.shape", path, "A body-local Sequence barrier requires the explicit feedback input.");
+            if (definition.Nodes[loopId].Type != NodeTypes.ForEach)
+                Issue($"{Code}.owner", path, "A body-local Sequence barrier is supported only in a For Each body.");
+            var sequenceIds = returns.Select(item => item.Route?.SequenceNodeId).Distinct().ToArray();
+            if (sequenceIds.Length != 1 || sequenceIds[0] is not { } sequenceId)
+            {
+                Issue($"{Code}.owner", path, "Every body return must come from an output route of the same Sequence.");
+                return null;
+            }
+            var routePins = returns.Select(item => item.Route!.SequenceOutputPinId).ToArray();
+            if (routePins.Distinct(StringComparer.Ordinal).Count() != routePins.Length)
+                Issue($"{Code}.cardinality", $"nodes.{sequenceId}", "Each Sequence output route must return exactly once.");
+            var outputPins = Pins(sequenceId, WorkflowPortDirection.Output, WorkflowExecutionPinRole.FanOutOutput)
+                .Select(port => port.Id).Order(StringComparer.Ordinal).ToArray();
+            if (!outputPins.SequenceEqual(routePins.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal), StringComparer.Ordinal))
+                Issue($"{Code}.partial", $"nodes.{sequenceId}", "Every output of a body-local Sequence barrier must return to the feedback input.");
+            if (proofBreakCount > 0 || breaksByForEach.GetValueOrDefault(loopId) is { Count: > 0 })
+                Issue($"{Code}.break", path, "A body-local Sequence barrier cannot share its body with a Break.");
+            if (issues.Count != issueCount) return null;
+
+            var routeNodes = new SortedSet<string>(StringComparer.Ordinal);
+            var pendingRoute = new Queue<string>(outputPins.SelectMany(pin => (outgoing.GetValueOrDefault(sequenceId) ?? [])
+                .Where(item => item.Edge.Source.PortId == pin).Select(item => item.Edge.Target.NodeId)));
+            while (pendingRoute.TryDequeue(out var nodeId))
+            {
+                if (nodeId == loopId || !routeNodes.Add(nodeId)) continue;
+                foreach (var next in outgoing.GetValueOrDefault(nodeId) ?? []) pendingRoute.Enqueue(next.Edge.Target.NodeId);
+            }
+            return new(loopId, sequenceId, [.. outputPins],
+                [.. returns.Select(item => item.Id).Order(StringComparer.Ordinal)], [.. routeNodes]);
+        }
+
         bool AnalyzeRegion(string loopId, string? parentLoopId)
         {
             if (!activeLoops.Add(loopId))
@@ -186,6 +242,7 @@ internal static class LoopFeedbackTopologyProofAnalyzer
             var pending = new Queue<(string NodeId, HashSet<string> Path, LoopFeedbackSequenceOutputRouteProof? SequenceRoute)>();
             pending.Enqueue((loopAnchors[loopId], new(StringComparer.Ordinal), null));
             string? returnConnectionId = null;
+            var barrierReturns = new List<(string Id, LoopFeedbackSequenceOutputRouteProof? Route)>();
 
             void Follow(string sourceNodeId, string sourcePortId, HashSet<string> path,
                 LoopFeedbackSequenceOutputRouteProof? sequenceRoute)
@@ -202,6 +259,17 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                 var next = successors[0];
                 if (next.Edge.Target.NodeId == loopId)
                 {
+                    if (allowBodyLocalSequenceBarrier)
+                    {
+                        // Decision 0070 slice (b) unblocker 4: collect every return; the barrier rule below decides
+                        // whether several returns are one joined Sequence barrier or a cardinality violation.
+                        barrierReturns.Add((next.Id, sequenceRoute));
+                        returnConnectionId ??= next.Id;
+                        if (next.Edge.Target.PortId != feedbackPort)
+                            Issue("loop.feedback.pin", $"executionConnections.{next.Id}",
+                                "The body return must target the candidate feedback input.");
+                        return;
+                    }
                     if (returnConnectionId is not null)
                         Issue("loop.feedback.cardinality", $"executionConnections.{next.Id}",
                             "A loop body must have exactly one normal return route; other Sequence outputs may end in Break.");
@@ -348,6 +416,13 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                 Follow(current, continuationPorts[0].Id, path, sequenceRoute);
             }
 
+            LoopFeedbackSequenceBarrierProof? barrier = null;
+            if (allowBodyLocalSequenceBarrier && barrierReturns.Count > 1)
+            {
+                barrier = ProveSequenceBarrier(loopId, barrierReturns, breakNodes.Count);
+                if (barrier is not null) returnConnectionId = barrier.ReturnConnectionIds[0];
+            }
+
             if (returnConnectionId is null && !issues.Any(issue => issue.Path.StartsWith($"nodes.{loopId}", StringComparison.Ordinal)))
                 Issue("loop.feedback.missing", $"nodes.{loopId}", "The loop body has no return to its owning loop.");
 
@@ -356,6 +431,13 @@ internal static class LoopFeedbackTopologyProofAnalyzer
                 if (initialEdges.Length != 2 || feedbackEdges.Length != 2 || returnConnectionId is null ||
                     !feedbackEdges.Any(item => item.Id == returnConnectionId))
                     Issue("loop.feedback.cardinality", $"nodes.{loopId}.execute", "The inferred shape requires one initial edge and one body return on execute.");
+            }
+            else if (barrier is not null)
+            {
+                if (initialEdges.Length != 1 || !feedbackEdges.Select(item => item.Id).Order(StringComparer.Ordinal)
+                        .SequenceEqual(barrier.ReturnConnectionIds, StringComparer.Ordinal))
+                    Issue("loop.feedback.cardinality", $"nodes.{loopId}",
+                        "A body-local Sequence barrier requires one initial edge and exactly its output returns on the feedback input.");
             }
             else if (initialEdges.Length != 1 || feedbackEdges.Length != 1 ||
                      feedbackEdges[0].Id != returnConnectionId)
@@ -368,7 +450,7 @@ internal static class LoopFeedbackTopologyProofAnalyzer
             if (returnConnectionId is not null)
                 regions.Add(new(loopId, loopAnchors[loopId], parentLoopId,
                     initialConnectionId, returnConnectionId, body.ToImmutable(), breakNodes.ToImmutable(),
-                    breakRoutes.OrderBy(route => route.BreakNodeId, StringComparer.Ordinal).ToImmutableArray()));
+                    breakRoutes.OrderBy(route => route.BreakNodeId, StringComparer.Ordinal).ToImmutableArray(), barrier));
 
             activeLoops.Remove(loopId);
             return returnConnectionId is not null;

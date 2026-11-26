@@ -541,8 +541,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var run = await execution.RunStreamingAsync(workflow!,
                 new GraphMessage(input, null, null, DataType: inputType,
                     ActivationFrame: activationFrame,
+                    // Decision 0070 slice (b) unblocker 4: on the internal pass-scope seam the Sequence entry ticket is
+                    // pass-scoped too; production passes no pass scope, so this stays the root (null) scope.
                     DispatchTicketId: dispatchAdmissionOwner?.Admit(sequencePlan?.SequenceNodeId ??
-                        revision.Definition.EntryNodeId)), cancellationToken: cancellationToken);
+                        revision.Definition.EntryNodeId, sequencePlan is null ? null : sequencePassScopeId)),
+                cancellationToken: cancellationToken);
             await using var runLifetime = new DetachableRun(run);
             Volatile.Write(ref detachableRun, runLifetime);
             activationFrameOwner.AbandonRun = runLifetime.Detach;
@@ -2569,7 +2572,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner = null,
         Func<string, GraphMessage, IReadOnlyCollection<string>>? dispatchTargetResolver = null,
         TimeProvider? timeProvider = null,
-        WorkflowRunBudget? inheritedRunBudget = null)
+        WorkflowRunBudget? inheritedRunBudget = null,
+        string? admissionScopeFallback = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -2748,7 +2752,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     throw new InvalidOperationException("The parallel Join continuation is missing.");
                 var continuation = completion.Message with
                 {
-                    DispatchTicketId = dispatchAdmissionOwner?.Admit(target, completion.Message.ActivationFrame?.ScopeId)
+                    DispatchTicketId = dispatchAdmissionOwner?.Admit(target, completion.Message.ActivationFrame?.ScopeId ?? admissionScopeFallback)
                 };
                 try
                 {
@@ -2790,7 +2794,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     Guid? ticket = null;
                     if (dispatchAdmissionOwner is not null)
                     {
-                        ticket = dispatchAdmissionOwner.Admit(target, outgoing.ActivationFrame?.ScopeId);
+                        ticket = dispatchAdmissionOwner.Admit(target, outgoing.ActivationFrame?.ScopeId ?? admissionScopeFallback);
                         message = outgoing with { DispatchTicketId = ticket };
                     }
                     try
@@ -2807,7 +2811,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var completed = await HandleCoreAsync(received, Dispatch, cancellationToken,
                     deferUnifiedJoinCommitToReceiverBatch: true);
                 if (dispatchAdmissionOwner is not null && ResolveContinuationTargets(completed) is { Count: > 0 } targets)
-                    completed = completed with { DispatchTicketId = dispatchAdmissionOwner.Admit(targets, completed.ActivationFrame?.ScopeId) };
+                    completed = completed with { DispatchTicketId = dispatchAdmissionOwner.Admit(targets, completed.ActivationFrame?.ScopeId ?? admissionScopeFallback) };
                 return completed;
             }
             catch (OperationCanceledException) when (frameLink is not null && !runToken.IsCancellationRequested &&

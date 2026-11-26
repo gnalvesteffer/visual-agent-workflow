@@ -11,6 +11,36 @@ public sealed record ValidationIssue(string Code, string Path, string Message);
 
 public static class WorkflowValidator
 {
+    /// <summary>
+    /// Decision 0070 slice (b) unblocker 4 (internal only): the validator arm for a For Each body that holds one
+    /// body-local Sequence barrier. <see cref="Validate"/> never calls it, so the shape stays rejected as
+    /// <c>foreach.sequence.unsupported</c>; this checks only the barrier shape for internal and test entry points.
+    /// </summary>
+    internal static ImmutableArray<ValidationIssue> ValidateBodyLocalSequenceBarrierCandidate(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (!StructuredActivationGraphPlan.TryCreateForBodyLocalSequenceBarrier(definition, out var plan, out var topologyIssues))
+            return [.. topologyIssues.Select(issue => new ValidationIssue(issue.Code, issue.Path, issue.Message))];
+        var barrier = plan!.SequenceBarriersByLoopNodeId.Values.Single();
+        var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
+        if (definition.Nodes.Values.Count(node => node?.Type == NodeTypes.Sequence) != 1)
+            issues.Add(new("foreach.sequence-barrier.sequence-count", "nodes",
+                "A body-local Sequence barrier candidate holds exactly one Sequence."));
+        if (definition.Nodes.Values.Count(node => node?.Type is NodeTypes.ForEach or NodeTypes.Loop) != 1)
+            issues.Add(new("foreach.sequence-barrier.iterator-count", "nodes",
+                "A body-local Sequence barrier candidate holds exactly one iterator."));
+        // Interim conservative allowlist (needs review): straight data steps only. Concurrency (Fork/Join, rendezvous),
+        // suspension (Wait, approval-gated MCP), termination, child runs and nested control stay out of the routes.
+        foreach (var nodeId in barrier.RouteNodeIds)
+            if (definition.Nodes.GetValueOrDefault(nodeId)?.Type is { } type && !IsBodyLocalSequenceBarrierRouteNode(type))
+                issues.Add(new("foreach.sequence-barrier.route-node", $"nodes.{nodeId}",
+                    $"A '{type}' node is not allowed on a body-local Sequence barrier route."));
+        return issues.ToImmutable();
+    }
+
+    private static bool IsBodyLocalSequenceBarrierRouteNode(string type) =>
+        type is NodeTypes.Agent or NodeTypes.SequenceReverse or NodeTypes.SequenceUppercase;
+
     public static ImmutableArray<ValidationIssue> Validate(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);

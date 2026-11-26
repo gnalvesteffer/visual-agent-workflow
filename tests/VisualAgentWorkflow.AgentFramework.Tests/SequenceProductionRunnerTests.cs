@@ -1217,6 +1217,57 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Sequence_in_a_pass_scope_admits_node_executor_continuations_in_the_pass_scope()
+    {
+        // Decision 0070, slice (b) unblocker 4: a node executor inside a Sequence output path admits its continuation
+        // (here the Agent's ticket to the Output) in the pass scope, although its message carries no activation frame.
+        const string passScope = "each/1";
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-pass-scope-continuations");
+        WorkflowDispatchAdmissionOwner? admissionOwner = null;
+        var unscoped = new ConcurrentQueue<string>();
+        var admitted = new ConcurrentQueue<string>();
+
+        var result = await new WorkflowRunner(new RecordingBroker(), new SequenceProofAgentExecutor())
+            .ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(), revision, "sequence input",
+                ticket =>
+                {
+                    admitted.Enqueue(ticket.TargetNodeId);
+                    if (!admissionOwner!.OutstandingIn(passScope).Contains($"{ticket.TargetNodeId}:Admitted"))
+                        unscoped.Enqueue(ticket.TargetNodeId);
+                }, _ => ValueTask.CompletedTask, ownerProbe: owner => admissionOwner = owner,
+                sequencePassScopeId: passScope);
+
+        Assert.False(result.Failed);
+        Assert.Contains("output", admitted);
+        Assert.Empty(unscoped);
+        Assert.Empty(admissionOwner!.OutstandingIn(passScope));
+    }
+
+    [Fact]
+    public async Task Top_level_sequence_still_admits_node_executor_continuations_in_the_root_scope()
+    {
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-root-scope-continuations");
+        WorkflowDispatchAdmissionOwner? admissionOwner = null;
+        var scoped = new ConcurrentQueue<string>();
+
+        var result = await new WorkflowRunner(new RecordingBroker(), new SequenceProofAgentExecutor())
+            .ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(), revision, "sequence input",
+                ticket =>
+                {
+                    if (admissionOwner!.OutstandingIn("each/1").Count > 0) scoped.Enqueue(ticket.TargetNodeId);
+                }, _ => ValueTask.CompletedTask, ownerProbe: owner => admissionOwner = owner);
+
+        Assert.False(result.Failed);
+        Assert.Empty(scoped);
+    }
+
+    [Fact]
     public async Task Unified_production_sequence_rejected_admission_prevents_first_target_start()
     {
         var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with

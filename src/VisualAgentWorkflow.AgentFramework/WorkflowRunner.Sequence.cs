@@ -534,7 +534,10 @@ public sealed partial class WorkflowRunner
                 dispatchTargetResolver: dispatchAdmissionOwner is null ? null : ResolveSequenceDispatchTargets,
                 // Decision 0070: output branches inherit the root run budget, so a WorkflowCall child that loops
                 // draws from the same reservation as the Sequence's own run.
-                inheritedRunBudget: runBudget), StringComparer.Ordinal);
+                inheritedRunBudget: runBudget,
+                // Decision 0070 slice (b) unblocker 4: output-path messages carry no activation frame on the Sequence
+                // route, so node executors admit their continuations in the pass scope (null outside a pass).
+                admissionScopeFallback: passScopeId), StringComparer.Ordinal);
         var source = new SequenceProductionSource(plan.SequenceNodeId, plan, coordinator, FlushSequenceEvents, emit,
             gate, sequenceDispatchSession, dispatchAdmissionOwner, passScopeId);
         var collector = new SequenceProductionCollector(SequenceRuntimeExecutors.CollectorNodeId, plan, coordinator,

@@ -26,6 +26,48 @@ internal sealed class SequenceDispatchEdgeTable
         edges.Where(edge => edge.SourceId == executorId && edge.Matches(message))
             .Select(edge => edge.TargetId).Distinct(StringComparer.Ordinal).ToArray();
 
+    /// <summary>
+    /// Decision 0070 slice (b) unblocker 4 (internal only): the body-local barrier mode. Each Sequence output route's
+    /// return to the For Each feedback pin is delivered to the Sequence collector instead, and only the collector
+    /// continues to the feedback pin, so the outputs join before the pass returns. No runner path builds this table.
+    /// </summary>
+    public static SequenceDispatchEdgeTable CreateBodyLocal(WorkflowDefinition definition,
+        LoopFeedbackSequenceBarrierProof barrier)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(barrier);
+        var execution = definition.ExecutionConnections ??
+            throw new ArgumentException("The body-local barrier requires explicit execution connections.", nameof(definition));
+        var routeNodes = barrier.RouteNodeIds.ToHashSet(StringComparer.Ordinal);
+        var returns = barrier.ReturnConnectionIds.Select(id => execution.TryGetValue(id, out var edge) &&
+                edge.Target.NodeId == barrier.LoopNodeId && routeNodes.Contains(edge.Source.NodeId)
+                ? edge
+                : throw new ArgumentException($"Return connection '{id}' is not a barrier route return to '{barrier.LoopNodeId}'.",
+                    nameof(barrier)))
+            .ToArray();
+        if (returns.Length == 0 || returns.Select(edge => edge.Target.PortId).Distinct(StringComparer.Ordinal).Count() != 1)
+            throw new ArgumentException("The barrier returns must target one feedback pin.", nameof(barrier));
+
+        var raw = new List<Edge>();
+        // Edges inside the output routes are delivered as authored.
+        foreach (var edge in execution.Values.Where(edge =>
+                     routeNodes.Contains(edge.Source.NodeId) && routeNodes.Contains(edge.Target.NodeId)))
+            raw.Add(new(edge.Source.NodeId, edge.Target.NodeId,
+                message => message?.SourceNode == edge.Source.NodeId && message.SourcePort == edge.Source.PortId));
+        // Each route's return joins at the Sequence collector instead of reaching the feedback pin.
+        foreach (var edge in returns)
+            raw.Add(new(edge.Source.NodeId, CollectorId,
+                message => message?.SourceNode == edge.Source.NodeId && message.SourcePort == edge.Source.PortId));
+        // Only the collector continues to the For Each feedback pin: one return per pass.
+        raw.Add(new(CollectorId, barrier.LoopNodeId,
+            message => message?.SourceNode == CollectorId && message.SourcePort == "completed"));
+        return new(raw.GroupBy(edge => (edge.SourceId, edge.TargetId))
+            .Select(group => group.Count() == 1
+                ? group.Single()
+                : new Edge(group.Key.SourceId, group.Key.TargetId, message => group.Any(edge => edge.Matches(message))))
+            .ToImmutableArray());
+    }
+
     public static SequenceDispatchEdgeTable Create(WorkflowDefinition definition,
         WorkflowRunner.SequenceProductionPlan plan, IReadOnlySet<string>? breakNodeIds)
     {
