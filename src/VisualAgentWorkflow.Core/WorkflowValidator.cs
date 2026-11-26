@@ -757,6 +757,10 @@ public static class WorkflowValidator
             Error("wait.placement", $"nodes.{waitId}",
                 "A wait is legal only on a top-level execution path: not inside a Sequence output or Fork/Join branch (a sequential Loop or For Each body is allowed).");
 
+        foreach (var approvalId in WorkflowWaitPlacement.NodesInsideConcurrentSequenceOutputs(definition))
+            Error("approval.placement", $"nodes.{approvalId}",
+                "An approval is not allowed inside a Sequence output of a Sequence with more than one output, because those outputs run concurrently. Place the approval before the Sequence or on a path that is not a Sequence output.");
+
         if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
         {
             if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)

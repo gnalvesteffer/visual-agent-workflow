@@ -123,8 +123,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
     /// <summary>
     /// Characterization-only: runs a definition through the ordinary production dispatcher while ignoring the
-    /// <c>wait.placement</c> and <c>sequence.path.*</c> validation issues, so tests can observe a Wait that the validator still rejects (Decision 0081,
-    /// "Sequence output Wait facts"). Not reachable from persisted content or any host.
+    /// <c>wait.placement</c>, <c>approval.placement</c> and <c>sequence.path.*</c> validation issues, so tests can observe a Wait or an approval
+    /// that the validator still rejects (Decision 0081, "Sequence output Wait facts" and "Approval placement rule"). Not reachable from persisted content or any host.
     /// </summary>
     internal Task<WorkflowExecutionResult> ExecuteIgnoringWaitPlacementProofAsync(Guid runId,
         WorkflowRevision revision, string input, Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate gate,
@@ -369,11 +369,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         {
             if (ignoreWaitPlacementForProof)
             {
-                // Test-only characterization seam (Decision 0081): every other validation issue still throws. A Wait is also
+                // Test-only characterization seam (Decision 0081): every other validation issue still throws. A Wait or an approval is also
                 // outside the Sequence path allowlist, so the path cascade it causes (sequence.path.*) is ignored too. The
                 // production dispatcher and admission owner stay on, unlike skipValidationForInternalProof.
                 var remaining = WorkflowValidator.Validate(revision.Definition)
-                    .Where(issue => issue.Code != "wait.placement" && !issue.Code.StartsWith("sequence.path.", StringComparison.Ordinal)).ToArray();
+                    .Where(issue => issue.Code is not ("wait.placement" or "approval.placement") && !issue.Code.StartsWith("sequence.path.", StringComparison.Ordinal)).ToArray();
                 if (remaining.Length > 0)
                     throw new ArgumentException(string.Join("; ", remaining.Select(i => $"{i.Code} at {i.Path}: {i.Message}")), nameof(revision));
             }

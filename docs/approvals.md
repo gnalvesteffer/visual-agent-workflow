@@ -37,6 +37,8 @@ Approvals inside pinned child workflows use the same control path. Their action 
 
 This milestone guards explicit `core.mcp-tool` nodes. It does not intercept tool calls made inside an agent loop, approve arbitrary provider-selected calls, approve all future actions in a run, or impose mandatory host approval on workflows that have no approval node. Hosts still own deployment review and authorization over definitions and run controls. The local MCP fixtures remain read-only; no live external write or live LLM is validated here.
 
+**Placement.** An approval must not sit inside a Sequence output of a Sequence with more than one output. Validation rejects it with `approval.placement`, because those outputs run concurrently and an approval would pause one output while its siblings keep running. Approvals on the root path, after a Fork/Join region, and in a loop body are not affected. See [Decision 0081](decisions/0081-latent-and-time-based-work.md#approval-placement-rule-2026-11-25) for the migration path.
+
 ## Author and review
 
 1. Configure an MCP tool node in the designer. Select **Require approval before tool** on that card. This inserts a separate approval node as one undoable edit.

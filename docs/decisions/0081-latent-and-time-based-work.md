@@ -522,3 +522,22 @@ An approval inside a Sequence output can acknowledge a pause while a sibling out
 2. **The invariant still leaks.** The in-flight count is pooled across outputs, so the reacquire on a decision made while the sibling still runs drops the count to zero, and a multi-node sibling's next gated node acknowledges the pause. The invariant the fix claimed does not hold.
 
 The simpler design the review recommends is to reject an approval inside a Sequence output at validation, mirroring `wait.placement`. That is a compatibility-breaking change for saved workflows of that shape and needs an explicit decision and a migration path, so it is not made here. The real fix is per-output in-flight accounting, which remains deferred. The early `run.paused` defect stays open and documented, with its skipped desired-behaviour test.
+
+## Approval placement rule (2026-11-25)
+
+**Rule.** `WorkflowValidator` rejects an Approval whose execution path lies inside a Sequence output of a Sequence with more than one output. The issue is `approval.placement` at `nodes.<approval>`. The walk is the region walk behind `wait.placement`: `WorkflowWaitPlacement.NodesInsideRegions` and the new `NodesInsideConcurrentSequenceOutputs` share `NodesReachableFromOpeners`, and only the opening Sequence outputs and the reported node type differ. Approvals on the root path, after a Fork/Join region, or in a Loop or For Each body are not reported by this rule.
+
+**Why.** Outputs of one Sequence run concurrently (row 1 of "Sequence output Wait facts"). An approval suspends its own output while the siblings keep executing, and the in-flight count is pooled across outputs. The "attempted and rejected" section names rejection at validation as the simpler design. Waits keep `wait.placement`; their rule is unchanged.
+
+**What still works.** Approvals on the root path and after a Fork/Join region validate. The approval-to-MCP-tool target rule (`approval.target`) is unchanged.
+
+**Facts found while implementing.**
+- The unified Sequence path profile already rejected an approval in a Sequence output as `sequence.path.node` and `sequence.path.terminal`, so no validated graph contained one. The new diagnostic is specific and independent of the path profile, as `wait.placement` is. It adds no new rejection of a validated saved workflow.
+- Sequence outputs need 2 to 4 entries (`SequenceOutputLimits.MinimumOutputs`), so a one-output Sequence never validates (`sequence.configuration`). The "single-output Sequence keeps working" clause has no validated case. The test pins only that the placement rule does not fire for a one-output Sequence.
+- A Sequence graph has exactly one Output barrier (`sequence.count`), so no root-path step can follow a Sequence in the same graph. "After a join" is therefore tested as an approval after a Fork/Join region.
+
+**Migration for saved workflows.** Nothing validated changes, because the path profile already rejected this shape. An author whose workflow fails with `approval.placement` or `sequence.path.node` has two options. Split the Sequence so the gated tool runs on a single path, with the approval and tool on a root path before the Sequence, when the tool input is available there. Or move the approval onto a path that is not a Sequence output.
+
+**Test seam.** `WorkflowRunner.ExecuteIgnoringWaitPlacementProofAsync` also ignores `approval.placement`, as it already ignores `wait.placement` and `sequence.path.*`. It stays internal and test-only. The two approval-driven characterization tests in AgentFramework `SequenceOutputWaitFactsTests` are bypass-only: they assert the production rejection and then run through the seam. The `approval.target` hazard still throws through the seam.
+
+**Not verified.** Studio authoring feedback for this diagnostic, and browser behavior. Core unit tests cover the validator and walk; no runtime change was made.

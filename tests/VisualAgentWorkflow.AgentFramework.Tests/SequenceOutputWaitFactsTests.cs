@@ -9,7 +9,7 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 /// <summary>
 /// Decision 0081, "Sequence output Wait facts (2026-11-25)". Characterization only: the validator still rejects a Wait in a
 /// Sequence output (<c>wait.placement</c>), so the runner is driven through a test-only seam that ignores exactly that issue
-/// and otherwise uses the production dispatcher, admission owner, coordinator, and the host <see cref="ControlledRun"/> gate.
+/// (and <c>approval.placement</c> for the approval-driven cases, which are bypass-only) and otherwise uses the production dispatcher, admission owner, coordinator, and the host <see cref="ControlledRun"/> gate.
 /// Waits are driven by <see cref="ManualTimeProvider"/>; the tests poll the journal in real time only to observe recorded events.
 /// </summary>
 public sealed class SequenceOutputWaitFactsTests : IDisposable
@@ -246,7 +246,7 @@ public sealed class SequenceOutputWaitFactsTests : IDisposable
         // A second, independent gate: the unified Sequence path allowlist has no Wait.
         Assert.Contains(issues, issue => issue.Code == "sequence.path.node" && issue.Path == "nodes.wait");
         Assert.Empty(WorkflowValidator.Validate(Graph(waitInFirst: false)));
-        // The production entry point refuses it too; only the test-only seam ignores exactly these two families.
+        // The production entry point refuses it too; only the test-only seam ignores exactly these families.
         Assert.Throws<ArgumentException>(() => WorkflowRevision.Create(Graph(), "test"));
     }
 
@@ -534,7 +534,7 @@ public sealed class SequenceOutputWaitFactsTests : IDisposable
         var hazard = Graph(waitInFirst: false, approvalBeforeFirstTool: true, waitAfterApproval: true);
 
         Assert.Contains(WorkflowValidator.Validate(hazard), issue => issue.Code == "approval.target" && issue.Path == "nodes.approval");
-        // The test-only seam ignores only wait.placement and sequence.path.*, so this hazard stays unreachable through it too.
+        // The test-only seam ignores only wait.placement, approval.placement and sequence.path.*, so this hazard stays unreachable through it too.
         var revision = WorkflowRevision.CreateProofOnly(hazard, "test");
         var header = new FileRunJournal(directory).Create(revision, "x").Header;
         using var control = new ControlledRun(new FileRunJournal(directory), header, slot, clock, WorkflowWaitOptions.Default);
@@ -547,8 +547,12 @@ public sealed class SequenceOutputWaitFactsTests : IDisposable
     public async Task A_wait_before_an_approval_completes_before_the_request_and_nothing_separates_the_permit_from_the_tool()
     {
         var definition = Graph(approvalBeforeFirstTool: true);
-        var onlyExpected = WorkflowValidator.Validate(definition).Select(issue => issue.Code).Distinct().Order().ToArray();
-        Assert.All(onlyExpected, code => Assert.True(code == "wait.placement" || code.StartsWith("sequence.path.", StringComparison.Ordinal), code));
+        var issues = WorkflowValidator.Validate(definition);
+        // Bypass-only: production validation rejects this graph, because an approval may not sit in a multi-output Sequence output
+        // (approval.placement). The seam below ignores exactly the placement and path families, so this characterization still runs.
+        Assert.Contains(issues, issue => issue.Code == "approval.placement" && issue.Path == "nodes.approval");
+        var onlyExpected = issues.Select(issue => issue.Code).Distinct().Order().ToArray();
+        Assert.All(onlyExpected, code => Assert.True(code is "wait.placement" or "approval.placement" || code.StartsWith("sequence.path.", StringComparison.Ordinal), code));
 
         using var host = StartHost(definition, Instant());
         await WaitRequested(host);

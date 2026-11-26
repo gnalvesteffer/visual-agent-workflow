@@ -233,6 +233,42 @@ public static class WorkflowWaitPlacement
                 ? [.. definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.Wait).Select(entry => entry.Key).Order(StringComparer.Ordinal)]
                 : [];
         }
+        return NodesReachableFromOpeners(definition, edges, IsRegionOpener, node => node?.Type == NodeTypes.Wait);
+    }
+
+    /// <summary>
+    /// Returns the Approval nodes that sit inside a Sequence output of a Sequence with more than one output (<c>approval.placement</c>).
+    /// Outputs of such a Sequence run concurrently, and an approval suspends its own output while the siblings keep executing.
+    /// This is the same walk as <see cref="NodesInsideRegions"/>, opened only by those Sequence outputs and reporting Approval nodes.
+    /// Approvals after a Fork/Join region or on the root path are not reported.
+    /// </summary>
+    public static ImmutableArray<string> NodesInsideConcurrentSequenceOutputs(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.Nodes is null) return [];
+        if (definition.ExecutionConnections is not { } edges)
+        {
+            // Fail closed, as NodesInsideRegions does: without an edge table no approval can be proven outside the region.
+            return definition.Nodes.Values.Any(IsConcurrentSequence)
+                ? [.. definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.Approval).Select(entry => entry.Key).Order(StringComparer.Ordinal)]
+                : [];
+        }
+        return NodesReachableFromOpeners(definition, edges, IsConcurrentSequence, node => node?.Type == NodeTypes.Approval);
+    }
+
+    private static bool IsRegionOpener(NodeDefinition? node) => node?.Type is NodeTypes.Sequence or NodeTypes.ParallelFork;
+
+    private static bool IsConcurrentSequence(NodeDefinition? node) =>
+        node?.Type == NodeTypes.Sequence && node.Sequence is { Outputs.IsDefault: false } configuration && configuration.Outputs.Length > 1;
+
+    /// <summary>
+    /// The shared region walk. Every execution target of an opener node (one whose outputs start a region) is entered, and
+    /// everything reachable from it is inside. Reaching a Loop or For Each through its feedback pin ends the walk, and a Join
+    /// continues the walk only when its Fork is itself inside a region.
+    /// </summary>
+    private static ImmutableArray<string> NodesReachableFromOpeners(WorkflowDefinition definition, ImmutableSortedDictionary<string, ConnectionDefinition> edges,
+        Func<NodeDefinition?, bool> isOpener, Func<NodeDefinition?, bool> isTarget)
+    {
         var outgoing = edges.Values.Where(edge => edge?.Source is not null && edge.Target is not null)
             .ToLookup(edge => edge.Source.NodeId, StringComparer.Ordinal);
         var inside = new HashSet<string>(StringComparer.Ordinal);
@@ -250,8 +286,8 @@ public static class WorkflowWaitPlacement
             loopReach.UnionWith(LoopBodyNodes(definition, outgoing, loopId));
 
         foreach (var (id, node) in definition.Nodes)
-            foreach (var edge in outgoing[id])
-                if (node?.Type is NodeTypes.Sequence or NodeTypes.ParallelFork) Enter(edge.Target.NodeId);
+            if (isOpener(node))
+                foreach (var edge in outgoing[id]) Enter(edge.Target.NodeId);
 
         // A Join belongs to the region of its Fork. Branch pins can be walked before the Fork itself is reached
         // through an enclosing region, so a skipped Join is retried once its Fork is known to be inside.
@@ -277,7 +313,7 @@ public static class WorkflowWaitPlacement
             deferredJoins.RemoveAll(join => inside.Contains(join.ForkId));
         }
 
-        return [.. definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.Wait && inside.Contains(entry.Key))
+        return [.. definition.Nodes.Where(entry => isTarget(entry.Value) && inside.Contains(entry.Key))
             .Select(entry => entry.Key).Order(StringComparer.Ordinal)];
     }
 
