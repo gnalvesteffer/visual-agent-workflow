@@ -1179,6 +1179,44 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Sequence_admitted_in_a_pass_scope_holds_frame_settlement_until_its_work_settles()
+    {
+        // Decision 0070, slice (b) unblocker 3: the Sequence dispatcher admits its tickets in the pass scope, so the
+        // pass frame cannot settle while work inside the Sequence is outstanding.
+        const string passScope = "each/1";
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph
+        }, "sequence-pass-scope-admission");
+        var releaseAgent = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var agent = new SequenceProofAgentExecutor(releaseWhenReady: releaseAgent);
+        WorkflowRunner.StructuredActivationFrameOwner? frameOwner = null;
+        WorkflowDispatchAdmissionOwner? admissionOwner = null;
+
+        var execution = new WorkflowRunner(new RecordingBroker(), agent)
+            .ExecuteWithProductionDispatchAdmissionProofAsync(Guid.NewGuid(), revision, "sequence input",
+                _ => { }, _ => ValueTask.CompletedTask, ownerProbe: owner => admissionOwner = owner,
+                frameOwnerProbe: owner => frameOwner = owner, sequencePassScopeId: passScope);
+        try
+        {
+            await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted);
+            Assert.NotEmpty(admissionOwner!.OutstandingIn(passScope));
+            var error = Assert.Throws<InvalidOperationException>(() => frameOwner!.EnsureFrameSettled(passScope, null));
+            Assert.Contains(passScope, error.Message);
+        }
+        finally
+        {
+            releaseAgent.TrySetResult(true);
+        }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(result.Failed);
+        Assert.Empty(admissionOwner!.OutstandingIn(passScope));
+        frameOwner!.EnsureFrameSettled(passScope, null);
+    }
+
+    [Fact]
     public async Task Unified_production_sequence_rejected_admission_prevents_first_target_start()
     {
         var revision = WorkflowRevision.Create(SequenceAgentPathDefinition() with

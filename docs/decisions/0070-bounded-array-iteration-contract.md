@@ -6422,3 +6422,13 @@ Tests:
 Runs without child calls or a Sequence project exactly as before. `ReconciliationEvidenceTests` adds seeded journals for a completed child (root and `each/1` scopes), a grandchild, an unsettled child tool that stays unresolved without a parent node ID, unproven or mismatched child scopes that fail closed, and the Sequence executors; each failed before the fix. `A_completed_for_each_sequence_child_run_reconciles_as_terminal_after_reopen` is unskipped and now also runs the Agent-only child; the reopen test asserts `Terminal`.
 
 Remaining order: unblockers 3 to 8, then a fresh three-role review.
+
+## Slice (b) unblocker 3 (2026-11-26)
+
+Scope: the third unblocker from "Slice (b) reopening review outcome". Slice (b) stays deferred. No validator or runtime guard was loosened: `foreach.sequence.unsupported` and `loop.sequence.unsupported` still reject the shape, and the runner still refuses an iterator on the Sequence route before `run.started`.
+
+**Change.** `BuildSequenceProductionWorkflow` takes the activation frame owner and an optional pass scope. The four Sequence dispatcher admits (source to terminal or sink, source to sink, `SendAdmittedAsync` to each output, collector back to the Sequence) pass that scope to `WorkflowDispatchAdmissionOwner.Admit`. A pass scope without a frame owner and an admission owner is refused. Production passes no scope, so a top-level Sequence admits in the null (root) scope exactly as before. The scope reaches the builder only through the internal `ExecuteWithProductionDispatchAdmissionProofAsync` seam (`sequencePassScopeId`); no host or persisted content can set it.
+
+**Verified.** `SequenceProductionRunnerTests.Sequence_admitted_in_a_pass_scope_holds_frame_settlement_until_its_work_settles` runs a validated unified Sequence with the pass scope `each/1` and holds its Agent output. While the Agent runs, `OutstandingIn("each/1")` is not empty and `EnsureFrameSettled("each/1")` throws naming the scope. After release the run completes, nothing is outstanding, and `EnsureFrameSettled` passes. Before the change the test failed (`OutstandingIn` was empty, because the admits carried no scope).
+
+**Limits.** Only the four dispatcher admits carry the scope. Admits made by node executors inside an output path (`WorkflowRunner.cs` ~2751-2810) take the scope from the message's activation frame, which is null on the Sequence route, so those downstream tickets are still unscoped; the test observes the output's own pass-scoped ticket. Unblocker 4 must carry the pass frame on those messages. No For Each runs a Sequence in production, so this is evidence for the builder contract only. Unblockers 4 to 8 remain open, and slice (b) stays closed.

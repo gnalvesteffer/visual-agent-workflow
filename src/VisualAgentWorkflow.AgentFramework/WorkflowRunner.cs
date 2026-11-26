@@ -112,13 +112,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         WorkflowRevision revision, string input, Action<WorkflowDispatchAdmissionOwner.Ticket> onAdmitted,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default,
         Action<WorkflowDispatchAdmissionOwner>? ownerProbe = null,
-        Action<StructuredActivationFrameOwner>? frameOwnerProbe = null)
+        Action<StructuredActivationFrameOwner>? frameOwnerProbe = null,
+        string? sequencePassScopeId = null)
     {
         ArgumentNullException.ThrowIfNull(onAdmitted);
         ArgumentNullException.ThrowIfNull(record);
         return ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken,
             workflowDispatchAdmissionObserver: onAdmitted, workflowDispatchAdmissionProbe: ownerProbe,
-            frameOwnerProbe: frameOwnerProbe);
+            frameOwnerProbe: frameOwnerProbe, sequencePassScopeId: sequencePassScopeId);
     }
 
     /// <summary>
@@ -357,7 +358,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Action<WorkflowDispatchAdmissionOwner.Ticket>? workflowDispatchAdmissionObserver = null,
         Action<WorkflowDispatchAdmissionOwner>? workflowDispatchAdmissionProbe = null,
         Action<StructuredActivationFrameOwner>? frameOwnerProbe = null,
-        bool ignoreWaitPlacementForProof = false)
+        bool ignoreWaitPlacementForProof = false,
+        string? sequencePassScopeId = null)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -493,7 +495,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 activationFrameOwner.MarkRootEventRecorderUncertain, gate, rootRevision, workflowPath,
                 callScopeCancellation, afterNodeStarted, sequenceDispatchSession, dispatchAdmissionOwner,
                 abandon => abandonUnsettledSequenceOutputs = abandon, StartAbandonGrace,
-                abandonAfter => abandonSequenceOutputsAfterGrace = abandonAfter, sharedRunBudget);
+                abandonAfter => abandonSequenceOutputsAfterGrace = abandonAfter, sharedRunBudget,
+                activationFrameOwner, sequencePassScopeId);
 
         if (emitRunLifecycle) await Emit(ExecutionEventKinds.Started);
         try

@@ -387,8 +387,14 @@ public sealed partial class WorkflowRunner
         Action<Func<ValueTask>>? registerAbandonUnsettledOutputs = null,
         Action? onAbandonableSequenceStop = null,
         Action<Func<ValueTask>>? registerAbandonOutputsAfterGrace = null,
-        WorkflowRunBudget? runBudget = null)
+        WorkflowRunBudget? runBudget = null,
+        StructuredActivationFrameOwner? activationFrameOwner = null,
+        string? passScopeId = null)
     {
+        // Decision 0070 slice (b) unblocker 3: in a pass, the four Sequence admits carry the pass scope so the frame
+        // owner's EnsureFrameSettled sees work inside the Sequence. Outside a pass the scope stays null (root).
+        if (passScopeId is not null && (activationFrameOwner is null || dispatchAdmissionOwner is null))
+            throw new InvalidOperationException("A Sequence pass scope needs an activation frame owner and an admission owner.");
         var sequenceInvocationId = Guid.NewGuid();
         var connectionIds = plan.Outputs.ToDictionary(output => output.OutputId, output => output.ConnectionId,
             StringComparer.Ordinal);
@@ -530,9 +536,9 @@ public sealed partial class WorkflowRunner
                 // draws from the same reservation as the Sequence's own run.
                 inheritedRunBudget: runBudget), StringComparer.Ordinal);
         var source = new SequenceProductionSource(plan.SequenceNodeId, plan, coordinator, FlushSequenceEvents, emit,
-            gate, sequenceDispatchSession, dispatchAdmissionOwner);
+            gate, sequenceDispatchSession, dispatchAdmissionOwner, passScopeId);
         var collector = new SequenceProductionCollector(SequenceRuntimeExecutors.CollectorNodeId, plan, coordinator,
-            FlushSequenceEvents, emit, dispatchAdmissionOwner);
+            FlushSequenceEvents, emit, dispatchAdmissionOwner, passScopeId);
         var sink = new SequenceProductionSink(dispatchAdmissionOwner);
         var terminal = new SequenceProductionTerminal(SequenceRuntimeExecutors.TerminalNodeId, emit, dispatchAdmissionOwner);
         var builder = new WorkflowBuilder(source);
@@ -750,7 +756,7 @@ public sealed partial class WorkflowRunner
         SequenceRuntimeCoordinator coordinator, Func<ValueTask> flushSequenceEvents,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
         SequenceProductionDispatchSession? sequenceDispatchSession,
-        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner)
+        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner, string? passScopeId)
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
         public override async ValueTask<GraphMessage> HandleAsync(GraphMessage message, IWorkflowContext context,
@@ -796,7 +802,7 @@ public sealed partial class WorkflowRunner
                         Text = terminal ? coordinator.DeterministicResult ?? message.Text : message.Text,
                         SourceNode = Id,
                         SourcePort = terminal ? "terminal" : "continue",
-                        DispatchTicketId = dispatchAdmissionOwner?.Admit(terminal ? SequenceRuntimeExecutors.TerminalNodeId : "sequence-sink"),
+                        DispatchTicketId = dispatchAdmissionOwner?.Admit(terminal ? SequenceRuntimeExecutors.TerminalNodeId : "sequence-sink", passScopeId),
                         FailureSignal = terminal && aggregateCompletion!.TerminalEventKind is
                             ExecutionEventKinds.SequenceFailed or ExecutionEventKinds.SequenceCancelled,
                         ActivationBreakRequest = terminal ? sequenceDispatchSession?.BreakRequest : null
@@ -842,7 +848,7 @@ public sealed partial class WorkflowRunner
                 await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, "All Sequence outputs dispatched.", null);
                 return new(message.Text, Id, "continue")
                 {
-                    DispatchTicketId = dispatchAdmissionOwner?.Admit("sequence-sink")
+                    DispatchTicketId = dispatchAdmissionOwner?.Admit("sequence-sink", passScopeId)
                 };
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -870,7 +876,7 @@ public sealed partial class WorkflowRunner
         private async ValueTask SendAdmittedAsync(IWorkflowContext context, GraphMessage message,
             string targetNodeId, CancellationToken cancellationToken)
         {
-            var ticket = dispatchAdmissionOwner?.Admit(targetNodeId);
+            var ticket = dispatchAdmissionOwner?.Admit(targetNodeId, passScopeId);
             try
             {
                 await context.SendMessageAsync(ticket is { } id ? message with { DispatchTicketId = id } : message,
@@ -887,7 +893,7 @@ public sealed partial class WorkflowRunner
     private sealed class SequenceProductionCollector(string id, SequenceProductionPlan plan,
         SequenceRuntimeCoordinator coordinator, Func<ValueTask> flushSequenceEvents,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
-        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner)
+        WorkflowDispatchAdmissionOwner? dispatchAdmissionOwner, string? passScopeId)
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
         public override async ValueTask<GraphMessage> HandleAsync(GraphMessage message, IWorkflowContext context,
@@ -920,7 +926,7 @@ public sealed partial class WorkflowRunner
                     SourceNode = Id,
                     SourcePort = "completed",
                     SequenceAggregateCompletion = aggregateCompletion,
-                    DispatchTicketId = dispatchAdmissionOwner?.Admit(coordinator.SequenceNodeId)
+                    DispatchTicketId = dispatchAdmissionOwner?.Admit(coordinator.SequenceNodeId, passScopeId)
                 };
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
