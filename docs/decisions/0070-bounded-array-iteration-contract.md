@@ -6336,3 +6336,48 @@ Implementing-agent record, not a three-role review. Test-only: no production beh
 *Not done.* No older binary was executed; "old reader" means the current readers' scope handling as characterized above. SQLite and File share the scope id column or JSON field as opaque text; no migration or schema version changed. The Hosting layer's own run snapshot projections (Studio UI) were not exercised on nested scope ids.
 
 **Fact table update.** Row `forEachItems` per-activation key: proven on a shared executor instance (seam), not reachable in production or under a shared Sequence frame. Row File and SQLite playback of nested scope ids and older-reader fixture: tested as above. Slice (b) remains blocked by the open item pool, scoped Sequence and Join playback, and the shared-frame key case.
+
+## Slice (b) reopening review outcome (2026-11-26)
+
+Question: reopen slice (b) now, a Sequence inside one typed For Each body, sequential passes, no Break. Three-role review: a proponent and an opponent argued from clean contexts, and an adjudicator read the code before ruling. All three roles took part. Ruling: **defer**.
+
+**Claims checked against code**
+
+- The ADR's own position: true. "Sequence nesting prerequisite evidence" says slice (b) cannot yet be reopened, and its last fact-table update says slice (b) "remains blocked by the open item pool, scoped Sequence and Join playback, and the shared-frame key case". Since then, only the barrier-ticket defect and the host-cancel limit have been resolved.
+- Every graph with a Sequence goes to the Sequence validators and returns before loop validation: true, `WorkflowValidator.cs` ~918-926. (The 2026-11-25 review cited ~883-890; the code has moved.) So a validator arm is needed.
+- The loop proof rejects more than one normal return to a loop: true, `LoopFeedbackTopologyProof.cs` ~204-207 (`loop.feedback.cardinality`) and ~237-240 (`loop.feedback.multiple-owner`). Several Sequence outputs need a join before the feedback pin.
+- The Sequence builder gets no activation frame owner: true. `BuildSequenceProductionWorkflow` (`WorkflowRunner.Sequence.cs` ~377-390) has no such parameter, and the call at `WorkflowRunner.cs` ~476-483 passes none. The proponent's "proven per-activation path" (`ExecuteBodyForActivationProofAsync`, `WorkflowRunner.cs` ~157; `ExecuteProductionBodyActivationSequenceProofAsync`, `WorkflowRunner.StructuredProof.cs` ~1094) is internal proof code only. Production does not use it.
+- Opponent blocker 1, true. The Sequence dispatcher admits tickets without a scope (`WorkflowRunner.Sequence.cs` ~799, ~845, ~873, ~923; `Admit`'s `scopeId` defaults to null, `WorkflowDispatchAdmissionOwner.cs` ~154-164). `EnsureScopeSettled` matches only the same `ScopeId` and returns early for null (~72-84). `EnsureFrameSettled` (`WorkflowRunner.cs` ~1115) only forwards to it, and the For Each calls it at ~3502. So a pass frame cannot see work running inside its Sequence.
+- Opponent blocker 2, true. `SequenceDispatchEdgeTable.cs` ~44-46 drops authored edges that touch the Sequence node, and ~51-56 sends every Output's `out` to the Sequence collector. The edge table assumes the Sequence barrier is the run's end, so a barrier inside a body needs a new edge model.
+- Opponent blocker 3, true. Today's fail-closed behavior happens by accident. The builder makes a `StringExecutor` for every node except Input and Sequence (`WorkflowRunner.Sequence.cs` ~495-509), For Each included. That executor emits `NodeStarted` (`WorkflowRunner.cs` ~3045) and then throws "has no activation frame owner" (~3481-3482). The loop plan is built only when `sequencePlan is null` (~392-393), so this route has no activation bound and no loop topology proof. Only the validator stops it today.
+- Opponent item 4, partly true and not blocking. `ControlledRun.cs` ~31 has one `inFlightNodes` counter, but root Sequences already run concurrent outputs under it, so this is not specific to slice (b). A pause test with concurrent outputs is still owed.
+- Opponent item 5, true and intentional. The abandon catch (`WorkflowRunner.cs` ~598-608) skips `RevokeUnstarted`, by the rule in "Abandon limits resolved". Abandon inside a pass is untested.
+- Playback is pinned to one scope: true, `SequenceEvidence.cs` ~136-143. The proponent conceded the item pool and the shared-frame `forEachItems` key, and both are still open.
+- The mirror workaround is untested: true. `WorkflowCall` is a supported body node (`WorkflowValidator.cs` ~1043-1045), and child runs create their own Sequence plan (`WorkflowRunner.cs` ~406). No test runs a For Each body whose WorkflowCall child contains a Sequence. The tested composition goes the other way: a Sequence route calls a child that contains a For Each.
+
+**Why defer.** The proponent's plan reuses proof-only code and leaves three structural gaps open. Sequence work is not tied to the pass scope. The edge table has no barrier inside a body. The route has no compiled loop plan. Any one of them breaks the frame-settlement invariant that For Each depends on. Loosening the validator would also remove the only real guard, because the runtime guard throws only after events are recorded.
+
+**Unblockers, in order**
+
+1. Mirror-workaround evidence (below). It needs no guard change.
+2. Replace the accidental guard. A test should pin that the validator rejects a Sequence in a For Each body with a named code, and that the run records no events.
+3. Admit Sequence tickets in the pass scope. Pass the frame owner and pass scope into the Sequence builder so the four admits carry the `ScopeId`. Add a regression test showing `EnsureFrameSettled` fails on outstanding work inside the Sequence and passes once it settles.
+4. A body-local Sequence barrier: an edge-table mode in which the outputs join before the For Each feedback pin, plus the matching `LoopFeedbackTopologyProof` rule and validator arm. Settle the compiled loop plan (activation bound, topology proof) for this route in the same step.
+5. Scoped Sequence playback per pass: a scope-id rule per invocation, reopened from File and SQLite.
+6. One atomic pool for item activations across iterators.
+7. Tests for abandon inside a pass and for pausing a controlled run with concurrent outputs.
+8. A shape gate (schema version or host opt-in, following `AllowForEachCheckpointRecovery`) before a reader can see the new shape.
+
+Then a fresh three-role review of the first slice (b) increment.
+
+**Next step: the mirror test.** It is the right next step because it is cheap, it changes no guard, and it may give a supported composition today. It does not unblock slice (b). The child-run boundary hides blockers 1 and 2: the child has its own owner and its own Sequence barrier, and the parent pass sees only one call ticket. Test: parent Input, For Each over a constant three-item array, body is one pinned `WorkflowCall`, feedback back, done goes to Output. Child: Input, then a Sequence with two routes (fixture agent or transform), then Output. Assert:
+
+- parent and child validate; if not, record the rejecting guard here as the current limit;
+- the run completes with the last pass's child result;
+- loop evidence `each/1..3` ends with `LoopStopped` (array-exhausted);
+- in each pass, the child's `sequence.completed` comes before the next `LoopIterationStarted`;
+- each child Sequence invocation's lifecycle events carry one consistent scope, and its playback reconstructs when filtered to that invocation (record the actual scope id);
+- passes and evidence come from the root pool;
+- every owner is quiescent at the end;
+- File and SQLite reopen give the same passive state;
+- a failure variant: a child Sequence output fails on item 2, item 3 never starts, and the run reports `SubworkflowFailed` then root `Failed`, with every owner quiescent.
