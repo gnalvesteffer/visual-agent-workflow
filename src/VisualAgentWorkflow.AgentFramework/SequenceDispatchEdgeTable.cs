@@ -11,7 +11,7 @@ namespace VisualAgentWorkflow.AgentFramework;
 /// </summary>
 internal sealed class SequenceDispatchEdgeTable
 {
-    public const string CollectorId = "sequence-collector";
+    public const string CollectorId = SequenceRuntimeExecutors.CollectorNodeId;
 
     internal sealed record Edge(string SourceId, string TargetId, Func<WorkflowRunner.GraphMessage?, bool> Matches);
 

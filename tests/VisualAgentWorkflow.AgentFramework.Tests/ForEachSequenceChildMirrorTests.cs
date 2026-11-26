@@ -362,28 +362,30 @@ public sealed class ForEachSequenceChildMirrorTests
         Assert.Equal(["each/1/call:completed", "each/2/call:completed", "each/3/call:completed"], file.InvocationPlayback);
         Assert.False(file.WholeSequencePlayback);
         Assert.Equal(0, file.UnresolvedWork);
-        // Finding (Decision 0070, unblocker 1): the work reader projects child-run node events against the PARENT
-        // definition, so child node ids it does not contain mark the correlation incomplete and the completed run reads as
-        // UnresolvedWork. The control below shows the same result without a Sequence, so this is a WorkflowCall-child
-        // reader limit, not a Sequence one. Desired behavior is pinned by the skipped test below.
-        Assert.True(file.IncompleteCorrelation);
-        Assert.Equal(RunRecoveryDisposition.UnresolvedWork, file.Disposition);
+        // Decision 0070, unblocker 1 (fixed): child-run node events are correlated against the pinned child definition
+        // named by their subworkflow evidence, and the child Sequence runtime's collector and terminal executor node IDs are
+        // recognized, so the completed run is settled. The control child has no Sequence.
+        Assert.False(file.IncompleteCorrelation);
+        Assert.Equal(RunRecoveryDisposition.Terminal, file.Disposition);
 
         var control = await RunPersistAndReopenAsync(sqlite: false, AgentChild("mirror-persist-control-child"));
-        Assert.Equal((0, true, RunRecoveryDisposition.UnresolvedWork),
+        Assert.Equal((0, false, RunRecoveryDisposition.Terminal),
             (control.UnresolvedWork, control.IncompleteCorrelation, control.Disposition));
     }
 
-    [Fact(Skip = "Finding (Decision 0070, slice (b) unblocker 1): WorkflowWorkEvidence reads a For Each run that calls a child " +
-        "workflow as incompletely correlated, because child node events are checked against the parent definition. The same " +
-        "happens with a child that has no Sequence. Unskip once the work reader scopes child-run node events by call scope.")]
+    /// <summary>Regression for Decision 0070 unblocker 1: child-run node events are correlated against the child definition.</summary>
+    [Fact]
     public async Task A_completed_for_each_sequence_child_run_reconciles_as_terminal_after_reopen()
     {
         foreach (var sqlite in new[] { false, true })
         {
-            var state = await RunPersistAndReopenAsync(sqlite, SequenceChild("mirror-terminal-child"));
-            Assert.False(state.IncompleteCorrelation);
-            Assert.Equal(RunRecoveryDisposition.Terminal, state.Disposition);
+            foreach (var child in new[] { SequenceChild("mirror-terminal-child"), AgentChild("mirror-terminal-agent-child") })
+            {
+                var state = await RunPersistAndReopenAsync(sqlite, child);
+                Assert.False(state.IncompleteCorrelation);
+                Assert.Equal(0, state.UnresolvedWork);
+                Assert.Equal(RunRecoveryDisposition.Terminal, state.Disposition);
+            }
         }
     }
 }

@@ -6414,4 +6414,11 @@ Tests:
 - `SequenceForEachRejectionTests` has two tests. The first covers the three shapes: the validator gives exactly one named issue, and the public runner throws with zero events. The second sends a For Each and a Loop through the private, validation-skipping Sequence decision proof: zero events, and the error names the node. All five cases failed before the fix.
 - `A_for_each_inside_a_sequence_path_is_rejected_in_the_first_slice` now asserts the named code.
 
+**Unblocker 1 finding fixed (2026-11-26).** The finding had two causes in `WorkflowWorkEvidence`, and both applied to any completed run, not only after a reopen:
+
+- Child-run node events were checked against the root definition. The reader now treats a scope as a child run only when `subworkflow.evidence` names a call node of the owning definition with its exact pinned revision and hash, and correlates that scope (and deeper frames or grandchild calls) against the embedded child definition. Pending work is keyed by that owner, so a settlement in another scope never settles it. Child-run items report no `NodeId`; unproven scopes still fail closed.
+- The production Sequence runtime records node lifecycles for its own `sequence-collector` and `sequence-terminal` executors, which no definition declares, so a completed root-level Sequence run also read as incompletely correlated. These reserved IDs now live in Core (`SequenceRuntimeExecutors`, shared by the runtime) and are recognized only in a definition with a Sequence node.
+
+Runs without child calls or a Sequence project exactly as before. `ReconciliationEvidenceTests` adds seeded journals for a completed child (root and `each/1` scopes), a grandchild, an unsettled child tool that stays unresolved without a parent node ID, unproven or mismatched child scopes that fail closed, and the Sequence executors; each failed before the fix. `A_completed_for_each_sequence_child_run_reconciles_as_terminal_after_reopen` is unskipped and now also runs the Agent-only child; the reopen test asserts `Terminal`.
+
 Remaining order: unblockers 3 to 8, then a fresh three-role review.

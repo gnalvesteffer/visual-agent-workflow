@@ -29,6 +29,14 @@ public interface IWorkflowRunReconciliationObserver
 
 public sealed record RunWorkEvidence(ImmutableArray<UnresolvedRunWork> UnresolvedWork, int TotalUnresolvedWork, bool HasIncompleteCorrelation);
 
+/// <summary>Reserved node IDs that the production Sequence runtime records for its own executors.</summary>
+internal static class SequenceRuntimeExecutors
+{
+    public const string CollectorNodeId = "sequence-collector";
+    public const string TerminalNodeId = "sequence-terminal";
+    public static readonly ImmutableHashSet<string> NodeIds = ImmutableHashSet.Create(StringComparer.Ordinal, CollectorNodeId, TerminalNodeId);
+}
+
 /// <summary>Pure projection of recorded facts, never an executor, side-effect detector or permission grant.</summary>
 public static class WorkflowWorkEvidence
 {
@@ -42,9 +50,12 @@ public static class WorkflowWorkEvidence
     private static RunWorkEvidence Read(RunSnapshot snapshot, int maximumReturnedWork)
     {
         var work = new List<Pending>();
-        var incomplete = false;
+        var root = snapshot.Header.Definition;
+        // Child-run events carry the call's scope and child node IDs; they are correlated against the pinned child definition.
+        var childScopes = WorkflowCallScopes.Read(snapshot.Events, root, out var incomplete);
         foreach (var evt in snapshot.Events)
         {
+            var (owner, definition) = childScopes.Resolve(evt.ScopeId, root);
             switch (evt.Kind)
             {
                 case ExecutionEventKinds.NodeStarted: Start(UnresolvedWorkKind.Node, null); break;
@@ -76,10 +87,10 @@ public static class WorkflowWorkEvidence
                     // output is never settled. It reuses the existing node/outcome-unknown shape, correlated by its
                     // activation, so older consumers need no new enum value.
                     if (!SequenceEvidence.TryRead(evt, out var abandoned) || abandoned?.ActivationId is not { } activationId ||
-                        evt.NodeId is null || evt.InvocationId is null || !snapshot.Header.Definition.Nodes.ContainsKey(evt.NodeId))
+                        evt.NodeId is null || evt.InvocationId is null || !IsRecordedNode(definition, evt.NodeId))
                         incomplete = true;
                     else
-                        work.Add(new(UnresolvedWorkKind.Node, evt.NodeId, evt.InvocationId, activationId, evt.Sequence)
+                        work.Add(new(UnresolvedWorkKind.Node, owner, evt.NodeId, evt.InvocationId, activationId, evt.Sequence)
                         { State = UnresolvedWorkState.OutcomeUnknown });
                     break;
                 // Wait evidence reuses the Node kind, correlated by wait ID, so no UnresolvedWorkKind value is added
@@ -108,17 +119,15 @@ public static class WorkflowWorkEvidence
             void Start(UnresolvedWorkKind kind, Guid? callId)
             {
                 if (evt.InvocationId is null || evt.InvocationId == Guid.Empty || evt.NodeId is null ||
-                    !snapshot.Header.Definition.Nodes.ContainsKey(evt.NodeId) || kind == UnresolvedWorkKind.Approval && callId is null)
+                    !IsRecordedNode(definition, evt.NodeId) || kind == UnresolvedWorkKind.Approval && callId is null)
                     incomplete = true;
-                if (work.Any(w => !w.Resolved && w.Kind == kind && w.NodeId == evt.NodeId && w.InvocationId == evt.InvocationId &&
-                    (callId is not null ? w.CallId == callId : w.CallId is null && !w.LegacyClosed))) incomplete = true;
-                work.Add(new(kind, evt.NodeId, evt.InvocationId, callId, evt.Sequence));
+                if (work.Any(w => Matches(w, kind, callId))) incomplete = true;
+                work.Add(new(kind, owner, evt.NodeId, evt.InvocationId, callId, evt.Sequence));
             }
 
             Pending? Find(UnresolvedWorkKind kind, Guid? callId)
             {
-                var matches = work.Where(w => !w.Resolved && w.Kind == kind && w.NodeId == evt.NodeId && w.InvocationId == evt.InvocationId &&
-                    (callId is not null ? w.CallId == callId : w.CallId is null && !w.LegacyClosed)).ToArray();
+                var matches = work.Where(w => Matches(w, kind, callId)).ToArray();
                 if (matches.Length != 1 || evt.InvocationId is null) { incomplete = true; return null; }
                 return matches[0];
             }
@@ -127,11 +136,25 @@ public static class WorkflowWorkEvidence
             {
                 if (Find(kind, callId) is { } pending) pending.Resolved = true;
             }
+
+            bool Matches(Pending w, UnresolvedWorkKind kind, Guid? callId) =>
+                !w.Resolved && w.Kind == kind && w.Owner == owner && w.NodeId == evt.NodeId && w.InvocationId == evt.InvocationId &&
+                (callId is not null ? w.CallId == callId : w.CallId is null && !w.LegacyClosed);
         }
-        var unsettled = work.Where(w => !w.Resolved).Select(w => new UnresolvedRunWork(w.Kind, w.State, w.NodeId is { } id && snapshot.Header.Definition.Nodes.ContainsKey(id) ? id : null,
+        // Child-run work keeps no node ID: the public item has no scope, so a child node ID would read as a root node.
+        var unsettled = work.Where(w => !w.Resolved).Select(w => new UnresolvedRunWork(w.Kind, w.State,
+            w.Owner is null && w.NodeId is { } id && root.Nodes.ContainsKey(id) ? id : null,
             w.InvocationId, w.CallId, w.RequestedSequence, w.LastSequence)).ToArray();
         return new(unsettled.Take(maximumReturnedWork).ToImmutableArray(), unsettled.Length, incomplete);
     }
+
+    /// <summary>
+    /// A definition node, or a production Sequence runtime executor (collector or terminal) of a definition that has a
+    /// Sequence node. Those executors record their own node lifecycle under reserved IDs that no definition declares.
+    /// </summary>
+    private static bool IsRecordedNode(WorkflowDefinition definition, string nodeId) =>
+        definition.Nodes.ContainsKey(nodeId) ||
+        SequenceRuntimeExecutors.NodeIds.Contains(nodeId) && definition.Nodes.Values.Any(node => node.Type == NodeTypes.Sequence);
 
     private static Guid? ReadId(ExecutionEvent evt, string property, out bool malformed)
     {
@@ -163,9 +186,11 @@ public static class WorkflowWorkEvidence
         catch (JsonException) { return false; }
     }
 
-    private sealed class Pending(UnresolvedWorkKind kind, string? nodeId, Guid? invocationId, Guid? callId, long sequence)
+    private sealed class Pending(UnresolvedWorkKind kind, string? owner, string? nodeId, Guid? invocationId, Guid? callId, long sequence)
     {
         public UnresolvedWorkKind Kind { get; } = kind;
+        /// <summary>The child-run scope whose definition owns the node, or null for the root workflow.</summary>
+        public string? Owner { get; } = owner;
         public string? NodeId { get; } = nodeId;
         public Guid? InvocationId { get; } = invocationId;
         public Guid? CallId { get; } = callId;
@@ -175,5 +200,63 @@ public static class WorkflowWorkEvidence
         public bool Resolved { get; set; }
         public bool LegacyClosed { get; set; }
         public UnresolvedWorkState State { get; set; } = kind == UnresolvedWorkKind.Approval ? UnresolvedWorkState.AwaitingDecision : UnresolvedWorkState.AwaitingOutcome;
+    }
+
+    /// <summary>
+    /// Child-run scopes proven by <c>subworkflow.evidence</c>: each names a WorkflowCall or WorkflowInterfaceCall node of the
+    /// definition that owns the scope's parent and the exact pinned revision and hash it embeds. Unproven scopes stay with the
+    /// root definition, so their child node IDs still mark correlation incomplete.
+    /// </summary>
+    private sealed class WorkflowCallScopes
+    {
+        private readonly Dictionary<string, ChildPin> calls = new(StringComparer.Ordinal);
+
+        private sealed record ChildPin(Guid RevisionId, string ContentHash, WorkflowDefinition Definition);
+
+        public static WorkflowCallScopes Read(ImmutableArray<ExecutionEvent> events, WorkflowDefinition root, out bool incomplete)
+        {
+            var scopes = new WorkflowCallScopes();
+            incomplete = false;
+            foreach (var evt in events.Where(evt => evt.Kind == ExecutionEventKinds.SubworkflowEvidence))
+                incomplete |= !scopes.TryAdd(evt, root);
+            return scopes;
+        }
+
+        /// <summary>Returns the deepest proven child scope containing <paramref name="scopeId"/> and its definition.</summary>
+        public (string? Owner, WorkflowDefinition Definition) Resolve(string? scopeId, WorkflowDefinition root)
+        {
+            // Walks the scope's own prefixes, longest first, so the cost is its depth rather than the number of calls.
+            for (var scope = calls.Count == 0 ? null : scopeId; scope is not null;
+                scope = scope.LastIndexOf('/') is var slash and > 0 ? scope[..slash] : null)
+                if (calls.TryGetValue(scope, out var pin)) return (scope, pin.Definition);
+            return (null, root);
+        }
+
+        private bool TryAdd(ExecutionEvent evt, WorkflowDefinition root)
+        {
+            if (evt.ScopeId is not { } scope || !WorkflowCallLifecycleEvidence.TryRead(evt.Data, out var evidence) ||
+                evidence is null || evt.NodeId != evidence.CallNodeId ||
+                scope != evidence.CallNodeId && !scope.EndsWith("/" + evidence.CallNodeId, StringComparison.Ordinal))
+                return false;
+            var parentScope = scope.Length == evidence.CallNodeId.Length ? null : scope[..^(evidence.CallNodeId.Length + 1)];
+            var (_, parent) = Resolve(parentScope, root);
+            if (!parent.Nodes.TryGetValue(evidence.CallNodeId, out var node) || Pin(node) is not { } call ||
+                call.RevisionId != evidence.ChildRevisionId ||
+                !string.Equals(call.ContentHash, evidence.ChildContentHash, StringComparison.Ordinal))
+                return false;
+            if (calls.TryGetValue(scope, out var known))
+                return known.RevisionId == call.RevisionId && string.Equals(known.ContentHash, call.ContentHash, StringComparison.Ordinal);
+            calls.Add(scope, call);
+            return true;
+        }
+
+        private static ChildPin? Pin(NodeDefinition node) => node switch
+        {
+            { WorkflowCall: { } call } => new(call.RevisionId, call.ContentHash, call.Definition),
+            { WorkflowInterfaceCall: { } call } when call.Implementation?.Definition?.Operations is { } operations &&
+                call.OperationId is { } operationId && operations.TryGetValue(operationId, out var pinned) && pinned is not null =>
+                new(pinned.RevisionId, pinned.ContentHash, pinned.Definition),
+            _ => null
+        };
     }
 }

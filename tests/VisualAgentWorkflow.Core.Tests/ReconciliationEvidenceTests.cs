@@ -147,4 +147,185 @@ public sealed class ReconciliationEvidenceTests
         var settledOne = run with { Events = run.Events.Add(run.Events[0] with { Sequence = 7, Kind = ExecutionEventKinds.WaitInterrupted, Data = WaitPayload(open1) }) };
         Assert.Equal(open2, Assert.Single(WorkflowWorkEvidence.Read(settledOne).UnresolvedWork).CallId);
     }
+    // Decision 0070, slice (b) unblocker 1: a WorkflowCall child's node events carry the child scope and child node IDs.
+    private static WorkflowDefinition ChildDefinition(string workflowId, params (string Id, NodeDefinition Node)[] extra) => new(
+        WorkflowSchemaVersions.UnifiedWorkflowGraph, workflowId, "input",
+        new Dictionary<string, NodeDefinition> { ["input"] = new(NodeTypes.Input, "1.0.0"), ["output"] = new(NodeTypes.Output, "1.0.0") }
+            .Concat(extra.Select(node => KeyValuePair.Create(node.Id, node.Node))).ToImmutableSortedDictionary(),
+        ImmutableSortedDictionary<string, ConnectionDefinition>.Empty);
+
+    private static NodeDefinition CallNode(WorkflowDefinition child, Guid revision, string hash) =>
+        new(NodeTypes.WorkflowCall, "1.0.0") { WorkflowCall = new(child.WorkflowId, revision, 1, hash, child) };
+
+    private sealed class CallJournal(WorkflowDefinition root)
+    {
+        private readonly Guid runId = Guid.NewGuid();
+        private readonly Guid revisionId = Guid.NewGuid();
+        private readonly List<ExecutionEvent> events = [];
+
+        public CallJournal Add(string kind, string? scope, string? node, Guid? invocation, string? data = null)
+        {
+            events.Add(new ExecutionEvent(runId, revisionId, events.Count + 1, DateTimeOffset.UnixEpoch, kind, node, invocation,
+                Data: data) { ScopeId = scope });
+            return this;
+        }
+
+        public CallJournal Node(string? scope, string node, Guid invocation, string settlement = ExecutionEventKinds.NodeCompleted) =>
+            Add(ExecutionEventKinds.NodeStarted, scope, node, invocation).Add(settlement, scope, node, invocation);
+
+        public CallJournal Lifecycle(string lifecycle, string scope, string callNode, WorkflowDefinition child, Guid revision, string hash)
+        {
+            var invocation = Guid.NewGuid();
+            return Add(lifecycle, scope, null, invocation).Add(ExecutionEventKinds.SubworkflowEvidence, scope, callNode, invocation,
+                new WorkflowCallLifecycleEvidence(lifecycle, callNode, child.WorkflowId, revision, hash, scope, null).Serialize());
+        }
+
+        public RunSnapshot Snapshot() => new(new(runId, revisionId, null, "fixture", DateTimeOffset.UnixEpoch, new string('f', 64), root,
+            "private input"), [.. events]);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("each/1")]
+    public void ACompletedRunWithAWorkflowCallChildHasNoUnresolvedWork(string? activationScope)
+    {
+        var childRevision = Guid.NewGuid();
+        var childHash = new string('c', 64);
+        var child = ChildDefinition("child", ("worker", new(NodeTypes.Agent, "1.0.0")));
+        var root = ChildDefinition("parent", ("call", CallNode(child, childRevision, childHash)));
+        var callScope = activationScope is null ? "call" : $"{activationScope}/call";
+        var callInvocation = Guid.NewGuid();
+        var worker = Guid.NewGuid();
+        var tool = Guid.NewGuid();
+        var run = new CallJournal(root)
+            .Add(ExecutionEventKinds.Started, null, null, null)
+            .Node(null, "input", Guid.NewGuid())
+            .Add(ExecutionEventKinds.NodeStarted, activationScope, "call", callInvocation)
+            .Lifecycle(ExecutionEventKinds.SubworkflowStarted, callScope, "call", child, childRevision, childHash)
+            .Node(callScope, "input", Guid.NewGuid())
+            .Add(ExecutionEventKinds.NodeStarted, callScope, "worker", worker)
+            .Add(ExecutionEventKinds.ToolRequested, callScope, "worker", worker, Tool(tool))
+            .Add(ExecutionEventKinds.ToolAuthorized, callScope, "worker", worker, Tool(tool))
+            .Add(ExecutionEventKinds.ToolCompleted, callScope, "worker", worker, Tool(tool))
+            .Add(ExecutionEventKinds.NodeCompleted, callScope, "worker", worker)
+            .Node(callScope, "output", Guid.NewGuid())
+            .Lifecycle(ExecutionEventKinds.SubworkflowCompleted, callScope, "call", child, childRevision, childHash)
+            .Add(ExecutionEventKinds.NodeCompleted, activationScope, "call", callInvocation)
+            .Node(null, "output", Guid.NewGuid())
+            .Add(ExecutionEventKinds.Completed, null, null, null)
+            .Snapshot();
+
+        var report = WorkflowWorkEvidence.Read(run);
+
+        Assert.Equal("completed", run.Status);
+        Assert.False(report.HasIncompleteCorrelation);
+        Assert.Equal(0, report.TotalUnresolvedWork);
+        Assert.Empty(report.UnresolvedWork);
+    }
+
+    [Fact]
+    public void AGrandchildWorkflowCallIsCorrelatedAgainstTheChildThatEmbedsIt()
+    {
+        var innerRevision = Guid.NewGuid();
+        var innerHash = new string('d', 64);
+        var inner = ChildDefinition("inner", ("leaf", new(NodeTypes.Agent, "1.0.0")));
+        var childRevision = Guid.NewGuid();
+        var childHash = new string('c', 64);
+        var child = ChildDefinition("child", ("nested", CallNode(inner, innerRevision, innerHash)));
+        var root = ChildDefinition("parent", ("call", CallNode(child, childRevision, childHash)));
+        var nested = Guid.NewGuid();
+        var run = new CallJournal(root)
+            .Lifecycle(ExecutionEventKinds.SubworkflowStarted, "call", "call", child, childRevision, childHash)
+            .Add(ExecutionEventKinds.NodeStarted, "call", "nested", nested)
+            .Lifecycle(ExecutionEventKinds.SubworkflowStarted, "call/nested", "nested", inner, innerRevision, innerHash)
+            .Node("call/nested", "leaf", Guid.NewGuid())
+            .Lifecycle(ExecutionEventKinds.SubworkflowCompleted, "call/nested", "nested", inner, innerRevision, innerHash)
+            .Add(ExecutionEventKinds.NodeCompleted, "call", "nested", nested)
+            .Lifecycle(ExecutionEventKinds.SubworkflowCompleted, "call", "call", child, childRevision, childHash)
+            .Add(ExecutionEventKinds.Completed, null, null, null)
+            .Snapshot();
+
+        var report = WorkflowWorkEvidence.Read(run);
+
+        Assert.False(report.HasIncompleteCorrelation);
+        Assert.Equal(0, report.TotalUnresolvedWork);
+    }
+
+    [Fact]
+    public void AChildToolThatNeverSettledRemainsUnresolvedWithoutAParentNodeIdentity()
+    {
+        var childRevision = Guid.NewGuid();
+        var childHash = new string('c', 64);
+        // The child's tool node shares an ID with a parent node: it must not be reported as the parent's node.
+        var child = ChildDefinition("child", ("worker", new(NodeTypes.Agent, "1.0.0")));
+        var root = ChildDefinition("parent", ("call", CallNode(child, childRevision, childHash)), ("worker", new(NodeTypes.Agent, "1.0.0")));
+        var worker = Guid.NewGuid();
+        var tool = Guid.NewGuid();
+        var run = new CallJournal(root)
+            .Lifecycle(ExecutionEventKinds.SubworkflowStarted, "call", "call", child, childRevision, childHash)
+            .Add(ExecutionEventKinds.NodeStarted, "call", "worker", worker)
+            .Add(ExecutionEventKinds.ToolRequested, "call", "worker", worker, Tool(tool))
+            .Add(ExecutionEventKinds.ToolAuthorized, "call", "worker", worker, Tool(tool))
+            .Add(ExecutionEventKinds.NodeCompleted, "call", "worker", worker)
+            .Lifecycle(ExecutionEventKinds.SubworkflowCompleted, "call", "call", child, childRevision, childHash)
+            .Add(ExecutionEventKinds.Completed, null, null, null)
+            .Snapshot();
+
+        var report = WorkflowWorkEvidence.Read(run);
+
+        Assert.False(report.HasIncompleteCorrelation);
+        var unresolved = Assert.Single(report.UnresolvedWork);
+        Assert.Equal((UnresolvedWorkKind.Tool, UnresolvedWorkState.AwaitingOutcome, (string?)null, (Guid?)worker, (Guid?)tool, 4L),
+            (unresolved.Kind, unresolved.State, unresolved.NodeId, unresolved.InvocationId, unresolved.CallId, unresolved.RequestedSequence));
+        // A settlement recorded in another scope never settles the child's call.
+        var parentSettlement = run with { Events = run.Events.Add(run.Events[3] with { Sequence = run.Events.Length + 1,
+            Kind = ExecutionEventKinds.ToolCompleted, ScopeId = null }) };
+        Assert.Contains(WorkflowWorkEvidence.Read(parentSettlement).UnresolvedWork, work => work.CallId == tool);
+    }
+
+    [Fact]
+    public void ChildScopedNodeEventsWithoutMatchingCallEvidenceFailClosed()
+    {
+        var childRevision = Guid.NewGuid();
+        var childHash = new string('c', 64);
+        var child = ChildDefinition("child", ("worker", new(NodeTypes.Agent, "1.0.0")));
+        var root = ChildDefinition("parent", ("call", CallNode(child, childRevision, childHash)));
+
+        // No lifecycle evidence: the scope is not a known child, so the parent definition applies.
+        var undeclared = new CallJournal(root).Node("call", "worker", Guid.NewGuid()).Snapshot();
+        // Evidence naming another revision than the pinned call does not identify the child definition.
+        var mismatched = new CallJournal(root)
+            .Lifecycle(ExecutionEventKinds.SubworkflowStarted, "call", "call", child, Guid.NewGuid(), childHash)
+            .Node("call", "worker", Guid.NewGuid()).Snapshot();
+        // A node the child definition does not contain stays incomplete under a known child scope.
+        var unknownNode = new CallJournal(root)
+            .Lifecycle(ExecutionEventKinds.SubworkflowStarted, "call", "call", child, childRevision, childHash)
+            .Node("call", "ghost", Guid.NewGuid()).Snapshot();
+
+        Assert.True(WorkflowWorkEvidence.Read(undeclared).HasIncompleteCorrelation);
+        Assert.True(WorkflowWorkEvidence.Read(mismatched).HasIncompleteCorrelation);
+        Assert.True(WorkflowWorkEvidence.Read(unknownNode).HasIncompleteCorrelation);
+    }
+
+    [Fact]
+    public void ProductionSequenceRuntimeExecutorsAreRecognizedOnlyInADefinitionWithASequence()
+    {
+        var sequence = ChildDefinition("sequence-graph", ("sequence", new(NodeTypes.Sequence, "1.0.0")));
+        var completed = new CallJournal(sequence)
+            .Node(null, "sequence", Guid.NewGuid())
+            .Node("sequence/first", "sequence-collector", Guid.NewGuid())
+            .Node(null, "sequence-terminal", Guid.NewGuid())
+            .Add(ExecutionEventKinds.Completed, null, null, null)
+            .Snapshot();
+        var collector = Guid.NewGuid();
+        var unsettled = new CallJournal(sequence).Add(ExecutionEventKinds.NodeStarted, "sequence/first", "sequence-collector", collector)
+            .Add(ExecutionEventKinds.Failed, null, null, null).Snapshot();
+        var noSequence = new CallJournal(ChildDefinition("plain")).Node(null, "sequence-collector", Guid.NewGuid()).Snapshot();
+
+        Assert.Equal((0, false), (WorkflowWorkEvidence.Read(completed).TotalUnresolvedWork, WorkflowWorkEvidence.Read(completed).HasIncompleteCorrelation));
+        var open = Assert.Single(WorkflowWorkEvidence.Read(unsettled).UnresolvedWork);
+        Assert.Equal((UnresolvedWorkKind.Node, (string?)null, (Guid?)collector), (open.Kind, open.NodeId, open.InvocationId));
+        Assert.False(WorkflowWorkEvidence.Read(unsettled).HasIncompleteCorrelation);
+        Assert.True(WorkflowWorkEvidence.Read(noSequence).HasIncompleteCorrelation);
+    }
 }

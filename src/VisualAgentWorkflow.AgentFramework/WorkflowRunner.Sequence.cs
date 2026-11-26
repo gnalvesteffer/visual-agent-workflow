@@ -531,10 +531,10 @@ public sealed partial class WorkflowRunner
                 inheritedRunBudget: runBudget), StringComparer.Ordinal);
         var source = new SequenceProductionSource(plan.SequenceNodeId, plan, coordinator, FlushSequenceEvents, emit,
             gate, sequenceDispatchSession, dispatchAdmissionOwner);
-        var collector = new SequenceProductionCollector("sequence-collector", plan, coordinator,
+        var collector = new SequenceProductionCollector(SequenceRuntimeExecutors.CollectorNodeId, plan, coordinator,
             FlushSequenceEvents, emit, dispatchAdmissionOwner);
         var sink = new SequenceProductionSink(dispatchAdmissionOwner);
-        var terminal = new SequenceProductionTerminal("sequence-terminal", emit, dispatchAdmissionOwner);
+        var terminal = new SequenceProductionTerminal(SequenceRuntimeExecutors.TerminalNodeId, emit, dispatchAdmissionOwner);
         var builder = new WorkflowBuilder(source);
 
         foreach (var output in plan.Outputs)
@@ -796,7 +796,7 @@ public sealed partial class WorkflowRunner
                         Text = terminal ? coordinator.DeterministicResult ?? message.Text : message.Text,
                         SourceNode = Id,
                         SourcePort = terminal ? "terminal" : "continue",
-                        DispatchTicketId = dispatchAdmissionOwner?.Admit(terminal ? "sequence-terminal" : "sequence-sink"),
+                        DispatchTicketId = dispatchAdmissionOwner?.Admit(terminal ? SequenceRuntimeExecutors.TerminalNodeId : "sequence-sink"),
                         FailureSignal = terminal && aggregateCompletion!.TerminalEventKind is
                             ExecutionEventKinds.SequenceFailed or ExecutionEventKinds.SequenceCancelled,
                         ActivationBreakRequest = terminal ? sequenceDispatchSession?.BreakRequest : null
